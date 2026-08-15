@@ -15,6 +15,7 @@ extern "C"
 
 
     u32 inflate_data(u8 *, u8 *, u32);
+    u32 inflate_data_bounded(u8 *, u32, u8 *, u32, int *);
 
 
 

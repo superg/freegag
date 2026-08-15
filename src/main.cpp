@@ -13,11 +13,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "xtet/api.h"
 
 namespace
 {
 
-constexpr UINT kGameMessage = 0x7ffc;
 constexpr std::size_t kWaveOutBufferCount = 2;
 // XTET's artwork and playfield are authored for a 640x480 host surface.  Passing
 // 320x240 does not make the DLL scale; it simply clips the artwork to its upper
@@ -25,36 +25,12 @@ constexpr std::size_t kWaveOutBufferCount = 2;
 constexpr int kWidth = 640;
 constexpr int kHeight = 480;
 
-#pragma pack(push, 1)
-struct GameHostContext
-{
-    HWND window;                       // +00
-    std::uint32_t unknown04{};
-    std::uint32_t bits_per_pixel{ 8 }; // +08
-    std::array<std::byte, 0x14> unknown0c{};
-    std::uint16_t width{ kWidth };     // +20
-    std::uint16_t height{ kHeight };   // +22
-    std::uint32_t unknown24{};
-    std::uint32_t unknown28{};
-    void *framebuffer{}; // +2c
-    std::array<std::byte, 0x10> unknown30{};
-};
-
-struct GameResultDescriptor
-{
-    std::uint32_t type;
-    std::uint32_t reserved;
-    std::uint32_t size;
-    const void *data;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(GameHostContext) == 0x40);
-static_assert(sizeof(GameResultDescriptor) == 0x10);
-
-using GameInit = void(__fastcall *)(GameHostContext *, void **);
-using GameWndProc = std::uint32_t(__fastcall *)(HWND, UINT, WPARAM, LPARAM);
-using GameExec = void(__fastcall *)(std::uint32_t);
+using xtet::GameExec;
+using xtet::GameHostContext;
+using xtet::GameInit;
+using xtet::GameResultDescriptor;
+using xtet::GameWndProc;
+using xtet::kGameMessage;
 
 struct App
 {
@@ -118,7 +94,7 @@ struct SoundHandle
     bool paused{};
 };
 
-std::mutex g_sound_mutex;
+std::recursive_mutex g_sound_mutex;
 std::unordered_map<std::uint32_t, std::unique_ptr<SoundHandle>> g_sounds;
 std::uint32_t g_next_sound_handle = 1;
 
@@ -238,7 +214,7 @@ std::uint32_t __fastcall sound_create(const PcmFormat16 *source_format)
         return 0;
     }
 
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     std::uint32_t handle = g_next_sound_handle++;
     while(handle == 0 || g_sounds.find(handle) != g_sounds.end())
     {
@@ -253,10 +229,11 @@ std::uint32_t __fastcall sound_create(const PcmFormat16 *source_format)
 
 void __fastcall sound_destroy(std::uint32_t handle)
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     const auto found = g_sounds.find(handle);
     if(found == g_sounds.end())
         return;
+    found->second->playing = false;
     discard_prepared_audio(*found->second);
     waveOutClose(found->second->output);
     g_sounds.erase(found);
@@ -266,7 +243,7 @@ std::uint32_t __fastcall sound_queue(std::uint32_t handle, const void *bytes, st
 {
     if(!bytes || size == 0)
         return 0;
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     const auto found = g_sounds.find(handle);
     if(found == g_sounds.end())
         return 0;
@@ -289,7 +266,7 @@ std::uint32_t __fastcall sound_queue(std::uint32_t handle, const void *bytes, st
 
 std::uint32_t __fastcall sound_start(std::uint32_t handle, int restart)
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     const auto found = g_sounds.find(handle);
     if(found == g_sounds.end())
         return 0;
@@ -311,7 +288,7 @@ std::uint32_t __fastcall sound_start(std::uint32_t handle, int restart)
 
 std::uint32_t __fastcall sound_stop(std::uint32_t handle, int reset)
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     const auto found = g_sounds.find(handle);
     if(found == g_sounds.end())
         return 0;
@@ -332,7 +309,7 @@ std::uint32_t __fastcall sound_stop(std::uint32_t handle, int reset)
 
 void audio_buffer_done(HWAVEOUT output, WAVEHDR *completed)
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     for(auto &entry : g_sounds)
     {
         SoundHandle &sound = *entry.second;
@@ -357,9 +334,10 @@ void audio_buffer_done(HWAVEOUT output, WAVEHDR *completed)
 
 void shutdown_audio()
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     for(auto &entry : g_sounds)
     {
+        entry.second->playing = false;
         discard_prepared_audio(*entry.second);
         waveOutClose(entry.second->output);
     }
@@ -368,7 +346,7 @@ void shutdown_audio()
 
 void finish_audio_initialization()
 {
-    std::lock_guard<std::mutex> lock(g_sound_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_sound_mutex);
     g_app.audio_initializing = false;
     for(auto &entry : g_sounds)
     {
@@ -482,7 +460,7 @@ void copy_game_result(WPARAM wparam)
     std::memcpy(&g_app.result, descriptor->data, sizeof(g_app.result));
     g_app.have_result = true;
     char text[128];
-    std::snprintf(text, sizeof(text), "XTET result payload: %u (0x%08x)\n", g_app.result, g_app.result);
+    std::snprintf(text, sizeof(text), "XTET result payload: %u\n", g_app.result);
     OutputDebugStringA(text);
 }
 
@@ -564,9 +542,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show)
     if(!RegisterClassA(&wc))
         return 1;
 
+    constexpr DWORD window_style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     RECT bounds{ 0, 0, kWidth, kHeight };
-    AdjustWindowRect(&bounds, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND window = CreateWindowA(wc.lpszClassName, "XTET minigame loader", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
+    AdjustWindowRect(&bounds, window_style, FALSE);
+    HWND window = CreateWindowA(wc.lpszClassName, "XTET minigame loader", window_style, CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
         instance, nullptr);
     if(!window || !create_framebuffer(window))
         return 2;
@@ -623,7 +602,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show)
     if(g_app.have_result)
     {
         char text[128];
-        std::snprintf(text, sizeof(text), "Minigame result: %u (0x%08x)", g_app.result, g_app.result);
+        std::snprintf(text, sizeof(text), "Score: %u", g_app.result);
         MessageBoxA(nullptr, text, "XTET loader", MB_OK);
     }
     if(g_app.bitmap)

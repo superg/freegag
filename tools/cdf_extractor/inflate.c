@@ -97,6 +97,8 @@ u32 inptr;                           /**< input buffer index                    
 u32 insize;                          /**< input buffer size                             */
 u8 *outbuf;                          /**< output buffer                                 */
 u32 outptr;                          /**< output buffer index                           */
+u32 outsize;                         /**< output buffer capacity                        */
+int inflate_error;                   /**< nonzero after truncated input/output          */
 
 
 
@@ -134,14 +136,24 @@ int (*f_inflate[])(void) =
  */
 u32 inflate_data(u8 *r_out_data, u8 *a_in_data, u32 a_in_size)
 {
+	int ok;
+	return inflate_data_bounded(r_out_data, UINT32_MAX, a_in_data, a_in_size, &ok);
+}
+
+
+u32 inflate_data_bounded(u8 *r_out_data, u32 a_out_size, u8 *a_in_data, u32 a_in_size, int *r_ok)
+{
 	inbuf = a_in_data;
 	inptr = 0;
 	insize = a_in_size;
 
 	outbuf = r_out_data;
 	outptr = 0;
+	outsize = a_out_size;
+	inflate_error = 0;
 
-	inflate();
+	int result = inflate();
+	*r_ok = result == 0 && inflate_error == 0;
 
 	return outptr;
 }
@@ -187,7 +199,7 @@ u16 mask_bits[] =
 	0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
 };
 
-#define GETBYTE() (inptr < insize ? inbuf[inptr++] : 0)
+#define GETBYTE() (inptr < insize ? inbuf[inptr++] : (inflate_error = 1, 0))
 #define NEEDBITS(n__) {while(k < (n__)){b |= ((u32)GETBYTE()) << k; k += 8;}}
 #define DUMPBITS(n__) {b >>= (n__); k -= (n__);}
 
@@ -952,10 +964,15 @@ void flush_slide(unsigned w)
 	wp = w;
 	if(wp)
 	{
-		memcpy(&outbuf[outptr], slide, wp);
-		outptr += wp;
+		if(wp > outsize - outptr)
+		{
+			inflate_error = 1;
+		}
+		else
+		{
+			memcpy(&outbuf[outptr], slide, wp);
+			outptr += wp;
+		}
 		wp = 0;
 	}
 }
-
-
