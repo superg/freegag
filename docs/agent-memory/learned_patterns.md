@@ -146,3 +146,17 @@ do not replace prior entries without correcting a demonstrated error.
 - Windows SDK multimedia headers are order-dependent: `<windows.h>` must precede
   `<mmsystem.h>`. Encode this as a higher-priority clang-format include category
   so automatic sorting remains build-safe and `check-format` stays useful.
+
+## 2026-08-14 — Synchronous legacy presentation and one-shot audio
+
+- A legacy dirty-rectangle callback can be a synchronous presentation boundary,
+  not a request for a later window repaint. When a DLL renders an entire animation
+  inside one host callback stack, implementing that boundary with `InvalidateRect`
+  alone coalesces all intermediate frames before `WM_PAINT` can run.
+- Derive audio activation semantics from the original mixer as well as explicit
+  start/stop calls. XTET one-shots are started by queueing their descriptor; only
+  loop music uses the separate control callbacks. A replacement host must not gate
+  every queued sample on an explicit Start operation.
+- Runtime verification confirms that immediate dirty-rectangle presentation and
+  default-active one-shot handles reproduce XTET's match animation and sound while
+  preserving the explicitly stopped/started music loop.

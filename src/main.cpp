@@ -140,8 +140,17 @@ void audio_trace(const char *format, ...)
 
 void __fastcall invalidate_region(int x, int y, int width, int height)
 {
-    RECT rect{ x, y, x + width, y + height };
-    InvalidateRect(g_app.context.window, &rect, FALSE);
+    if(width <= 0 || height <= 0 || !g_app.context.window || !g_app.memory_dc)
+        return;
+
+    // XTET renders all frames of some effects before returning to the message
+    // loop. GAG presents each dirty rectangle synchronously, so deferring this
+    // through WM_PAINT would coalesce the animation into its final frame.
+    HDC window_dc = GetDC(g_app.context.window);
+    if(!window_dc)
+        return;
+    BitBlt(window_dc, x, y, width, height, g_app.memory_dc, x, y, SRCCOPY);
+    ReleaseDC(g_app.context.window, window_dc);
 }
 
 void discard_prepared_audio(SoundHandle &sound)
@@ -218,6 +227,10 @@ std::uint32_t __fastcall sound_create(const PcmFormat16 *source_format)
     sound->format.nBlockAlign = source_format->block_alignment;
     sound->format.wBitsPerSample = source_format->bits_per_sample;
     sound->format.cbSize = 0;
+    // GAG consumes a newly queued one-shot without a separate StartSound call.
+    // XTET explicitly stops its loop handle before constructing that queue, so
+    // default-active handles preserve both behaviors.
+    sound->playing = true;
     const MMRESULT open_result = waveOutOpen(&sound->output, WAVE_MAPPER, &sound->format, reinterpret_cast<DWORD_PTR>(g_app.context.window), 0, CALLBACK_WINDOW);
     if(open_result != MMSYSERR_NOERROR)
     {

@@ -126,9 +126,7 @@ XTET minigame, displays it correctly, forwards input, and captures its result.
 
 ## Immediate next steps
 
-1. Runtime-test both XTET's repeating background audio and event-triggered sound
-   effects. The Win32 Release build is complete, but interactive audio behavior
-   has not yet been verified by the user.
+1. Continue reverse-engineering the next XTET behavior selected by the user.
 
 ## Audio state
 
@@ -198,6 +196,41 @@ XTET minigame, displays it correctly, forwards input, and captures its result.
   `HandleWaveOutCallback`, XTET's `SetLoopMusicPlaying`, and all relevant callback comments document the
   recovered register/stack ABI and two-buffer streaming architecture. Both
   programs were saved.
+
+## Matched-figurine effect investigation
+
+- The DLL does not omit the effect. `FindMatchCandidate` (`0x1001fc80`) locates a
+  compatible nearby figurine. The movement-update path at `0x1001e8b0` then queues
+  one sample from the list at `0x1003c758`, calls `AnimateMatchedPair`
+  (`0x1001ea30`) synchronously, and only afterward removes/updates both objects.
+- `AnimateMatchedPair` writes multiple intermediate states into the shared indexed
+  framebuffer and reports them through callback slot 0 before returning.
+- Loader callback slot 0 currently calls only `InvalidateRect`. Since the matched
+  effect runs synchronously on the message thread, `WM_PAINT` cannot run between
+  those calls. All intermediate invalid regions coalesce and the loader displays
+  only the final post-removal framebuffer.
+- GAG callback slot 0 is `InvalidateGameFramebufferRect` (`0x00427830`). It enters
+  the original graphics surface-update transaction, submits the changed bounds,
+  and releases that transaction; it is not merely a deferred Win32 invalidation.
+- Match audio uses the sound list at `0x1003c758`. XTET calls only queue-with-replace
+  for this one-shot and does not call either audio-control callback for its handle.
+  GAG's mixer consumes queued descriptors independently of the control flag. The
+  loader instead submits from `sound_queue` only when `SoundHandle::playing` is
+  true, so the newly queued match sample is retained but never sent to waveOut.
+- The loader now presents callback-slot-0 rectangles immediately with `GetDC` and
+  `BitBlt`, while retaining `WM_PAINT` for ordinary repaint/exposure handling.
+- New sound handles now begin active, reproducing GAG's queue-started one-shots.
+  XTET explicitly stops the loop handle before constructing its queue, so music
+  initialization and later pause/resume retain their recovered behavior.
+- Ghidra now names `FindMatchCandidate`, `AnimateMatchedPair`,
+  `LoadActionDefinitions`, and labels `g_pMatchSoundList`, with comments on the
+  exact match/effect and original framebuffer-update paths. Both programs were
+  saved.
+- Formatting and `check-format` pass, and the complete MSVC Win32 Debug build
+  succeeds.
+- Runtime verification confirms the complete matched-figurine effect now works:
+  the intermediate animation is visible, its one-shot sound plays, the figurines
+  disappear afterward, and the previously working loader behavior remains intact.
 
 ## XTET script launch trace
 
