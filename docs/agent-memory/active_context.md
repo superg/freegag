@@ -1,6 +1,6 @@
 # Active context
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## Build preference
 
@@ -10,6 +10,9 @@ Last updated: 2026-08-14
 
 ## Version control
 
+- The repository was renamed from `gagboy` to `freegag`. Use `freegag` for the
+  repository/project identity; preserve `GAGBoy` where it is an original script
+  object or other recovered game identifier.
 - The workspace root is an initialized Git repository with unborn branch
   `main`. No files have been staged and no commits exist yet.
 - Git reports dubious ownership under the agent execution account because the
@@ -30,6 +33,10 @@ Last updated: 2026-08-14
   settings are four spaces with no tab characters, Allman braces, no spaces
   before opening parentheses, right-aligned pointer/reference markers, and a
   200-column limit.
+- For newly generated C++, the user prefers `snake_case` local variables and
+  free functions, camel case structures/classes and methods, and concise C-style
+  casts. Apply these preferences to new or naturally touched code; do not rename
+  recovered ABI identifiers or unrelated existing code solely for consistency.
 - Root CMake now mirrors redumper's `format` and `check-format` targets. It finds
   `clang-format`, formats/checks C++ sources under `src/` and `tools/`, excludes
   generated `build/` files by construction, and warns when clang-format is not

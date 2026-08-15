@@ -160,3 +160,9 @@ do not replace prior entries without correcting a demonstrated error.
 - Runtime verification confirms that immediate dirty-rectangle presentation and
   default-active one-shot handles reproduce XTET's match animation and sound while
   preserving the explicitly stopped/started music loop.
+
+## 2026-08-15 — C++ naming and casts
+
+- For generated C++, use `snake_case` for local variables and free functions,
+  camel case for structures/classes and methods, and C-style casts where a cast
+  is needed. Preserve recovered ABI names and avoid unrelated naming-only churn.
