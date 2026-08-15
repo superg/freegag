@@ -1,0 +1,5 @@
+/.vscode/launch.json
+/build/
+/data/
+/docs/commands_manual_en.md
+/ghidra/
