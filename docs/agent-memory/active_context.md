@@ -13,6 +13,8 @@ Last updated: 2026-08-15
 - The compatibility loader window uses a fixed-size overlapped style with a
   caption, system menu, and minimize button, but no sizing frame or maximize
   button. Its 640-by-480 client area is not user-resizable.
+- The tracked XTET compatibility loader source lives at
+  `xtet/loader/main.cpp`; root `src/` is reserved for the future main game.
 - The loader presents a completed minigame result as decimal `Score: N`; the
   result dialog and diagnostic trace no longer include hexadecimal output.
 
@@ -1212,7 +1214,7 @@ DLLs to build for other processor architectures.
 
 ## Current implementation
 
-- `src/main.cpp` creates a 640x480 top-down 8-bit DIB and a Win32 message loop.
+- `xtet/loader/main.cpp` creates a 640x480 top-down 8-bit DIB and a Win32 message loop.
 - The DLL is loaded dynamically and exports are resolved by ordinals 1, 2, and 3.
 - The loader supplies the six callback entries referenced directly by XTET:
   dirty-region invalidation plus five functional WinMM audio operations.
@@ -1249,7 +1251,7 @@ DLLs to build for other processor architectures.
   256-entry palette-index remap and selects raw-index behavior for 8-bit blits.
   The standalone loader must therefore use the `XTET01.BMP` palette rather than
   discovering a palette inside `XTETDLL.DLL`.
-- `src/main.cpp` now resolves the loaded DLL's actual filesystem path and requires
+- `xtet/loader/main.cpp` now resolves the loaded DLL's actual filesystem path and requires
   `VE-GBNEW.BMP` in that same directory. Missing, unreadable, malformed, non-8-bit,
   non-640x480, or incomplete-palette files produce a fatal message before the
   DLL initializer is called.
@@ -1299,7 +1301,7 @@ DLLs to build for other processor architectures.
   queue, restart rewinds it, and stop-without-reset pauses it.
 - XTET's loop setup queues the same raw sample sequence repeatedly (300 passes),
   so the callback is a persistent PCM stream queue, not a whole-WAV playback API.
-- `src/main.cpp` implements each sound handle with an independent WinMM
+- `xtet/loader/main.cpp` implements each sound handle with an independent WinMM
   `waveOut` stream using the exact format XTET passes. It preserves descriptors
   and supports replacement, restart/rewind, and pause/resume. CMake links
   `winmm`.

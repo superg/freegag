@@ -39,7 +39,7 @@ if(XTET_BUILD_RECONSTRUCTED_DLL)
   add_subdirectory(xtet)
 endif()
 
-add_executable(xtet_loader WIN32 src/main.cpp)
+add_executable(xtet_loader WIN32 xtet/loader/main.cpp)
 target_compile_features(xtet_loader PRIVATE cxx_std_17)
 target_compile_definitions(xtet_loader PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(xtet_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
