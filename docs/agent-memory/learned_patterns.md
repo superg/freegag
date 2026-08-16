@@ -1,7 +1,178 @@
 # Learned patterns
 
+## 2026-08-16 - Right-button command slots use a packed scene-slot DWORD and inherited EDI
+
+- `0x00423CA0` tests the DWORD at scene-slot `+0x04` against `0x00200000`; with the confirmed layout this bit is byte flag `0x20` at `+0x06`. Clear slots emit the ordinary pointer event, while set slots enter the state-object command-mask path.
+- The lazy mouse-visual call to `ConstructRuntimeResourceObject` explicitly pushes only six stack arguments. That constructor returns with `RET 0x18` but reads one deeper stack DWORD; here it is the handler's saved incoming EDI. Preserve it as a hidden environmental input rather than adding it to the handler's formal prototype.
+- Right-button mode `0x30000` starts with event flags 3, adds 8 when a region resolves, and adds 4 plus the state-object pointer only when that object differs from the current pointer-state owner, producing exact flags 3, 11, or 15.
+
+## 2026-08-16 - Auxiliary names are resolved before list admission
+
+- Runtime-tree auxiliary nodes are 0x28 bytes: name `+0x00[32]`, self identity `+0x20`, and next `+0x24`. They are prepended at tree `+0xb0` after exact duplicate-name suppression.
+- Creation temporarily places the caller name pointer at `+0x20`, invokes runtime operation 6 with its address, and rejects/frees the node if the callback clears it. Only then is the name copied and identity replaced with self.
+- The default auxiliary-name source is a root string at `+0x96c`; it is split by ASCII space only. Parser-driven lists and the default string both preserve first-admission uniqueness through the shared constructor.
+
+## 2026-08-16 - Conditional tree creation ignores incomplete predicates
+
+- `0x00406CB0` and `0x00406EA0` use `/V` (`0x00010000`) for typed object-field comparison, `/C` (`0x0e000000`) for container-state comparison, and `/GLOBAL` (`0x00200000`) for parent sentinel `-1`.
+- Missing pieces of a condition do not make it false. The update form still records that a condition was seen; the direct-create form simply continues. Only a complete comparison returning false rejects/destroys.
+- The update form performs no mutation without an observed condition. Existing nodes with flag `0x800` are treated as an observed false condition and destroyed. The direct-create form always creates at the scope terminator if no complete predicate rejected it.
+
+## 2026-08-16 - Integer expressions combine recursive values and runtime queries
+
+- `0x0040F4F0` recognizes special forms by the first four token bytes. `RAND` recursively parses two bounds with `-10000`/`10000` defaults; `RELZ`, `RELI`, and `RELM` recursively parse an optional offset that defaults to zero.
+- Token byte 4 selects X only when it is exactly uppercase `X`; every other byte selects Y. `RELZ` reads link-84 `+0x2c/+0x30`, `RELI` reads primary-link `+0x5c/+0x60`, and `RELM` issues script runtime operation 9/10 with a null source.
+- `PHASE` issues operation 11 with EDX pointing to the primary-link field at `+0x4c` and a stack output pointer. `VALUE` resolves an object and field through the existing integer-field lookup. Missing link/object results restore the expression's entry cursor.
+
+## 2026-08-16 - Parameter evaluation is positional and type-gated
+
+- Parser scratch text at `+0x0c` is a whitespace-separated parameter-name list; creation text at `+0x08` is the parallel value list. `0x0040F070` finds the requested name's zero-based index in the first and parses that index from the second.
+- `0x0040EEB0` treats only tab, LF, CR, and space as separators and copies the selected token into an unchecked 260-byte stack buffer. A missing requested type 1 defaults the value to `0x07000000`; missing types 2 and 4 default to zero. All defaults still return failure.
+- `0x00408AA0` tries integer expression, image flag, then string, restoring the original cursor before each fallback. Its image branch tests only for nonzero, so even the `0xffffffff` unknown/failure sentinel is accepted and published as type 1. Preserve this nonconventional behavior.
+
+## 2026-08-16 - Image flags split across root and tree state
+
+- `0x0040E580` recognizes `BVALUE` and `PARAM` by their first four bytes, while ordinary image-flag names use exact string comparison. The otherwise ambiguous data strings at `0x0043E370`, `0x0043E374`, and `0x0043E378` are `OFF`, `ON`, and `DUAL`, mapping to `0x07000000`, `0x03000000`, and `0x00200000` respectively.
+- `0x00406B40` consumes flags through the `0xffffffff` terminator. Bit 1 is global script-root flags `+4`, bit `0x04000000` is global script-root palette flags `+8`, and every other returned flag is ORed into the parser owner tree at `+0x2c`.
+- `0x0040F2C0` is the shared recursive value-token reader: `PARAM` evaluates a recursively parsed name as type 4, while `SVALUE` recursively parses object and field names and reads a 32-byte string. Both substitutions normalize success to `0x20` and failure to zero.
+
+## 2026-08-16 - Runtime configuration serializers preserve sparse-list output
+
+- `0x004069D0` emits its leading CRLF whenever the runtime tree root exists, even if no node has a matching parser context. Context lookup uses the tree's own name at node `+0x00`; successful entries serialize resource name, tree name, and GLOBAL only for parent sentinel `-1`.
+- `0x004068F0` emits recognized flags in fixed `PAL_NOADJUST`, `NOCOMMENT`, `NOSAVE` order. Any nonzero word starts and terminates a flags statement, so unrecognized-only bits deliberately serialize as `flags=;\r\n`.
+- Fixed-name nodes are 0x58 bytes with identity `+0x20`, flags `+0x24`, serialized value `+0x28[44]`, and next `+0x54`. `0x004073D0` emits one CRLF before the whole list, not before every item.
+
+## 2026-08-16 - Top-level tree removal routes seven heads through active selectors
+
+- `0x00406360` is gated by removed node parent `+0x24 == NULL`; descendant removal cannot change the runtime-global/override heads.
+- Scene and secondary selectors publish at override `+0x40` and `+0x48`. Primary, link-84, link-8c, link-7c, and container selectors publish at override `+0x24`. Without a selector, destinations are runtime root `+0xfa4`, `+0xfa0`, `+0xf8c`, `+0xf94`, `+0xf9c`, `+0xf90`, and `+0xf98` respectively.
+- Replacement source heads are node `+0x74`, `+0xa4`, `+0x9c`, `+0x84`, `+0x8c`, `+0x7c`, and `+0x94`; a null replacement clears all seven selected destinations.
+
+## 2026-08-16 - Runtime-tree destruction owns six inclusive link ranges
+
+- `0x00405E50` removes scene, secondary-resource, primary-resource, `+0x7c`, `+0x84`, and `+0x8c` ranges only when their tail is non-null, then walks head through tail inclusively. Containers follow the same inclusive rule but use their destructor rather than direct `HeapFree`.
+- Children are recursively destroyed using a saved next pointer. Final unlink chooses previous sibling first, otherwise parent child head, otherwise the runtime root; a surviving next sibling always receives the removed node's previous pointer.
+- Flags `0x8000`, `0x2000`, and `0x4000` invoke runtime operations `0x40` with the node, `0x0e` with null, and `0x20` with null respectively. Replacement flag `0x200` triggers parser lookup using the replacement node address as both owner and name pointer, and successful dispatch replaces the function's return value.
+
+## 2026-08-16 - Tree auxiliary teardown unlinks before callback and free
+
+- `RuntimeTreeNode +0xb0` is the head of a singly linked auxiliary-node list whose entries are 0x28 bytes and link at `+0x24`.
+- `0x004071E0` publishes the next head before invoking the runtime callback as operation 7 with EDX zero and the node as its stack argument, then frees that same node from the runtime heap. Neither result affects traversal.
+
+## 2026-08-16 - Section dispatch releases resources only after context creation failure
+
+- `0x00405380` uses a four-argument fastcall ABI: resource identity in ECX, node identity in EDX, then section and creation strings on the stack.
+- Missing nodes, missing already-loaded resources, and missing script sections return null without releasing anything. A valid section followed by parser-context creation failure alone calls resource removal; successful creation returns the parser dispatcher's result unchanged.
+
+## 2026-08-16 - Parser reset follows property-10 include edges recursively
+
+- `0x00405E00` always restores a parser context's cursor from its start offset before scanning properties through the `0xffffffff` terminator.
+- Property code 10 resolves another runtime-tree node and recursively resets every context linked at node `+0x6c`; a failed resolution simply continues scanning. `0x00405DC0` is the identity-to-node wrapper over the same traversal.
+
+## 2026-08-16 - Tree deactivation has a hidden second fastcall argument
+
+- `0x00426600` saves incoming EDX at entry and later forwards it with the original ECX identity to `0x00405E50`; callers such as `0x00423740` explicitly clear EDX. Its ABI is therefore two-register fastcall despite the initial one-parameter decompiler display.
+- Root-node deactivation walks primary script objects. Object flag `+0x42c` bit `0x10000` protects its visual; otherwise visual `+0x470` is destroyed via scene identity `+0x158`, removed, and cleared regardless of the removal result.
+- Private message `0x7FFD/0x30000000` precedes cleanup and `0x7FFD/0xE0000000` follows downstream tree destruction. Flag `0x1000` or an empty node name clears script flags 2 then 4; flag `0x800` tears down comment mode.
+
+## 2026-08-16 - Pending tree switches accumulate flags at context +0x90c
+
+- Runtime-display flag `0x04000000` gates `0x004210A0`. The routine clears context DWORD `+0x90c` before destroying/activating trees, then ORs any flags accumulated there into the activated node at `+0x2c`.
+- Null activation still rebuilds plans and refreshes the pointer. Same-identity activation additionally finalizes the current tree and returns false; different identity skips that finalizer and returns true. Every processed path clears the pending flag.
+
+## 2026-08-16 - Comment-tree cleanup finalizes once after enumeration
+
+- `0x00423740` visits the complete pointer-root enumeration and handles every node carrying flag `0x800`, calling resource destruction before node deactivation for each match.
+- Its two global finalizers run once after enumeration only when at least one match was handled; no-match and empty enumerations return zero without finalization.
+
+## 2026-08-16 - Runtime plan mode uses desired and applied bits
+
+- Display-context flag `0x40000000` is the desired inactive-plan mode, while `0x80000000` records that the transition has been applied. `0x00421130` calls set only for desired=1/applied=0 and clear only for desired=0/applied=1.
+- The applied bit changes even when the set/clear helper returns false. Runtime-plan rebuilding at `0x00426700` occurs only when that helper returns true.
+
+## 2026-08-16 - Runtime pair dispatch consumes before suppression
+
+- `0x004211A0` dequeues one pair before checking display flag 4, so a suppressed message is consumed rather than retained.
+- Pair codes are Win32 mouse messages: `0x200` forwards unsigned low/high 16-bit x/y values; `0x201`, `0x202`, and `0x204` call their distinct handlers. Other codes return zero.
+
+## 2026-08-16 - Comment CDF packages have fixed optional slots
+
+- `0x004176A0` always creates a writer with capacity three, then conditionally emits `COMMENT.TXT`, `COMMENT.BMP`, and `START.CFG` in that order. Text size includes its NUL terminator; bitmap/config entries request compression.
+- A bitmap is accepted only when its unaligned bit-count word at `+0x1c` is 8. Its serialized size is the unaligned width at `+0x12` times height at `+0x16`, plus the fixed `0x436` BMP prefix.
+- On append failure, the archive-local error must be read before finalization destroys the archive. Writer construction failure returns fixed error `0x20000` directly.
+
+## 2026-08-15 — Recover register-plus-stack startup ABIs from call sites
+
+- On 32-bit optimized Win32 code, a function reached from WinMain may use a custom `__fastcall` interface even when decompiler parameter recovery initially resembles an ordinary C signature. Verify register setup, pushed argument order, and callee `RET` size together before assigning a prototype.
+- Keep partially known aggregate state as an exact-size byte layout with only evidence-backed fields exposed. Offset and size assertions preserve confirmed ABI facts without inventing semantics for untouched regions.
+
+## 2026-08-15 — Preserve staged legacy configuration failures
+
+- A legacy registry loader can intentionally return the stage reached rather than the raw Win32 error. Preserve those staged values and perform later flag normalization even on failure paths.
+- When multiple adjacent `MAX_PATH` buffers become evident, expose them at their confirmed offsets while leaving intervening state opaque. This enables exact path and registry tests without prematurely interpreting the whole owner object.
+
 This file records verified, reusable architectural patterns. Append new patterns;
 do not replace prior entries without correcting a demonstrated error.
+
+## 2026-08-16 - ScriptParserState overlays the parser-context header
+
+- The 0x28-byte `ScriptParserState` is not a separate opaque object: it exactly overlays the header of `RuntimeTreeParserContext`. Offsets `+0x00/+0x14/+0x18/+0x1c/+0x20/+0x24` are owner, generic resource, text, text length, start offset, and cursor.
+- `0x004052F0` frees every context and balances resource references but intentionally does not clear the owner's context-head field. Callers destroy or otherwise invalidate the owner immediately afterward.
+
+## 2026-08-16 - Resource token parsing retains semicolons but consumes delimiters
+
+- `0x00405110` skips only CR/LF before inspecting a token. Encountering the caller delimiter or `;` returns `0x7fffffff` after clearing output but without committing even the skipped local cursor.
+- Successful copying permits exactly `capacity` payload bytes and then writes the terminator at `output[capacity]`. A delimiter is consumed after the token, while a semicolon is retained as the current position for the caller's command loop.
+
+## 2026-08-16 - Tree admission applies class uniqueness by current scope
+
+- `0x00405410` reuses same-name nodes before parsing. A declared `class=TEMPLATE` is never instantiated; other declared class names must be unique across top-level siblings when no current node exists, or across the current node's complete ancestor-root enumeration otherwise.
+- Parent selector `0xFFFFFFFF` creates a sentinel-parent root and prepends it to the global root chain. Ordinary creation appends to the current node's child chain or the top-level chain. Parser dispatch may return a node different from the allocated node; callback operation `0x30` applies to that returned node unless flag `0x8000` is set.
+
+## 2026-08-16 - Generic resources separate identity, data, metadata, and position
+
+- `0x00404EE0` invokes resource callback operation 6 with an in/out data pointer initially pointing at the extracted basename plus a separate metadata output. Its 0x3c-byte list node stores self identity at `+0x20`, data at `+0x24`, current position at `+0x28`, metadata at `+0x2c`, active references at `+0x30`, and next at `+0x38`.
+- `0x00405210` creates 0x254-byte per-tree parser contexts keyed by a 32-byte name at `+0x230`. Creation updates the generic resource position/reference fields only after allocation succeeds and initializes pointers to its 260-byte inline creation/scratch buffers.
+
+## 2026-08-16 - Wrapper calls can intentionally stage a callee's stack arguments
+
+- `0x00426560` pushes its third and second inputs before calling one-register `0x00404EE0`; because that callee returns without stack cleanup, those pushes become the later `0x00405410` stack arguments. The wrapper also reloads its third input into EDX, so the third input reaches the constructor twice while the wrapper's fourth input is unused.
+- `0x004210A0` passes adjacent 0x104-byte globals `0x0047F1AC` and `0x0047F2B0` in ECX/EDX and the pending node in both stack slots. Preserve this register-plus-staged-stack mapping rather than simplifying duplicated or apparently unused arguments.
+
+## 2026-08-15 — Preserve loader-local output reuse
+
+- Optimized resource loaders may reuse an output-count local as a later type discriminator. When the original read API writes that local and no explicit default assignment intervenes, preserve the resulting value flow instead of replacing it with a convenient inferred type.
+- A legacy streamed-resource lifecycle can couple the zero-to-one and one-to-zero count transitions to a script-engine flag. Keep those transitions inside the same resource lock as open/close accounting.
+
+## 2026-08-15 — Circular child lists retain three parent cursors
+
+- Runtime named-child lists maintain head, inclusive tail/sentinel, and iteration cursor independently. Removal must update each matching parent field before splicing neighbors, and removing the sole self-linked entry clears all three fields.
+- Cache metadata combines a high-word type/flags value with a low-word reference count. Decrement the full DWORD as the executable does, then test only the low word for final payload destruction.
+
+## 2026-08-15 — Distinct backend families use distinct ownership locks
+
+- Media backends use thread ownership plus a recursion count under one mutex, while generic parent/child backends use a single bit `0x10000` under another mutex. Preserve each contention protocol independently even when both retry with `Sleep(0)`.
+- Destruction routines may acquire and permanently unlink a record without balancing its ownership marker first because the record is immediately freed. Do not insert a conventional unlock step absent from the original assembly.
+
+## 2026-08-15 — Resource destruction has nonuniform success conventions
+
+- The display-scene release result is intentionally inverted when folded into resource destruction: only a zero scene-release result preserves success. Verify comparison and `SBB`/`NEG` sequences instead of normalizing return conventions.
+- Sound handles index a fixed 1024-entry table with slot zero reserved. Destroying the maximum handle scans backward through active flags and updates the maximum; destroying a lower handle leaves the maximum unchanged.
+
+## 2026-08-15 — Stream constructor failure can intentionally skip restoration
+
+- The animation stream constructor snapshots an async-record position and reads its header before allocation, but allocation failure returns immediately without restoring that position. Preserve this asymmetric failure side effect rather than adding cleanup symmetry.
+- Proprietary animation signatures can share a constructor while supporting different storage modes asymmetrically. AF11 initializes memory offsets but is merely accepted with zeroed offsets in the streamed branch; AF12 initializes both.
+
+## 2026-08-15 — Sound slots separate active and playable state
+
+- Start and stop validate only the enabled subsystem and handle range; they do not require the slot's active flag. Queueing data and setting loop values do require active state, while direct slot lookup uses the fixed 1024-slot bound rather than the current maximum handle.
+- Queued PCM descriptors retain caller-owned sample pointers. Replace mode frees descriptor nodes only, clears scheduling state, and installs a new descriptor without copying or freeing sample bytes.
+
+## 2026-08-15 — Preserve legacy lock leaks and callback deferral
+
+- A valid-looking setter can intentionally or accidentally return from its invalid-handle branch without releasing an acquired mutex. Preserve the assembly-visible leak and cover it as behavior instead of silently repairing it.
+- The waveOut callback does not mix audio directly. It forwards WOM messages to a dedicated sound window, timestamps WOM_DONE, and lets the window thread schedule mixing; callback-side work stays minimal.
 
 ## 2026-08-14 — DLL boundary and rendering
 
@@ -771,3 +942,714 @@ do not replace prior entries without correcting a demonstrated error.
 - Clip both pixel writes and published dirty bounds to the owning surface. A
   reset that invalidates only the parent rectangle cannot repair pixels an
   incorrectly unclipped child previously wrote outside it.
+
+## 2026-08-15 — Verify register-only wrapper arguments in assembly
+
+- Tiny tail-call wrappers can mislead the decompiler about which register is the wrapper's own argument versus caller state retained in another register. Confirm the call-site register setup and wrapper instructions before assigning a prototype.
+- Preserve redundant bounded scans when they are present in the original control flow. Even when two iterations currently traverse the same list, collapsing them requires evidence that no invoked routine can change observable state between scans.
+
+## 2026-08-15 — Model archive pointer tables separately from entry storage
+
+- A fixed archive context can own one contiguous entry allocation while exposing a separately located fixed-capacity table of pointers into that allocation. Preserve both fields and their offsets; replacing the table with a vector changes the binary-facing layout and index semantics.
+- Entry-selection bytes may combine identity and storage flags. Compare the complete byte where the original requires selector equality, then independently test individual bits such as compression flag `0x10` when choosing the read path.
+
+## 2026-08-15 — Separate container errors from delegated codec results
+
+- A container reader may establish success from exact input cardinality and chunk traversal while ignoring a bundled codec's integer return because codec failures escape through a separate exception boundary. Preserve the caller's observed decision contract rather than inventing return-value checks.
+- For chunk tables, distinguish the number of output chunks from the number of offsets. The GAG CDF reader stores one more offset than chunks and derives each compressed size from adjacent entries.
+
+## 2026-08-15 — Preserve per-version archive layouts explicitly
+
+- Shared signatures do not imply one normalized index representation. Model each confirmed version branch independently when allocation sizes, record bases, count widths, or compression chunking differ.
+- A legacy index may include leading bookkeeping bytes before its first logical record. Preserve pointer-table bases such as `storage+4` instead of reshaping the allocation around the visible records.
+
+## 2026-08-15 — Trace path buffers through every in-place helper
+
+- A field initially labeled from one use may later prove to hold a path. Track the complete sequence of copy, directory truncation, append, and comparison operations before assigning semantics to a fixed application-state buffer.
+- Apparently pointless string operations can be intentional clearing idioms. In GAG, copying the directory portion of `*.cdf` produces an empty string that is then appended while constructing the selected archive path; preserve the operation rather than folding it away without evidence.
+
+## 2026-08-15 — Recover mixed register/stack ABIs from prologue spills
+
+- A large function may spill an incoming register into its local frame before saving nonvolatile registers, while its apparent decompiler prototype exposes only a stack argument. Track the pre-push stack address through the complete prologue to recover hidden register parameters.
+- Nested stage bits must remain nested when assembly branches establish that relationship. GAG's validation bit `0x400` has no effect unless bit `0x200` first enters alternate-mode detection; treating them as independent flags changes behavior.
+
+## 2026-08-15 — Legacy bitmap blocks and palette ownership
+
+- A `BITMAPINFO *` passed into an old Win32 renderer may point 14 bytes into a complete `BITMAPFILEHEADER` block. Confirm pixel offsets in assembly: GAG's custom control copies indexed pixels from `BITMAPINFO+0x428`, the 40-byte header plus 256 four-byte color entries.
+- Preserve separate palette and bitmap ownership pairs. The custom control stores both its created object and the object previously selected into each DC; teardown restores the previous object before deleting the created one.
+- For 8-bit system-palette controls, initialization and image upload have distinct responsibilities: initialization creates 236 `PC_NOCOLLAPSE` entries, while each upload replaces their RGB values, realizes the palette, and separately installs all 256 DIB color-table entries.
+
+## 2026-08-15 — Fixed-width script identifiers
+
+- Script names can be compared as complete fixed-width DWORD blocks rather than null-terminated strings. Preserve padding bytes and the original comparator's `byte_count >> 2` behavior; it intentionally ignores a trailing partial DWORD.
+- A message payload can overlay different semantic records. GAG's private state-reference messages use separate 32-byte object and field names, while credits lifecycle handlers interpret offsets `+0x24` and `+0x2c` as activity and flags. Do not force both uses into one guessed structure.
+- Verify wrapper arity from `RET n` and pre-call pushes. Several GAG synchronized wrappers looked like two-argument functions in decompilation but actually use ECX/EDX plus two or four stack arguments.
+
+## 2026-08-15 — Legacy screenshot capture adapters
+
+- Trace stack-local capture descriptors at instruction level when a wrapper decompiles to a misleading tail call. GAG builds a 0x28-byte descriptor from noncontiguous game-context fields and forwards retained ECX/EDX plus two stack arguments.
+- Preserve the complete serialized bitmap layout rather than modeling only `BITMAPINFO`: the screenshot path returns a heap-owned BMP file image with a 14-byte file header, 40-byte info header, 256-entry palette, and pixels beginning at exact offset `0x436`.
+- Half-resolution capture can be sampling rather than rescaling. GAG halves each dimension and advances through the original indexed surface with a two-pixel horizontal step and alternating source rows.
+
+## 2026-08-15 — Availability flags and ring indices are independent
+
+- Do not infer that a queue reset clears its availability flag. GAG's byte and pair reset helpers zero only read/write indices; a subsequent dequeue can still take the locked path, observe equal indices, and leave availability set.
+- A fixed 32-slot ring that advances the read index on write collision has an effective capacity of 31. Preserve this overwrite policy and its exact wrap point rather than substituting a standard container with capacity 32.
+- Similar adjacent rings can have materially different admission rules. GAG's byte and pair queues require combined flags `0x100400`, while its DWORD message ring requires only `0x400`, suppresses consecutive duplicates, and gives message `0x30f` destructive index-reset semantics.
+
+## 2026-08-15 — Preserve resource cleanup splits around nullable setup
+
+- A nullable lookup result does not imply every later branch tolerates null. GAG passes a null-derived context value into preparation, but a successful preparation then dereferences the original context unconditionally; retain that distinction instead of adding a broad safety guard.
+- Track acquisition and release operands separately. The input-session initializer acquires a descriptor from a selected resource context, uses `descriptor+0x27c`, but releases the selected context rather than the returned descriptor.
+- Polling loops can preserve a bit captured before initialization only on one terminal path. GAG restores original flag `0x100000` on cancellation, while completion clears `0x01000040` without restoring it.
+
+## 2026-08-15 — Palette and display-target state are coupled but distinct
+
+- Legacy 8-bit presentation can update 236 logical system-palette entries while always publishing all 256 colors to the DIB table. Preserve both counts and their separate conditions.
+- Palette handlers may deliberately re-enter the same display lock through the palette application routine. Test seams must model reentrancy and exact enter/leave ordering.
+- A target dispatcher can gate begin/end through one global while the target backend itself uses a separate palette/display-state global. Do not merge similarly named flag words without address evidence.
+
+## 2026-08-15 — Display lock acquisition owns dirty-region publication
+
+- A legacy recursive display lock can combine ownership arbitration with scene callback traversal and dirty-rectangle consumption. Preserve the busy-event loop, mode-specific wait behavior, recursion transition, and rectangle side effects inside one acquisition transaction.
+- An empty pending rectangle may be represented as `{display_width, display_height, 0, 0}` after consumption. Globals used as reset sentinels can therefore also be the actual surface dimensions; check their other callers before naming them.
+- Callback lists can run a probe pass and only perform a second state-changing pass when any probe returns zero. Preserve the first pass's aggregate-zero decision, the second pass's exact last return value, and early `0x10` termination.
+
+## 2026-08-15 — Display-scene boundaries and mode-dependent callbacks
+
+- When analysis creates an entry inside a prologue, verify the preceding alignment bytes, stack allocation, saved registers, and incoming call targets before trusting decompiler parameters. Deleting an overlapping mid-prologue function can expose the true existing function boundary.
+- One callback address can intentionally accept different payload layouts selected by a mode argument. Preserve the mode-dependent ABI explicitly instead of assigning one over-specific pointer type to every invocation.
+- A packed rectangle transform can add signed values only to coordinate low words while retaining each high word. Replacing that operation with ordinary 32-bit addition changes carry and wrap behavior.
+- Preserve retry terminal ordering exactly: the display synchronizer sleeps after failures one through nine and returns failure immediately on the tenth, with no final sleep.
+
+## 2026-08-15 — Scene-node locking and owner lists are distinct
+
+- Do not merge a scene node's recursive thread lock with its logical owner list. GAG stores the lock count/thread at `+0x0c/+0x10`, while owner count, selected owner, and the 128-entry membership array begin at `+0x68`.
+- An index allocator over a sorted node list can advance through consecutive occupied values while returning a lower gap unchanged. Preserve the original previous/current traversal condition, including its equal-value increment, instead of replacing it with an unordered membership search.
+- A nullable clip-rectangle setter can mean clear the active clip only after verifying the caller owns the required display-lock mode. Null handling does not bypass the ownership gate.
+
+## 2026-08-15 — Scene callbacks own lazy alternate buffers
+
+- A callback-list node can be allocated together with an inline copy of opaque caller context. Preserve the exact `record_size + context_size` allocation and point the callback context immediately past the fixed record; a null source leaves the stored context null even when the requested size is nonzero.
+- Non-passive scene callbacks lazily acquire one of two full-surface buffers: current first, alternate second, and no additional buffer once both exist. A passive `0x10000` callback bypasses buffer allocation entirely.
+- If lazy buffer allocation fails after the callback record was created, decrement the node's callback-state count and free the new record without linking it. Existing callbacks and previously allocated buffers remain unchanged.
+- A metadata query can return a compact 0x10-byte surface descriptor and a separate eight-DWORD callback block. On lookup failure, the original clears each requested output independently rather than leaving partial data intact.
+- Pixel-stride fields must remain byte strides even in a 16-bit fill routine. GAG computes the row base with `y * stride + x * 2`, writes words, then advances each row by the original byte stride.
+
+## 2026-08-15 — Format-specific compositors share clipping, not pixel policy
+
+- Preserve separate original compositor entry points even when their coordinate clipping is identical. GAG selects among direct indexed copy, palette conversion, zero-index transparency, and opaque copy through stored function pointers; combining their externally visible identities would break teardown and format dispatch.
+- Local compositor mode rewrites the caller's rectangle to destination coordinates, while global mode intersects scene positions without modifying that rectangle. This difference is observable even when both paths touch the same pixels.
+- Palette conversion uses the mapping pointer stored at callback-state offset `+0x1c`. The 8-bit destination takes each mapped DWORD's low byte; the 16-bit destination takes its low word.
+- Last-owner removal and object destruction are separate transitions. GAG first swap-removes the owner, clears the selected owner and format metadata, selects a fallback compositor, then decrements a reference only when `owner_count < reference_count`; destruction occurs only if that reference reaches zero.
+- The root scene's sentinel index `0x7fffffff` blocks ordinary reference release. Shutdown flag `0x40000000` enables its destruction, clears the root global, and intentionally does not free the root's primary pixel pointer.
+
+## 2026-08-15 — Scene reuse can destructively resize before allocation succeeds
+
+- Preserve allocation flags separately from pixel-buffer flags. GAG allocates the fixed 0xA9C scene node with `HEAP_ZERO_MEMORY` but allocates its primary/current/alternate pixel buffers with flags zero.
+- A resize path can free all old pixel buffers before attempting replacements. If any required replacement fails, GAG unlinks and frees the complete scene node rather than restoring the old buffers; do not make this transaction atomic.
+- Scene references and logical owners advance independently. A successful owner attachment writes an owner-relative descriptor and increments both counts, while ownerless acquisition can return the existing node and increment only its reference count.
+- Indexed palette matching does not choose the mathematically nearest color. GAG scans destination indices from zero repeatedly at maximum-channel-difference thresholds 0, 10, 20, through 260, selecting the first entry admitted at the first successful threshold.
+- The fixed scene allocation contains two distinct 256-DWORD palette areas: source colors at `+0x29C` and derived mappings at `+0x69C`. Callback-state pointers at `+0x294/+0x298` identify those areas without changing the node's fixed ABI.
+
+## 2026-08-15 — Preserve lifecycle flag transitions across helper gates
+
+- A caller can intentionally clear an active bit immediately before invoking a helper whose public gate requires that bit. Preserve both functions independently even when the call then appears ineffective; do not silently reorder the transition or broaden the callee gate to make cleanup look conventional.
+- Worker-thread arguments can point at the base of a contiguous global state block. Array-style offsets in decompilation may therefore denote globals such as callback, interval, rate, root, and list head rather than a separately allocated runtime object.
+- Frame pacing advances its target timestamp by the requested sleep remainder, not by re-reading the clock after sleeping. This distinction prevents accumulated drift and is observable with a deterministic time seam.
+
+## 2026-08-15 — Legacy GDI teardown restores selected objects first
+
+- A DIB/palette teardown can be guarded by both an initialization bit and a backend-mode mask. When the backend resources exist, restore the previously selected palette and bitmap before deleting the active objects, then delete/release their owning DCs in the original order.
+- A presentation-busy flag may be checked before and immediately after entering the display critical section. Preserve the leave-and-retry race path rather than treating the initial check as sufficient synchronization.
+
+## 2026-08-15 — Cooperative-mode HRESULT and API result can differ
+
+- A wrapper around a DirectDraw cooperative-level transition can return success for every attempted transition while using the HRESULT only to decide whether to mutate its internal mode bit. Do not propagate the COM failure when the original wrapper deliberately suppresses it.
+- Child-window display ownership is normalized by repeatedly following `GetParent` while `WS_CHILD` is present. Apply this traversal before both normal and exclusive cooperative-level calls.
+
+## 2026-08-15 — DirectDraw and GDI rectangles can use different edge conventions
+
+- GAG's DirectDraw copy helper constructs inclusive right/bottom coordinates (`x + width - 1`, `y + height - 1`) for both BltFast and Blt, while its GDI calls pass width and height directly. Preserve the backend-specific convention.
+- A legacy DirectDraw effects structure may be represented as exactly 25 DWORDs: zero all 100 bytes, then set only the first DWORD to 100 before the Blt call.
+
+## 2026-08-15 — Surface creation can return a backend sentinel
+
+- GAG's DirectDraw surface creator returns pointer sentinel `0xFFFFFFFF` rather than a mapped pixel address; the GDI branch returns the DIB section's real pixel pointer. Callers use only zero/nonzero at this layer and publish backend-specific resources separately.
+- Flip-chain failure is not terminal: restore cooperative mode only when it was not already exclusive before the call, release any primary surface, clear only option bit `0x100`, then retry with a primary surface plus an offscreen surface.
+- Preserve legacy bitmap-header values even when they look unconventional. The GDI path sets `biClrUsed` to `0x10000` for 5-6-5, `0x8000` for 5-5-5, and `0x1000000` for 32-bit bitfields.
+
+## 2026-08-15 — Runtime identities can double as lock records
+
+- A named runtime node's identity pointer can point directly to a larger scene record whose prefix contains thread owner and recursion count. Lookup, logical identity, locking, and scene state are therefore layered over the same address rather than separate maps.
+- Contended acquisition releases the global critical section before sleeping 5 ms and retries the lookup from the beginning. Same-thread acquisition increments recursion; release decrements only the count and intentionally retains the owner thread value.
+- Scene switching parks the old scene at `(10000,10000)`, but publishes the requested identity only for recognized mode masks `0x1000` or `0x2000`. An acquired record with another mode is released while the current identity becomes null.
+
+## 2026-08-15 — Shutdown success can require multiple independent zero returns
+
+- Runtime shutdown begins only after two named runtime-list status fields are both zero. The lookup helper creates a missing list node, so the original assumes non-null identities after lookup rather than treating absence as a shutdown shortcut.
+- After thread close succeeds, scene release and host shutdown each contribute an equality-to-zero boolean. Surface teardown still runs when either later boolean fails, but global state blocks and active flags are cleared only when their conjunction remains true.
+- A zero/nonzero handle close result is part of application-level teardown success, not merely best-effort resource cleanup. Preserve its gating effect on all downstream teardown calls.
+
+## 2026-08-15 — Plan lists can have an inclusive logical terminal
+
+- A linked plan list may continue beyond the currently active logical range. GAG walks from the head and stops only after processing the explicit terminal node, so nodes linked after that terminal must remain untouched.
+- Root activity bit `0x20` changes even when the terminal pointer is null. In that case no plan nodes are traversed and the function reports that no per-plan bit changed.
+
+## 2026-08-15 — Runtime tree lookup is child-first depth-first
+
+- The recursive runtime tree finder compares the current node, searches its entire child chain, and only then advances to the current node's sibling. A flat list lookup or sibling-first traversal can choose a different object when identities are reused.
+- A tiny global wrapper can be a tail-call that supplies the tree root from a confirmed runtime offset; preserve it as its own original-address function rather than folding it into callers.
+
+## 2026-08-15 — Root-local runtime tree traversal
+
+- GAG stores traversal state inside the selected tree root rather than in a separate iterator: current identity at `+0x64` and an ascent flag at `+0x68`. Concurrent traversals of the same root therefore overwrite each other's state.
+- The enumeration order is post-order below the selected root. It descends through children, returns leaves, ascends through parent links, and treats parent pointer `-1` as a terminal sentinel alongside the selected root.
+- Scene position mutation first preserves the old coordinate pair in dedicated fields and passes the new-minus-old delta to the display scene. Tests should assert both the stored snapshot and the downstream delta, not just the final coordinates.
+
+## 2026-08-15 — Default-comment scene activation
+
+- Script root `+0xf80` is a separate visual-object list from state objects at `+0xf7c`. Its nodes share an inline name and `+0x24` link pattern but expose a scene identity at `+0x158`; do not collapse these two lists into one structure.
+- Default-comment activation has three distinct results: gated/no action returns zero, missing named object returns `-1`, and a found object returns one even when the saved scene and active bit suppress the actual scene switch.
+- A higher-level node activation bit is set only after the lower-level activation returns positive. It must not be inferred merely from the node having a parent or from the runtime-enabled flag.
+
+## 2026-08-15 — Pointer-region selection and event publication
+
+- Pointer regions use inclusive bounds and resolve overlap by the greatest unsigned priority at `+0x4c`. List order wins ties because replacement occurs only for strictly greater priority.
+- Scene selection rotates a one-bit cursor for at most 32 attempts. A scene-slot flag `0x20` makes that slot conditional on the same bit being present in the region's state-object active mask; an unrestricted slot ignores that state mask.
+- The runtime event queue stores 32 records of exactly 0x40 bytes inline at root `+0x0c`. When the write index catches the read index after wrapping, the read index advances, so the newest record is retained and the oldest is discarded.
+- Pointer-region mode bits are not a simple enum setter. No-hit handling clears `0x38000` only outside mode `0x20000`; mode `0x30000` combines the region scene mask with its state-object mask to decide whether `0x8000` is cleared or set.
+
+## 2026-08-15 — Runtime resource cache lists
+
+- Runtime named-node child lists used for resource caching are circular and doubly linked. Parent `+0x44/+0x48` are head/tail, and cache entry `+0x2c/+0x30` are next/previous; lookup remains sentinel-bounded rather than relying on a null link.
+- The first insertion self-links the entry and initializes parent head, tail, and `+0x4c` cursor. Later insertions splice between the old tail and head and update only the tail.
+- Cache keys are copied as exactly 32 bytes, not as a variable-length C string. Callers must provide the full fixed-width key buffer even though lookup compares the stored key as zero-terminated text.
+- Resource path construction retains a directory embedded in the requested path. The global current resource directory is used only when the requested path has no directory component.
+
+## 2026-08-15 — Loose-resource compatibility opening
+
+- The original deliberately varies `CreateFileA` flags by `dwPlatformId`: Windows 95/98 receives `0x28000000`, while other platforms receive `0x08000000`. Preserve this distinction even on modern NT systems.
+- The loose-resource opener normalizes only `INVALID_HANDLE_VALUE` to null. It does not use `GetLastError` or reinterpret other handle values.
+- Drive-prefix extraction is not a general path parser: it scans at most 12 bytes and considers only a colon a successful result. Backslash, NUL, or length exhaustion returns zero without guaranteeing a destination terminator.
+
+## 2026-08-15 — Asynchronous file ownership bits
+
+- Async host and file records use bit `0x10000` as a spin-acquired ownership marker protected by one global critical section. Contention releases the section and calls `Sleep(0)` before restarting the full list search.
+- File flag `0x2` denotes shared-handle ownership: acquiring one such record marks every sibling with the same handle, and releasing it clears every matching sibling. Records with different handles remain untouched.
+- The enable-gate asymmetry is original behavior: host acquisition and both file operations check it, while host release always enters the global critical section and attempts to clear the bit.
+
+## 2026-08-15 — Async open-record lifetime
+
+- An async file record owns a fixed 0x8000-byte VirtualAlloc buffer regardless of requested file range. A zero requested end substitutes the complete file size; nonzero ranges are stored without bounds checks, and remaining size uses unsigned subtraction.
+- Open failures are asymmetric: invalid file performs no allocation cleanup, record-allocation failure closes only the file, and buffer-allocation failure frees the record and closes the file. Host ownership is released in all cases after host acquisition succeeds.
+- Flag `0x2` makes multiple records share an OS handle lifetime. Removing a record does not free that record, buffer, or handle while any same-handle sibling remains; when exactly one remains, the survivor's `0x2` bit is cleared so its later close performs destruction.
+
+## 2026-08-15 — Async circular-buffer accounting
+
+- Producer and consumer movement account sectors asymmetrically. Producer completion subtracts every completed byte from available capacity and wraps at or beyond the end; consumer movement returns only newly crossed complete sectors to available capacity and wraps by subtracting one full buffer size.
+- The async host allocation uses two consecutive truncations: first `requested / 0xffff * 0xffff`, then division/multiplication by bytes per sector. Preserve this exact expression rather than using a conventional alignment helper.
+- A thread entry referenced by `CreateThread` may remain undefined data in Ghidra. Verify executable bytes and prologue/call target first, then create the function boundary before decompiling; do not substitute a placeholder thread routine.
+
+## 2026-08-15 — Disk geometry and dual async read paths
+
+- Confirm `GetDiskFreeSpaceA` output fields from argument order, not nearby provisional names. In GAG's async host, bytes per sector is `+0x44` and sectors per cluster is `+0x48`; sector-alignment code consistently reads `+0x44`.
+- One async record reader has two distinct storage paths. The active/forced path consumes the host circular buffer under the secondary lock, while an inactive record uses its private 0x8000-byte buffer and OS file position without taking that host lock.
+- A successful OS read that returns zero bytes is EOF and retains the reader's success result; a failed `ReadFile` returns failure. Preserve this distinction along with the partial byte count and current-offset update.
+- Host destruction deliberately acquires the host without releasing its ownership bit, unlinks it, sets termination bit 1, and waits for the worker before deleting locks and storage. The ownership bit becomes irrelevant only because the object is destroyed.
+# Sound readiness can report accepted initialization independently of readiness
+
+- `EnsureRuntimeSoundReady` (`0x004010b0`) returns zero only when global sound support is disabled. After entering the enabled path it always releases the lifecycle mutex and returns one, even when thread creation fails or mixer initialization fails and tears the new thread back down. Callers must inspect the separate fault/ready globals where they need actual output status; do not normalize this result into a conventional success/failure boolean.
+
+# The sound worker dispatches negative GetMessage results
+
+- `RunRuntimeSoundThread` (`0x00402100`) tests `GetMessageA` only against zero, not against `-1`. Consequently a retrieval error is passed to `DispatchMessageA`, and the loop calls `GetMessageA` again. Preserve this literal loop in worker/message-thread recovery instead of applying the conventional `> 0` predicate.
+
+# WOM_OPEN immediately enters the same two-buffer pump as WOM_DONE
+
+- `RuntimeSoundWindowProcedure` (`0x004021e0`) prepares and marks both headers done for WOM_OPEN, then falls into the exact pump shared with WOM_DONE. This causes both buffers to be mixed and submitted during successful open. The output format copy covers fields through `wBitsPerSample` only; the adjacent `cbSize` word is not copied.
+
+# PCM mixer variants differ in their exact buffer-clear granularity
+
+- The four mixer callbacks share playback logic but do not clear arbitrary trailing bytes uniformly. 8-bit mono clears every byte to `0x80`; 8-bit stereo clears complete words to `0x8080`; 16-bit mono clears complete words to zero; and 16-bit stereo clears complete DWORDs to zero. Preserve untouched trailing bytes when the buffer length is not aligned to the variant's clear width.
+- The fastcall mixer argument is the `HWAVEOUT` value forwarded from the hidden window procedure's `wParam`. It is recorded in per-slot playback/schedule marker fields; it is not an output-buffer index.
+
+# Capacity scans may intentionally cross a global-table boundary
+
+- `CreateSoundHandle` scans active fields only through slot 1023 but its final `JBE` accepts computed handle 1024. The ensuing 0x34-byte slot writes begin at `0x0043e048`, aliasing unrelated sound globals; do not normalize this to a conventional full-table failure or invent an independent legitimate slot without reproducing the alias side effects.
+- A short Ghidra function immediately followed by a second function at fallthrough can be a false split. Verify the raw bytes and connected control flow; for `0x00401820`, clearing flow and repairing the complete verified range merged spurious `FUN_0040182b` and restored the real body through `0x00401ba1`.
+
+# Resource palette publication has distinct global and scene paths
+
+- Bitmap resources whose type bit 0 is clear publish 256 palette entries to their scene only after primary-owner assignment succeeds. With type bit 0 set, owner-assignment success is ignored: 236 entries are always published globally, then 256 may also be published to the scene.
+- Backend/resource flag `0x04000000` suppresses the scene publication only at exactly 8-bpp. Display depths above 8 override that suppression; preserve the strict `> 8` comparison.
+
+# Bitmap remapping and publication preserve legacy edge behavior
+
+- `BuildPaletteIndexRemap` scans comparison colors in stable index order and increases an 8-bit tolerance by ten until a candidate matches. Candidate count is 236 at exactly 8-bpp and 256 otherwise; the tolerance deliberately wraps as a byte.
+- BMP conversion uses the signed height literally: positive height writes bottom-up by beginning at the last destination row, while negative height writes top-down after negating the height. Source rows retain four-byte BMP padding independently of destination stride.
+- Bitmap finalization clears pending bit `0x20` before conversion and reloads flags afterward. A converter may restore that bit, enabling the 236-entry palette realization path; do not simplify the apparently contradictory post-conversion test.
+- Adjacent Ghidra functions separated at a fallthrough/prologue-like byte sequence can still be a false split. `0x0042b300` required merging the spurious `0x0042b326` body before its complete finalizer control flow became visible.
+
+# Animation presentation uses callback handshake bits
+
+- The default animation callback treats flags `0x10000000` and `0x20000000` as immediate acknowledgements: it clears only the observed bit and returns before palette or dirty-rectangle work. The worker brackets decoder dispatch with these callbacks.
+- At 8-bpp, palette dirty bit `0x4000` selects `AnimatePalette` when bit `0x20` is clear, or `SetPaletteEntries` plus `RealizePalette` when it is set. Both paths then publish the 256-entry DIB color table unless suppression bit `0x10` is set.
+- Dirty rectangle bit `0x8000` presents either exact-size pixels or a precise 2x destination rectangle when bit `0x200000` is set. Origin words are added to source coordinates; the scaled destination doubles only the dirty offsets and extents before adding the origin.
+
+# Generic text parsing preserves mode-dependent delimiters and position side effects
+
+- The generic parser treats `:` as the normal delimiter and `#` when flag `0x1000` is set. Its integer scanner advances to the next digit before accumulating, so an apparent leading minus sign is skipped rather than applied; preserve this even though the subsequent sign branch becomes effectively unreachable for ordinary input.
+- Generic-text destination coordinates are loaded by zero-extending their 16-bit storage. Do not infer signed screen coordinates from the source field declaration; newline reset repeats the same zero-extension.
+- Runtime media backend identities normally point to their owning backend and are also the tokens passed to recursive lock-release routines. Callers release the stored identity, not a temporary pointer returned by acquisition.
+
+# Resource playback queries normalize unlike backends into a shared flag vocabulary
+
+- Bitmap and animation resources return their media backend flags unchanged. Sound resources instead synthesize `0x01000000` as the type marker, bit 0 from `playing`, `0x2000` when playback state is nonzero or both schedule and playing are zero, and `0x400` when the first loop value is `-1`.
+- Resource destruction request `0x00425bd0` deliberately does not release the acquired resource lock before immediate destruction; animation is the only recognized type that sets backend flag `0x10000` and then explicitly releases the record.
+- The game-DLL unload path ignores `FreeLibrary`'s return value. Loaded flag `0x10` is always replaced by `0x20`, and state flag `0x1000` controls an additional pre-flag-update state-exit call.
+- Game-DLL loading retains the module and every resolved ordinal even when one ordinal is missing; it does not call `FreeLibrary` on this failure path. Once the module loads, all three ordinals are queried regardless of earlier lookup failures. The loading scene and both queue resets run after every attempted load, including LoadLibrary failure, but are skipped when flag `0x10` already indicates a loaded DLL.
+- Ordinal 1 is an x86 `__fastcall` boundary: the 0x40-byte host context is in ECX and the adjacent 35-pointer callback table is in EDX. A generic Ghidra function-definition type without a fastcall convention breaks the indirect-call decompile; retain the global as a pointer with an explicit ABI comment unless the function-definition data type can encode the convention.
+- Ordinal 3 is also fastcall and receives commands exclusively in ECX: 1 stops, 2 pauses, and 4 resumes. The stop wrapper timestamps only after issuing command 1, then tests the loaded bit before calling `timeGetTime` on every poll; elapsed time uses wrapping unsigned DWORD subtraction and sleeps only while elapsed is strictly below 5000.
+
+# Historical FLIC logic must still be reconciled with executable-specific branches
+
+- The historical FLIC player is a decoder reference only after mapping the worker's chunk switch to original addresses. GAG maps types 4/5/7/8/15/16 to `0x00415e60`/`0x00416420`/`0x00416da0`/`0x00415ee0`/`0x00416ad0`/`0x00416900`.
+- GAG's COLOR_256 assembly applies the skip byte only when the count byte is nonzero. A zero count expands to 256 colors without advancing either palette destination first, unlike the historical player's unconditional skip accumulation.
+- Chunk handlers 11, 12, and 13 at `0x0042b820`, `0x0042b830`, and `0x0042b840` are each literally one `RET`. In particular, do not import the historical BLACK clear implementation for chunk type 13.
+- LITERAL and BYTE_RUN apply scale factors directly while decoding: source pixels are palette-remapped unless flag `0x04000000` is set, horizontal pixels are repeated by scale X, compressed rows are re-decoded for each scale-Y repetition, and the published dirty rectangle covers the full scaled frame.
+- MVZ short and long references copy from the already decoded destination surface, not from encoded input. Reference coordinates are relative to the MVZ area's origin; scaling multiplies both reference coordinates and copy lengths, and forward bytewise copying preserves overlapping-reference expansion.
+- MVZ8 terminates rows by its explicit packet count and applies an x skip before every packet. MVZ5 has neither field and terminates when decoded logical x reaches the area width. Both always publish the complete declared MVZ area as their dirty rectangle, even where MVZ8 skips pixels.
+- DELTA_FLC differs from the full-frame decoders by expanding an existing dirty rectangle. It updates the left bound after each packet's scaled x skip, the right bound after packet output, the top bound for every physical scaled row, and the bottom bound only when all encoded logical lines finish. An EOL-pixel command assigns the full scaled width to the right bound before later packet maxima.
+- For scale Y greater than one, DELTA_FLC replays the complete saved logical-line command stream for every physical destination row. Leading line-skip controls are consumed before that saved replay point, so their displacement is multiplied by scale Y only once.
+- The animation backend's `+0x9b4` field is frame duration, not framebuffer stride. Destination stride is the 16-bit field at `+0x928`; `+0x9b4` participates exclusively in worker timing and AF11/AF12 header-speed conversion.
+- Global animation pause is a single shared bit (`0x01000000`) at `0x00442198`. The setter and clearer are independent one-instruction-style functions that preserve every other global control bit; worker pause logic ORs this global condition with per-backend flag bit 1.
+## 2026-08-16 — Recover large workers through exact control-flow phases
+
+- For very large worker functions, exact non-original phase helpers are useful only when their boundaries follow contiguous original control-flow regions and the original entry remains unresolved until all phases are integrated. Test the original signed/unsigned comparisons and persistent flag side effects at each phase boundary.
+
+## 2026-08-16 — Repair Ghidra structures without shifting confirmed offsets
+
+- Removing a defined Ghidra structure component collapses later components toward the deletion point. When replacing a large opaque range, remove every later component first, then rebuild the entire suffix at explicit offsets and verify the final layout and size before saving. For some imported arrays, inserting an equal-sized byte array and then changing its type is more reliable than inserting the imported array directly.
+
+## 2026-08-16 — Verify switch-join constants in assembly
+
+- Optimized x86 switch joins can leave Ghidra associating code addresses or stale registers with `HeapAlloc` flags and sizes, and can hide stack-slot assignments from one case. Verify each call's actual pushes and each supposedly uninitialized local's defining writes in disassembly before accepting decompiler constants or dataflow.
+
+## 2026-08-16 — Palette-remapped scene blits use function-local mapping storage
+
+- `BlitBitmapWithOptionalPaletteRemap` copies the source's eight-word callback state and replaces word 7 with a pointer to a function-local 256-entry mapping table before building a non-root palette conversion. The compositor consumes that temporary state before the function returns; do not redirect word 7 to persistent destination palette storage.
+- The blit acquires the source scene before the destination and releases the destination before the source. Even unsupported pixel-format combinations still perform both matching end-update calls after successful acquisition.
+
+## 2026-08-16 — Validate tiny prologue functions as possible false splits
+
+- A short block ending immediately before register saves can be the leading tests of the following apparent function. At `0x004231e0`, a `TEST`/branch prologue and the body Ghidra had placed at `0x004231eb` share one stack frame and one return convention. Verify fallthrough, incoming flags, stack references, callers, and the combined decompile before counting either boundary.
+- Runtime DLL window callbacks use a sentinel return (`0x10000`) to consume host messages. The sentinel does not imply one uniform return: the host still translates and forwards mouse coordinates and returns 1 specifically for message `0x30f`.
+
+## 2026-08-16 — Recover hidden custom-ABI initializer arguments from pushes and registers
+
+- Ghidra can omit arguments for custom fastcall callees and register-based string copies. At `0x0041f4f0`, assembly proves `InitializeGraphicsHost` receives instance in ECX, window in EDX, then x/y/width/height/`0x300000` on the stack; `CopyString` receives destination in ECX and source in EDX. Read the pointer globals to recover exact strings rather than inferring them from nearby resources.
+- The initializer centers content with logical `SHR`, not signed division. Cast the potentially negative rectangle difference to the original 32-bit unsigned value before shifting, then convert back to the stored signed field.
+
+## 2026-08-16 — Preserve partial subsystem initialization leaks
+
+- Startup subsystem initializers often use an initialized flag only after every setup call succeeds. `InitializeRuntimeMediaBackend` deliberately leaves its newly created heap live when mutex creation fails, because the flag remains clear and a later call creates and overwrites another heap. Do not introduce rollback absent from the executable.
+- The runtime-node enable helper changes only bit 0 at node `+0x24`; it does not use the separate status word at `+0x40`. Keep both fields distinct even though both describe node state.
+
+## 2026-08-16 — Legacy display discovery merges Windows and DirectDraw evidence
+
+- DirectDraw mode descriptors are accepted only when descriptor flags contain all bits `0x1006`. Duplicate identity is exactly width, height, bits per pixel, and green mask; duplicate updates replace pixel-format flags and set availability bit `0x20000` without changing the count or other stored fields.
+- DirectDraw initialization uses staged non-HRESULT status values: `0x10000` for version-query failure, `1` for unsupported platform or missing DLL, `0x100000` for a missing export, `0x200000` for creation/enumeration failure, and `0` for success. The display coordinator treats `1` and `0x100000` as successful Windows-mode fallbacks, but not `0x10000` or `0x200000`.
+# Callback tables can reveal missed function boundaries
+
+- Treat every executable callback pointer as a boundary candidate even when Ghidra initially shows it inside padding or adjacent code. The `InitializeGraphicsHost` table exposed six independently padded original functions and changed the authoritative recognized-function denominator.
+- Tiny CDF accessors are not interchangeable with format-tool behavior: `0x00428710` returns the archive-wide field at `+0x138`, despite an initially misleading size-by-index name. Use the executable instruction offsets as the semantic authority.
+- Returned state views may overlap later ABI structures rather than being standalone allocations. For graphics host `0x0041FA00`, the game-DLL context begins at state `+0x458`; therefore its bpp field at context `+8` is the same storage the application reads at result `+0x460`. Model the shared backing storage explicitly.
+- When a typed Ghidra decompile and assembly disagree on a structure field, use the instruction displacement. Runtime bootstrap 0x0041FEA0 reads scene-node +0x1c three times; the existing structure identifies that as callback_first_position, while the decompiler incorrectly rendered the later +0x278 callback field.
+
+## 2026-08-16 — Saved registers can be hidden callee arguments
+
+- In optimized x86 code, a prologue push may simultaneously preserve a register and supply a deeper argument to a later call. `SelectRuntimeResource` pushes incoming ESI, overwrites ESI with its path, then explicitly pushes only six of `ConstructRuntimeResourceObject`'s seven stack arguments; the saved incoming ESI is therefore the final `loop_animation` argument. Count stack depth from the call site before dismissing a decompiler `unaff_*` value.
+- Callback signatures installed into binary-owned tables must include ignored register parameters. The script setter is property in ECX, ignored context in EDX, and value on the stack; omitting context changes the ABI even though the implementation never reads it.
+
+## 2026-08-16 — Reverse tree scans require the previous-sibling field
+
+- The runtime tree's three “last link” searches descend to the last child through `next +0xb4`, then scan siblings backward through `previous +0xb8`, recursively preferring the deepest non-null tail before the current node's own tail. A structure ending at `+0xb8` silently loses this traversal; the confirmed node size is 0xbc.
+- Preserve executable use of uninitialized stack slots as an explicit edge fact. `0x00425C40` initializes only its scene identifier before acquisition; missing or non-bitmap/non-animation records still pass the other four existing stack words to the region updater. Initializing them for cleanliness changes observable behavior, while ordinary C++ tests cannot make their values deterministic.
+
+## 2026-08-16 — A NOP does not justify a function split
+
+- `0x0041B1F0` was split immediately after a NOP at `0x0041B1FA`, but the following pushes continue the same allocation and both exits restore the same frame with `RET 4`. Delete the inner function, disassemble the contiguous bytes, then recreate the outer entry so Ghidra follows the full flow; a clear-flow pass alone may leave the short outer body unchanged.
+- The 8-bit bitmap region copier uses the literal source-row adjustment `2*width - aligned_stride - copy_width`, not the conventional `aligned_stride-copy_width`. Preserve the assembly expression even though it looks like an alignment-sign error.
+
+## 2026-08-16 — Runtime transition selection preserves sparse-mask edge cases
+
+- `SelectRuntimeSceneTransition` intersects available, requested, and `0xfff` masks. A combined selected value of 3 is not decomposed and performs no transition. Random fallback is entered only when selection is zero, availability is nonzero, requested low bits are not exactly one, and the high override bit is clear; it chooses one of bits 1/2/4 and cycles until available.
+- `ApplyImmediateRuntimeSceneTransition` intentionally returns without releasing an acquired animation record when its type bits `0x3000` are both clear. Preserve this lock leak. Animation state transition augmentation is selected only when the 16-bit frame number is exactly one, as proven by the `DEC`/`CMP`/`SBB` sequence.
+
+## 2026-08-16 — Palette transition stack bytes have distinct roles
+
+- In `ApplyPaletteRuntimeSceneTransition` (`0x00426F40`), `[ESP+0x12]` after saved registers is an activation byte initialized to zero and incremented only by a supported transition setup. The caller's low ECX byte survives separately at `[ESP+0x13]` and controls RGB subtraction or the fade-in pass count. Do not merge these overlapping decompiler locals: missing resources and failed display acquisition never animate merely because the caller step is nonzero.
+- The transition copies 257 DWORD-sized palette entries from backend `+0x1c`, but passes only the first 256 to `ApplyDisplayPalette`. Both fade loops mutate entries 1 through 236, preserving entry zero. Fade-in uses wrapping byte increments: a temporary channel initialized to original+1 advances until zero, after which the destination channel advances; the temporary flags byte counts 255 passes.
+
+## 2026-08-16 — Rectangle transitions use asymmetric clocks and operations
+
+- `ApplyRectangleRuntimeSceneTransition` quantizes a non-`0xff` byte to horizontal step `(value & 0xfc)+4` and vertical step `3/4` of that. Closing uses `timeGetTime` and clears four strips with surface operation mode 2; opening uses `GetTickCount` and dispatches four newly exposed rectangles. Preserve this clock asymmetry and the exact strip partitioning.
+- An acquired record without type bits `0x3000` falls through the immediate-transition path without release, matching the neighboring immediate transition's leak. Size `0xff` means full host dimensions and causes opening to publish the full rectangle without entering its expansion loop.
+- `SynchronizeDisplayRegion` differs from `OperateDisplaySurface`: its DirectDraw calls receive the rectangle's right/bottom bounds literally, whereas the surface operation constructs inclusive `right-1/bottom-1` bounds from x/y/width/height. Its mode-2 effects block is exactly 25 DWORDs with the first DWORD set to 100.
+
+## 2026-08-16 — Runtime target bounds are a mode-dependent ABI union
+
+- `UpdateRuntimeTarget` mode 1 treats its four-DWORD block as a `DisplayRectangle`. Mode `0x10000` instead passes DWORD `+0x0c` in ECX as a pixel-pointer output address, `+0x04` in EDX as a rectangle output address, and `+0x08` on the stack as a pitch output address. Keep the storage generic and use an explicit adapter; field names such as width/height are not valid across modes.
+- `BeginDisplayTarget` sets active bit `0x40000000` before surface access. A DirectDraw Lock failure or missing GDI pixel buffer clears it, but a failed Restore after `IsLost == 0x887601c2` returns `0x200000` without clearing the bit. Preserve this asymmetric failure state.
+
+## 2026-08-16 — Display mode changes preserve backend-specific state
+
+- DirectDraw mode changes are temporarily bracketed by cooperative mode `0x1000`
+  only when that bit was not already set. Cleanup is skipped if entry fails, and
+  its return value is ignored after the display operation.
+- The Win32 path copies mode offsets `+0x08`, `+0x0c`, `+0x10`, `+0x18`, `+0x1c`,
+  and `+0x28` into the corresponding 0x94-byte ANSI `DEVMODEA` fields.
+- In `SwitchDisplayModeIfEnabled`, nonzero EDX selects the stored alternate mode
+  and zero restores current mode. Name parameters from branch evidence.
+
+## 2026-08-16 — Display host shutdown owns the mode list
+
+- `ShutdownDisplayModeHost` frees the display-mode list itself, following the
+  confirmed `+0x3c` next pointer. It calls palette/surface teardown first, deletes
+  the critical section after all list nodes are freed, and finally zeroes the
+  original contiguous 0x488-byte display-state region.
+
+## 2026-08-16 — Graphics shutdown aggregates with bitwise AND
+
+- `ShutdownGraphicsHost` calls generic-backend, async-file, and media-backend
+  shutdowns unconditionally after display shutdown succeeds, combining their
+  results with bitwise AND rather than short-circuit logic. Display-mode teardown
+  also runs even when that aggregate becomes zero.
+- Five critical sections, the resource heap, and the child window are touched only
+  when all four subsystem results are nonzero. The child window is destroyed even
+  when `HeapDestroy` fails; the 0x1d7c-byte host reset and scene-bit `0x800` clear
+  happen only after heap destruction succeeds.
+
+## 2026-08-16 — Full display clear publishes after unlocking
+
+- `ClearRuntimeDisplay` performs clip reset and mode-2 surface clearing while the
+  display lock is held, releases that lock, and only then calls
+  `UpdateDisplayRootRegion` with the full runtime host rectangle.
+
+## 2026-08-16 — Generic child availability is list-order dependent
+
+- `FindAvailableRuntimeGenericChild` scans parent backends and children in list
+  order under one mutex acquisition. A child is eligible only when flag mask
+  `0x300` is clear and its `+0x8c` end position is no greater than the caller's
+  threshold; it returns the child's identity, not the child record.
+
+## 2026-08-16 — Generic child selectors are numeric-or-name unions
+
+- `CreateRuntimeGenericBackendChild` treats a selector with a zero high word as a
+  16-bit numeric default and adds flag `0x1000`. Otherwise the same DWORD is a
+  text-name pointer used to locate entry, control, and text offsets.
+- If named entry lookup returns -1, the original function still checks an
+  uninitialized default-selection stack slot after locating control/text offsets.
+  Preserve that edge rather than assigning a defensive failure sentinel.
+
+## 2026-08-16 - Generic child state arrays overlap scene inputs by fixed indices
+
+- `BuildRuntimeGenericBackendChildState` writes fifteen DWORDs. Scene processing
+  uses DWORDs 2/3 as x/y and reinterprets DWORDs 11-14 as a rectangle.
+- The descriptor and two-DWORD context are separate outputs. When context scene
+  index 1 is zero, scene processing obtains an index with flag `0x80000` before
+  acquiring the scene.
+
+## 2026-08-16 - External command completion is synchronously polled
+
+- Runtime context `+0x454` is the LPARAM sent with message `0x7FFD` and WPARAM
+  `0x02000000`; `+0x928` is the pending flag polled after a nonzero SendMessage
+  result.
+- Each poll processes one runtime message, OR-accumulates the command-loop return,
+  then sleeps 10 ms. Both the pending flag and scene-control bit `0x200000` are
+  cleared even when the synchronous message returns zero.
+
+## 2026-08-16 - Resource loop counts are type-dependent
+
+- `SetRuntimeResourceLoopCount` recognizes sound resources only when
+  `(type_flags & 0xFF000) == 0x8000`; those forward the original count to the
+  sound backend.
+- Every other resource sets backend media flag `0x400` and stores unsigned
+  `count - 1` in both frame-limit DWORDs at `+0x50` and `+0x54`, including the
+  intentional `0xFFFFFFFF` result for a zero count.
+
+## 2026-08-16 - Runtime-tree name searches have three distinct scopes
+
+- `0x00406640` searches a selected node and sibling chain child-first and
+  recursively; `0x004066C0` searches descendants of a selected root but never
+  compares that root; `0x00406720` compares only global-root siblings.
+- All three compare exactly the first 0x20 bytes of each node and return the
+  identity stored at `+0x20`, not the node address unless those happen to match.
+
+## 2026-08-16 - Script object identifiers and fields are fixed-width blobs
+
+- Script-object name and field lookup compares exactly 0x20 bytes; callers and tests must provide fully padded 32-byte identifiers rather than ordinary short C string literals.
+- Identity lookup checks the root's primary object list first, then each container's 0x0c-byte slots. Object identity is the pointer at `+0x20`; container count and slots begin at `+0x30` and `+0x34`.
+- Integer and string fields share the field-name index: integer values begin at `+0x484`, string values use 0x20-byte entries at `+0x504`, and a missing integer returns `0x7fffffff`.
+- Field creation returns a one-bit field mask through the caller's value buffer. For type 4, the same buffer initially contains the 0x20-byte string: the function copies those bytes into object storage first, then overwrites the caller buffer's first DWORD with the bit.
+- The exported field snapshot is exactly 0x68 bytes: object name `+0x00`, field name `+0x20`, normalized active DWORD `+0x40`, integer `+0x44`, and string `+0x48`. It is fully zeroed even when lookup fails.
+
+## 2026-08-16 - Script and visual teardown use the runtime heap directly
+
+- Primary script objects and visual objects both link through `+0x24` and are freed in forward list order with the script root heap at `+0x81c`, flags zero.
+- Primary-object destruction tolerates a null runtime root; visual-object destruction and removal assume it is valid. Visual removal matches identity at `+0x20`, unlinks before freeing, and returns the exact `HeapFree` result.
+
+## 2026-08-16 - Runtime root lists use separate traversal offsets
+
+- The runtime-tree root list begins at script root `+0xf78` and follows root siblings through `RuntimeTreeNode +0xb4`; the tail helper does not descend into children.
+- The fixed-name list at script root `+0xf88` uses 0x58-byte nodes with a fixed 0x20-byte name and next pointer at `+0x54`. Its lookup tolerates a missing runtime root, and its destructor frees in forward order then clears the head.
+- Tree ancestry follows parent pointers at `+0x24` and stops before both NULL and the `-1` sentinel. The node whose parent is the sentinel is itself the returned root.
+- Global secondary-resource and scene-link heads live at script-root `+0xfa0` and `+0xfa4`; they use their native link offsets `+0x48` and `+0x40` respectively. Scene global lookup assumes a valid runtime root, while secondary lookup checks it.
+
+## 2026-08-16 - Runtime-tree link insertion propagates through ancestor lists
+
+- Scene and secondary-resource predecessor lookup returns pointer sentinel `-1` when the node parent is NULL or `-1`. With a real parent, it scans preceding siblings backward through `+0xb8`, asks each sibling subtree for its last link, then falls back to the parent tail at `+0x78` or `+0xa8`.
+- When no local predecessor exists, insertion prepends the same link to the parent head and repeats at the parent, causing that link to be represented in every applicable ancestor ordering. A real predecessor terminates propagation with an ordinary splice.
+- At the global boundary, a NULL parent appends through the global tail without changing `link->next`; a `-1` parent inserts after the global tail while preserving its successor, or prepends to the global head when no tail exists. Global secondary and scene tails are at script-root `+0xfbc` and `+0xfc0`.
+
+## 2026-08-16 - Runtime-tree link removal distinguishes two root sentinels
+
+- Scene and secondary removal consume an inclusive head/tail range stored on the removed node. A null range tail is an immediate no-op. Interior parent ranges are found by walking from the parent head until `next == removed_head`, then spliced to `removed_tail->next`.
+- When the removed head equals a real parent's head, the function either clears that head if the parent's recursively computed last link equals the removed tail, or advances it to the removed tail's successor, then repeats at the next ancestor.
+- A NULL parent rewrites through the global tail when present, otherwise the global head, and deliberately does not repair the global-tail pointer. The `-1` parent path removes from the global head/interior and repairs the global tail only when it equals the removed tail.
+
+## 2026-08-16 - Primary-resource ordering shares the runtime plan-list prefix
+
+- Primary-resource links use `next` at `+0x24`; tree-node head/tail fields are `+0x9c/+0xa0`. Their predecessor, insertion, and removal algorithms mirror the scene/secondary ordering family with those native offsets.
+- The global primary-resource head/tail are script-root `+0xf8c/+0xfa8`. Other recovered functions interpret the same storage as `RuntimePlanNode` and consume `next +0x24` plus flags `+0x28`; keep this confirmed prefix-layout overlap explicit rather than inventing separate root fields.
+
+## 2026-08-16 - Primary-link updates retain prior mutable state
+
+- Primary links are at least 0x8c bytes. Identity is `+0x20`, next `+0x24`, flags `+0x28`, fixed name `+0x2c`, resource identity `+0x4c`, value `+0x54`, coordinates `+0x5c/+0x60`, and prior resource/x/y snapshots `+0x80/+0x84/+0x88`.
+- Replacing a changed 32-byte name snapshots `+0x4c` into `+0x80` and clears `+0x4c`. Nonzero coordinate deltas snapshot then add; zero deltas do nothing. The `+0x54` value is replaced only by a nonzero argument.
+- The suffix helper at `0x0040A920` always emits three arithmetic digit bytes after a prefix. It does not constrain the input to 0..999, so the hundreds quotient can produce a non-decimal byte for larger values.
+
+## 2026-08-16 - Node +0x84/+0x88 is a separate opaque ordered-link family
+
+- Opaque 0x68-byte records with `next +0x24` are ordered through node head/tail `+0x84/+0x88` and script-root global head/tail `+0xf94/+0xfb0`. Their semantic role is not yet proven; retain offset-neutral naming until constructors/callers establish it.
+- Tail search, predecessor selection, insertion propagation, and inclusive-range removal use the same sentinel architecture as the primary/scene/secondary families, with their own confirmed offsets.
+- The global primary-resource lookup at `0x0040A990` is separate: it scans script-root `+0xf8c`, compares the first 0x20 record bytes, and follows primary `next +0x24`.
+
+## 2026-08-16 - Link84 mutation and Link8C ordering
+
+- Link84 identity is `+0x20`; rectangle is `+0x2c..+0x38`; conditional scalars are `+0x40/+0x4c/+0x50/+0x54`; current identities are `+0x58/+0x5c`; prior snapshots are `+0x60/+0x64`.
+- `+0x4c` uses sentinel `0x7fffffff`; the other scalar arguments ignore zero. Nonzero changed identities snapshot their former values. A rectangle of four zero DWORDs is ignored; otherwise the function first forwards x/y deltas to the current `+0x5c` primary link, then replaces all four rectangle fields.
+- A distinct opaque 0x54-byte record family links at `+0x24` through node head/tail `+0x8c/+0x90` and script-root globals `+0xf9c/+0xfb8`. Its semantic role remains unproven, so retain offset-neutral naming.
+
+## 2026-08-16 - Node +0x7c/+0x80 is another opaque ordered-link family
+
+- This family uses 0xb4-byte records with `next +0x24`, node head/tail `+0x7c/+0x80`, and script-root global head/tail `+0xf90/+0xfac`.
+- Its recursive tail, predecessor, insertion-propagation, and inclusive-range removal functions use the same two-sentinel ordering architecture as the other runtime-tree link families. Its semantic role is not yet proven; retain offset-neutral Link7C naming until parser constructors and consumers establish it.
+
+## 2026-08-16 - Script condition containers combine ordering and field-state masks
+
+- Script condition containers are fixed 0x1b4-byte records: name `+0x00`, identity `+0x20`, next `+0x24`, rebuilt current mask `+0x28`, required mask `+0x2c`, slot count `+0x30`, and 32 slots from `+0x34`. Each 0x0c-byte slot contains an owned script-object pointer, a pointer to an active-field mask, and the tested field bit.
+- Container ordering uses tree-node head/tail `+0x94/+0x98` and script-root global head/tail `+0xf98/+0xfb4`, following the same NULL/`-1` sentinel insertion and range-removal architecture as other ordered tree families.
+- State queries rebuild the current mask from every slot before comparison. A missing runtime returns false, while a valid runtime with no matching container returns true. Container destruction attempts every non-NULL owned object and the container itself, bitwise-AND accumulating all `HeapFree` results without short-circuiting.
+
+## 2026-08-16 - Runtime event acknowledgement is two-stage
+
+- The 32-entry ring stores 0x40-byte records. Reading clears output word `+0x38` before checking runtime/availability, copies the entire record when present, and advances only when requested.
+- Acknowledging an unmarked current record sets flag `0x20000`; acknowledging it again consumes it without copying. Both operations are no-ops for an empty ring, and indices wrap after 31.
+
+## 2026-08-16 - Script text serialization uses a fixed VirtualAlloc arena
+
+- The serializer allocates exactly 64,000 bytes with `MEM_COMMIT | MEM_RESERVE` and `PAGE_READWRITE`. Its 12-byte header is length `+0x00`, usable capacity `0xf9f4` at `+0x04`, and an inline data pointer to `+0x0c`; script-root `+0xfc4` owns the pointer.
+- Append helpers advance only the length and write directly without capacity checks. Copied string terminators are deliberately overwritten by delimiters or CR/LF; final document text leaves the copied terminator at the current length. Statement termination reads `data[length - 1]` without guarding zero length.
+- The integer writer treats the input bits as signed only for sign detection, negates in unsigned arithmetic, emits the magnitude through the original divisor loop, and always appends the caller delimiter.
+
+## 2026-08-16 - Bounded script random selection clamps asymmetrically
+
+- The helper seeds the CRT generator exactly once from `GetTickCount`, clamps only a minimum below `-10000` and a maximum above `10000`, and does not symmetrically clamp the opposite endpoints.
+- When the resulting maximum is not greater than the minimum it returns the minimum without calling `rand`; otherwise it returns `minimum + rand() % (maximum - minimum)`.
+
+## 2026-08-16 - Script serializer directives use sparse exact-code mappings
+
+- Property code emission recognizes 20 sparse byte values and writes the mapped lowercase name followed by `=`. It writes both the value and trailing space only when the value pointer is non-null; a null value leaves the output at `name=`.
+- General scope emission recognizes eight sparse DWORD values and writes `/TOKEN:`. Preload is deliberately handled by a separate function that recognizes only `0x50000000` and writes `/PRELOAD:`. All three emitters leave the buffer untouched for unknown codes or a null buffer.
+
+## 2026-08-16 - Bounded script-text lookup returns parser continuation offsets
+
+- The property scanner returns one past the delimiter that stopped value capture, not the value end itself. When the output pointer is null, it skips capture and returns one past the first value byte. Both the property-name scratch buffer and caller output are fixed at 32 bytes with at most 31 copied characters.
+- The section scanner decrements its remaining count before testing the compared byte; consequently an otherwise valid closing `]` in the final supplied byte is rejected. Preserve this boundary order rather than normalizing it into conventional substring-search behavior.
+
+## 2026-08-16 - Parser token extractors own cursor advancement
+
+- The parser state is proven through 0x28 with text at `+0x18`, bounded length at `+0x1c`, and cursor at `+0x24`; keep the earlier 24 bytes and `+0x20` semantically unresolved.
+- Property-name extraction uses separators to move a candidate start and commits the cursor only after finding `=`. Scope extraction searches for `/`, aborts on `;` or `[`, and leaves the cursor on the terminating delimiter. Both use fixed 32-byte outputs and a 31-byte copy ceiling, but their cursor behavior at that ceiling differs.
+- Property and scope classifiers distinguish extraction failure (`0xffffffff`) from a successfully extracted unknown token (`0`). Their sparse codes must be mapped from exact, case-sensitive executable strings.
+- Executable opcode classification uses the same slash-token extraction primitive as scope classification, but has an independent 52-entry sparse mapping spanning low-byte, nibble, word, and high-bit command families; do not infer codes from textual similarity.
+
+## 2026-08-16 - Generic token and integer parsing share skip grammar
+
+- Both generic token extraction and integer-literal parsing skip tab/LF/CR/space/comma/colon plus complete parenthesized groups, while `/`, `;`, and `[` are hard failures before a value. A `[` inside a skipped parenthesized group also fails.
+- Generic tokens stop on `(` as well as the normal separators and use the caller's capacity minus one. Integer parsing permits exactly one leading sign and commits the parser cursor only after consuming at least one digit; its failure sentinel is `0x7fffffff`.
+
+## 2026-08-16 - Standalone generic text uses a fixed measured state
+
+- Standalone text state is exactly 0x3c bytes: text `+0x0c`, font identity `+0x10`, two caller values `+0x14/+0x18`, colors `+0x1c/+0x20`, and four measured bounds DWORDs at `+0x2c`. Initialization requires media backend type `0xac` and measures through `strlen+1`, including the terminator in the supplied end bound.
+- Wrong backend type and empty text return zero without clearing the caller state. Drawing recomputes `strlen+1` and forwards the entire state prefix to the generic text renderer with flags zero.
+- The scoped-token serializer at `0x0040CE90` is not a general tokenizer: it assumes colon is followed by decimal digits and a delimiter, uses unchecked 32-byte scratch storage, and emits only the scope for a terminal token lacking space or colon.
+
+## 2026-08-16 - Path numeric identification concatenates digits after the first backslash
+
+- `0x00418230` returns an integer despite the original untyped decompiler view. With a backslash it ignores all characters before the first backslash, then concatenates every later digit; without a backslash it scans the entire nonempty string. Nondigits do not terminate parsing, and no digits yields `-1`.
+
+## 2026-08-16 - Media signatures and the embedded gzip boundary
+
+- `0x004299B0` checks the word at `+4` first, then `BM`, seven bytes of `WAVEfmt` at `+8`, and five bytes of `[CFG]`. Its zero-padded `strncpy` scratch locals mean the source bytes immediately after the seven- and five-byte signatures are deliberately irrelevant.
+- The regions `0x00403650..0x00404910` and `0x004124F0..0x00412D8A` contain the recognizable legacy GNU gzip `trees.c`, `bits.c`, and `deflate.c` implementation. Delegate canonical functions such as `ct_init`, `build_tree`, `flush_block`, `bi_reverse`, `lm_init`, and `deflate`; retain `0x00404920` separately because it is GAG's memory-buffer `file_read` adapter.
+- A secondary Ghidra function at `0x00412B9A` was flow inside `deflate_fast`, not a real entry. Function statistics must follow corrected boundaries rather than preserving an earlier analyzer count.
+
+## 2026-08-16 - CDF writer payloads use fixed two-megabyte chunks
+
+- `CdfArchive +0x134` is the current writer-entry index. Uncompressed output seeks to that entry's `+0x24` offset and writes its `+0x28` size in chunks capped at `0x200000` bytes.
+- The writer ignores `WriteFile`'s Boolean result and checks only the returned byte count. A short count sets archive error 2. A zero-sized payload still calls `GetProcessHeap`, clears the error, and seeks before succeeding without a write.
+
+## 2026-08-16 - CDF finalization is failure-insensitive ownership teardown
+
+- `0x004298E0` first publishes `write_entry_index` as `entry_count`, calls index serialization, then patches three DWORDs at file offset 7 in order: index size, writer entry count, and index-data size.
+- It ignores serialization, seek, write, close, and free results. Entry storage is freed before the 0x207c-byte archive object, and the exact return is zero for both null and non-null inputs.
+
+## 2026-08-16 - CDF append publishes metadata even when payload writing fails
+
+- `0x004297E0` uses `entry_count` as writer capacity and `write_entry_index` as the active slot. It performs an unchecked name copy, classifies the payload, records uncompressed size and current file offset, then dispatches raw/compressed output.
+- Compression adds rather than ORs `0x10` into the byte flag. The index and accumulated uncompressed size advance after either payload writer returns, even when that result is zero.
+
+## 2026-08-16 - CDF97a writer capacity is allocated wide but published narrow
+
+- `0x00429630` allocates entry storage using the full 32-bit requested capacity times 0x2c, but stores only `capacity & 0xffff` as the usable count and builds only that many table pointers.
+- The constructor writes a `CDF97a\0` signature followed by three zero/initial DWORD placeholders in separate 7/4/4/4 calls. It ignores all header-write results and clears the global error only after those calls.
+# 2026-08-16 - Fixed-name records split ordinary and palette flags
+
+- `0x00407240` uses exact 32-byte names and 0x58-byte zeroed records. Identity is self at `+0x20`, ordinary image flags accumulate at `+0x24`, the file string begins at `+0x28`, and palette selection lives at `+0x48` with initial bit `0x04000000`.
+- `/F PRIMARY` clears palette bit `0x04000000` at `+0x48` and also ORs bit 1 into ordinary flags. `/F NOPAL` updates only `+0x48`; all other parsed image flags accumulate at `+0x24`.
+- `0x0040CDA0` suffixes an unqualified file token with runtime string `+0x828`, serializes an optional lookahead without consuming it, and treats integer sentinel `0x7fffffff` as acceptable while clearing the filename and returning `0xffffffff` for an explicit mismatch against runtime DWORD `+0x824`.
+# 2026-08-16 - Runtime named-node children are circular and count-governed
+
+- Runtime named nodes hold a circular doubly linked child list at head `+0x44`, tail `+0x48`, and cursor `+0x4c`; 0x34-byte children link next/previous at `+0x2c/+0x30`. The authoritative number of children is node DWORD `+0x40`.
+- Cursor rotation occurs only when child count `+0x40` exceeds threshold `+0x28`. `0x00407C00` follows child previous `+0x30`, while `0x00407C60` follows next `+0x2c`, exactly the requested nonzero count.
+- Named-node serialization walks children until it returns to the head, independent of the count, then emits `/ZONE` DWORDs in order `+0x30,+0x34,+0x28,+0x38,+0x3c`. Disabled-node pruning instead trusts the count and frees exactly that many children before freeing the node.
+- Script-object membership entries store the object's identity at child `+0x20` and copy its exact 32-byte name. Node lookup uses fixed 32-byte equality, whereas object lookup uses the zero-terminated string comparator.
+# 2026-08-16 - Runtime commands occupy a fixed 32-entry root table
+
+- Root `+0xa70` is the command-definition count; `+0xa74` begins 32 entries of 0x28 bytes containing name `+0x00[32]`, visual-object pointer `+0x20`, and flags `+0x24`. `0x004095E0` clears the count and entire table as exactly 0x141 DWORDs.
+- The parser rejects only when the entry count is already above 31. An exact 32-byte existing-name match reuses that slot but still increments the global count, so serialization can subsequently include a zeroed trailing entry; preserve this non-deduplicating count behavior.
+- Command `/MOUSE` stores the matching runtime visual object itself, and serialization reads the object's inline name through that pointer. Command bit `0x00200000` serializes as `DUAL` from string address `0x0043E378`; `INVERT_NOPAL` begins separately at `0x0043E380` and must not be conflated with it.
+- The object serializer's separate bit `0x00010000` helper emits `NATURALMOUSE` from `0x0043E360`. Both sparse helpers ignore every unrecognized flag bit rather than serializing a generic representation.
+
+# 2026-08-16 - Runtime visuals retain source text separately from resolved files
+
+- Runtime visual objects are 0x164 bytes: name `+0x00[32]`, identity `+0x20`, next `+0x24`, resolved file `+0x28[32]`, serialized FILE expression `+0x48[0x104]`, position `+0x14c/+0x150`, prior/current scene identities `+0x154/+0x158`, flags `+0x15c`, and palette flags `+0x160`.
+- Parser-driven updates initialize palette flags from the runtime default, set dirty bit `0x00100000`, and preserve a current scene only for an unchanged valid FILE. A changed or absent FILE snapshots a non-null current scene before clearing it; an unchanged FILE clears the dirty bit.
+- PRIMARY bit 1 is exclusive across the visual list and publishes the selected object at parser `+0x70`. NOPAL bit `0x04000000` lives in the separate palette word; `/INVERT_NOPAL` toggles it after parsing.
+- Visual serialization emits POS only when serialized FILE text is nonempty and at least one coordinate is nonzero. Palette overrides are differences against the root default: NOPAL uses `/F:NOPAL`, while disabling a default NOPAL uses the deliberately colonless `/INVERT_NOPAL ` form.
+
+# 2026-08-16 - Scene RECT values are inclusive while POS values are dimensions
+
+- Scene links are 0x44-byte records: name `+0x00`, identity `+0x20`, Z `+0x24`, x/y `+0x28/+0x2c`, width/height `+0x30/+0x34`, flags `+0x38`, scene identifier `+0x3c`, and next `+0x40`.
+- `/RECT left top right bottom` stores width and height as `right-left+1` and `bottom-top+1`; `/POS x y width height` stores all four values directly. The scene parser accepts only image flags 2, 0x20, 0x02000000, and 0x04000000.
+- Secondary-resource links are 0x4c-byte records with fixed name `+0x00`, self identity `+0x20`, resolved FILE `+0x24[32]`, resource identity `+0x44`, and next `+0x48`. Owners with flag `0x400` register the resolved FILE, not the link name, as an auxiliary name.
+
+# 2026-08-16 - Primary LIST parsing expands a disposable template into paired link families
+
+- Primary-resource links are 0x8c bytes: identifier `+0x00`, identity/next/flags `+0x20/+0x24/+0x28`, file `+0x2c`, current resource `+0x4c`, image flags `+0x54`, loop `+0x58`, x/y `+0x5c/+0x60`, source `+0x64`, width/height `+0x68/+0x6c`, ratios `+0x70/+0x74`, secondary/fixed-name pointers `+0x78/+0x7c`, and resource/x/y snapshots `+0x80/+0x84/+0x88`.
+- Direct parsing initializes ratios to one, inherits root palette flags, sets primary flag `0x80000000` only for root-flag `0x20` plus sentinel-parent nodes, and uses `/F DOUBLE` to force both ratios to two. `/F NOCLS` routes to primary flags; ordinary image flags route to `+0x54`.
+- `/LIST` makes the allocated primary record a disposable template. Each output identifier is the template prefix plus an unchecked three-digit suffix. Circular list children supply an object pointer, file bytes at object `+0x430`, and DWORD `+0x47c`; after wrapping to the cursor, remaining count-governed slots behave as null children.
+- Every expanded slot creates or updates a primary link and a link-84 record. Null-child primaries gain flag `0x80000000`. Link-84 receives the named-list pointer at `+0x54`, list `+0x3c` at its `+0x4c`, and coordinates `(x,y,x+list+0x30,y+list+0x34)`; x then advances by list `+0x30 + +0x38`.
+- `0x0040A3C0` uses `0x7fffffff`, not zero, as the no-change sentinel for source and coordinate deltas; even a zero delta snapshots the prior coordinate. `0x0040AE40` initializes `+0x54` only on creation, sets `+0x3c` to `0xffffffff` on every call, and propagates changed existing x/y into the linked primary record.
+# 2026-08-16 - Named-list parsing mixes fixed-width membership and sentinel defaults
+
+- `0x00407490` uses exact 32-byte equality for both named-list nodes and script objects. Tests and callers must provide deterministic bytes through the entire fixed field; a short C string alone does not establish the compared padding.
+- Named-list object children are the same 0x34-byte circular entries used by the generic runtime cache: object identity at `+0x20`, exact object name at `+0x00[32]`, and next/previous at `+0x2c/+0x30`. Allocation after an object match is intentionally unchecked.
+- `/ZONE` parses five integers into node offsets `+0x30,+0x34,+0x28,+0x38,+0x3c`. Missing values preserve the first, second, fourth, and fifth fields, but the third is written first and then normalized from `0x7fffffff` to one.
+- The parser returns zero on every path, including successful creation and mutation; callers must observe the node state rather than treating the return as success.
+- `0x0040AAC0` reveals that the link-84 record is the runtime command/pointer association: `+0x40` is an accumulated command-definition mask, `+0x44` is the single PCOMM bit, `+0x4c` is `/P`, `+0x50` is the MOUSE visual identity, `+0x58` is the OWNER object, and `+0x5c` is the IMAGE primary-resource link. Its RECT syntax stores `x + third` and `y + fourth` without the inclusive `+1` used by scene-link RECT parsing.
+- `0x0040B3E0` confirms that link-family scope meanings must be derived per parser: link-8C uses the general scope codes TIME (`0x00600000`), RAD (`0x00400000`), LINE (`0x00500000`), and RECT (`0x02000000`). Its RECT stores four direct values, unlike both scene-link endpoint conversion and link-84 x/y-relative storage.
+- `0x0040B850` embeds a byte-for-byte `ScriptParserState` at link-7C `+0x38`, then replaces embedded `start_offset` and `cursor` with the cursor immediately after the record name. Later link-7C opcode scanners temporarily reset that embedded cursor to this saved start, so preserving both fields and the original text pointers is required rather than storing only parsed interaction fields.
+- The link-7C navigation routines have intentionally asymmetric cursor ownership: `0x0040C1E0` and `0x0040C260` reset to the embedded start but may retain a successful position, whereas `0x0040C2F0` always scans from and mutates the current cursor. Its nesting grammar increments only for SWVALUE (`0x4000`), SWRAND (`0x40000`), and SWLOCK (`0x50000`); VALUE (`0x5000`) is deliberately not a nesting opener.
+- `0x0040BF60` treats link-7C `+0x74` through `+0xb3` as a 16-DWORD criteria block matching the event-ring record layout. NOMATCHES recursion uses a copied event state, skips the current criteria block by exact address, prefilters alternate links with `(alternate.flags ^ event.flags) & 0xf0000fff`, and rejects when any alternate matcher succeeds; its recursive arguments are ECX=state copy and EDX=alternate `+0x74`.
+
+# 2026-08-16 - Condition containers distinguish ownership from observation
+
+- `0x0040C570` inserts its zeroed 0x1b4-byte container before parsing any member triple, so malformed trailing input deliberately leaves the container published.
+- A slot stores its object pointer only when the parser created that object; an already-existing object leaves the slot pointer null while still storing the object's active-mask address and field bit. Container teardown therefore frees only parser-owned objects.
+- Global-system slots observe root flags directly and use masks `0x10`, `1`, `2`, and `4` for DRIVE_BUSY, NOCOMMENT, INVENTORY_OPEN, and INVENTORY_CLOSE. Their required bit is set for every typed flag except OFF (`0x07000000`), unlike ordinary slots, which additionally require a signed-positive truth marker.
+# 2026-08-16 - Archive speed measurement skips one fixed block
+
+- `0x00417990` creates an async host with a 0x10000-byte buffer, performs one unmeasured 0x8000-byte read, then times the remaining selected bytes in chunks of at most 0x8000.
+- A zero caller limit selects unsigned `file_size - 0x8000`; when the file is smaller than a nonzero limit the same subtraction replaces the limit. The timed loop tests the remaining DWORD as signed, and read return values/byte counts do not affect progression.
+- Throughput is integer bytes per millisecond and remains zero unless the second `timeGetTime` value is strictly greater than the first. Record cleanup precedes host destruction on every opened-record path.
+
+# 2026-08-16 - Preserve native uninitialized byte reads without checked scalar UB
+
+- `0x0040C570` really loads the first DWORD of an uninitialized stack character buffer and carries it across typed entries. Expressing that as a direct uninitialized `uint32_t` read triggers MSVC Debug Run-Time Check #3 and leaves CTest waiting behind an interactive dialog.
+- Copying the four-byte object representation from the character buffer with `memcpy` preserves the original native stack-byte dependency while avoiding a direct checked scalar read. This is a narrow fidelity shim, not permission to initialize or normalize the original value.
+# 2026-08-16 - Runtime command targets use asymmetric flag probes
+
+- `0x00421440` first probes an image flag at the entry cursor and proceeds only when that probe returns zero. A positive flag or `0xffffffff` returns zero immediately; only the latter is normalized to output flags zero.
+- After the zero probe it restores the entry cursor, reads the first name, and probes again. A missing or positive second flag converts the first name into the tree name and copies the current resource's fixed 0x20-byte name into the resource output. A zero second probe instead restores the post-first-name cursor and reads an explicit tree name.
+- The explicit-name form accepts a third flag only when interpreted as signed-positive. All completed target forms return one even when that third probe is zero or negative.
+
+# 2026-08-16 - Function counts exclude flag-dependent analyzer fragments
+
+- `0x004204BB` was not a callable function: it began with `JA` using flags established by `GetRuntimeScriptProperty` at `0x004204B0`, used that predecessor's 0x10c-byte stack frame, performed its epilogue, and had no callers. Delete such boundaries and reduce the recognized-function denominator rather than counting them as unresolved work.
+# 2026-08-16 - Archive comment dialogs retain paths separately from displayed comments
+
+- `0x004182A0` uses a 0x98-byte dialog context. It constructs the search as `directory + "*" + extension`, while each opened archive path is `directory + found filename` and occupies a fixed 0x104-byte slot in the retained array.
+- The listbox receives the contents of `COMMENT.TXT`, but the retained slot contains the archive path. A path is copied before comment validation and is reused at the same count index when the comment is absent, oversized, or unreadable.
+- Capacity starts at ten and grows by ten exactly when count reaches capacity. A failed `HeapReAlloc` closes the current archive and ends enumeration while retaining the old pointer, count, and capacity; it is still a successful nonempty result.
+- Fatal CDF open error `0x10000` frees/reset storage, closes enumeration, deletes the failing archive path, and returns `0x10000`. Other open failures are skipped. No usable comments frees storage and returns two.
+- Maximum selection first compares the stored value and `ParsePathNumericIdentifier(filename)+1` as signed values; only when that does not increase it does an unsigned count comparison apply.
+
+# 2026-08-16 - Archive comment dialog callbacks use the custom control as state storage
+
+- `0x00418560` publishes and retrieves its 0x98-byte state through control 1001 messages rather than window user data: initialization uses custom message `0x7ff0` with selector 1, and later commands query it with selector 2.
+- List control 1000 selection changes forward the selected retained 0x104-byte archive-path slot to the custom control with selector 4. A double-click additionally sends selector 8, frees the retained array, and ends with result zero.
+- Enumeration result two inserts the literal no-entry placeholder, still publishes the state, configures the custom control with selector `0x10`/value `0x70`, and leaves the dialog active. Result `0x10000` ends immediately with the same result.
+- `0x00417550` launches resource 101 only when the custom control class is registered. It uses `_splitpath` only for the fixed filename and extension fields, supplies the same output buffer in both state output slots, and clears that output after every nonzero dialog result.
+- Missing callback boundaries can increase the recognized-function denominator when repaired. `0x004188A0` is an independent 1471-byte dialog procedure, not continuation data from `0x00418560`; count it as unresolved until its complete branch set is recovered.
+
+# 2026-08-16 - Archive save selection couples edit text to retained archive paths
+
+- `0x004188A0` uses edit control 1009 and reacts to notifications `0x100` (EN_SETFOCUS) and `0x300` (EN_CHANGE). Do not substitute EN_UPDATE (`0x400`) based on an imprecise semantic label; preserve the numeric branch verified in assembly.
+- The edit buffer is 0x104 bytes, is zeroed, and begins with WORD `0x0103` before EM_GETLINE, setting the original 259-character capacity. Exact list matches forward the corresponding retained 0x104-byte archive path through custom-control selector 4; misses restore selector 0x20 with the initial value or selector 0x10/value 0x70.
+- IDOK with empty edit text cleans up and ends with result two. A new name copies edit text to output 2 and constructs output 1 as `directory + filename-prefix + three-digit maximum_identifier + extension`. An existing name prompts with `Replace \"name\" ?`, caption `SAVE`, and flags `0x34`; IDNO leaves the dialog and retained allocation active.
+- Accepted nonempty IDOK sleeps 100 ms only when the state's initial value is non-null, then frees retained paths and ends zero. List double-click always prompts and, when accepted, frees and ends zero without the sleep.
+- `0x004175F0` has a six-argument fastcall ABI (ECX/EDX plus four stack arguments, `RET 0x10`). Its raw assembly sets EAX to zero before the registration gate and otherwise returns DialogBoxParamA's EAX, even though the initially inferred decompiler signature was void.
+
+# 2026-08-16 - Runtime sound pause and resume intentionally differ from full shutdown/readiness
+
+- `0x004015D0` always writes the 32-bit mixing-suppression state after acquiring the lifecycle mutex. Its argument only controls whether output initialization is cleared and an already-ready waveOut/thread pair is torn down; zero does not mean a no-op.
+- The pause teardown resets waveOut, unprepares exactly two headers, resets again, closes, then optionally posts WOM_CLOSE and joins/closes the thread. It releases the lifecycle mutex but does not destroy sound handles, format storage, or mutexes as full shutdown does.
+- `0x004016D0` clears suppression and recreates output only when both initialized and callback-ready states are zero. Thread creation failure is nonfatal and reaches release/return one; waveOut-open failure shuts down the created thread and also returns one.
+- While waiting for the sound window, a nonzero fault state returns zero directly before the common mutex release. Preserve this lock leak because it is explicit control flow, not a cleanup omission to modernize.
+- `0x004010A0` uses a full DWORD bitwise NOT, not boolean negation. Its two callers use the same toggle during subsystem disable and enable.
+# 2026-08-16 - Basic runtime-tree commands distinguish local and explicit resources by the second value token
+
+- `0x00406A70` and `0x00406C00` parse the first value as both the local section/tree name and a possible external resource name. A missing second value copies all 32 bytes into the destination name and reuses the parser resource; a present second value loads the first name as a resource.
+- `0x00406A70` extracts parenthesized creation text once before probing the second token and a second time only for the explicit-resource form. Preserve both cursor side effects.
+- `0x00406C00` consumes scope codes to exhaustion. Scope `0x00200000` selects the `0xffffffff` parent sentinel, except an owner already carrying that sentinel rejects the command immediately.
+- `0x00405080` saves a resource node's next pointer before calling the single-node remover. This permits traversal to continue even when the remover retains a node because its active-reference count is nonzero.
+# 2026-08-16 - Runtime-tree publication uses parent state as a three-way routing mode
+
+- `0x00406190` does not simply append every node. A normal non-null parent produces no publication; parent `0xffffffff` updates each global tail only when the corresponding local tail is non-null; parent zero publishes each local head through the existing global tail selector or establishes the global head when no selector exists.
+- The seven routed families use different next offsets: scene `+0x40`, secondary resource `+0x48`, and primary/link-84/link-8C/link-7C/container `+0x24`.
+- `0x00408B80` always emits an ON/OFF token for each declared script-object field, independently of whether that same field emitted an integer or string value. Integer zero and empty strings are omitted, but boolean state is not.
+# 2026-08-16 - Pointer events are contiguous records beginning before the named event body
+
+- The pointer event passed to `EnqueueRuntimeEventRecord` begins at `0x0047F8D0`, not at the named `g_abRuntimePointerEventRecord` symbol at `0x0047F8DC`. Overall DWORDs 0/1/2 are the state mask, state owner, and event state object; the named body begins at DWORD 3; flags at `0x0047F908` are overall DWORD 14.
+- `0x00423BC0` always enqueues after passing its two top-level gates, even when mode, region, mask, selected scene, or slot eligibility prevents region metadata from being added. Its baseline release flags are `0x10000000`.
+- A state object changes the eligible release flags from `0x10000009` to `0x1000000d` and publishes the object in overall DWORD 2; the selected region identity is overall DWORD 3.
+# 2026-08-16 - Left-button scene rotation merges visual and state-command eligibility
+
+- `0x004238B0` rotates from the current bit before testing eligibility, wraps `0x80000000` to one, and searches at most 32 positions in `scene_mask | state_object.command_mask`.
+- A selected bit present in the state object's command mask bypasses scene-slot flag `0x20`; otherwise flagged slots are skipped. The scene-slot command name is a confirmed 32-byte string at `RuntimeSceneSlot +0x08`.
+- Slot name `IView` suppresses both pending script flags and emits a pointer event. `Hide` suppresses flag 2, forces flag 4, and emits the same event family. Any ordinary rotation away from the original bit suppresses both initially derived script flags.
+- The apparent `0x004238BE` function was the tail of `0x004238B0`: it depended on inherited ZF, had no callers, and disappeared cleanly when the false function boundary was deleted.

@@ -3,6 +3,10 @@ project(freegag LANGUAGES CXX RC)
 
 include(CTest)
 
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+  message(FATAL_ERROR "freegag reconstructs 32-bit Win32 binaries; configure with -A Win32")
+endif()
+
 # Code formatting targets, following the neighboring redumper project.
 find_program(CLANG_FORMAT "clang-format")
 
@@ -29,6 +33,35 @@ endif()
 
 if(NOT WIN32)
   message(FATAL_ERROR "xtet_loader requires Windows")
+endif()
+
+add_executable(gag WIN32
+  src/cdf_archive.cpp
+  src/main.cpp
+  src/startup.cpp
+)
+target_compile_features(gag PRIVATE cxx_std_17)
+target_compile_definitions(gag PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_include_directories(gag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(gag PRIVATE user32 gdi32 winmm advapi32 comdlg32)
+
+add_executable(gag_startup_test
+  src/cdf_archive.cpp
+  src/startup.cpp
+  src/startup_test.cpp
+)
+target_compile_features(gag_startup_test PRIVATE cxx_std_17)
+target_compile_definitions(gag_startup_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX GAG_TESTING)
+target_include_directories(gag_startup_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(gag_startup_test PRIVATE user32 gdi32 winmm advapi32 comdlg32)
+add_test(NAME gag_startup_test COMMAND gag_startup_test)
+
+if(MSVC)
+  target_compile_options(gag PRIVATE /W4 /permissive-)
+  target_compile_options(gag_startup_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(gag PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(gag_startup_test PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_subdirectory(tools/cdf_extractor)

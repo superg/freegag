@@ -1,0 +1,24348 @@
+#include "startup.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mmsystem.h>
+#include "cdf_archive.h"
+
+namespace gag
+{
+namespace
+{
+
+DisplayMode *display_mode_head;
+DisplayMode *display_mode_tail;
+DisplayMode *display_mode_iterator;
+DisplayMode *current_display_mode;
+std::uint32_t display_mode_count;
+std::uint32_t display_bootstrap_error;
+std::uint32_t display_platform_id;
+HMODULE direct_draw_module;
+std::uint32_t graphics_host_flags;
+std::uint32_t runtime_command_state;
+std::uint32_t runtime_pair_available;
+RuntimeMessagePair runtime_pair_queue[0x20];
+std::uint32_t runtime_pair_read_index;
+std::uint32_t runtime_pair_write_index;
+std::uint32_t runtime_byte_available;
+std::uint8_t runtime_byte_queue[0x20];
+std::uint32_t runtime_byte_read_index;
+std::uint32_t runtime_byte_write_index;
+
+// Non-original unresolved seam until GAG.EXE: 0x00426700 is recovered.
+void unresolved_rebuild_runtime_plans() {}
+
+RuntimePlanModeSyncApi runtime_plan_mode_sync_api{ set_runtime_plans_inactive, clear_runtime_plans_inactive, unresolved_rebuild_runtime_plans };
+
+RuntimeTreeActivationApi runtime_tree_activation_api{ SendMessageA, find_or_load_runtime_generic_resource, create_runtime_tree_node, set_script_runtime_flags, activate_runtime_tree_node_comment };
+RuntimeGenericResourceLoadApi runtime_generic_resource_load_api{ HeapAlloc };
+RuntimeTreeParserContextApi runtime_tree_parser_context_api{ HeapAlloc };
+RuntimeTreeParserReleaseApi runtime_tree_parser_release_api{ HeapFree, remove_runtime_generic_resource };
+
+void unresolved_finalize_current_runtime_tree() {}
+
+void unresolved_rebuild_after_runtime_tree_switch() {}
+
+RuntimePendingTreeSwitchApi runtime_pending_tree_switch_api{ destroy_runtime_tree_resources, activate_runtime_tree_with_notifications, unresolved_finalize_current_runtime_tree,
+    unresolved_rebuild_after_runtime_tree_switch, update_runtime_pointer_region };
+
+RuntimePairDispatchApi runtime_pair_dispatch_api{ dequeue_runtime_pair, update_runtime_pointer_region, handle_runtime_left_button_down, handle_runtime_left_button_up,
+    handle_runtime_right_button_down };
+RuntimeInputSessionRecord runtime_input_session_record;
+std::uint32_t runtime_input_session_status;
+void *runtime_input_object;
+void *runtime_input_resource;
+ScriptUtilityApi script_utility_api{ VirtualAlloc, GetTickCount, std::srand, std::rand };
+bool script_random_seeded;
+
+ScriptValueParseApi script_value_parse_api{ evaluate_script_parameter };
+ScriptTypedValueApi script_typed_value_api{ parse_script_integer_expression };
+RuntimeTreeCommandTargetApi runtime_tree_command_target_api{ parse_image_flag, parse_script_value_token };
+const std::uint8_t *compressor_input;
+std::uint32_t compressor_input_size;
+std::uint32_t compressor_input_position;
+void *runtime_input_session_value;
+std::uint32_t runtime_input_character_width;
+DWORD runtime_input_start_time;
+void *runtime_input_alternate_resource_context;
+void *runtime_input_value_1;
+void *runtime_input_value_2;
+void *runtime_input_graphics_state;
+void *runtime_input_configuration;
+std::uint8_t runtime_input_session_state[0x34];
+std::uint32_t display_palette_flags;
+CRITICAL_SECTION display_host_critical_section;
+std::uint32_t runtime_target_flags;
+std::uint32_t display_lock_flags;
+DWORD display_lock_owner_thread;
+std::uint32_t display_lock_recursion_count;
+HANDLE display_lock_release_event;
+DisplayRectangle display_clip_bounds;
+DisplaySceneCallbackApi display_scene_callback_api{ timeGetTime };
+HANDLE display_lock_gate_event;
+CRITICAL_SECTION display_lock_critical_section;
+std::uint32_t display_lock_busy;
+std::uint32_t display_scene_count;
+DisplayRectangle display_pending_rectangle;
+std::int32_t display_width;
+std::int32_t display_height;
+DisplaySceneNode *display_scene_head;
+void *display_scene_sync_context;
+DisplaySceneNode *display_scene_root;
+DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
+std::uint32_t *display_palette_source_state;
+HANDLE display_scene_worker_thread;
+std::uint32_t display_scene_worker_interval;
+std::uint32_t display_scene_worker_rate;
+std::int32_t display_scene_root_primary_position;
+std::int32_t display_scene_root_secondary_position;
+std::int32_t display_palette_bits_per_pixel;
+std::int32_t display_palette_surface_bits_per_pixel;
+HDC display_palette_dc;
+HDC display_palette_dib_dc;
+HPALETTE display_palette;
+HBITMAP display_palette_bitmap;
+HWND display_palette_window;
+HPALETTE display_palette_previous_palette;
+HBITMAP display_palette_previous_bitmap;
+void *display_palette_pixels;
+void *display_direct_draw;
+void *display_direct_draw_primary_surface;
+void *display_direct_draw_secondary_surface;
+std::int32_t display_palette_width;
+std::int32_t display_palette_height;
+PALETTEENTRY display_palette_entries[0x100];
+void *display_backend;
+void *display_backend_target;
+std::uint32_t runtime_message_available;
+std::uint32_t runtime_message_queue[0x20];
+std::uint32_t runtime_message_write_index;
+std::uint32_t runtime_message_read_index;
+void (*runtime_subsystem_callback)();
+std::uint8_t *active_object;
+DisplaySwitchApi display_switch_api{ set_active_display_mode_if_graphics_ready, restore_active_display_mode_if_graphics_ready };
+std::uint32_t runtime_state_value;
+std::uint32_t saved_runtime_state_value;
+char first_runtime_path[0x104];
+char second_runtime_path[0x104];
+
+void __fastcall unresolved_runtime_state_transition(std::uint32_t) {}
+
+void(__fastcall *runtime_state_transition_callback)(std::uint32_t) = unresolved_runtime_state_transition;
+ScriptRuntimeRoot *script_runtime_root;
+
+// Non-original ABI adapter for the operation queries issued through script-root +0x818.
+void __fastcall query_script_runtime_value(std::uint32_t operation, const void *source, std::int32_t *value)
+{
+    using QueryCallback = void(__fastcall *)(std::uint32_t operation, const void *source, std::int32_t *value);
+    reinterpret_cast<QueryCallback>(script_runtime_root->dispatch_resource_operation)(operation, source, value);
+}
+
+ScriptIntegerExpressionApi script_integer_expression_api{ evaluate_script_parameter, select_bounded_random_value, find_global_runtime_tree_link_0084_by_name,
+    find_global_runtime_tree_primary_resource_link_by_name, get_script_object_integer, query_script_runtime_value };
+
+void __fastcall resolve_runtime_tree_auxiliary(std::uint32_t operation, void **identity, void **metadata)
+{
+    script_runtime_root->dispatch_resource_operation(operation, identity, metadata);
+}
+
+RuntimeTreeAuxiliaryCreateApi runtime_tree_auxiliary_create_api{ HeapAlloc, HeapFree, resolve_runtime_tree_auxiliary };
+
+// Non-original unresolved seam until GAG.EXE: 0x004056C0 is recovered.
+RuntimeTreeNode *__fastcall unresolved_dispatch_runtime_tree_parser(RuntimeTreeParserContext *)
+{
+    return nullptr;
+}
+
+// Non-original ABI adapter for the confirmed operation-0x30 callback invocation.
+void __fastcall activate_created_runtime_tree_node(RuntimeTreeNode *node)
+{
+    script_runtime_root->destroy_generic_resource(0x30, 0, reinterpret_cast<RuntimeGenericResourceNode *>(node));
+}
+
+RuntimeTreeCreationApi runtime_tree_creation_api{ find_runtime_tree_node_by_identity, find_runtime_generic_resource, find_runtime_tree_root_identity_by_name, find_runtime_tree_ancestor_root,
+    find_runtime_tree_descendant_identity_by_name, find_script_section, find_script_property_value, begin_runtime_tree_enumeration, get_next_runtime_tree_node, HeapAlloc, HeapFree,
+    find_or_create_runtime_tree_parser_context, remove_runtime_generic_resource, unresolved_dispatch_runtime_tree_parser, activate_created_runtime_tree_node };
+
+// Non-original unresolved seam until GAG.EXE: 0x00407130 is recovered.
+void __fastcall unresolved_synchronize_runtime_tree_owner(RuntimeTreeNode *) {}
+
+RuntimeTreeJumpApi runtime_tree_jump_api{ parse_script_property_code, parse_script_value_token, unresolved_synchronize_runtime_tree_owner, find_or_load_runtime_generic_resource,
+    create_runtime_tree_node };
+RuntimeTreeConditionalCreateApi runtime_tree_conditional_create_api{ compare_script_object_field, script_object_container_state_matches_by_name,
+    reinterpret_cast<RuntimeTreeNode *(__fastcall *)(void *, const void *)>(find_runtime_tree_descendant_identity_by_name), find_or_load_runtime_generic_resource, create_runtime_tree_node,
+    destroy_runtime_tree_node };
+
+// Non-original unresolved seam until GAG.EXE: 0x00406CB0 is recovered.
+RuntimeTreeNode *__fastcall unresolved_resolve_included_runtime_tree(ScriptParserState *)
+{
+    return nullptr;
+}
+
+RuntimeTreeParserResetApi runtime_tree_parser_reset_api{ parse_script_property_code, unresolved_resolve_included_runtime_tree, find_runtime_tree_node_by_identity };
+RuntimeTreeSectionDispatchApi runtime_tree_section_dispatch_api{ find_runtime_tree_node_by_identity, find_runtime_generic_resource, find_script_section, find_or_create_runtime_tree_parser_context,
+    unresolved_dispatch_runtime_tree_parser, remove_runtime_generic_resource };
+RuntimeTreeBasicCommandApi runtime_tree_basic_command_api{ parse_script_value_token, extract_script_parenthesized_text, parse_script_scope_code, find_or_load_runtime_generic_resource,
+    dispatch_runtime_tree_section, create_runtime_tree_node };
+
+void __fastcall notify_runtime_tree_auxiliary_release(std::uint32_t operation, std::uint32_t unused, RuntimeTreeAuxiliaryNode *node)
+{
+    script_runtime_root->destroy_generic_resource(operation, unused, reinterpret_cast<RuntimeGenericResourceNode *>(node));
+}
+
+RuntimeTreeAuxiliaryReleaseApi runtime_tree_auxiliary_release_api{ notify_runtime_tree_auxiliary_release, HeapFree };
+
+// Non-original adapter for the exact runtime-tree destruction callback ABI.
+void __fastcall notify_runtime_tree_destruction(std::uint32_t operation, std::uint32_t unused, void *value)
+{
+    script_runtime_root->destroy_generic_resource(operation, unused, reinterpret_cast<RuntimeGenericResourceNode *>(value));
+}
+
+RuntimeTreeDestructionCoreApi runtime_tree_destruction_core_api{ find_runtime_tree_node_by_identity, notify_runtime_tree_destruction, remove_runtime_tree_scene_link_range,
+    remove_runtime_tree_secondary_resource_link_range, remove_runtime_tree_primary_resource_link_range, remove_runtime_tree_link_007c_range, remove_runtime_tree_link_0084_range,
+    remove_runtime_tree_link_008c_range, remove_script_object_container_range, HeapFree, destroy_script_object_container, release_runtime_tree_auxiliary_nodes, release_runtime_tree_parser_contexts,
+    find_existing_runtime_tree_parser_context, unresolved_dispatch_runtime_tree_parser, update_runtime_tree_global_links };
+ScriptObjectMemoryApi script_object_memory_api{ HeapAlloc };
+ScriptObjectReleaseApi script_object_release_api{ HeapFree };
+CRITICAL_SECTION runtime_named_lock_critical_section;
+void *runtime_named_lock_parent_identity;
+RuntimeNamedLockApi runtime_named_lock_api{ GetCurrentThreadId, EnterCriticalSection, LeaveCriticalSection, Sleep };
+RuntimeNamedNodeMemoryApi runtime_named_node_memory_api{ HeapAlloc, HeapFree };
+void *current_runtime_scene_identity;
+void *deferred_runtime_scene_identity;
+std::int32_t runtime_scene_x;
+std::int32_t runtime_scene_y;
+std::uint32_t runtime_scene_control_flags;
+void *saved_default_comment_scene_identity;
+RuntimeSceneSlot runtime_scene_slots[32];
+void *runtime_pointer_root_identity;
+RuntimePointerRegion *runtime_pointer_regions;
+RuntimePointerRegion *active_runtime_pointer_region;
+std::uint32_t runtime_pointer_event_record[16];
+std::uint32_t runtime_pointer_state_mask;
+void *runtime_pointer_state_owner;
+void *runtime_pointer_event_state_object;
+
+// Non-original layout adapter for the contiguous original record at 0x0047F8D0.
+void enqueue_runtime_pointer_event()
+{
+    std::uint32_t record[16]{};
+    record[0] = runtime_pointer_state_mask;
+    record[1] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(runtime_pointer_state_owner));
+    record[2] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(runtime_pointer_event_state_object));
+    std::memcpy(record + 3, runtime_pointer_event_record, 13 * sizeof(std::uint32_t));
+    enqueue_runtime_event_record(record);
+}
+RuntimeSceneSwitchApi runtime_scene_switch_api{ acquire_runtime_lock_record, release_runtime_lock_record, offset_display_scene_node };
+RuntimePointerRefreshApi runtime_pointer_refresh_api{ update_runtime_pointer_region };
+void unresolved_finalize_destroyed_runtime_nodes() {}
+
+RuntimeCommentTreeCleanupApi runtime_comment_tree_cleanup_api{ begin_runtime_tree_enumeration, get_next_runtime_tree_node, destroy_runtime_tree_resources, deactivate_runtime_tree_and_visuals,
+    unresolved_finalize_destroyed_runtime_nodes, unresolved_rebuild_runtime_plans };
+
+// Non-original ABI adapter preserving the original x86 pointer-valued return through the existing deactivation interface.
+std::uint32_t __fastcall destroy_runtime_tree_for_deactivation(void *identity, void *replacement_identity)
+{
+    return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(destroy_runtime_tree_node(identity, replacement_identity)));
+}
+
+RuntimeTreeDeactivateApi runtime_tree_deactivate_api{ find_runtime_tree_node_by_identity, SendMessageA, request_runtime_resource_destruction, remove_runtime_visual_object, set_script_runtime_flags,
+    deactivate_runtime_tree_node_comment, destroy_runtime_tree_for_deactivation };
+RuntimeResourceLoopApi runtime_resource_loop_api{ acquire_runtime_lock_record, set_runtime_sound_loop_value, release_runtime_lock_record };
+RuntimeCommandLoopState runtime_display_context;
+RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
+std::uint32_t runtime_display_reset_value_1;
+std::uint8_t runtime_display_reset_byte;
+std::uint32_t runtime_display_reset_value_2;
+std::uint32_t runtime_display_scene_state[0x15];
+RuntimeDisplayResetApi runtime_display_reset_api{ switch_runtime_scene, set_script_runtime_flags, reset_script_runtime_transient_indices, reset_runtime_byte_queue, reset_runtime_pair_queue,
+    release_display_scene_node };
+HANDLE runtime_display_thread;
+std::int32_t runtime_display_scene_identifier;
+void *runtime_display_host;
+std::uint32_t runtime_display_backend_state[10];
+std::uint32_t runtime_display_pixel_format_state[8];
+DWORD WINAPI unresolved_execute_script_commands(LPVOID)
+{
+    return 0;
+}
+RuntimeBootstrapApi runtime_bootstrap_api{ find_current_display_mode, create_display_surface, get_display_palette_dc, get_display_palette_dib_dc, get_display_palette_handle,
+    get_display_palette_bitmap, get_display_palette_entries, initialize_display_scene_host, acquire_display_scene_node, lock_display_scene_node, unlock_display_scene_node, acquire_display_lock,
+    set_display_clip_rectangle, release_display_lock, operate_display_surface, reset_runtime_display_state, CreateThread, unresolved_execute_script_commands };
+RuntimeDisplayShutdownApi runtime_display_shutdown_api{ get_or_create_runtime_named_node, WaitForSingleObject, CloseHandle, release_display_scene_node, shutdown_display_scene_host,
+    teardown_display_palette_surface };
+std::uint32_t runtime_resource_count;
+std::uint32_t runtime_property_value;
+RuntimeResourceStateApi runtime_resource_state_api{ acquire_runtime_lock_record, begin_display_scene_update, finalize_runtime_media_backend, configure_runtime_resource_palette,
+    end_display_scene_update, clear_runtime_generic_backend_child_ready, enable_runtime_generic_backend_child_mode_200, disable_runtime_generic_backend_child_mode_200, select_runtime_scene_transition,
+    get_runtime_sound_slot, queue_runtime_sound_data, start_runtime_sound, stop_runtime_sound, release_runtime_lock_record };
+RuntimeImmediateSceneTransitionApi runtime_immediate_scene_transition_api{ acquire_display_lock, set_display_clip_rectangle, release_display_lock, acquire_runtime_lock_record,
+    dispatch_display_scene_update, Sleep, synchronize_display_region, apply_display_palette, release_runtime_lock_record };
+RuntimeSceneTransitionSelectionApi runtime_scene_transition_selection_api{ std::rand, apply_immediate_runtime_scene_transition, apply_palette_runtime_scene_transition,
+    apply_rectangle_runtime_scene_transition };
+RuntimePaletteSceneTransitionApi runtime_palette_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock, apply_display_palette,
+    operate_display_surface, set_display_clip_rectangle, dispatch_display_scene_update, release_display_lock, release_runtime_lock_record, timeGetTime, Sleep, invalidate_game_framebuffer_rect };
+PALETTEENTRY runtime_transition_palette[0x101];
+RuntimeRectangleSceneTransitionApi runtime_rectangle_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock, set_display_clip_rectangle,
+    release_display_lock, operate_display_surface, synchronize_display_region, apply_display_palette, dispatch_display_scene_update, timeGetTime, GetTickCount, Sleep, release_runtime_lock_record };
+RuntimeResourceSceneRegionApi runtime_resource_scene_region_api{ lock_display_scene_node, acquire_runtime_lock_record, begin_display_scene_update, render_runtime_bitmap_backend_region,
+    end_display_scene_update, update_display_root_region, release_runtime_lock_record, unlock_display_scene_node };
+RuntimeResourceSceneDestructionApi runtime_resource_scene_destruction_api{ acquire_runtime_lock_record, destroy_runtime_resource, release_runtime_lock_record, Sleep,
+    update_runtime_resource_scene_region };
+RuntimeTreeDestructionApi runtime_tree_destruction_api{ find_runtime_tree_node_by_identity, set_runtime_resource_state, SendMessageA, stop_runtime_game_dll, reset_runtime_display_state,
+    find_last_runtime_primary_resource_link_by_identity, find_last_runtime_secondary_resource_link_by_identity, find_last_runtime_scene_link_by_identity, query_runtime_scene_flags,
+    finalize_runtime_resource_destruction, request_runtime_resource_destruction, release_display_scene_node, set_runtime_tree_comment_mode, wait_for_runtime_resource_count };
+void *__fastcall unresolved_construct_runtime_resource(char *, std::uint32_t, std::int32_t, std::int32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t)
+{
+    return nullptr;
+}
+RuntimeResourceSelectionApi runtime_resource_selection_api{ EnterCriticalSection, close_cdf_archive, LeaveCriticalSection, SendMessageA, unresolved_construct_runtime_resource };
+RuntimeResourceWaitApi runtime_resource_wait_api{ Sleep };
+char runtime_resource_directory[0x104];
+RuntimeResourceFileOpenApi runtime_resource_file_open_api{ GetVersionExA, CreateFileA };
+CRITICAL_SECTION runtime_resource_critical_section;
+AsyncFileHost *runtime_resource_host;
+CdfArchive *runtime_resource_archive;
+std::int32_t runtime_resource_host_mode;
+std::uint8_t runtime_resource_archive_state;
+RuntimeResourceHostApi runtime_resource_host_api{ EnterCriticalSection, LeaveCriticalSection, destroy_async_file_host, create_async_file_host, set_async_file_host_mode, close_cdf_archive };
+void *runtime_resource_cache_parent_identity;
+HWND runtime_resource_notification_window;
+RuntimeResourceTypeApi runtime_resource_type_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, update_runtime_resource_host, open_runtime_resource_file, ReadFile,
+    CloseHandle, SendMessageA, get_cdf_entry_flags };
+RuntimeCdfStreamApi runtime_cdf_stream_api{ lstrcmpiA, duplicate_async_file_record, CreateFileA, SetFilePointer };
+ArchiveCommentEnumerationApi archive_comment_enumeration_api{ FindFirstFileA, FindNextFileA, FindClose, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, open_cdf_archive, get_cdf_error,
+    get_cdf_entry_size, read_cdf_entry, close_cdf_archive, SendMessageA, DeleteFileA };
+ArchiveCommentDialogApi archive_comment_dialog_api{ GetDlgItem, SendMessageA, SetFocus, ShowWindow, EndDialog, GetProcessHeap, HeapFree, enumerate_archive_comments, MessageBoxA, Sleep };
+ArchiveCommentDialogLaunchApi archive_comment_dialog_launch_api{ _splitpath, DialogBoxParamA };
+HANDLE runtime_resource_heap;
+std::uint32_t runtime_resource_streamed_count;
+RuntimeResourceLoadApi runtime_resource_load_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, open_async_file_record, get_async_file_size,
+    activate_default_comment_scene, HeapAlloc, HeapFree, read_async_file_record, deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue,
+    get_or_create_runtime_resource_cache_entry, SendMessageA, get_cdf_entry_flags, get_cdf_entry_size, open_runtime_cdf_entry_stream, read_cdf_entry, set_script_runtime_flags, Sleep };
+RuntimeResourceReleaseApi runtime_resource_release_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, find_runtime_named_child, HeapFree,
+    remove_runtime_named_child_by_identity, close_async_file_record, set_script_runtime_flags };
+RuntimeMediaBackendApi runtime_media_backend_api{ GetCurrentThreadId, WaitForSingleObject, ReleaseMutex, HeapFree, Sleep };
+HANDLE runtime_media_backend_heap;
+HANDLE runtime_media_backend_mutex;
+RuntimeBitmapRegionRenderApi runtime_bitmap_region_render_api{ WaitForSingleObject, ReleaseMutex, copy_runtime_bitmap_region };
+bool runtime_media_backend_initialized;
+RuntimeMediaBackend *runtime_media_backend_head;
+RuntimeMediaBackend *runtime_media_backend_tail;
+RuntimeMediaBackendShutdownApi runtime_media_backend_shutdown_api{ acquire_first_runtime_media_backend, release_runtime_media_backend_lock, HeapDestroy, CloseHandle, shutdown_runtime_sound };
+RuntimePaletteUpdateApi runtime_palette_update_api{ SelectPalette, AnimatePalette, UnrealizeObject, SetPaletteEntries, RealizePalette };
+RuntimeBitmapBackendCreateApi runtime_bitmap_backend_create_api{ HeapAlloc, WaitForSingleObject, ReleaseMutex };
+RuntimeAnimationBackendCreateApi runtime_animation_backend_create_api{ get_async_file_position, read_async_file_record, HeapAlloc, set_async_file_position, WaitForSingleObject, ReleaseMutex };
+RuntimeMediaBackendConfigureApi runtime_media_backend_configure_api{ WaitForSingleObject, ReleaseMutex };
+RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ WaitForSingleObject, ReleaseMutex, CreateThread, CloseHandle };
+RuntimeResourcePaletteConfigureApi runtime_resource_palette_configure_api{ set_display_scene_primary_owner, configure_display_scene_palette };
+std::uint32_t runtime_resource_palette_bits_per_pixel;
+RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface, SetPaletteEntries, RealizePalette, SetDIBColorTable, BitBlt };
+RuntimeAnimationFailureApi runtime_animation_failure_api{ PostMessageA };
+std::uint32_t runtime_animation_control_flags;
+RuntimeAnimationControlApi runtime_animation_control_api{ destroy_runtime_sound_handle, start_runtime_sound, stop_runtime_sound, set_async_file_position, PostMessageA };
+RuntimeAnimationFrameAcquireApi runtime_animation_frame_acquire_api{ read_async_file_record, HeapAlloc, HeapReAlloc, fail_runtime_animation };
+RuntimeAnimationDecodeApi runtime_animation_decode_api{ decode_runtime_animation_palette, decode_runtime_animation_mvz5, decode_runtime_animation_delta_flc, decode_runtime_animation_mvz8,
+    ignore_runtime_animation_chunk_11, ignore_runtime_animation_chunk_12, ignore_runtime_animation_chunk_13, decode_runtime_animation_byte_run, decode_runtime_animation_literal };
+RuntimeAnimationCompletionApi runtime_animation_completion_api{ Sleep, PostMessageA, set_async_file_position };
+RuntimeAnimationAudioApi runtime_animation_audio_api{ timeGetTime, Sleep, HeapAlloc, HeapReAlloc, destroy_runtime_sound_handle, queue_runtime_sound_data, stop_runtime_sound, start_runtime_sound,
+    create_runtime_sound_handle, get_runtime_sound_slot };
+RuntimeAnimationWorkerApi runtime_animation_worker_api{ GdiSetBatchLimit, Sleep, timeGetTime, ExitThread };
+RuntimeResourceConstructionPlanApi runtime_resource_construction_plan_api{ find_available_display_scene_index };
+RuntimeAnimationPresentApi runtime_animation_present_api{ AnimatePalette, SetPaletteEntries, RealizePalette, SetDIBColorTable, BitBlt, StretchBlt };
+RuntimeGenericBackendApi runtime_generic_backend_api{ WaitForSingleObject, ReleaseMutex, Sleep, GetProcessHeap, HeapFree };
+RuntimeGenericBackendCreateApi runtime_generic_backend_create_api{ GetProcessHeap, HeapAlloc, HeapFree, WaitForSingleObject, ReleaseMutex };
+RuntimeGenericChildCreateApi runtime_generic_child_create_api{ acquire_runtime_generic_backend, find_runtime_generic_text_entry, parse_runtime_generic_integer, GetProcessHeap, HeapAlloc,
+    WaitForSingleObject, ReleaseMutex, build_runtime_generic_backend_child_state, clear_runtime_generic_backend_ready };
+RuntimeGenericChildSceneApi runtime_generic_child_scene_api{ find_available_runtime_generic_child, build_runtime_generic_backend_child_state, find_available_display_scene_index,
+    acquire_display_scene_node, begin_display_scene_update, publish_runtime_generic_backend_child_state, end_display_scene_update, set_runtime_generic_backend_child_context,
+    get_runtime_generic_backend_child_context, destroy_runtime_generic_backend_child, query_display_scene_by_index, release_display_scene_node, enable_runtime_generic_backend_child_mode_200 };
+HANDLE runtime_generic_backend_mutex;
+RuntimeGenericBackend *runtime_generic_backend_head;
+std::uint32_t runtime_generic_backend_enabled;
+RuntimeGenericBackendShutdownApi runtime_generic_backend_shutdown_api{ WaitForSingleObject, ReleaseMutex, destroy_runtime_generic_backend, CloseHandle };
+RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapCreate, CreateMutexA, initialize_runtime_sound_class, WaitForSingleObject, ReleaseMutex, InitializeCriticalSection };
+RuntimeSoundDestroyApi runtime_sound_destroy_api{ WaitForSingleObject, ReleaseMutex, GetProcessHeap, HeapAlloc, HeapFree };
+std::int32_t runtime_sound_enabled;
+HANDLE runtime_sound_mutex;
+RuntimeSoundSlot runtime_sound_slot_storage[1025];
+RuntimeSoundSlot *runtime_sound_slots = runtime_sound_slot_storage;
+std::uint32_t runtime_sound_maximum_handle;
+RuntimeSoundFormatCleanupApi runtime_sound_format_cleanup_api{ GetProcessHeap, HeapFree };
+void *runtime_sound_format_buffer;
+std::uint32_t runtime_sound_base_state;
+WAVEFORMATEX *runtime_sound_output_format;
+std::uint32_t runtime_sound_mixer_data_size;
+RuntimeWaveOutCallbackApi runtime_wave_out_callback_api{ PostMessageA, timeGetTime };
+HWND runtime_sound_window;
+std::uint32_t runtime_sound_output_ready;
+RuntimeSoundShutdownApi runtime_sound_shutdown_api{ WaitForSingleObject, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, destroy_runtime_sound_handle,
+    cleanup_runtime_sound_format_buffer };
+HANDLE runtime_sound_lifecycle_mutex;
+HWAVEOUT runtime_sound_wave_out;
+WAVEHDR *runtime_sound_headers[2];
+HANDLE runtime_sound_thread;
+DWORD runtime_sound_thread_id;
+std::uint32_t runtime_sound_output_initialized;
+std::uint32_t runtime_sound_ready;
+HINSTANCE runtime_sound_instance;
+std::uint32_t runtime_sound_window_creation_failed;
+RuntimeSoundThreadApi runtime_sound_thread_api{ CreateWindowExA, ShowWindow, GetCurrentThread, SetThreadPriority, GetMessageA, DispatchMessageA, ExitThread };
+RuntimeSoundOutputBlock runtime_sound_output_storage[2];
+RuntimeSoundOutputBlock *runtime_sound_outputs = runtime_sound_output_storage;
+std::uint32_t runtime_sound_output_index;
+void(__fastcall *runtime_sound_mixer)(std::uint32_t marker);
+std::uint32_t runtime_sound_mixing_suppressed;
+RuntimeSoundWindowApi runtime_sound_window_api{ waveOutPrepareHeader, WaitForSingleObject, ReleaseMutex, waveOutWrite, PostQuitMessage, DestroyWindow, DefWindowProcA };
+RuntimeSoundClassApi runtime_sound_class_api{ RegisterClassA, CreateMutexA };
+std::uint32_t runtime_sound_fault;
+std::uint32_t runtime_sound_toggle_state;
+RuntimeSoundPauseResumeApi runtime_sound_pause_resume_api{ WaitForSingleObject, ReleaseMutex, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, CreateThread, Sleep,
+    waveOutOpen };
+
+RuntimeWaveMixerInitializeApi runtime_wave_mixer_initialize_api{ GetProcessHeap, HeapAlloc, Sleep, waveOutOpen, cleanup_runtime_sound_format_buffer };
+RuntimeSoundReadinessApi runtime_sound_readiness_api{ WaitForSingleObject, CreateThread, Sleep, initialize_runtime_wave_out_mixer, PostMessageA, CloseHandle, ReleaseMutex };
+RuntimeSoundCreateApi runtime_sound_create_api{ ensure_runtime_sound_ready, WaitForSingleObject, ReleaseMutex, runtime_wave_formats_equal, waveOutReset, waveOutUnprepareHeader, waveOutClose,
+    PostMessageA, CloseHandle, destroy_runtime_sound_handle, cleanup_runtime_sound_format_buffer, CreateThread, initialize_runtime_wave_out_mixer, calculate_runtime_wave_conversion };
+RuntimeResourceDestroyApi runtime_resource_destroy_api{ acquire_runtime_lock_record, EnterCriticalSection, LeaveCriticalSection, find_runtime_generic_resource, remove_runtime_generic_resource,
+    destroy_runtime_media_backend, release_runtime_memory_resource_by_data, release_runtime_streamed_resource, destroy_runtime_sound_handle, destroy_runtime_generic_backend,
+    release_display_scene_node, remove_runtime_named_child_by_identity, GetProcessHeap, HeapFree };
+RuntimeResourceControlApi runtime_resource_control_api{ acquire_runtime_lock_record, release_runtime_lock_record, destroy_runtime_resource, get_runtime_sound_slot };
+CRITICAL_SECTION runtime_game_dll_critical_section;
+HMODULE runtime_game_dll_module;
+RuntimeGameDllUnloadApi runtime_game_dll_unload_api{ EnterCriticalSection, FreeLibrary, leave_runtime_state_1000, LeaveCriticalSection };
+FARPROC runtime_game_dll_initialize;
+FARPROC runtime_game_dll_window_procedure;
+FARPROC runtime_game_dll_execute;
+alignas(4) std::uint8_t graphics_host_storage[0x1d7c];
+GraphicsHostInitializationResult &graphics_host_state = *reinterpret_cast<GraphicsHostInitializationResult *>(graphics_host_storage);
+RuntimeGameHostContext &runtime_game_host_context = *reinterpret_cast<RuntimeGameHostContext *>(graphics_host_storage + 0x458);
+void *runtime_game_host_callbacks[35];
+ScriptRuntimeRoot graphics_script_runtime_root;
+std::uint8_t graphics_script_storage[0x210];
+void *runtime_media_objects_parent_identity;
+CRITICAL_SECTION graphics_host_critical_sections[5];
+std::uint32_t graphics_host_value_1;
+std::uint32_t graphics_host_value_2;
+std::uint32_t graphics_host_value_3;
+std::uint32_t runtime_state_1000_count;
+std::uint32_t runtime_state_4_count;
+FramebufferInvalidateApi framebuffer_invalidate_api{ acquire_display_lock, dispatch_display_scene_update, release_display_lock };
+ClearRuntimeDisplayApi clear_runtime_display_api{ acquire_display_lock, set_display_clip_rectangle, operate_display_surface, release_display_lock, update_display_root_region };
+GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_backend, register_custom_control_class, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate,
+    LoadCursorA, RegisterClassA, CreateWindowExA, GetCursorPos, ScreenToClient, initialize_display_mode_host, set_script_runtime_root_if_valid, get_or_create_runtime_named_node,
+    set_runtime_named_node_enabled, InitializeCriticalSection, ShowWindow };
+GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
+    shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
+RuntimeGameDllLoadApi runtime_game_dll_load_api{ EnterCriticalSection, update_runtime_resource_host, build_runtime_resource_path, activate_default_comment_scene, LoadLibraryA, GetProcAddress,
+    deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue, LeaveCriticalSection };
+RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ timeGetTime, Sleep };
+HWND runtime_game_main_window;
+std::uint32_t runtime_game_result_type;
+std::uint8_t runtime_game_result_data[260];
+RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, GetUpdateRect, BeginPaint, queue_display_rectangle, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte, enqueue_runtime_pair,
+    enqueue_runtime_message, clear_runtime_flag_01000000, unload_runtime_game_dll, enter_runtime_state_1000, leave_runtime_state_1000, set_runtime_flag_01000000, DefWindowProcA };
+RuntimePointerPositionApi runtime_pointer_position_api{ GetCurrentThreadId, EnterCriticalSection, find_runtime_named_child, LeaveCriticalSection, Sleep, offset_display_scene_node };
+std::int32_t runtime_pointer_x;
+std::int32_t runtime_pointer_y;
+void *current_runtime_resource;
+bool async_file_enabled;
+AsyncFileShutdownApi async_file_shutdown_api{ destroy_async_file_host, EnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection };
+AsyncFileHost *async_file_hosts;
+CRITICAL_SECTION async_file_global_lock;
+AsyncFileLockApi async_file_lock_api{ EnterCriticalSection, LeaveCriticalSection, Sleep };
+AsyncFileOpenApi async_file_open_api{ CreateFileA, GetProcessHeap, HeapAlloc, HeapFree, CloseHandle, VirtualAlloc, VirtualFree, GetFileSize };
+AsyncFileHostApi async_file_host_api{ GetProcessHeap, HeapAlloc, HeapFree, GetDiskFreeSpaceA, InitializeCriticalSection, DeleteCriticalSection, VirtualAlloc, CreateThread, WaitForSingleObject,
+    ReadFile, SetFilePointer, timeGetTime };
+ArchiveReadSpeedApi archive_read_speed_api{ initialize_async_file_subsystem, extract_runtime_drive_prefix, create_async_file_host, open_async_file_record, get_async_file_size, read_async_file_record,
+    timeGetTime, close_async_file_record, destroy_async_file_host };
+
+ScreenshotApi screenshot_api{ GetSaveFileNameA, capture_game_bitmap, CreateFileA, WriteFile, CloseHandle };
+BitmapCaptureApi bitmap_capture_api{ GetProcessHeap, HeapAlloc };
+
+bool __fastcall strings_equal(const char *left, const char *right);
+void __fastcall copy_directory_from_path(char *destination, const char *source);
+
+DriveDiscoveryApi drive_discovery_api{ GetLogicalDriveStringsA, GetProcessHeap, HeapAlloc, HeapFree, GetDriveTypeA, FindFirstFileA, FindNextFileA, FindClose, open_cdf_archive, read_cdf_entry,
+    close_cdf_archive, lstrcmpiA };
+CursorStateApi cursor_state_api{ GetCursorPos, GetSystemMetrics };
+
+std::uint32_t __fastcall load_registry_for_validation(ApplicationState *state)
+{
+    return load_installation_registry_settings(state, make_win32_registry_api());
+}
+
+ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, GetModuleFileNameA, CreateICA, GetDeviceCaps, DeleteDC, load_registry_for_validation, locate_game_data_drive,
+    measure_archive_read_speed, detect_alternate_display_mode };
+WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, RegisterClassA, MessageBoxA, DefWindowProcA, gag_capture_window_procedure,
+    gag_custom_control_window_procedure };
+std::uint32_t custom_control_registered;
+HINSTANCE custom_control_instance;
+
+void __fastcall unresolved_update_cursor_state(ApplicationState *, int) {}
+
+WindowProcedureApi window_procedure_api{ GetWindowLongA, SetWindowLongA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem, SetMenu,
+    DestroyWindow, DefWindowProcA, SendMessageA, unresolved_update_cursor_state };
+CustomControlGdiApi custom_control_gdi_api{ GetDC, CreateCompatibleDC, GetDeviceCaps, GetClientRect, SetSystemPaletteUse, CreatePalette, SelectPalette, SetStretchBltMode, UnrealizeObject,
+    RealizePalette, StretchBlt, SelectObject, DeleteObject, ReleaseDC, DeleteDC, CreateDIBSection, SetPaletteEntries, SetDIBColorTable };
+SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegSetValueExA, RegCloseKey };
+
+void unresolved_cursor_visibility_callback() {}
+
+void unresolved_runtime_queue_lock() {}
+
+RuntimeInputContext *__fastcall unresolved_find_runtime_input_context(void *)
+{
+    return nullptr;
+}
+
+int __fastcall unresolved_prepare_runtime_input(RuntimeInputSessionRecord *, void *, void *, void *, void *, void *, void *)
+{
+    return 0;
+}
+
+void *__fastcall unresolved_runtime_input_pointer(void *)
+{
+    return nullptr;
+}
+
+void *__fastcall unresolved_allocate_runtime_input(std::uint32_t)
+{
+    return nullptr;
+}
+
+void *__fastcall unresolved_create_runtime_input(void *, void *, void *, void *, void *, std::uint32_t, void *, void *, void *)
+{
+    return nullptr;
+}
+
+int __fastcall unresolved_activate_runtime_input(void *)
+{
+    return 0;
+}
+
+void __fastcall unresolved_runtime_input_pair(void *, void *) {}
+void __fastcall unresolved_runtime_input_triple(void *, void *, void *) {}
+void __fastcall unresolved_release_runtime_input(void *) {}
+void __fastcall unresolved_release_runtime_input_context(RuntimeInputContext *) {}
+void __fastcall unresolved_runtime_command_loop_value(int) {}
+LPARAM unresolved_runtime_command_loop_state()
+{
+    return 0;
+}
+
+// Non-original ABI adapter: RuntimeCommandBounds fields are output pointers for mode 0x10000.
+int __fastcall begin_runtime_target_from_bounds_fields(std::uint32_t pixels, std::uint32_t rectangle, std::uint32_t pitch)
+{
+    return static_cast<int>(begin_display_target(reinterpret_cast<void **>(static_cast<std::uintptr_t>(pixels)), reinterpret_cast<DisplayRectangle *>(static_cast<std::uintptr_t>(rectangle)),
+        reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(pitch))));
+}
+
+// Non-original ABI adapter: mode 1 interprets the same four DWORDs as a DisplayRectangle.
+void __fastcall draw_runtime_bounds(RuntimeCommandBounds *bounds, int mode)
+{
+    synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), static_cast<std::uint32_t>(mode));
+}
+
+// Non-original adapter for the original IDirectDrawSurface::Unlock vtable call at slot 0x80.
+void __fastcall release_display_backend_target(void *surface, void *pixels)
+{
+    using Unlock = HRESULT(WINAPI *)(void *, void *);
+    auto **vtable = *static_cast<void ***>(surface);
+    reinterpret_cast<Unlock>(vtable[0x80 / sizeof(void *)])(surface, pixels);
+}
+
+int __fastcall unresolved_synchronize_display_scene(void *, void *, std::uint32_t)
+{
+    return 0;
+}
+
+void present_runtime_message_target()
+{
+    release_display_lock();
+}
+HWND unresolved_display_palette_window()
+{
+    return nullptr;
+}
+
+void __fastcall unresolved_display_palette_present(std::int32_t, std::int32_t, int) {}
+
+CursorVisibilityApi cursor_visibility_api{ ShowCursor, unresolved_cursor_visibility_callback, unresolved_cursor_visibility_callback };
+void (*finish_credits_callback)() = clear_credits_runtime_flag;
+RuntimeQueueApi runtime_queue_api{ unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock,
+    unresolved_runtime_queue_lock };
+RuntimeInputSessionApi runtime_input_session_api{ timeGetTime, unresolved_find_runtime_input_context, unresolved_prepare_runtime_input, unresolved_allocate_runtime_input,
+    unresolved_runtime_input_pointer, unresolved_create_runtime_input, unresolved_activate_runtime_input, unresolved_runtime_input_pair, unresolved_runtime_input_triple,
+    unresolved_release_runtime_input, unresolved_release_runtime_input_context };
+RuntimeCommandLoopApi runtime_command_loop_api{ unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_command_loop_value, PostMessageA, process_runtime_message,
+    unresolved_runtime_command_loop_state, Sleep, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_runtime_queue_lock };
+RuntimeMessageProcessorApi runtime_message_processor_api{ dequeue_runtime_message, disable_display_palette_mode, enable_display_palette_mode, acquire_display_lock, update_runtime_target,
+    present_runtime_message_target };
+RuntimeTargetUpdateApi runtime_target_update_api{ draw_runtime_bounds, begin_runtime_target_from_bounds_fields, end_display_target };
+DisplayLockReleaseApi display_lock_release_api{ GetCurrentThreadId, SetEvent };
+DisplayLockAcquireApi display_lock_acquire_api{ GetCurrentThreadId, WaitForSingleObject, Sleep, EnterCriticalSection, LeaveCriticalSection, ResetEvent };
+DisplayTargetApi display_target_api{ release_display_backend_target };
+DisplaySceneSyncApi display_scene_sync_api{ unresolved_synchronize_display_scene };
+DisplaySceneMemoryApi display_scene_memory_api{ GetProcessHeap, HeapAlloc, HeapFree };
+DisplaySceneHostApi display_scene_host_api{ InitializeCriticalSection, DeleteCriticalSection, CreateEventA, CloseHandle, CreateThread, WaitForSingleObject };
+DisplaySceneWorkerApi display_scene_worker_api{ timeGetTime, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
+    release_display_lock };
+const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
+DisplayPaletteApi display_palette_api{ unresolved_runtime_queue_lock, unresolved_runtime_queue_lock, unresolved_display_palette_window, GetForegroundWindow, GetWindowThreadProcessId, UnrealizeObject,
+    SelectPalette, AnimatePalette, SetPaletteEntries, RealizePalette, SetDIBColorTable, unresolved_display_palette_present };
+DisplayPaletteTeardownApi display_palette_teardown_api{ Sleep, SelectPalette, SelectObject, DeleteObject, DeleteDC, ReleaseDC };
+
+// Non-original adapter for the original IDirectDraw vtable call at slot 0x50.
+HRESULT WINAPI set_direct_draw_cooperative_level(void *display, HWND window, DWORD flags)
+{
+    using SetCooperativeLevel = HRESULT(WINAPI *)(void *, HWND, DWORD);
+    auto **vtable = *static_cast<void ***>(display);
+    return reinterpret_cast<SetCooperativeLevel>(vtable[0x50 / sizeof(void *)])(display, window, flags);
+}
+
+DisplayCooperativeLevelApi display_cooperative_level_api{ GetWindowLongA, GetParent, set_direct_draw_cooperative_level };
+
+// Non-original adapter for the original IDirectDraw vtable call at slot 0x20.
+HRESULT WINAPI enumerate_direct_draw_modes(void *display, DirectDrawModeCallback callback)
+{
+    using EnumerateModes = HRESULT(WINAPI *)(void *, DWORD, void *, void *, DirectDrawModeCallback);
+    auto **vtable = *static_cast<void ***>(display);
+    return reinterpret_cast<EnumerateModes>(vtable[0x20 / sizeof(void *)])(display, 0, nullptr, nullptr, callback);
+}
+
+DisplayBootstrapApi display_bootstrap_api{ GetVersionExA, LoadLibraryA, GetProcAddress, GetProcessHeap, HeapAlloc, HeapFree, set_display_cooperative_mode, enumerate_direct_draw_modes };
+
+DisplayHostInitializationApi display_host_initialization_api{ InitializeCriticalSection, DeleteCriticalSection, enumerate_windows_display_modes, initialize_direct_draw_runtime,
+    enumerate_direct_draw_display_modes, find_current_display_mode };
+WindowsDisplayEnumerationApi windows_display_enumeration_api{ GetDC, EnumDisplaySettingsA, ChangeDisplaySettingsA, GetProcessHeap, HeapAlloc, HeapFree, CreateDIBSection, DeleteObject, ReleaseDC };
+
+HRESULT WINAPI direct_draw_blt_fast(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags)
+{
+    using BltFast = HRESULT(WINAPI *)(void *, DWORD, DWORD, void *, RECT *, DWORD);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<BltFast>(vtable[0x1c / sizeof(void *)])(surface, x, y, source, source_rectangle, flags);
+}
+
+HRESULT WINAPI direct_draw_blt(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects)
+{
+    using Blt = HRESULT(WINAPI *)(void *, RECT *, void *, RECT *, DWORD, void *);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<Blt>(vtable[0x14 / sizeof(void *)])(surface, destination_rectangle, source, source_rectangle, flags, effects);
+}
+
+HRESULT WINAPI is_direct_draw_surface_lost(void *surface)
+{
+    using IsLost = HRESULT(WINAPI *)(void *);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<IsLost>(vtable[0x60 / sizeof(void *)])(surface);
+}
+
+HRESULT WINAPI restore_direct_draw_surface(void *surface)
+{
+    using Restore = HRESULT(WINAPI *)(void *);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<Restore>(vtable[0x6c / sizeof(void *)])(surface);
+}
+
+HRESULT WINAPI lock_direct_draw_surface(void *surface, RECT *rectangle, LegacyDirectDrawSurfaceDescriptor *descriptor, DWORD flags, HANDLE event)
+{
+    using Lock = HRESULT(WINAPI *)(void *, RECT *, LegacyDirectDrawSurfaceDescriptor *, DWORD, HANDLE);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<Lock>(vtable[0x64 / sizeof(void *)])(surface, rectangle, descriptor, flags, event);
+}
+
+HRESULT WINAPI set_direct_draw_display_mode(void *display, DWORD width, DWORD height, DWORD bits_per_pixel)
+{
+    using SetDisplayMode = HRESULT(WINAPI *)(void *, DWORD, DWORD, DWORD);
+    auto **vtable = *static_cast<void ***>(display);
+    return reinterpret_cast<SetDisplayMode>(vtable[0x54 / sizeof(void *)])(display, width, height, bits_per_pixel);
+}
+
+HRESULT WINAPI restore_direct_draw_display_mode(void *display)
+{
+    using RestoreDisplayMode = HRESULT(WINAPI *)(void *);
+    auto **vtable = *static_cast<void ***>(display);
+    return reinterpret_cast<RestoreDisplayMode>(vtable[0x4c / sizeof(void *)])(display);
+}
+
+DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, PatBlt };
+DisplayRegionSynchronizationApi display_region_synchronization_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, PatBlt };
+DisplayTargetBeginApi display_target_begin_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, is_direct_draw_surface_lost, restore_direct_draw_surface, lock_direct_draw_surface };
+DisplayModeChangeApi display_mode_change_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, set_display_cooperative_mode, set_direct_draw_display_mode, restore_direct_draw_display_mode,
+    ChangeDisplaySettingsA, find_current_display_mode };
+DisplayModeHostShutdownApi display_mode_host_shutdown_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, teardown_display_palette_surface, GetProcessHeap, HeapFree, DeleteCriticalSection };
+
+HRESULT WINAPI create_direct_draw_surface(void *display, LegacyDirectDrawSurfaceDescriptor *descriptor, void **surface, void *outer)
+{
+    using CreateSurface = HRESULT(WINAPI *)(void *, LegacyDirectDrawSurfaceDescriptor *, void **, void *);
+    auto **vtable = *static_cast<void ***>(display);
+    return reinterpret_cast<CreateSurface>(vtable[0x18 / sizeof(void *)])(display, descriptor, surface, outer);
+}
+
+HRESULT WINAPI get_direct_draw_attached_surface(void *surface, std::uint32_t *caps, void **attached_surface)
+{
+    using GetAttachedSurface = HRESULT(WINAPI *)(void *, std::uint32_t *, void **);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<GetAttachedSurface>(vtable[0x30 / sizeof(void *)])(surface, caps, attached_surface);
+}
+
+ULONG WINAPI release_direct_draw_surface(void *surface)
+{
+    using Release = ULONG(WINAPI *)(void *);
+    auto **vtable = *static_cast<void ***>(surface);
+    return reinterpret_cast<Release>(vtable[0x08 / sizeof(void *)])(surface);
+}
+
+DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
+    release_direct_draw_surface, GetDC, CreateCompatibleDC, ReleaseDC, DeleteDC, GetProcessHeap, HeapAlloc, HeapFree, CreatePalette, SelectPalette, DeleteObject, CreateDIBSection, SelectObject,
+    SetPaletteEntries, RealizePalette, SetDIBColorTable };
+WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowPos, GetClientRect, SetFocus, SendMessageA };
+
+std::uint32_t unresolved_state_value()
+{
+    return 0;
+}
+
+StateActivationApi state_activation_api{ unresolved_state_value, unresolved_state_value, unresolved_cursor_visibility_callback };
+
+void *__fastcall unresolved_capture_state(void *, std::uint32_t *, int)
+{
+    return nullptr;
+}
+
+int __fastcall unresolved_show_save_dialog(void *, char *, const char *, void *, char *, char *)
+{
+    return 0;
+}
+
+void __fastcall unresolved_save_state(char *, char *, void *, std::uint32_t) {}
+
+SaveStateApi save_state_api{ unresolved_capture_state, unresolved_state_value, unresolved_cursor_visibility_callback, unresolved_show_save_dialog, unresolved_save_state,
+    unresolved_cursor_visibility_callback };
+const char *const save_dialog_data[] = { "GAG.GSF", "SOFTWARE\\ZES't Corp.\\GAG", "Russian Edition Version 2.51", "C:\\Zes't Corp\\Gag_Re\\" };
+
+int __fastcall unresolved_open_state_dialog(void *, char *, const char *, char *)
+{
+    return 0;
+}
+
+void __fastcall unresolved_restore_8bit_mode(std::uint32_t) {}
+
+OpenStateApi open_state_api{ unresolved_cursor_visibility_callback, unresolved_open_state_dialog, unresolved_restore_8bit_mode };
+
+void unresolved_state_lock() {}
+
+int __fastcall unresolved_state_operation4(void *, void *, void *, void *)
+{
+    return 1;
+}
+
+int __fastcall unresolved_state_operation6(void *, void *, void *, void *, void *, void *)
+{
+    return 1;
+}
+
+SynchronizedStateApi synchronized_state_api{ unresolved_state_lock, unresolved_state_lock, unresolved_state_operation4, unresolved_state_operation6, unresolved_state_operation4, SendMessageA,
+    nullptr };
+
+// Non-original helper shared by the two recovered flag-transition functions.
+void clear_cursor_flag_above_client(ApplicationState *state)
+{
+    POINT point;
+    if(cursor_state_api.get_cursor_position(&point) != FALSE)
+    {
+        int threshold =
+            cursor_state_api.get_system_metrics(SM_CYCAPTION) + cursor_state_api.get_system_metrics(SM_CYFIXEDFRAME) + cursor_state_api.get_system_metrics(SM_CYMENU) + state->window_vertical_offset;
+        if(threshold < point.y)
+        {
+            state->flags &= 0xfffffffd;
+        }
+    }
+}
+
+ApplicationInitializationApi application_initialization_api{ SetErrorMode, GetProcessHeap, HeapAlloc, initialize_application_state_no_op, register_gag_window_classes, register_custom_control_class,
+    copy_string, validate_startup_environment, GetSystemMetrics, AdjustWindowRect, CreateWindowExA, ShowWindow, SetWindowPos, GetClientRect, initialize_graphics_host, switch_display_mode_if_enabled,
+    initialize_runtime_graphics, update_application_window_layout, enable_runtime_subsystem, set_active_object_field_0824, detect_runtime_resource_type };
+
+// GAG.EXE: 0x00420C20
+void set_runtime_flag_40()
+{
+    graphics_host_flags |= 0x40;
+}
+
+} // namespace
+
+RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_resource_with_loop_register, release_runtime_memory_resource, set_runtime_property_value, enter_runtime_state_1000,
+    leave_runtime_state_1000, SendMessageA, destroy_runtime_tree_resources };
+RuntimeScriptPropertyGetApi runtime_script_property_get_api{ SendMessageA, copy_string, load_runtime_resource, get_runtime_property_value, query_runtime_resource_frame_number };
+
+// GAG.EXE: 0x004202D0
+void __fastcall set_runtime_script_property(std::uint32_t property, void *, void *value)
+{
+    std::int32_t loop_animation;
+#if defined(_MSC_VER) && defined(_M_IX86)
+    __asm mov loop_animation, esi
+#elif defined(__GNUC__) && defined(__i386__)
+    __asm__ volatile("movl %%esi, %0" : "=m"(loop_animation));
+#else
+#error GAG requires a 32-bit x86 compiler
+#endif
+
+        switch(property)
+    {
+    case 1:
+        graphics_host_value_1 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value));
+        break;
+    case 2:
+        graphics_host_value_2 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value));
+        break;
+    case 4:
+        graphics_host_value_3 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value)) & 0xf;
+        break;
+    case 5:
+        runtime_script_property_set_api.select_resource(static_cast<char *>(value), loop_animation);
+        break;
+    case 7:
+        runtime_script_property_set_api.release_memory_resource(static_cast<char *>(value));
+        break;
+    case 8:
+        runtime_script_property_set_api.set_property_value(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value)));
+        break;
+    case 12:
+        runtime_resource_host_mode = static_cast<std::int32_t>(reinterpret_cast<std::intptr_t>(value));
+        break;
+    case 13:
+        if(runtime_state_1000_count == 0)
+        {
+            runtime_script_property_set_api.enter_state_1000();
+            runtime_scene_control_flags |= 0x4000;
+        }
+        ++runtime_state_1000_count;
+        break;
+    case 14:
+        if(runtime_state_1000_count == 1)
+        {
+            runtime_scene_control_flags &= 0xffffbfff;
+            runtime_script_property_set_api.leave_state_1000();
+        }
+        if(runtime_state_1000_count != 0)
+        {
+            --runtime_state_1000_count;
+        }
+        break;
+    case 16:
+        if(runtime_state_4_count == 0)
+        {
+            runtime_scene_control_flags |= 4;
+        }
+        ++runtime_state_4_count;
+        break;
+    case 32:
+        if(runtime_state_4_count == 1)
+        {
+            runtime_scene_control_flags &= 0xfffffffb;
+        }
+        if(runtime_state_4_count != 0)
+        {
+            --runtime_state_4_count;
+        }
+        break;
+    case 64:
+        runtime_script_property_set_api.destroy_resource_tree(value);
+        break;
+    case 80:
+    case 96:
+        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x04000000, 0);
+        break;
+    }
+}
+
+// GAG.EXE: 0x004204B0
+void __fastcall get_runtime_script_property(std::uint32_t property, void **value, void *result)
+{
+    switch(property)
+    {
+    case 1:
+        *static_cast<std::uint32_t *>(result) = graphics_host_value_1;
+        break;
+    case 2:
+        *static_cast<std::uint32_t *>(result) = graphics_host_value_2;
+        break;
+    case 4:
+        *static_cast<std::uint32_t *>(result) = graphics_host_value_3;
+        break;
+    case 5:
+    {
+        char path[260];
+        runtime_script_property_get_api.copy_string(path, reinterpret_cast<char *>(graphics_host_storage + 0xc));
+        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
+        runtime_script_property_get_api.copy_string(static_cast<char *>(result), path);
+        break;
+    }
+    case 6:
+    {
+        void *data;
+        std::int32_t storage;
+        runtime_script_property_get_api.load_resource(static_cast<const char *>(*value), &data, static_cast<std::uint32_t *>(result), &storage, 0x20000000);
+        *value = data;
+        break;
+    }
+    case 8:
+        *static_cast<std::uint32_t *>(result) = runtime_script_property_get_api.get_property_value();
+        break;
+    case 9:
+        *static_cast<std::int32_t *>(result) = runtime_pointer_x;
+        break;
+    case 10:
+        *static_cast<std::int32_t *>(result) = runtime_pointer_y;
+        break;
+    case 11:
+        *static_cast<std::uint32_t *>(result) = runtime_script_property_get_api.query_frame_number(*value);
+        break;
+    case 12:
+        *static_cast<std::int32_t *>(result) = runtime_resource_host_mode;
+        break;
+    }
+}
+
+// GAG.EXE: 0x0041FA00
+GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int width, int height, std::uint32_t flags)
+{
+    if((runtime_scene_control_flags & 0x800) != 0)
+    {
+        return &graphics_host_state;
+    }
+
+    graphics_host_api.gdi_set_batch_limit(1);
+    std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+    std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
+    std::memset(&graphics_script_runtime_root, 0, sizeof(graphics_script_runtime_root));
+    std::memset(graphics_host_critical_sections, 0, sizeof(graphics_host_critical_sections));
+    runtime_scene_control_flags = 0;
+    runtime_resource_host = nullptr;
+    runtime_resource_archive = nullptr;
+    runtime_resource_cache_parent_identity = nullptr;
+    runtime_media_objects_parent_identity = nullptr;
+    runtime_pointer_x = 0;
+    runtime_pointer_y = 0;
+    bool initialized = graphics_host_api.initialize_media(instance) != 0;
+    if(initialized)
+    {
+        initialized = graphics_host_api.register_control(instance) != 0;
+    }
+    if(initialized)
+    {
+        initialized = graphics_host_api.initialize_async() != 0;
+    }
+    if(initialized)
+    {
+        initialized = graphics_host_api.initialize_generic() != 0;
+    }
+    if(initialized)
+    {
+        runtime_resource_heap = graphics_host_api.heap_create(0, 0, 0);
+        initialized = runtime_resource_heap != nullptr;
+    }
+
+    HWND child = nullptr;
+    if(initialized)
+    {
+        runtime_game_host_context.unknown_0038 = static_cast<std::uint32_t>(x);
+        runtime_game_host_context.unknown_003c = static_cast<std::uint32_t>(y);
+        runtime_game_host_context.width = static_cast<std::uint16_t>(width + 3) & 0xfffc;
+        runtime_game_host_context.height = static_cast<std::uint16_t>(height);
+        graphics_host_state.unknown_0000 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(parent));
+        *reinterpret_cast<HINSTANCE *>(graphics_host_storage + 8) = instance;
+
+        WNDCLASSA window_class{};
+        window_class.style = CS_OWNDC;
+        window_class.lpfnWndProc = runtime_game_window_procedure;
+        window_class.hInstance = instance;
+        window_class.hCursor = graphics_host_api.load_cursor(nullptr, IDC_ARROW);
+        window_class.lpszClassName = "Graphical System Child";
+        if(graphics_host_api.register_class(&window_class) != 0)
+        {
+            child = graphics_host_api.create_window_ex(0, "Graphical System Child", nullptr, WS_CHILD, x, y, runtime_game_host_context.width, runtime_game_host_context.height, parent, nullptr,
+                instance, nullptr);
+            graphics_host_state.capture_window = child;
+        }
+        initialized = child != nullptr;
+    }
+
+    if(initialized)
+    {
+        POINT point;
+        graphics_host_api.get_cursor_position(&point);
+        graphics_host_api.screen_to_client(child, &point);
+        if(static_cast<std::int32_t>(runtime_game_host_context.width) < point.x)
+        {
+            point.x = runtime_game_host_context.width - 1;
+        }
+        if(static_cast<std::int32_t>(runtime_game_host_context.height) < point.y)
+        {
+            point.y = runtime_game_host_context.height - 1;
+        }
+        if(point.x < 0)
+        {
+            point.x = 0;
+        }
+        if(point.y < 0)
+        {
+            point.y = 0;
+        }
+        runtime_pointer_x = point.x;
+        runtime_pointer_y = point.y;
+        initialized = graphics_host_api.initialize_display(child, flags & 0x300000) == 0;
+    }
+
+    runtime_target_flags = flags;
+    if(!initialized)
+    {
+        return nullptr;
+    }
+
+    graphics_host_value_1 = 6;
+    runtime_resource_host_mode = 0x6a4;
+    graphics_host_value_2 = 5;
+    graphics_host_value_3 = 5;
+    *reinterpret_cast<void **>(&graphics_script_runtime_root) = graphics_script_storage;
+    const auto set_property = &set_runtime_script_property;
+    const auto get_property = &get_runtime_script_property;
+    std::memcpy(reinterpret_cast<std::uint8_t *>(&graphics_script_runtime_root) + 4, &set_property, sizeof(set_property));
+    std::memcpy(reinterpret_cast<std::uint8_t *>(&graphics_script_runtime_root) + 8, &get_property, sizeof(get_property));
+    graphics_script_runtime_root.heap = graphics_host_api.heap_create(0, 0, 0);
+    if(graphics_script_runtime_root.heap == nullptr)
+    {
+        return nullptr;
+    }
+
+    graphics_host_api.set_script_root(&graphics_script_runtime_root);
+    runtime_resource_cache_parent_identity = graphics_host_api.get_or_create_named_node("OpenMemoryFilesList");
+    graphics_host_api.set_named_node_enabled(runtime_resource_cache_parent_identity, 1);
+    runtime_media_objects_parent_identity = graphics_host_api.get_or_create_named_node("MMediaObjectsList");
+    graphics_host_api.set_named_node_enabled(runtime_media_objects_parent_identity, 1);
+    for(CRITICAL_SECTION &section : graphics_host_critical_sections)
+    {
+        graphics_host_api.initialize_critical_section(&section);
+    }
+
+    runtime_game_host_callbacks[0] = reinterpret_cast<void *>(&invalidate_game_framebuffer_rect);
+    runtime_game_host_callbacks[1] = reinterpret_cast<void *>(&create_runtime_sound_handle);
+    runtime_game_host_callbacks[2] = reinterpret_cast<void *>(&destroy_runtime_sound_handle);
+    runtime_game_host_callbacks[3] = reinterpret_cast<void *>(&queue_runtime_sound_data);
+    runtime_game_host_callbacks[4] = reinterpret_cast<void *>(&start_runtime_sound);
+    runtime_game_host_callbacks[5] = reinterpret_cast<void *>(&stop_runtime_sound);
+    runtime_game_host_callbacks[6] = reinterpret_cast<void *>(&set_runtime_sound_loop_value);
+    runtime_game_host_callbacks[7] = reinterpret_cast<void *>(&create_runtime_animation_backend);
+    runtime_game_host_callbacks[8] = reinterpret_cast<void *>(&configure_runtime_animation_backend);
+    runtime_game_host_callbacks[9] = reinterpret_cast<void *>(&create_runtime_bitmap_backend);
+    runtime_game_host_callbacks[10] = reinterpret_cast<void *>(&configure_runtime_bitmap_backend);
+    runtime_game_host_callbacks[11] = reinterpret_cast<void *>(&finalize_runtime_media_backend);
+    runtime_game_host_callbacks[12] = reinterpret_cast<void *>(&set_runtime_media_backend_scale);
+    runtime_game_host_callbacks[13] = reinterpret_cast<void *>(&apply_runtime_palette_entries);
+    runtime_game_host_callbacks[14] = reinterpret_cast<void *>(&stop_runtime_animation_backend);
+    runtime_game_host_callbacks[15] = reinterpret_cast<void *>(&destroy_runtime_media_backend);
+    runtime_game_host_callbacks[16] = reinterpret_cast<void *>(&acquire_runtime_media_backend);
+    runtime_game_host_callbacks[17] = reinterpret_cast<void *>(&get_locked_runtime_media_extension);
+    runtime_game_host_callbacks[18] = reinterpret_cast<void *>(&release_runtime_media_backend_lock);
+    runtime_game_host_callbacks[19] = &runtime_resource_host;
+    runtime_game_host_callbacks[20] = reinterpret_cast<void *>(&open_async_file_record);
+    runtime_game_host_callbacks[21] = reinterpret_cast<void *>(&close_async_file_record);
+    runtime_game_host_callbacks[22] = reinterpret_cast<void *>(&set_async_file_position);
+    runtime_game_host_callbacks[23] = reinterpret_cast<void *>(&read_async_file_record);
+    runtime_game_host_callbacks[24] = reinterpret_cast<void *>(&get_async_file_position);
+    runtime_game_host_callbacks[25] = reinterpret_cast<void *>(&get_async_file_size);
+    runtime_game_host_callbacks[26] = reinterpret_cast<void *>(&open_cdf_archive);
+    runtime_game_host_callbacks[27] = reinterpret_cast<void *>(&read_cdf_entry);
+    runtime_game_host_callbacks[28] = reinterpret_cast<void *>(&close_cdf_archive);
+    runtime_game_host_callbacks[29] = reinterpret_cast<void *>(&get_cdf_entry_name_by_index);
+    runtime_game_host_callbacks[30] = reinterpret_cast<void *>(&get_cdf_entry_flags);
+    runtime_game_host_callbacks[31] = reinterpret_cast<void *>(&get_cdf_entry_count);
+    runtime_game_host_callbacks[32] = reinterpret_cast<void *>(&get_cdf_index_data_size);
+    runtime_game_host_callbacks[33] = reinterpret_cast<void *>(&get_cdf_entry_size);
+    runtime_game_host_callbacks[34] = reinterpret_cast<void *>(&open_runtime_cdf_entry_stream);
+    graphics_host_api.show_window(child, SW_SHOWNORMAL);
+    runtime_scene_control_flags |= 0x800;
+    return &graphics_host_state;
+}
+
+// GAG.EXE: 0x00420230
+std::uint32_t shutdown_graphics_host()
+{
+    const std::uint32_t display_result = graphics_host_shutdown_api.shutdown_display();
+    std::uint32_t result = 0;
+    if(display_result != 0)
+    {
+        const std::uint32_t generic_result = graphics_host_shutdown_api.shutdown_generic_backend();
+        const std::uint32_t async_result = graphics_host_shutdown_api.shutdown_async_files();
+        const std::uint32_t media_result = graphics_host_shutdown_api.shutdown_media_backend();
+        const std::uint32_t subsystem_result = display_result & generic_result & async_result & media_result;
+        graphics_host_shutdown_api.shutdown_display_modes();
+        if(subsystem_result != 0)
+        {
+            for(CRITICAL_SECTION &section : graphics_host_critical_sections)
+            {
+                graphics_host_shutdown_api.delete_critical_section(&section);
+            }
+            result = subsystem_result & static_cast<std::uint32_t>(graphics_host_shutdown_api.heap_destroy(runtime_resource_heap));
+            graphics_host_shutdown_api.destroy_window(graphics_host_state.capture_window);
+            if(result != 0)
+            {
+                std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+                runtime_resource_heap = nullptr;
+                runtime_resource_host = nullptr;
+                runtime_resource_archive = nullptr;
+                runtime_resource_cache_parent_identity = nullptr;
+                runtime_media_objects_parent_identity = nullptr;
+                std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
+                std::memset(&graphics_script_runtime_root, 0, sizeof(graphics_script_runtime_root));
+                std::memset(graphics_host_critical_sections, 0, sizeof(graphics_host_critical_sections));
+                runtime_scene_control_flags &= 0xfffff7ff;
+            }
+        }
+    }
+    return result;
+}
+
+void set_graphics_host_shutdown_api_for_testing(const GraphicsHostShutdownApi &api)
+{
+    graphics_host_shutdown_api = api;
+}
+
+void set_graphics_host_shutdown_state_for_testing(HANDLE heap, HWND window)
+{
+    runtime_resource_heap = heap;
+    graphics_host_state.capture_window = window;
+}
+
+// GAG.EXE: 0x00427880
+void clear_runtime_display()
+{
+    if(clear_runtime_display_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+    {
+        clear_runtime_display_api.set_clip_rectangle(nullptr);
+        clear_runtime_display_api.operate_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
+        clear_runtime_display_api.release_display_lock();
+        DisplayRectangle rectangle{ 0, 0, runtime_game_host_context.width, runtime_game_host_context.height };
+        clear_runtime_display_api.update_root_region(nullptr, &rectangle, 0);
+    }
+}
+
+void set_clear_runtime_display_api_for_testing(const ClearRuntimeDisplayApi &api)
+{
+    clear_runtime_display_api = api;
+}
+
+void set_clear_runtime_display_size_for_testing(std::uint16_t width, std::uint16_t height)
+{
+    runtime_game_host_context.width = width;
+    runtime_game_host_context.height = height;
+}
+
+// GAG.EXE: 0x0041FEA0
+GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const LegacyDisplayPixelFormat *requested_format)
+{
+    if((runtime_scene_control_flags & 0x800) == 0)
+    {
+        return nullptr;
+    }
+    if((runtime_scene_control_flags & 0x400) != 0)
+    {
+        return &graphics_host_state;
+    }
+
+    const LegacyDisplayPixelFormat *format = requested_format;
+    if(format == nullptr)
+    {
+        DisplayMode *mode = runtime_bootstrap_api.find_current_mode();
+        if(mode == nullptr)
+        {
+            return nullptr;
+        }
+        format = reinterpret_cast<const LegacyDisplayPixelFormat *>(&mode->pixel_format_flags);
+    }
+
+    void *surface = runtime_bootstrap_api.create_surface(runtime_game_host_context.width, runtime_game_host_context.height, format, 0);
+    if(surface == nullptr)
+    {
+        return nullptr;
+    }
+
+    auto *context_bytes = reinterpret_cast<std::uint8_t *>(&runtime_game_host_context);
+    *reinterpret_cast<void **>(context_bytes + 0x24) = surface;
+    *reinterpret_cast<HDC *>(context_bytes + 4) = runtime_bootstrap_api.get_palette_dc();
+    *reinterpret_cast<HDC *>(context_bytes + 0x14) = runtime_bootstrap_api.get_palette_dib_dc();
+    *reinterpret_cast<HPALETTE *>(context_bytes + 0x0c) = runtime_bootstrap_api.get_palette_handle();
+    HBITMAP bitmap = runtime_bootstrap_api.get_palette_bitmap();
+    *reinterpret_cast<HBITMAP *>(context_bytes + 0x18) = bitmap;
+    *reinterpret_cast<HBITMAP *>(context_bytes + 0x1c) = runtime_bootstrap_api.get_palette_bitmap();
+    *reinterpret_cast<PALETTEENTRY **>(context_bytes + 0x34) = runtime_bootstrap_api.get_palette_entries();
+    runtime_game_host_context.window = graphics_host_state.capture_window;
+
+    auto *descriptor = reinterpret_cast<DisplayPixelFormatDescriptor *>(runtime_display_pixel_format_state);
+    descriptor->bits_per_pixel = format->bits_per_pixel;
+    descriptor->red_mask = format->red_mask;
+    descriptor->green_mask = format->green_mask;
+    descriptor->blue_mask = format->blue_mask;
+    if(format->bits_per_pixel == 8)
+    {
+        descriptor->palette_count = 0x100;
+    }
+    else if(format->bits_per_pixel == 16)
+    {
+        descriptor->palette_count = format->green_mask == 0x7e0 ? 0x10000 : 0x8000;
+    }
+    else if(format->bits_per_pixel == 24)
+    {
+        descriptor->palette_count = 0x1000000;
+    }
+    descriptor->palette_source = nullptr;
+    descriptor->palette_entries = nullptr;
+    runtime_game_host_context.bits_per_pixel = format->bits_per_pixel;
+
+    runtime_display_host = runtime_bootstrap_api.initialize_scene_host(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(surface)), descriptor, runtime_game_host_context.width,
+        runtime_game_host_context.height, reinterpret_cast<int(__fastcall *)(void *, void *, std::uint32_t)>(&update_runtime_target), &runtime_game_host_context, 0x0f);
+    if(runtime_display_host == nullptr)
+    {
+        return nullptr;
+    }
+
+    runtime_display_scene_identifier = static_cast<std::int32_t>(
+        reinterpret_cast<std::uintptr_t>(runtime_bootstrap_api.acquire_scene_node(0, 0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 0x20022, 0, nullptr, nullptr)));
+    if(runtime_display_scene_identifier == 0)
+    {
+        return nullptr;
+    }
+
+    DisplaySceneNode *node = runtime_bootstrap_api.lock_scene_node(runtime_display_scene_identifier);
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    *reinterpret_cast<std::int32_t *>(context_bytes + 0x28) = node->callback_first_position;
+    *reinterpret_cast<void **>(context_bytes + 0x2c) = reinterpret_cast<void *>(node->callback_first_position);
+    *reinterpret_cast<std::int32_t *>(context_bytes + 0x30) = node->callback_first_position;
+    runtime_bootstrap_api.unlock_scene_node(runtime_display_scene_identifier);
+
+    if(runtime_bootstrap_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+    {
+        runtime_bootstrap_api.set_clip_rectangle(nullptr);
+        runtime_bootstrap_api.release_display_lock();
+    }
+    runtime_bootstrap_api.operate_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
+    runtime_bootstrap_api.reset_display_state();
+    DWORD thread_id;
+    runtime_display_thread = runtime_bootstrap_api.create_thread(nullptr, 0, runtime_bootstrap_api.script_thread_entry, &graphics_host_state, 0, &thread_id);
+    if(runtime_display_thread == nullptr)
+    {
+        return nullptr;
+    }
+    runtime_scene_control_flags |= 0x600;
+    return &graphics_host_state;
+}
+
+// GAG.EXE: 0x00427830
+void __fastcall invalidate_game_framebuffer_rect(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
+{
+    DisplayRectangle rectangle{ x, y, x + width, y + height };
+    if(framebuffer_invalidate_api.acquire_lock(nullptr, nullptr, nullptr) == 0)
+    {
+        framebuffer_invalidate_api.dispatch_update(&rectangle, 0);
+        framebuffer_invalidate_api.release_lock();
+    }
+}
+
+// GAG.EXE: 0x00417AB0
+void __fastcall initialize_custom_control_gdi(HWND window, CustomControlState *state)
+{
+    state->destination_context = custom_control_gdi_api.get_context(window);
+    state->source_context = custom_control_gdi_api.create_compatible_context(state->destination_context);
+    state->bits_per_pixel = custom_control_gdi_api.get_device_caps(state->destination_context, BITSPIXEL);
+    custom_control_gdi_api.get_client_rect(window, &state->client_rect);
+    if(state->bits_per_pixel == 8)
+    {
+        struct Palette236
+        {
+            WORD version;
+            WORD entry_count;
+            PALETTEENTRY entries[236];
+        } palette{};
+        custom_control_gdi_api.set_system_palette_use(state->destination_context, SYSPAL_STATIC);
+        palette.version = 0x300;
+        palette.entry_count = 0xec;
+        for(PALETTEENTRY &entry : palette.entries)
+        {
+            entry.peFlags = PC_NOCOLLAPSE;
+        }
+        state->palette = custom_control_gdi_api.create_palette(reinterpret_cast<const LOGPALETTE *>(&palette));
+        state->previous_palette = custom_control_gdi_api.select_palette(state->destination_context, state->palette, FALSE);
+    }
+    custom_control_gdi_api.set_stretch_blt_mode(state->destination_context, COLORONCOLOR);
+}
+
+// GAG.EXE: 0x00417B60
+void __fastcall set_custom_control_bitmap(CustomControlState *state, BITMAPINFO *bitmap, int present)
+{
+    if(bitmap->bmiHeader.biBitCount != 8)
+    {
+        return;
+    }
+    if(state->previous_bitmap != nullptr)
+    {
+        custom_control_gdi_api.select_object(state->source_context, state->previous_bitmap);
+        custom_control_gdi_api.delete_object(state->bitmap);
+    }
+    state->source_width = bitmap->bmiHeader.biWidth;
+    state->source_height = bitmap->bmiHeader.biHeight;
+    void *destination_bits;
+    state->bitmap = custom_control_gdi_api.create_dib_section(state->destination_context, bitmap, DIB_PAL_COLORS, &destination_bits, nullptr, 0);
+    state->previous_bitmap = custom_control_gdi_api.select_object(state->source_context, state->bitmap);
+    std::uint32_t pixel_count = static_cast<std::uint32_t>(bitmap->bmiHeader.biWidth * bitmap->bmiHeader.biHeight);
+    std::memcpy(destination_bits, reinterpret_cast<const std::uint8_t *>(bitmap) + 0x428, pixel_count);
+    if(state->bits_per_pixel == 8)
+    {
+        custom_control_gdi_api.unrealize_object(state->palette);
+        PALETTEENTRY entries[236];
+        for(int index = 0; index < 236; ++index)
+        {
+            entries[index].peRed = bitmap->bmiColors[index].rgbRed;
+            entries[index].peGreen = bitmap->bmiColors[index].rgbGreen;
+            entries[index].peBlue = bitmap->bmiColors[index].rgbBlue;
+            entries[index].peFlags = PC_NOCOLLAPSE;
+        }
+        custom_control_gdi_api.set_palette_entries(state->palette, 0, 0xec, entries);
+        custom_control_gdi_api.realize_palette(state->destination_context);
+    }
+    custom_control_gdi_api.set_dib_color_table(state->source_context, 0, 0x100, bitmap->bmiColors);
+    if(present != 0)
+    {
+        custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, bitmap->bmiHeader.biWidth,
+            bitmap->bmiHeader.biHeight, SRCCOPY);
+    }
+}
+
+// GAG.EXE: 0x00417CB0
+void __fastcall realize_and_present_custom_control(CustomControlState *state, BOOL background)
+{
+    custom_control_gdi_api.unrealize_object(state->palette);
+    custom_control_gdi_api.select_palette(state->destination_context, state->palette, background);
+    custom_control_gdi_api.realize_palette(state->destination_context);
+    custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width, state->source_height,
+        SRCCOPY);
+}
+
+// GAG.EXE: 0x00417D10
+void __fastcall destroy_custom_control_gdi(HWND window, CustomControlState *state)
+{
+    if(state->bits_per_pixel == 8)
+    {
+        custom_control_gdi_api.unrealize_object(state->palette);
+        custom_control_gdi_api.select_palette(state->destination_context, state->previous_palette, FALSE);
+        custom_control_gdi_api.delete_object(state->palette);
+    }
+    if(state->previous_bitmap != nullptr)
+    {
+        custom_control_gdi_api.select_object(state->source_context, state->previous_bitmap);
+        custom_control_gdi_api.delete_object(state->bitmap);
+    }
+    custom_control_gdi_api.release_context(window, state->destination_context);
+    custom_control_gdi_api.delete_context(state->source_context);
+}
+
+// GAG.EXE: 0x00417D90
+LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if(message == WM_CREATE)
+    {
+        SetWindowLongA(window, 0, 0);
+        return 0;
+    }
+    if(message == WM_PAINT)
+    {
+        RECT update_rect;
+        if(GetUpdateRect(window, &update_rect, FALSE) == FALSE)
+        {
+            return DefWindowProcA(window, message, wparam, lparam);
+        }
+        PAINTSTRUCT paint;
+        BeginPaint(window, &paint);
+        CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        if(state != nullptr)
+        {
+            StretchBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width, state->source_height, SRCCOPY);
+        }
+        EndPaint(window, &paint);
+        return 0;
+    }
+    if(message == WM_QUERYNEWPALETTE)
+    {
+        CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        if(state != nullptr)
+        {
+            realize_and_present_custom_control(state, FALSE);
+        }
+        return 1;
+    }
+    if(message == WM_PALETTECHANGED)
+    {
+        if(reinterpret_cast<HWND>(wparam) != window)
+        {
+            CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+            if(state != nullptr)
+            {
+                realize_and_present_custom_control(state, TRUE);
+            }
+        }
+        return 0;
+    }
+    if(message != 0x7ff0)
+    {
+        return DefWindowProcA(window, message, wparam, lparam);
+    }
+
+    CustomControlState *state;
+    switch(wparam)
+    {
+    case 1:
+        SetWindowLongA(window, 0, static_cast<LONG>(lparam));
+        initialize_custom_control_gdi(window, reinterpret_cast<CustomControlState *>(lparam));
+        return 1;
+    case 2:
+        return GetWindowLongA(window, 0);
+    case 4:
+    {
+        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        if(state == nullptr)
+        {
+            return 0;
+        }
+        const char *archive_path = reinterpret_cast<const char *>(lparam);
+        if(state->bitmap_identity == nullptr && strings_equal(state->archive_path, archive_path))
+        {
+            return 1;
+        }
+        state->comment_text[0] = 0;
+        CdfArchive *archive = open_cdf_archive(archive_path, 0);
+        if(archive == nullptr)
+        {
+            return 0;
+        }
+        std::uint32_t size = get_cdf_entry_size(archive, 0, "COMMENT.BMP");
+        if(size == 0)
+        {
+            close_cdf_archive(archive);
+            return 0;
+        }
+        void *data = HeapAlloc(GetProcessHeap(), 0, size);
+        if(data == nullptr)
+        {
+            close_cdf_archive(archive);
+            return 0;
+        }
+        char comment[0x104]{};
+        read_cdf_entry(archive, 0, "COMMENT.TXT", comment);
+        read_cdf_entry(archive, 0, "COMMENT.BMP", data);
+        close_cdf_archive(archive);
+        copy_string(state->comment_text, comment);
+        copy_string(state->archive_path, archive_path);
+        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
+        state->bitmap_identity = nullptr;
+        HeapFree(GetProcessHeap(), 0, data);
+        return 1;
+    }
+    case 8:
+        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        if(state != nullptr)
+        {
+            PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+            destroy_custom_control_gdi(window, state);
+        }
+        return 0;
+    case 0x10:
+    {
+        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        const void *identity = reinterpret_cast<const void *>(lparam);
+        if(state == nullptr)
+        {
+            return 0;
+        }
+        if(state->bitmap_identity == identity)
+        {
+            return 1;
+        }
+        state->bitmap_identity = identity;
+        HRSRC resource = FindResourceA(nullptr, reinterpret_cast<LPCSTR>(lparam), RT_BITMAP);
+        HGLOBAL loaded_resource = LoadResource(GetModuleHandleA(nullptr), resource);
+        if(loaded_resource == nullptr)
+        {
+            return 0;
+        }
+        void *data = LockResource(loaded_resource);
+        if(data == nullptr)
+        {
+            return 0;
+        }
+        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
+        FreeResource(loaded_resource);
+        return 1;
+    }
+    case 0x20:
+    {
+        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        const void *data = reinterpret_cast<const void *>(lparam);
+        if(state == nullptr || data == nullptr)
+        {
+            return 0;
+        }
+        if(state->bitmap_identity == data)
+        {
+            return 1;
+        }
+        state->bitmap_identity = data;
+        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<std::uint8_t *>(static_cast<const std::uint8_t *>(data) + 0xe)), 1);
+        return 1;
+    }
+    default:
+        return DefWindowProcA(window, message, wparam, lparam);
+    }
+}
+
+void set_custom_control_gdi_api_for_testing(const CustomControlGdiApi &api)
+{
+    custom_control_gdi_api = api;
+}
+
+// GAG.EXE: 0x00413650
+// GAG.EXE: 0x00412F40
+std::uint32_t initialize_direct_draw_runtime()
+{
+    OSVERSIONINFOA version;
+    version.dwOSVersionInfoSize = sizeof(version);
+    std::uint32_t result = 0x10000;
+    if(display_bootstrap_api.get_version(&version) != FALSE)
+    {
+        result = 1;
+        display_platform_id = version.dwPlatformId;
+        if(display_platform_id >= 1 && display_platform_id <= 2)
+        {
+            direct_draw_module = display_bootstrap_api.load_library("DDRAW.DLL");
+            if(direct_draw_module != nullptr)
+            {
+                result = 0x100000;
+                FARPROC procedure = display_bootstrap_api.get_proc_address(direct_draw_module, "DirectDrawCreate");
+                if(procedure != nullptr)
+                {
+                    result = 0x200000;
+                    void *display = nullptr;
+                    if(reinterpret_cast<DirectDrawCreateProcedure>(procedure)(nullptr, &display, nullptr) == 0)
+                    {
+                        result = 0;
+                        display_direct_draw = display;
+                    }
+                }
+            }
+        }
+    }
+    display_bootstrap_error = result;
+    return result;
+}
+
+// GAG.EXE: 0x00412DB0
+HRESULT WINAPI collect_direct_draw_display_mode(LegacyDirectDrawSurfaceDescriptor *descriptor, void *)
+{
+    if((descriptor->flags & 0x1006) != 0x1006)
+    {
+        return 1;
+    }
+    auto *mode = static_cast<DisplayMode *>(display_bootstrap_api.heap_alloc(display_bootstrap_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(DisplayMode)));
+    if(mode == nullptr)
+    {
+        return 0;
+    }
+    mode->surface_caps = descriptor->caps;
+    mode->width = descriptor->width;
+    mode->height = descriptor->height;
+    mode->pixel_format_flags = descriptor->pixel_format.flags;
+    mode->bits_per_pixel = descriptor->pixel_format.bits_per_pixel;
+    if((descriptor->pixel_format.flags & 0x40) != 0)
+    {
+        mode->red_mask = descriptor->pixel_format.red_mask;
+        mode->green_mask = descriptor->pixel_format.green_mask;
+        mode->blue_mask = descriptor->pixel_format.blue_mask;
+    }
+
+    for(DisplayMode *existing = display_mode_head; existing != nullptr; existing = existing->next)
+    {
+        if(existing->width == mode->width && existing->height == mode->height && existing->bits_per_pixel == mode->bits_per_pixel && existing->green_mask == mode->green_mask)
+        {
+            existing->pixel_format_flags = descriptor->pixel_format.flags;
+            existing->flags |= 0x20000;
+            display_bootstrap_api.heap_free(display_bootstrap_api.get_process_heap(), 0, mode);
+            return 1;
+        }
+    }
+
+    bool unsupported = false;
+    if(mode->bits_per_pixel == 8)
+    {
+        mode->pixel_value_count = 0x100;
+    }
+    else if(mode->bits_per_pixel == 16)
+    {
+        if(mode->green_mask == 0x3e0)
+        {
+            mode->pixel_value_count = 0x8000;
+        }
+        else if(mode->green_mask == 0x7e0)
+        {
+            mode->pixel_value_count = 0x10000;
+        }
+        else
+        {
+            unsupported = true;
+        }
+    }
+    else if(mode->bits_per_pixel == 24)
+    {
+        mode->pixel_value_count = 0x1000000;
+    }
+    if((descriptor->pixel_format.flags & 1) != 0)
+    {
+        mode->alpha_mask = descriptor->pixel_format.alpha_mask;
+    }
+    if(unsupported)
+    {
+        display_bootstrap_api.heap_free(display_bootstrap_api.get_process_heap(), 0, mode);
+        return 1;
+    }
+
+    mode->flags |= 0x20000;
+    ++display_mode_count;
+    if(display_mode_tail == nullptr)
+    {
+        display_mode_head = mode;
+        display_mode_tail = mode;
+    }
+    else
+    {
+        display_mode_tail->next = mode;
+        display_mode_tail = mode;
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00412FE0
+std::uint32_t enumerate_direct_draw_display_modes()
+{
+    std::uint32_t result = 0x200000;
+    if((display_palette_flags & 1) != 0)
+    {
+        display_bootstrap_api.set_cooperative_mode(0x1000);
+        if(display_bootstrap_api.enumerate_modes(display_direct_draw, collect_direct_draw_display_mode) == 0)
+        {
+            result = 0;
+        }
+        display_bootstrap_api.set_cooperative_mode(0);
+    }
+    display_bootstrap_error = result;
+    return result;
+}
+
+void set_display_bootstrap_api_for_testing(const DisplayBootstrapApi &api)
+{
+    display_bootstrap_api = api;
+}
+
+void set_display_bootstrap_state_for_testing(std::uint32_t flags, DisplayMode *head, DisplayMode *tail, std::uint32_t count, void *display)
+{
+    display_palette_flags = flags;
+    display_mode_head = head;
+    display_mode_tail = tail;
+    display_mode_count = count;
+    display_direct_draw = display;
+    display_bootstrap_error = 0;
+    display_platform_id = 0;
+    direct_draw_module = nullptr;
+}
+
+std::uint32_t get_display_bootstrap_error_for_testing()
+{
+    return display_bootstrap_error;
+}
+
+std::uint32_t get_display_mode_count_for_testing()
+{
+    return display_mode_count;
+}
+
+// GAG.EXE: 0x00413030
+std::uint32_t enumerate_windows_display_modes()
+{
+    std::uint32_t result = 0x200000;
+    if((display_palette_flags & 2) != 0)
+    {
+        HDC dc = windows_display_enumeration_api.get_dc(nullptr);
+        DWORD mode_index = 0;
+        DEVMODEA settings;
+        BOOL has_mode;
+        do
+        {
+            has_mode = windows_display_enumeration_api.enum_display_settings(nullptr, mode_index, &settings);
+            ++mode_index;
+            if(windows_display_enumeration_api.change_display_settings(&settings, 2) == DISP_CHANGE_SUCCESSFUL)
+            {
+                bool rejected = false;
+                auto *mode = static_cast<DisplayMode *>(windows_display_enumeration_api.heap_alloc(windows_display_enumeration_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(DisplayMode)));
+                if(mode != nullptr)
+                {
+                    mode->unknown_0008 = settings.dmFields;
+                    mode->surface_caps = settings.dmDisplayFlags;
+                    mode->width = static_cast<std::int32_t>(settings.dmPelsWidth);
+                    mode->height = static_cast<std::int32_t>(settings.dmPelsHeight);
+                    mode->unknown_0010 = settings.dmDisplayFrequency;
+                    mode->bits_per_pixel = static_cast<std::int32_t>(settings.dmBitsPerPel);
+
+                    if((mode->unknown_0008 & 0x400000) != 0)
+                    {
+                        for(DisplayMode *existing = display_mode_head; existing != nullptr; existing = existing->next)
+                        {
+                            if(existing->width == mode->width && existing->height == mode->height && existing->bits_per_pixel == mode->bits_per_pixel && existing->green_mask == mode->green_mask)
+                            {
+                                if(existing->unknown_0010 < mode->unknown_0010)
+                                {
+                                    std::memcpy(&existing->unknown_0004, &mode->unknown_0004, 7 * sizeof(std::uint32_t));
+                                }
+                                rejected = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if(!rejected)
+                    {
+                        if(mode->bits_per_pixel == 8)
+                        {
+                            mode->pixel_value_count = 0x100;
+                        }
+                        else if(mode->bits_per_pixel == 16)
+                        {
+                            auto *bitmap_info = static_cast<BITMAPINFO *>(windows_display_enumeration_api.heap_alloc(windows_display_enumeration_api.get_process_heap(), 0, 0x428));
+                            if(bitmap_info != nullptr)
+                            {
+                                mode->red_mask = 0xf800;
+                                mode->green_mask = 0x7e0;
+                                mode->blue_mask = 0x1f;
+                                HBITMAP bitmap;
+                                do
+                                {
+                                    std::memset(bitmap_info, 0, 0x428);
+                                    bitmap_info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                                    bitmap_info->bmiHeader.biSizeImage = 200;
+                                    bitmap_info->bmiHeader.biWidth = 10;
+                                    bitmap_info->bmiHeader.biHeight = -10;
+                                    bitmap_info->bmiHeader.biPlanes = 1;
+                                    bitmap_info->bmiHeader.biBitCount = 16;
+                                    bitmap_info->bmiHeader.biClrUsed = mode->green_mask == 0x7e0 ? 0x10000 : 0x8000;
+                                    bitmap_info->bmiHeader.biCompression = mode->green_mask == 0x7e0 ? 3 : 0;
+                                    auto *masks = reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors);
+                                    masks[0] = mode->red_mask;
+                                    masks[1] = mode->green_mask;
+                                    masks[2] = mode->blue_mask;
+                                    void *bits;
+                                    bitmap = windows_display_enumeration_api.create_dib_section(dc, bitmap_info, 0, &bits, nullptr, 0);
+                                    if(bitmap != nullptr || mode->green_mask != 0x7e0)
+                                    {
+                                        break;
+                                    }
+                                    mode->green_mask = 0x3e0;
+                                    mode->red_mask = 0x7c00;
+                                } while(true);
+
+                                if(bitmap == nullptr)
+                                {
+                                    rejected = true;
+                                    windows_display_enumeration_api.heap_free(windows_display_enumeration_api.get_process_heap(), 0, mode);
+                                }
+                                windows_display_enumeration_api.heap_free(windows_display_enumeration_api.get_process_heap(), 0, bitmap_info);
+                                if(bitmap != nullptr)
+                                {
+                                    windows_display_enumeration_api.delete_object(bitmap);
+                                    mode->pixel_value_count = mode->green_mask == 0x7e0 ? 0x10000 : 0x8000;
+                                }
+                            }
+                        }
+                        else if(mode->bits_per_pixel == 24)
+                        {
+                            mode->pixel_value_count = 0x1000000;
+                        }
+                    }
+
+                    if(rejected)
+                    {
+                        windows_display_enumeration_api.heap_free(windows_display_enumeration_api.get_process_heap(), 0, mode);
+                    }
+                    else
+                    {
+                        mode->flags |= 0x10000;
+                        ++display_mode_count;
+                        if(display_mode_tail == nullptr)
+                        {
+                            display_mode_head = mode;
+                            display_mode_tail = mode;
+                        }
+                        else
+                        {
+                            display_mode_tail->next = mode;
+                            display_mode_tail = mode;
+                        }
+                    }
+                    result = 0;
+                }
+            }
+        } while(has_mode != FALSE);
+        windows_display_enumeration_api.release_dc(nullptr, dc);
+    }
+    display_bootstrap_error = result;
+    return result;
+}
+
+void set_windows_display_enumeration_api_for_testing(const WindowsDisplayEnumerationApi &api)
+{
+    windows_display_enumeration_api = api;
+}
+
+// GAG.EXE: 0x00413380
+std::uint32_t __fastcall initialize_display_mode_host(HWND window, std::uint32_t options)
+{
+    std::uint32_t result = 0;
+    if((display_palette_flags & 0x10) == 0)
+    {
+        display_palette_flags = (display_palette_flags & 0x80000003) | options;
+        display_palette_window = window;
+    }
+    if((display_palette_flags & 0x80000000) == 0)
+    {
+        display_host_initialization_api.initialize_critical_section(&display_host_critical_section);
+        display_palette_flags |= 2;
+        result = display_host_initialization_api.enumerate_windows_modes();
+        display_palette_flags &= 0xfffffffd;
+        if(result == 0)
+        {
+            result = 1;
+            if((options & 0x300000) != 0x300000)
+            {
+                result = display_host_initialization_api.initialize_direct_draw();
+            }
+            if(result == 0)
+            {
+                display_palette_flags |= 1;
+                result = display_host_initialization_api.enumerate_direct_draw_modes();
+            }
+            else if(result == 1 || result == 0x100000)
+            {
+                result = 0;
+                display_palette_flags |= 2;
+            }
+            if(result != 0)
+            {
+                display_host_initialization_api.delete_critical_section(&display_host_critical_section);
+                return result;
+            }
+            display_host_initialization_api.find_current_mode();
+            display_palette_flags |= 0x80000000;
+            return 0;
+        }
+        display_host_initialization_api.delete_critical_section(&display_host_critical_section);
+    }
+    return result;
+}
+
+void set_display_host_initialization_api_for_testing(const DisplayHostInitializationApi &api)
+{
+    display_host_initialization_api = api;
+}
+
+void set_display_host_initialization_state_for_testing(std::uint32_t flags, HWND window)
+{
+    display_palette_flags = flags;
+    display_palette_window = window;
+}
+
+HWND get_display_host_window_for_testing()
+{
+    return display_palette_window;
+}
+
+// GAG.EXE: 0x00413650
+DisplayMode *__fastcall begin_display_mode_enumeration(std::uint32_t mask)
+{
+    display_mode_iterator = display_mode_head;
+    while(display_mode_iterator != nullptr && (display_mode_iterator->flags & mask & 0x30000) == 0)
+    {
+        display_mode_iterator = display_mode_iterator->next;
+    }
+    return display_mode_iterator;
+}
+
+// GAG.EXE: 0x004136A0
+DisplayMode *__fastcall get_next_display_mode(std::uint32_t mask)
+{
+    display_mode_iterator = display_mode_iterator->next;
+    while(display_mode_iterator != nullptr && (display_mode_iterator->flags & mask & 0x30000) == 0)
+    {
+        display_mode_iterator = display_mode_iterator->next;
+    }
+    return display_mode_iterator;
+}
+
+// GAG.EXE: 0x004136F0
+DisplayMode *find_current_display_mode()
+{
+    DisplayMode *result = nullptr;
+    DisplayMode *mode = display_mode_head;
+    if(mode != nullptr)
+    {
+        HDC display = CreateICA("DISPLAY", nullptr, nullptr, nullptr);
+        int bits_per_pixel = GetDeviceCaps(display, BITSPIXEL);
+        int width = GetDeviceCaps(display, HORZRES);
+        int height = GetDeviceCaps(display, VERTRES);
+        DeleteDC(display);
+
+        while(mode != nullptr)
+        {
+            if(mode->width == width && mode->height == height && mode->bits_per_pixel == bits_per_pixel)
+            {
+                result = mode;
+                current_display_mode = mode;
+                break;
+            }
+            mode = mode->next;
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041F960
+DisplayMode *get_current_display_mode()
+{
+    if((graphics_host_flags & 0x800) != 0)
+    {
+        return find_current_display_mode();
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0041F980
+DisplayMode *__fastcall begin_available_display_modes(std::uint32_t mask)
+{
+    if((graphics_host_flags & 0x800) != 0)
+    {
+        return begin_display_mode_enumeration(mask);
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0041F9A0
+DisplayMode *__fastcall get_next_available_display_mode(std::uint32_t mask)
+{
+    if((graphics_host_flags & 0x800) != 0)
+    {
+        return get_next_display_mode(mask);
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0041EFA0
+std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
+{
+    std::uint32_t remaining = 0x18;
+    DisplayMode *active_mode = get_current_display_mode();
+    do
+    {
+        remaining -= 8;
+        state->display_mode_iterator = begin_available_display_modes(0x10000);
+        while(state->display_mode_iterator != nullptr)
+        {
+            DisplayMode *candidate = state->display_mode_iterator;
+            if(candidate->bits_per_pixel == active_mode->bits_per_pixel && candidate != active_mode && candidate->width == 640 && candidate->height == 480)
+            {
+                remaining = 8;
+                state->flags |= 0x4000;
+                break;
+            }
+            state->display_mode_iterator = get_next_available_display_mode(0x10000);
+        }
+    } while(remaining > 8);
+    return state->flags & 0x4000;
+}
+
+// GAG.EXE: 0x0041EBD0
+void __fastcall locate_game_data_drive(ApplicationState *state, const char *requested_archive)
+{
+    state->installed_version[0] = '\0';
+    char candidate_path[MAX_PATH]{};
+    DWORD required_size = drive_discovery_api.get_logical_drive_strings(0, nullptr);
+    if(required_size == 0)
+    {
+        return;
+    }
+
+    SIZE_T allocation_size = (required_size + 8) & 0xfffffffc;
+    HANDLE heap = drive_discovery_api.get_process_heap();
+    auto *drives = static_cast<char *>(drive_discovery_api.heap_alloc(heap, HEAP_ZERO_MEMORY, allocation_size));
+    if(drives == nullptr)
+    {
+        return;
+    }
+
+    DWORD drive_string_size = drive_discovery_api.get_logical_drive_strings(required_size, drives);
+    bool found = false;
+    for(DWORD drive_index = 0; drive_index < (drive_string_size >> 2) && !found; ++drive_index)
+    {
+        const char *drive = drives + drive_index * 4;
+        copy_string(candidate_path, drive);
+        UINT drive_type = drive_discovery_api.get_drive_type(candidate_path);
+        if(drive_type == DRIVE_RAMDISK || drive_type == DRIVE_REMOTE || drive_type == DRIVE_REMOVABLE || drive_type <= DRIVE_NO_ROOT_DIR)
+        {
+            continue;
+        }
+
+        append_string(candidate_path, "*.cdf");
+        WIN32_FIND_DATAA find_data{};
+        HANDLE find = drive_discovery_api.find_first_file(candidate_path, &find_data);
+        if(find == INVALID_HANDLE_VALUE)
+        {
+            continue;
+        }
+
+        do
+        {
+            copy_directory_from_path(candidate_path, candidate_path);
+            append_string(candidate_path, find_data.cFileName);
+            CdfArchive *archive = drive_discovery_api.open_archive(candidate_path, 0);
+            if(archive != nullptr)
+            {
+                char version[MAX_PATH]{};
+                if(drive_discovery_api.read_entry(archive, 0, "Version.txt", version) != 0 && strings_equal(version, "Russian Edition Version 2.51"))
+                {
+                    copy_directory_from_path(version, "*.cdf");
+                    copy_string(state->installed_version, drive);
+                    append_string(state->installed_version, version);
+                    append_string(state->installed_version, find_data.cFileName);
+                    if(drive_discovery_api.compare_case_insensitive(find_data.cFileName, requested_archive) == 0)
+                    {
+                        found = true;
+                    }
+                }
+                drive_discovery_api.close_archive(archive);
+            }
+        } while(!found && drive_discovery_api.find_next_file(find, &find_data) != FALSE);
+        drive_discovery_api.find_close(find);
+    }
+
+    drive_discovery_api.heap_free(heap, 0, drives);
+}
+
+// GAG.EXE: 0x0041F040
+int __fastcall validate_startup_environment(ApplicationState *state, const char *requested_archive, std::uint32_t stages)
+{
+    if((state->validation_flags & 0x80000000) == 0)
+    {
+        state->validation_flags |= stages;
+    }
+
+    if((stages & 1) != 0 && validation_api.find_window("FlcAppClassNT", nullptr) != nullptr)
+    {
+        return 0;
+    }
+
+    if((stages & 2) != 0)
+    {
+        std::uint32_t registry_result = validation_api.load_registry(state);
+        std::ptrdiff_t error_offset = 0;
+        if(registry_result == 0x10000)
+        {
+            error_offset = 0x1144;
+        }
+        else if(registry_result == 0x20000)
+        {
+            error_offset = 0x1248;
+        }
+        else if(registry_result == 0x40000)
+        {
+            error_offset = 0x134c;
+        }
+        if(error_offset != 0)
+        {
+            validation_api.message_box(state->window, state->message_table + error_offset, state->message_table, MB_ICONERROR);
+            return 0;
+        }
+
+        char path[MAX_PATH];
+        WIN32_FIND_DATAA find_data;
+        copy_string(path, state->installation_path);
+        append_string(path, "AutoSave.cdf");
+        HANDLE find = validation_api.find_first_file(path, &find_data);
+        if(find == INVALID_HANDLE_VALUE)
+        {
+            state->flags |= 0x200000;
+        }
+        else
+        {
+            validation_api.find_close(find);
+        }
+
+        copy_string(path, state->installation_path);
+        append_string(path, "*");
+        append_string(path, ".GSF");
+        find = validation_api.find_first_file(path, &find_data);
+        if(find == INVALID_HANDLE_VALUE)
+        {
+            state->flags |= 0x100000;
+        }
+        else
+        {
+            validation_api.find_close(find);
+        }
+    }
+
+    if((stages & 4) != 0 && state->archive_context == nullptr)
+    {
+        validation_api.locate_drive(state, requested_archive);
+        if(state->installed_version[0] == '\0')
+        {
+            if((stages & 0x20) != 0)
+            {
+                validation_api.message_box(state->window, state->message_table + 0xf3c, state->message_table, MB_ICONERROR);
+            }
+            return 0;
+        }
+    }
+    else if((stages & 0x80) != 0 && state->archive_context == nullptr)
+    {
+        validation_api.get_module_file_name(nullptr, state->installed_version, sizeof(state->installed_version));
+        copy_directory_from_path(state->installed_version, state->installed_version);
+        append_string(state->installed_version, requested_archive);
+    }
+    else if(state->archive_context != nullptr)
+    {
+        state->installed_version[0] = '\0';
+        copy_string(state->installed_version, requested_archive);
+    }
+
+    if((stages & 8) != 0 && state->archive_context == nullptr)
+    {
+        std::uint32_t speed = validation_api.measure_read_speed(state->installed_version, 0x180000);
+        if(speed == 0)
+        {
+            if((stages & 0x20) != 0)
+            {
+                validation_api.message_box(state->window, state->message_table + 0xf3c, state->message_table, MB_ICONERROR);
+            }
+            return 0;
+        }
+        if(speed < 0x226 && (stages & 0x40) != 0 && validation_api.message_box(state->window, state->message_table + 0x1450, state->message_table, MB_ICONQUESTION | MB_YESNO) == IDNO)
+        {
+            return 0;
+        }
+    }
+
+    if((stages & 0x10) != 0)
+    {
+        DEVMODEA mode{};
+        HDC context = validation_api.create_information_context("DISPLAY", nullptr, nullptr, &mode);
+        state->display_bits_per_pixel = validation_api.get_device_caps(context, BITSPIXEL);
+        state->display_width = validation_api.get_device_caps(context, HORZRES);
+        state->display_height = validation_api.get_device_caps(context, VERTRES);
+        validation_api.delete_context(context);
+        if(state->display_bits_per_pixel < 8)
+        {
+            validation_api.message_box(state->window, state->message_table + 0x1554, state->message_table, MB_ICONERROR);
+            return 0;
+        }
+        if(state->display_bits_per_pixel > 16)
+        {
+            validation_api.message_box(state->window, state->message_table + 0x1658, state->message_table, MB_ICONERROR);
+            return 0;
+        }
+    }
+
+    if((stages & 0x200) != 0)
+    {
+        validation_api.detect_alternate_mode(state);
+        if((stages & 0x400) != 0)
+        {
+            state->flags |= 0x20;
+            state->flags &= 0xffffff7f;
+        }
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x0041F4E0
+void __fastcall initialize_application_state_no_op(ApplicationState *) {}
+
+// Diagnostic backing storage for the executable's writable message block at 0x0043F178. Only its confirmed caption prefix is populated until the complete block is recovered.
+char application_message_table[0x2000] = "GAG";
+
+// GAG.EXE: 0x0041F4F0
+ApplicationState *__fastcall initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR, int show_command)
+{
+    application_initialization_api.set_error_mode(0x8001);
+    ApplicationState *state = static_cast<ApplicationState *>(application_initialization_api.heap_alloc(application_initialization_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(ApplicationState)));
+    if(state == nullptr)
+    {
+        return nullptr;
+    }
+
+    state->instance = instance;
+    state->message_table = application_message_table;
+    application_initialization_api.initialize_state(state);
+    if(!application_initialization_api.register_window_classes(state))
+    {
+        return nullptr;
+    }
+    if(application_initialization_api.register_control_class(instance) == 0)
+    {
+        return nullptr;
+    }
+
+    state->width = width;
+    state->height = height;
+    state->flags |= 2;
+    application_initialization_api.copy_string(state->executable_directory, "Gag01.cdf");
+    if(application_initialization_api.validate_environment(state, state->executable_directory, 0xfffef9ff) == 0)
+    {
+        return nullptr;
+    }
+
+    state->desktop_window_rect.left = 0;
+    state->desktop_window_rect.top = 0;
+    state->desktop_window_rect.right = application_initialization_api.get_system_metrics(SM_CXSCREEN);
+    state->desktop_window_rect.bottom = application_initialization_api.get_system_metrics(SM_CYSCREEN);
+    application_initialization_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
+    state->desktop_window_rect.top -= application_initialization_api.get_system_metrics(SM_CYCAPTION);
+    state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+
+    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", 0x82000000, state->desktop_window_rect.left, state->desktop_window_rect.top,
+        state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
+    if(state->window == nullptr)
+    {
+        return nullptr;
+    }
+    application_initialization_api.show_window(state->window, show_command);
+    application_initialization_api.set_window_position(state->window, nullptr, 0, 0, 0, 0, 0x103);
+
+    RECT client_rectangle;
+    application_initialization_api.get_client_rect(state->window, &client_rectangle);
+    state->content_left = static_cast<std::int32_t>(static_cast<std::uint32_t>(client_rectangle.right - width) >> 1);
+    state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
+    state->content_right = state->content_left + width;
+    state->content_bottom = state->content_top + height;
+
+    GraphicsHostInitializationResult *graphics = application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top, width, height, 0x300000);
+    if(graphics == nullptr)
+    {
+        return nullptr;
+    }
+    state->capture_window = graphics->capture_window;
+    state->game_context = graphics;
+    application_initialization_api.validate_environment(state, state->executable_directory, 0x200);
+    application_initialization_api.switch_display_mode(state, 1);
+
+    const LegacyDisplayPixelFormat *format = nullptr;
+    if(state->display_mode_iterator != nullptr)
+    {
+        format = reinterpret_cast<const LegacyDisplayPixelFormat *>(&state->display_mode_iterator->pixel_format_flags);
+    }
+    if(application_initialization_api.initialize_runtime(format) == nullptr)
+    {
+        return nullptr;
+    }
+
+    application_initialization_api.update_window_layout(state, nullptr);
+    if((state->flags & 0x1000) != 0)
+    {
+        application_initialization_api.enable_runtime();
+    }
+    if(graphics->bits_per_pixel > 8)
+    {
+        application_initialization_api.set_active_object_field(1);
+    }
+    application_initialization_api.copy_string(state->startup_config, "Start.cfg");
+    if(state->archive_context != nullptr && application_initialization_api.detect_resource_type(state->installed_version) == 4)
+    {
+        application_initialization_api.copy_string(state->startup_config, state->installed_version);
+    }
+    return state;
+}
+
+void set_application_initialization_api_for_testing(const ApplicationInitializationApi &api)
+{
+    application_initialization_api = api;
+}
+
+// GAG.EXE: 0x00429DF0
+std::uint32_t __fastcall initialize_runtime_media_backend(HINSTANCE instance)
+{
+    if(runtime_media_backend_initialized)
+    {
+        return 1;
+    }
+    runtime_media_backend_heap = runtime_backend_initialization_api.heap_create(0, 0, 0);
+    if(runtime_media_backend_heap == nullptr)
+    {
+        return 0;
+    }
+    runtime_media_backend_mutex = runtime_backend_initialization_api.create_mutex(nullptr, FALSE, nullptr);
+    if(runtime_media_backend_mutex == nullptr)
+    {
+        return 0;
+    }
+    runtime_backend_initialization_api.initialize_sound_class(instance);
+    runtime_media_backend_initialized = true;
+    return 1;
+}
+
+// GAG.EXE: 0x00410B70
+std::uint32_t initialize_runtime_generic_backend()
+{
+    if(runtime_generic_backend_enabled != 0)
+    {
+        return 1;
+    }
+    runtime_generic_backend_mutex = runtime_backend_initialization_api.create_mutex(nullptr, FALSE, nullptr);
+    if(runtime_generic_backend_mutex == nullptr)
+    {
+        return 0;
+    }
+    runtime_backend_initialization_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    runtime_generic_backend_enabled = 1;
+    runtime_backend_initialization_api.release_mutex(runtime_generic_backend_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x00410BD0
+std::uint32_t shutdown_runtime_generic_backend()
+{
+    if(runtime_generic_backend_enabled != 0)
+    {
+        runtime_generic_backend_shutdown_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        runtime_generic_backend_enabled = 0;
+        runtime_generic_backend_shutdown_api.release_mutex(runtime_generic_backend_mutex);
+        while(runtime_generic_backend_head != nullptr)
+        {
+            runtime_generic_backend_shutdown_api.destroy_backend(runtime_generic_backend_head);
+        }
+        runtime_generic_backend_shutdown_api.close_handle(runtime_generic_backend_mutex);
+        runtime_generic_backend_mutex = nullptr;
+    }
+    return 1;
+}
+
+void set_runtime_generic_backend_shutdown_api_for_testing(const RuntimeGenericBackendShutdownApi &api)
+{
+    runtime_generic_backend_shutdown_api = api;
+}
+
+// GAG.EXE: 0x0042B290
+RuntimeMediaBackend *acquire_first_runtime_media_backend()
+{
+    return acquire_runtime_media_backend(runtime_media_backend_head);
+}
+
+// GAG.EXE: 0x00429E50
+std::uint32_t shutdown_runtime_media_backend()
+{
+    if(!runtime_media_backend_initialized)
+    {
+        return 0;
+    }
+    RuntimeMediaBackend *backend = runtime_media_backend_shutdown_api.acquire_first_backend();
+    if(backend != nullptr)
+    {
+        runtime_media_backend_shutdown_api.release_backend_lock(backend);
+        return 0;
+    }
+    runtime_media_backend_shutdown_api.heap_destroy(runtime_media_backend_heap);
+    runtime_media_backend_shutdown_api.close_handle(runtime_media_backend_mutex);
+    runtime_media_backend_initialized = false;
+    runtime_media_backend_shutdown_api.shutdown_sound();
+    return 1;
+}
+
+void set_runtime_media_backend_shutdown_api_for_testing(const RuntimeMediaBackendShutdownApi &api)
+{
+    runtime_media_backend_shutdown_api = api;
+}
+
+// GAG.EXE: 0x00414E10
+std::uint32_t initialize_async_file_subsystem()
+{
+    if(async_file_enabled)
+    {
+        return 1;
+    }
+    runtime_backend_initialization_api.initialize_critical_section(&async_file_global_lock);
+    async_file_enabled = true;
+    return 1;
+}
+
+void set_runtime_backend_initialization_api_for_testing(const RuntimeBackendInitializationApi &api)
+{
+    runtime_backend_initialization_api = api;
+}
+
+void set_runtime_backend_initialization_state_for_testing(bool media_initialized, bool generic_initialized, bool async_initialized)
+{
+    runtime_media_backend_initialized = media_initialized;
+    runtime_generic_backend_enabled = generic_initialized ? 1 : 0;
+    async_file_enabled = async_initialized;
+    runtime_media_backend_heap = nullptr;
+    runtime_media_backend_mutex = nullptr;
+    runtime_generic_backend_mutex = nullptr;
+}
+
+HANDLE get_runtime_media_backend_heap_for_testing()
+{
+    return runtime_media_backend_heap;
+}
+
+HANDLE get_runtime_media_backend_mutex_for_testing()
+{
+    return runtime_media_backend_mutex;
+}
+
+HANDLE get_runtime_generic_backend_mutex_for_testing()
+{
+    return runtime_generic_backend_mutex;
+}
+
+// GAG.EXE: 0x00404970
+void __fastcall set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
+{
+    if(root != reinterpret_cast<ScriptRuntimeRoot *>(static_cast<std::uintptr_t>(0xffffffff)))
+    {
+        script_runtime_root = root;
+    }
+}
+
+// GAG.EXE: 0x00407EA0
+void __fastcall set_runtime_named_node_enabled(void *identity, int enabled)
+{
+    for(RuntimeNamedNode *node = script_runtime_root->runtime_nodes; node != nullptr; node = node->next)
+    {
+        if(node->identity == identity)
+        {
+            if(enabled != 0)
+            {
+                node->flags |= 1;
+            }
+            else
+            {
+                node->flags &= 0xfffffffe;
+            }
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0041F3D0
+bool __fastcall register_gag_window_classes(ApplicationState *state)
+{
+    HBRUSH background = window_class_api.create_solid_brush(0);
+    WNDCLASSEXA window_class{};
+    window_class.cbSize = sizeof(window_class);
+    window_class.lpfnWndProc = window_class_api.primary_window_procedure;
+    window_class.cbWndExtra = 4;
+    window_class.hInstance = state->instance;
+    window_class.hIcon = window_class_api.load_icon(state->instance, MAKEINTRESOURCEA(105));
+    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
+    window_class.hbrBackground = background;
+    window_class.lpszClassName = "FlcAppClassNT";
+    ATOM primary_result = window_class_api.register_class_ex(&window_class);
+
+    window_class = {};
+    window_class.cbSize = sizeof(window_class);
+    window_class.lpfnWndProc = window_class_api.capture_window_procedure;
+    window_class.cbWndExtra = 4;
+    window_class.hInstance = state->instance;
+    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
+    window_class.hbrBackground = background;
+    window_class.lpszClassName = "FlcCapClassNT";
+    window_class.hIconSm = window_class_api.load_icon(state->instance, MAKEINTRESOURCEA(105));
+    ATOM capture_result = window_class_api.register_class_ex(&window_class);
+
+    if(primary_result == 0 || capture_result == 0)
+    {
+        window_class_api.message_box(nullptr, state->message_table + 0xe38, state->message_table, MB_ICONERROR);
+    }
+    return primary_result != 0 && capture_result != 0;
+}
+
+// GAG.EXE: 0x004174B0
+std::uint32_t __fastcall register_custom_control_class(HINSTANCE instance)
+{
+    if(custom_control_registered != 0)
+    {
+        return 1;
+    }
+
+    WNDCLASSA window_class{};
+    window_class.style = CS_OWNDC;
+    window_class.lpfnWndProc = window_class_api.custom_control_procedure;
+    window_class.cbWndExtra = 0x10;
+    window_class.hInstance = instance;
+    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
+    window_class.hbrBackground = window_class_api.create_solid_brush(0);
+    window_class.lpszClassName = "lpszCustomControl";
+    ATOM result = window_class_api.register_class(&window_class);
+    custom_control_instance = instance;
+    custom_control_registered = result != 0;
+    return custom_control_registered;
+}
+
+// GAG.EXE: 0x0041E680
+LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    auto *state = reinterpret_cast<ApplicationState *>(window_procedure_api.get_window_long(window, 0));
+    if(state != nullptr && (state->flags & 0x80000000) != 0 && (message < 0x30f || message > 0x311))
+    {
+        return 0;
+    }
+
+    if(message == WM_CREATE)
+    {
+        auto *create = reinterpret_cast<CREATESTRUCTA *>(lparam);
+        state = static_cast<ApplicationState *>(create->lpCreateParams);
+        window_procedure_api.set_window_long(window, 0, reinterpret_cast<LONG>(state));
+        HMENU menu = window_procedure_api.get_system_menu(window, FALSE);
+        window_procedure_api.delete_menu(menu, SC_RESTORE, 0);
+        window_procedure_api.delete_menu(menu, SC_MAXIMIZE, 0);
+        window_procedure_api.delete_menu(menu, SC_SIZE, 0);
+        if((state->validation_flags & 0x100) != 0)
+        {
+            HMENU menu_bar = window_procedure_api.create_menu();
+            state->game_menu = window_procedure_api.create_popup_menu();
+            state->options_menu = window_procedure_api.create_popup_menu();
+            state->system_menu = window_procedure_api.create_popup_menu();
+            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->game_menu), state->message_table + 0x104);
+            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->options_menu), state->message_table + 0x208);
+            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->system_menu), state->message_table + 0x30c);
+            window_procedure_api.append_menu(state->options_menu, 0, 0x8820, state->message_table + 0xa28);
+            window_procedure_api.check_menu_item(state->options_menu, 0x8820, (state->flags & 0x2000000) != 0 ? MF_CHECKED : 0);
+            window_procedure_api.append_menu(state->options_menu, 0, 0x8850, state->message_table + 0xb2c);
+            window_procedure_api.check_menu_item(state->options_menu, 0x8850, (state->flags & 0x1000) != 0 ? MF_CHECKED : 0);
+            window_procedure_api.append_menu(state->options_menu, 0, 0x8840, "Save Screen");
+            window_procedure_api.append_menu(state->system_menu, 0, 0x8900, state->message_table + 0xc30);
+            window_procedure_api.append_menu(state->system_menu, 0, 0x8910, state->message_table + 0xd34);
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8790, "Pause Game");
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8800, "Resume Game");
+            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8810, state->message_table + 0x410);
+            if((state->flags & 0x100000) != 0)
+            {
+                window_procedure_api.enable_menu_item(state->game_menu, 0x8810, MF_GRAYED);
+            }
+            window_procedure_api.append_menu(state->game_menu, MF_GRAYED, 0x8780, state->message_table + 0x514);
+            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8860, state->message_table + 0x618);
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8870, state->message_table + 0x71c);
+            if((state->flags & 0x200000) != 0)
+            {
+                window_procedure_api.enable_menu_item(state->game_menu, 0x8870, MF_GRAYED);
+            }
+            window_procedure_api.append_menu(state->game_menu, MF_CHECKED, 0x8880, state->message_table + 0x820);
+            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
+            window_procedure_api.append_menu(state->game_menu, 0, 0x8890, state->message_table + 0x924);
+            window_procedure_api.set_menu(window, menu_bar);
+        }
+        return 0;
+    }
+
+    if(message == WM_ACTIVATE && state != nullptr && LOWORD(wparam) == 0 && HIWORD(wparam) == 0 && reinterpret_cast<HWND>(lparam) != state->window)
+    {
+        if((state->flags & 0x80000000) != 0)
+        {
+            return 0;
+        }
+        if((state->flags & 0x40000000) == 0)
+        {
+            window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        }
+    }
+    else if(message == WM_CLOSE)
+    {
+        window_procedure_api.destroy_window(state->window);
+        return 0;
+    }
+    else if(message == WM_ACTIVATEAPP)
+    {
+        return 0;
+    }
+    else if(message == WM_NCHITTEST)
+    {
+        LRESULT result = window_procedure_api.default_window_procedure(window, message, wparam, lparam);
+        if(result == HTCAPTION || result == HTMENU || result == HTSYSMENU || result == HTMINBUTTON)
+        {
+            window_procedure_api.update_cursor_state(state, 1);
+        }
+        return result;
+    }
+    else if(message == WM_NCACTIVATE)
+    {
+        return 1;
+    }
+    else if(message == WM_KEYDOWN || message == WM_CHAR)
+    {
+        if(state->game_context != nullptr)
+        {
+            HWND target = *reinterpret_cast<HWND *>(static_cast<std::uint8_t *>(state->game_context) + 4);
+            return window_procedure_api.send_message(target, message, wparam, lparam);
+        }
+    }
+    else if(message == WM_COMMAND || message == WM_SYSCOMMAND)
+    {
+        return window_procedure_api.send_message(state->window, message, wparam, lparam);
+    }
+    else if(message == WM_MENUSELECT)
+    {
+        if(HIWORD(wparam) == 0xffff && lparam == 0)
+        {
+            state->flags &= 0xfbffffff;
+        }
+        else
+        {
+            state->flags |= 0x4000000;
+        }
+    }
+
+    return window_procedure_api.default_window_procedure(window, message, wparam, lparam);
+}
+
+// GAG.EXE: 0x0041D060
+void __fastcall save_runtime_settings(ApplicationState *state)
+{
+    if(state->archive_context == nullptr)
+    {
+        std::uint32_t settings = state->flags & 0x02001020;
+        HKEY key;
+        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+        {
+            settings_registry_api.set_value(key, "set", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&settings), sizeof(settings));
+            settings_registry_api.close_key(key);
+        }
+    }
+}
+
+// GAG.EXE: 0x0041D0D0
+void __fastcall set_game_cursor_active(ApplicationState *state, int active)
+{
+    if(active == 0)
+    {
+        if((state->flags & 1) == 0)
+        {
+            cursor_visibility_api.show_cursor(FALSE);
+            cursor_visibility_api.on_cursor_hidden();
+            state->flags |= 1;
+        }
+    }
+    else if((state->flags & 1) != 0)
+    {
+        cursor_visibility_api.show_cursor(TRUE);
+        cursor_visibility_api.on_cursor_shown();
+        state->flags &= 0xfffffffe;
+    }
+}
+
+// GAG.EXE: 0x0041D510
+void __fastcall finish_credits_state(ApplicationState *state, StateFieldReference *reference)
+{
+    if(reference->activity == 0 && (state->validation_flags & 0x100) != 0 && (state->flags & 0x10000) != 0 && strings_equal("CREDITS", reference->name))
+    {
+        state->flags &= 0xfffeffff;
+        finish_credits_callback();
+        application_hook_no_op_2();
+    }
+}
+
+// GAG.EXE: 0x0041CE60
+void __fastcall update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
+{
+    if(secondary_layout != nullptr)
+    {
+        secondary_layout->state = 0;
+        secondary_layout->flags &= 0xfffffff8;
+        secondary_layout->x = state->desktop_window_rect.left;
+        secondary_layout->y = state->desktop_window_rect.top;
+        secondary_layout->width = state->desktop_window_rect.right - state->desktop_window_rect.left;
+        secondary_layout->height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
+        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
+        return;
+    }
+
+    state->desktop_window_rect.left = 0;
+    state->desktop_window_rect.top = 0;
+    state->desktop_window_rect.right = window_layout_api.get_system_metrics(SM_CXSCREEN);
+    state->desktop_window_rect.bottom = window_layout_api.get_system_metrics(SM_CYSCREEN);
+    window_layout_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
+    state->desktop_window_rect.top -= window_layout_api.get_system_metrics(SM_CYMENU);
+    state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+    if(state->window != nullptr && state->capture_window != nullptr)
+    {
+        window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
+            state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, 0x100);
+        RECT client_rect;
+        window_layout_api.get_client_rect(state->window, &client_rect);
+        state->content_left = (client_rect.right - state->width) / 2;
+        state->content_right = state->content_left + state->width;
+        state->content_top = ((client_rect.bottom - state->desktop_window_rect.top) - state->height) / 2 - 1;
+        state->content_bottom = state->content_top + state->height;
+        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
+        window_layout_api.set_focus(state->capture_window);
+        window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
+    }
+    *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
+    *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
+}
+
+void set_window_layout_api_for_testing(const WindowLayoutApi &api)
+{
+    window_layout_api = api;
+}
+
+// GAG.EXE: 0x0041D120
+void __fastcall restore_application_display(ApplicationState *state)
+{
+    if((state->flags & 0x80) == 0)
+    {
+        state->flags |= 0x20;
+    }
+    window_layout_api.set_window_position(state->capture_window, nullptr, -state->width, -state->height, 0, 0, 0x105);
+    switch_display_mode_if_enabled(state, (state->flags & 0x80) == 0);
+    update_application_window_layout(state, nullptr);
+    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+    {
+        Sleep(0);
+    }
+    if((state->flags & 0x80) != 0)
+    {
+        state->flags &= 0xffffffdf;
+    }
+    clear_runtime_flag_01000000();
+}
+
+// GAG.EXE: 0x0041D380
+void __fastcall process_state_activation(ApplicationState *state, StateFieldReference *reference)
+{
+    std::uint8_t *game_context = static_cast<std::uint8_t *>(state->game_context);
+    if(reference->activity != 0 || *reinterpret_cast<StateFieldReference **>(game_context + 0x964) != reference || (state->validation_flags & 0x100) == 0)
+    {
+        return;
+    }
+    if(*reinterpret_cast<std::int32_t *>(game_context + 0x960) != 0)
+    {
+        clear_application_lock_flag(state);
+        if((state->flags & 1) == 0)
+        {
+            POINT point;
+            if(cursor_state_api.get_cursor_position(&point) != FALSE)
+            {
+                point.x -= state->desktop_window_rect.left;
+                point.y -= state->desktop_window_rect.top;
+                if(point.x < state->content_left || point.y < state->content_top || state->content_right < point.x || state->content_bottom < point.y)
+                {
+                    state_activation_api.on_cursor_outside();
+                }
+                else
+                {
+                    set_game_cursor_active(state, 0);
+                }
+            }
+        }
+    }
+    if(strings_equal("CREDITS", reference->name))
+    {
+        set_credits_runtime_flag();
+        state->flags |= 0x10000;
+        application_hook_no_op_2();
+    }
+    std::uint32_t status = state_activation_api.query_status();
+    if(status == 0)
+    {
+        std::uint32_t previous_flags = state->flags;
+        if((previous_flags & 0x80000) == 0)
+        {
+            state->flags = previous_flags | 0xc00000;
+        }
+        return;
+    }
+    std::uint32_t previous_flags = state->flags;
+    if((previous_flags & 0x80000) == 0)
+    {
+        if((reference->flags & 0x100) == 0 && (status & 0x2000) == 0)
+        {
+            state->flags = previous_flags & 0xff3fffff;
+            if((status & 0x3000) != 0)
+            {
+                state->script_state = state_activation_api.get_script_state();
+            }
+        }
+        else
+        {
+            state->flags = previous_flags | 0xc00000;
+        }
+    }
+    else
+    {
+        state->flags = previous_flags & 0xffbfffff;
+    }
+    application_hook_no_op_2();
+}
+
+void set_state_activation_api_for_testing(const StateActivationApi &api)
+{
+    state_activation_api = api;
+}
+
+// GAG.EXE: 0x0041D280
+void __fastcall save_application_state_interactive(ApplicationState *state, void *dialog_context)
+{
+    void *memory;
+    std::uint32_t script_state;
+    std::uint32_t captured_size;
+    if((state->flags & 0x80000) == 0)
+    {
+        memory = save_state_api.capture_state(state->game_context, &captured_size, 1);
+        script_state = save_state_api.get_script_state();
+        state->script_state = script_state;
+    }
+    else
+    {
+        memory = state->saved_memory;
+        script_state = state->script_state;
+    }
+    if(state->display_bits_per_pixel == 8)
+    {
+        save_state_api.prepare_8bit_display();
+    }
+    char first_path[260];
+    char second_path[260];
+    if(save_state_api.show_dialog(dialog_context, state->installation_path, save_dialog_data[0], memory, first_path, second_path) != 0)
+    {
+        state->flags &= 0xffefffff;
+        application_hook_no_op_2();
+        save_state_api.save_state(first_path, second_path, memory, script_state);
+    }
+    if((state->flags & 0x80000) == 0)
+    {
+        free_heap_memory(memory);
+    }
+    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+    {
+        Sleep(0);
+    }
+    if(state->display_bits_per_pixel == 8)
+    {
+        save_state_api.restore_8bit_display();
+    }
+}
+
+void set_save_state_api_for_testing(const SaveStateApi &api)
+{
+    save_state_api = api;
+}
+
+// GAG.EXE: 0x0041D1C0
+void __fastcall open_application_state_interactive(ApplicationState *state, void *dialog_context)
+{
+    if(state->display_bits_per_pixel == 8)
+    {
+        open_state_api.prepare_8bit_display();
+    }
+    if(open_state_api.show_dialog(dialog_context, state->installation_path, save_dialog_data[0], state->installed_version) != 0)
+    {
+        state->flags |= 0x200000;
+        copy_string(state->startup_config, "START.CFG");
+        runtime_state_transition_callback(0);
+        graphics_host_flags |= 0x40;
+        return;
+    }
+    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+    {
+        Sleep(0);
+    }
+    if(state->display_bits_per_pixel == 8)
+    {
+        open_state_api.restore_8bit_display(0x10002001);
+    }
+    clear_application_lock_flag(state);
+    clear_runtime_flag_01000000();
+    application_hook_no_op_2();
+}
+
+void set_open_state_api_for_testing(const OpenStateApi &api)
+{
+    open_state_api = api;
+}
+
+// Non-original helper preserving the shared wrapper tail.
+bool finish_synchronized_state_operation(int result)
+{
+    synchronized_state_api.leave_lock();
+    if(result == 0x10000)
+    {
+        synchronized_state_api.send_message(synchronized_state_api.message_window, 0x7ffd, 0xc0000000, 0);
+    }
+    return result == 0;
+}
+
+// GAG.EXE: 0x0041F7C0
+bool __fastcall run_synchronized_state_operation_17550(void *first, void *second, void *third, void *fourth)
+{
+    if((graphics_host_flags & 0x800) == 0)
+    {
+        return false;
+    }
+    synchronized_state_api.enter_lock();
+    return finish_synchronized_state_operation(synchronized_state_api.operation_17550(first, second, third, fourth));
+}
+
+// GAG.EXE: 0x0041F830
+bool __fastcall run_synchronized_state_operation_175f0(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
+{
+    if((graphics_host_flags & 0x800) == 0)
+    {
+        return false;
+    }
+    synchronized_state_api.enter_lock();
+    return finish_synchronized_state_operation(synchronized_state_api.operation_175f0(first, second, third, fourth, fifth, sixth));
+}
+
+// GAG.EXE: 0x0041F8F0
+bool __fastcall run_synchronized_state_operation_176a0(void *first, void *second, void *third, void *fourth)
+{
+    if((graphics_host_flags & 0x800) == 0)
+    {
+        return false;
+    }
+    synchronized_state_api.enter_lock();
+    return finish_synchronized_state_operation(synchronized_state_api.operation_176a0(first, second, third, fourth));
+}
+
+void set_synchronized_state_api_for_testing(const SynchronizedStateApi &api)
+{
+    synchronized_state_api = api;
+}
+
+// GAG.EXE: 0x0041D010
+void __fastcall switch_display_mode_if_enabled(ApplicationState *state, int restore_current)
+{
+    if((state->flags & 0x4020) == 0x4020)
+    {
+        state->flags |= 0x80000000;
+        if(restore_current != 0)
+        {
+            display_switch_api.select_mode(state->display_mode_iterator);
+        }
+        else
+        {
+            display_switch_api.restore_current_mode();
+        }
+        state->flags &= 0x7fffffff;
+    }
+}
+
+// GAG.EXE: 0x00420BC0
+void enable_runtime_subsystem()
+{
+    if((graphics_host_flags & 2) == 0)
+    {
+        graphics_host_flags |= 2;
+        runtime_subsystem_callback();
+    }
+}
+
+// GAG.EXE: 0x00420BE0
+void disable_runtime_subsystem()
+{
+    if((graphics_host_flags & 2) != 0)
+    {
+        graphics_host_flags &= 0xfffffffd;
+        runtime_subsystem_callback();
+    }
+}
+
+// GAG.EXE: 0x00404980
+void __fastcall set_active_object_field_0824(std::uint32_t value)
+{
+    if(active_object != nullptr)
+    {
+        *reinterpret_cast<std::uint32_t *>(active_object + 0x824) = value;
+    }
+}
+
+// GAG.EXE: 0x00420C00
+void set_runtime_flag_01000000()
+{
+    graphics_host_flags |= 0x01000000;
+}
+
+// GAG.EXE: 0x00420C10
+void clear_runtime_flag_01000000()
+{
+    graphics_host_flags &= 0xfeffffff;
+}
+
+// GAG.EXE: 0x00420CD0
+void clear_runtime_command_state()
+{
+    runtime_command_state = 0;
+}
+
+// GAG.EXE: 0x00420C90
+void set_credits_runtime_flag()
+{
+    if((graphics_host_flags & 0x40000000) == 0)
+    {
+        graphics_host_flags |= 0x40000000;
+    }
+}
+
+// GAG.EXE: 0x00424260
+void enter_runtime_state_1000()
+{
+    if((graphics_host_flags & 0x1000) == 0)
+    {
+        runtime_state_value = saved_runtime_state_value;
+        runtime_state_transition_callback(0);
+        graphics_host_flags |= 0x1000;
+    }
+}
+
+// GAG.EXE: 0x00424290
+void leave_runtime_state_1000()
+{
+    if((graphics_host_flags & 0x4000) == 0 && (graphics_host_flags & 0x1000) != 0)
+    {
+        graphics_host_flags &= 0xffffefff;
+        runtime_state_transition_callback(runtime_state_value);
+    }
+}
+
+RuntimePathApi runtime_path_api{ unresolved_state_lock, unresolved_state_lock };
+
+// GAG.EXE: 0x00420C30
+void __fastcall set_runtime_paths_once(const char *first_path, const char *second_path)
+{
+    if((graphics_host_flags & 0x04000000) == 0)
+    {
+        runtime_path_api.enter_lock();
+        copy_string(first_runtime_path, first_path);
+        copy_string(second_runtime_path, second_path);
+        graphics_host_flags |= 0x04000000;
+        runtime_path_api.leave_lock();
+    }
+}
+
+void set_runtime_path_api_for_testing(const RuntimePathApi &api)
+{
+    runtime_path_api = api;
+}
+
+const char *get_first_runtime_path_for_testing()
+{
+    return first_runtime_path;
+}
+
+const char *get_second_runtime_path_for_testing()
+{
+    return second_runtime_path;
+}
+
+// GAG.EXE: 0x0041CBE0
+void __fastcall save_game_screenshot(void *snapshot_context, void *game_context)
+{
+    char file_path[0x100]{};
+    char file_title[0x100]{};
+    char unused[0x100]{};
+    (void)unused;
+    const char *state_name = *reinterpret_cast<const char **>(static_cast<std::uint8_t *>(game_context) + 0x964);
+    std::sprintf(file_path, "%s_", state_name);
+
+    static const char filter[] = "Bmp Files\0*.bmp\0\0";
+    OPENFILENAMEA file_name{};
+    file_name.lStructSize = 0x4c;
+    file_name.lpstrFilter = filter;
+    file_name.nFilterIndex = 1;
+    file_name.lpstrFile = file_path;
+    file_name.nMaxFile = 0x100;
+    file_name.lpstrFileTitle = file_title;
+    file_name.nMaxFileTitle = 0x100;
+    file_name.Flags = 0x802;
+    file_name.lpstrDefExt = "bmp";
+    if(screenshot_api.get_save_file_name(&file_name) != FALSE)
+    {
+        std::uint32_t bitmap_size;
+        void *bitmap = screenshot_api.capture_bitmap(snapshot_context, &bitmap_size, 0);
+        if(bitmap != nullptr)
+        {
+            HANDLE file = screenshot_api.create_file(file_name.lpstrFile, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if(file != INVALID_HANDLE_VALUE)
+            {
+                DWORD written;
+                screenshot_api.write_file(file, bitmap, bitmap_size, &written, nullptr);
+                screenshot_api.close_handle(file);
+            }
+            free_heap_memory(bitmap);
+        }
+    }
+}
+
+void set_screenshot_api_for_testing(const ScreenshotApi &api)
+{
+    screenshot_api = api;
+}
+
+// GAG.EXE: 0x00417790
+void *__fastcall create_indexed_bitmap(const BitmapCaptureSource *source, const std::uint8_t *palette, std::uint32_t *size, int half_resolution)
+{
+    if(size != nullptr)
+    {
+        *size = 0;
+    }
+    if(palette == nullptr)
+    {
+        return nullptr;
+    }
+
+    const std::uint32_t width = half_resolution == 0 ? source->width : source->width >> 1;
+    std::uint32_t remaining_height = half_resolution == 0 ? source->height : source->height >> 1;
+    const std::uint32_t bitmap_size = width * remaining_height + 0x436;
+    auto *bitmap = static_cast<std::uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
+    if(bitmap == nullptr)
+    {
+        return nullptr;
+    }
+
+    auto *file_header = reinterpret_cast<BITMAPFILEHEADER *>(bitmap);
+    file_header->bfType = 0x4d42;
+    file_header->bfSize = bitmap_size;
+    file_header->bfReserved1 = 0;
+    file_header->bfReserved2 = 0;
+    file_header->bfOffBits = 0x436;
+    auto *info = reinterpret_cast<BITMAPINFOHEADER *>(bitmap + sizeof(BITMAPFILEHEADER));
+    info->biSize = sizeof(BITMAPINFOHEADER);
+    info->biWidth = width;
+    info->biHeight = remaining_height;
+    info->biPlanes = 1;
+    info->biBitCount = 8;
+    info->biCompression = BI_RGB;
+    info->biSizeImage = width * remaining_height;
+    info->biXPelsPerMeter = 0;
+    info->biYPelsPerMeter = 0;
+    info->biClrUsed = 0x100;
+    info->biClrImportant = 0x100;
+    for(std::uint32_t index = 0; index < 0x100; ++index)
+    {
+        bitmap[0x36 + index * 4] = palette[index * 4 + 6];
+        bitmap[0x37 + index * 4] = palette[index * 4 + 5];
+        bitmap[0x38 + index * 4] = palette[index * 4 + 4];
+    }
+
+    std::uint32_t destination = 0;
+    std::int32_t source_offset = (source->height - 1) * source->width;
+    const std::int32_t horizontal_step = half_resolution == 0 ? 1 : 2;
+    while(remaining_height != 0)
+    {
+        std::uint32_t remaining_width = width;
+        while(remaining_width != 0)
+        {
+            bitmap[0x436 + destination] = source->pixels[source_offset];
+            ++destination;
+            source_offset += horizontal_step;
+            --remaining_width;
+        }
+        source_offset += source->width * (-1 - horizontal_step);
+        --remaining_height;
+    }
+    if(size != nullptr)
+    {
+        *size = bitmap_size;
+    }
+    return bitmap;
+}
+
+// GAG.EXE: 0x0041F8B0
+void *__fastcall capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const std::uint8_t *palette, std::uint32_t *size, int half_resolution)
+{
+    if((graphics_host_flags & 0x800) == 0)
+    {
+        return nullptr;
+    }
+    return create_indexed_bitmap(source, palette, size, half_resolution);
+}
+
+// GAG.EXE: 0x0041CB90
+void *__fastcall capture_game_bitmap(void *game_context, std::uint32_t *size, int half_resolution)
+{
+    const auto *context = static_cast<const std::uint8_t *>(game_context);
+    BitmapCaptureSource source{};
+    *reinterpret_cast<std::uint32_t *>(source.unresolved_00 + 8) = 8;
+    source.width = *reinterpret_cast<const std::uint16_t *>(context + 0x478);
+    source.height = *reinterpret_cast<const std::uint16_t *>(context + 0x47a);
+    source.pixels = *reinterpret_cast<const std::uint8_t *const *>(context + 0x488);
+    const auto *palette = *reinterpret_cast<const std::uint8_t *const *>(context + 0x48c);
+    return capture_bitmap_if_runtime_active(&source, palette, size, half_resolution);
+}
+
+void set_bitmap_capture_api_for_testing(const BitmapCaptureApi &api)
+{
+    bitmap_capture_api = api;
+}
+
+// GAG.EXE: 0x00420A50
+void reset_runtime_pair_queue()
+{
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_pair_lock();
+        runtime_pair_write_index = 0;
+        runtime_pair_read_index = 0;
+        runtime_queue_api.leave_pair_lock();
+    }
+}
+
+// GAG.EXE: 0x00420640
+void __fastcall enqueue_runtime_byte(std::uint8_t value)
+{
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_byte_lock();
+        runtime_byte_available = 1;
+        runtime_byte_queue[runtime_byte_write_index] = value;
+        ++runtime_byte_write_index;
+        if(runtime_byte_write_index == 0x20)
+        {
+            runtime_byte_write_index = 0;
+        }
+        if(runtime_byte_read_index == runtime_byte_write_index)
+        {
+            ++runtime_byte_read_index;
+            if(runtime_byte_read_index == 0x20)
+            {
+                runtime_byte_read_index = 0;
+            }
+        }
+        runtime_queue_api.leave_byte_lock();
+    }
+}
+
+// GAG.EXE: 0x004206D0
+std::uint8_t dequeue_runtime_byte()
+{
+    if(runtime_byte_available == 0)
+    {
+        return 0;
+    }
+    std::uint8_t value = 0;
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_byte_lock();
+        if(runtime_byte_read_index != runtime_byte_write_index)
+        {
+            value = runtime_byte_queue[runtime_byte_read_index];
+            ++runtime_byte_read_index;
+            if(runtime_byte_read_index == 0x20)
+            {
+                runtime_byte_read_index = 0;
+            }
+            if(runtime_byte_read_index == runtime_byte_write_index)
+            {
+                runtime_byte_available = 0;
+            }
+        }
+        runtime_queue_api.leave_byte_lock();
+    }
+    return value;
+}
+
+// GAG.EXE: 0x00420750
+void reset_runtime_byte_queue()
+{
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_byte_lock();
+        runtime_byte_write_index = 0;
+        runtime_byte_read_index = 0;
+        runtime_queue_api.leave_byte_lock();
+    }
+}
+
+// GAG.EXE: 0x00420910
+void __fastcall enqueue_runtime_pair(std::uint32_t first, std::uint32_t second)
+{
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_pair_lock();
+        runtime_pair_available = 1;
+        runtime_pair_queue[runtime_pair_write_index].first = first;
+        runtime_pair_queue[runtime_pair_write_index].second = second;
+        ++runtime_pair_write_index;
+        if(runtime_pair_write_index == 0x20)
+        {
+            runtime_pair_write_index = 0;
+        }
+        if(runtime_pair_read_index == runtime_pair_write_index)
+        {
+            ++runtime_pair_read_index;
+            if(runtime_pair_read_index == 0x20)
+            {
+                runtime_pair_read_index = 0;
+            }
+        }
+        runtime_queue_api.leave_pair_lock();
+    }
+}
+
+// GAG.EXE: 0x004209B0
+int __fastcall dequeue_runtime_pair(RuntimeMessagePair *pair)
+{
+    if(runtime_pair_available == 0)
+    {
+        return 0;
+    }
+    int result = 0;
+    if((graphics_host_flags & 0x100400) == 0x100400)
+    {
+        runtime_queue_api.enter_pair_lock();
+        if(runtime_pair_read_index != runtime_pair_write_index)
+        {
+            *pair = runtime_pair_queue[runtime_pair_read_index];
+            ++runtime_pair_read_index;
+            if(runtime_pair_read_index == 0x20)
+            {
+                runtime_pair_read_index = 0;
+            }
+            if(runtime_pair_read_index == runtime_pair_write_index)
+            {
+                runtime_pair_available = 0;
+            }
+            result = 1;
+        }
+        runtime_queue_api.leave_pair_lock();
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00421130
+bool synchronize_runtime_plan_mode()
+{
+    bool changed = false;
+    if((runtime_display_context.flags & 0x40000000) == 0)
+    {
+        if((runtime_display_context.flags & 0x80000000) != 0)
+        {
+            changed = runtime_plan_mode_sync_api.clear_inactive();
+            if(changed)
+            {
+                runtime_plan_mode_sync_api.rebuild();
+            }
+            runtime_display_context.flags &= 0x7fffffff;
+        }
+    }
+    else if((runtime_display_context.flags & 0x80000000) == 0)
+    {
+        changed = runtime_plan_mode_sync_api.set_inactive();
+        if(changed)
+        {
+            runtime_plan_mode_sync_api.rebuild();
+        }
+        runtime_display_context.flags |= 0x80000000;
+    }
+    return changed;
+}
+
+// GAG.EXE: 0x004210A0
+bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
+{
+    bool changed = false;
+    if((runtime_display_context.flags & 0x4000000) != 0)
+    {
+        runtime_display_context.unknown_90c = 0;
+        runtime_pending_tree_switch_api.destroy_resources(node);
+        RuntimeTreeNode *activated = runtime_pending_tree_switch_api.activate_tree(first_runtime_path, second_runtime_path, node, node);
+        if(activated == nullptr)
+        {
+            runtime_pending_tree_switch_api.rebuild_runtime_plans();
+        }
+        else
+        {
+            changed = node->identity != activated;
+            if(!changed)
+            {
+                runtime_pending_tree_switch_api.finalize_current_tree();
+            }
+            runtime_pending_tree_switch_api.rebuild_runtime_plans();
+            activated->flags |= runtime_display_context.unknown_90c;
+        }
+        runtime_pending_tree_switch_api.update_pointer(runtime_scene_x, runtime_scene_y);
+        runtime_display_context.flags &= 0xfbffffff;
+    }
+    return changed;
+}
+
+void set_runtime_pending_tree_switch_api_for_testing(const RuntimePendingTreeSwitchApi &api)
+{
+    runtime_pending_tree_switch_api = api;
+}
+
+// GAG.EXE: 0x00426560
+RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *creation_context, void *)
+{
+    runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0xf0000000, 0);
+    RuntimeGenericResourceNode *resource = runtime_tree_activation_api.find_or_load_resource(resource_name);
+    RuntimeTreeNode *node = runtime_tree_activation_api.create_tree_node(resource, creation_context, tree_name, creation_context);
+    if(node != nullptr)
+    {
+        if((node->flags & 0x1000) != 0 || node->name[0] == 0)
+        {
+            runtime_tree_activation_api.set_script_flags(2, 0);
+            runtime_tree_activation_api.set_script_flags(4, 0);
+        }
+        if((node->flags & 0x800) != 0)
+        {
+            runtime_tree_activation_api.activate_comment(node);
+        }
+        runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0x20000000, reinterpret_cast<LPARAM>(node));
+    }
+    return node;
+}
+
+void set_runtime_tree_activation_api_for_testing(const RuntimeTreeActivationApi &api)
+{
+    runtime_tree_activation_api = api;
+}
+
+// GAG.EXE: 0x004211A0
+std::uint32_t process_runtime_pair_message()
+{
+    RuntimeMessagePair pair;
+    if(runtime_pair_dispatch_api.dequeue_pair(&pair) != 0 && (runtime_display_context.flags & 4) == 0)
+    {
+        switch(pair.first)
+        {
+        case 0x200:
+            return runtime_pair_dispatch_api.move_pointer(static_cast<std::int32_t>(pair.second & 0xffff), static_cast<std::int32_t>(pair.second >> 16));
+        case 0x201:
+            return runtime_pair_dispatch_api.left_button_down();
+        case 0x202:
+            return runtime_pair_dispatch_api.left_button_up();
+        case 0x204:
+            return runtime_pair_dispatch_api.right_button_down();
+        }
+    }
+    return 0;
+}
+
+void set_runtime_plan_mode_sync_api_for_testing(const RuntimePlanModeSyncApi &api)
+{
+    runtime_plan_mode_sync_api = api;
+}
+
+void set_runtime_pair_dispatch_api_for_testing(const RuntimePairDispatchApi &api)
+{
+    runtime_pair_dispatch_api = api;
+}
+
+// GAG.EXE: 0x004208E0
+std::uint32_t __fastcall copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
+{
+    for(std::uint32_t index = 0; index < 8; ++index)
+    {
+        record->values[index] = runtime_input_session_record.values[index];
+    }
+    std::uint32_t status = runtime_input_session_status;
+    runtime_input_session_status = 0;
+    return status;
+}
+
+// GAG.EXE: 0x00420790
+void __fastcall initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, std::uint32_t character_width, void *session_value)
+{
+    if(runtime_input_object != nullptr)
+    {
+        return;
+    }
+
+    reset_runtime_byte_queue();
+    auto *record_bytes = reinterpret_cast<std::uint8_t *>(&runtime_input_session_record);
+    record_bytes[1] = 0;
+    runtime_input_session_status = 0;
+    runtime_input_session_value = session_value;
+    record_bytes[0] = 0x2d;
+    runtime_input_character_width = character_width;
+    if(character_width == 0)
+    {
+        runtime_input_character_width = 0x20;
+    }
+    runtime_input_start_time = runtime_input_session_api.get_time();
+
+    RuntimeInputContext *context = runtime_input_session_api.find_context(selector);
+    void *context_value = nullptr;
+    if(context != nullptr)
+    {
+        context_value = context->context_value;
+    }
+    if(runtime_input_session_api.prepare(&runtime_input_session_record, first, second, context_value, fourth, fifth, runtime_input_session_state) != 0)
+    {
+        runtime_input_resource = runtime_input_session_api.allocate_resource(0x80000);
+        void *resource_context;
+        if((context->flags & 0x04000000) != 0)
+        {
+            resource_context = runtime_input_alternate_resource_context;
+        }
+        else
+        {
+            resource_context = context->resource_context;
+        }
+        auto *descriptor = static_cast<std::uint8_t *>(runtime_input_session_api.acquire_resource(resource_context));
+        if(descriptor != nullptr)
+        {
+            std::uint8_t local_state[0x10];
+            runtime_input_object = runtime_input_session_api.create_input_object(runtime_input_resource, first, second, runtime_input_value_1, runtime_input_value_2, 0x20000,
+                runtime_input_graphics_state, local_state, descriptor + 0x27c);
+            if(runtime_input_session_api.activate_input_object(runtime_input_object) == 0)
+            {
+                runtime_input_session_api.cleanup_session_state(runtime_input_session_state, local_state);
+                runtime_input_session_api.configure_input_object(runtime_input_object, local_state, runtime_input_configuration);
+            }
+        }
+        runtime_input_session_api.release_resource(resource_context);
+    }
+    if(context != nullptr)
+    {
+        runtime_input_session_api.release_context(context);
+    }
+    graphics_host_flags |= 0x100;
+}
+
+// GAG.EXE: 0x00420CE0
+int __fastcall run_runtime_command_loop(RuntimeCommandLoopState *state)
+{
+    std::uint32_t initial_flags = state->flags;
+    if((initial_flags & 0x03000040) == 0)
+    {
+        return 0;
+    }
+    const std::uint32_t restore_flag = initial_flags & 0x100000;
+    state->flags = (initial_flags & 0xffefffff) | 0x01000000;
+    runtime_command_loop_api.begin_first();
+    runtime_command_loop_api.begin_second();
+    runtime_command_loop_api.begin_third(0);
+    runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x60000000, 0);
+    while(true)
+    {
+        runtime_command_loop_api.process(state);
+        if((state->flags & 0x02000000) != 0)
+        {
+            LPARAM script_state = runtime_command_loop_api.get_script_state();
+            graphics_host_flags &= 0xfdffffff;
+            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x70000000, script_state);
+        }
+        if((state->flags & 0x40) != 0)
+        {
+            runtime_command_loop_api.complete_first();
+            runtime_command_loop_api.cancel_first();
+            runtime_command_loop_api.cancel_second();
+            state->flags &= 0xfeffffbf;
+            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x90000000, 0);
+            return 1;
+        }
+        runtime_command_loop_api.sleep(100);
+        if((state->flags & 0x01000000) == 0)
+        {
+            state->flags |= restore_flag;
+            runtime_command_loop_api.cancel_first();
+            runtime_command_loop_api.cancel_second();
+            runtime_command_loop_api.cancel_third();
+            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x80000000, 0);
+            return 1;
+        }
+    }
+}
+
+// GAG.EXE: 0x00421010
+std::uint32_t run_pending_runtime_external_command()
+{
+    std::uint32_t result = 0;
+    if((runtime_scene_control_flags & 0x200000) != 0)
+    {
+        runtime_display_context.external_command_pending = 1;
+        if(runtime_external_command_api.send_message(runtime_display_context.window, 0x7ffd, 0x02000000, reinterpret_cast<LPARAM>(runtime_display_context.command_context)) != 0)
+        {
+            result = 0;
+            while(runtime_display_context.external_command_pending != 0)
+            {
+                runtime_external_command_api.process_message(&runtime_display_context);
+                result |= runtime_external_command_api.run_command_loop(&runtime_display_context);
+                runtime_external_command_api.sleep(10);
+            }
+        }
+        runtime_display_context.external_command_pending = 0;
+        runtime_scene_control_flags &= 0xffdfffff;
+    }
+    return result;
+}
+
+void set_runtime_external_command_api_for_testing(const RuntimeExternalCommandApi &api)
+{
+    runtime_external_command_api = api;
+}
+
+void set_runtime_external_command_state_for_testing(const RuntimeCommandLoopState &state)
+{
+    runtime_display_context = state;
+}
+
+const RuntimeCommandLoopState &get_runtime_external_command_state_for_testing()
+{
+    return runtime_display_context;
+}
+
+// GAG.EXE: 0x00421230
+void __fastcall process_runtime_message(RuntimeCommandLoopState *state)
+{
+    std::uint32_t message = runtime_message_processor_api.dequeue_message();
+    if(message == 0)
+    {
+        return;
+    }
+    bool handled = false;
+    if(message == 0x30f)
+    {
+        state->flags &= 0xfffbffff;
+        runtime_message_processor_api.handle_message_30f();
+        handled = true;
+    }
+    else if(message == 0x311)
+    {
+        state->flags |= 0x40000;
+        runtime_message_processor_api.handle_message_311();
+        handled = true;
+    }
+    if(handled && runtime_message_processor_api.query_state(nullptr, nullptr, nullptr) == 0)
+    {
+        RuntimeCommandBounds bounds{ 0, 0, state->width, state->height };
+        runtime_message_processor_api.update_target(state->command_target, &bounds, 1);
+        runtime_message_processor_api.present();
+    }
+}
+
+// GAG.EXE: 0x004280D0
+bool __fastcall update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
+{
+    if(mode == 1)
+    {
+        runtime_target_update_api.draw_bounds(bounds, 1);
+        return true;
+    }
+    if(mode == 0x10000)
+    {
+        if((runtime_target_flags & 0x100000) == 0 && bounds->first == 0)
+        {
+            return runtime_target_update_api.begin_target(bounds->height, bounds->second, bounds->width) == 0;
+        }
+        return true;
+    }
+    if(mode == 0x20000 && (runtime_target_flags & 0x100000) == 0 && bounds->first == 0)
+    {
+        return runtime_target_update_api.end_target() == 0;
+    }
+    return true;
+}
+
+// GAG.EXE: 0x004198E0
+std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, std::uint32_t *rectangle_flags)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t busy = 0;
+    std::uint32_t mode = 0;
+    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    do
+    {
+        do
+        {
+            if(busy != 0)
+            {
+                display_lock_acquire_api.wait_for_single_object(display_lock_gate_event, INFINITE);
+            }
+            if(mode == 0x3000)
+            {
+                display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+            }
+            if(mode == 0x2000)
+            {
+                display_lock_acquire_api.sleep(5);
+            }
+            display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+            busy = display_lock_busy;
+            mode = display_lock_flags & 0x3000;
+            if((mode == 0 || display_lock_owner_thread == thread_id) && busy == 0)
+            {
+                std::uint32_t dirty_flags = 0;
+                bool first_acquisition = display_lock_recursion_count == 0;
+                ++display_lock_recursion_count;
+                if(first_acquisition || mode == 0x2000)
+                {
+                    display_lock_acquire_api.reset_event(display_lock_release_event);
+                    display_lock_flags |= 0x3000;
+                    display_lock_owner_thread = thread_id;
+                }
+                mode = 0;
+                if(primary_rectangle != nullptr)
+                {
+                    *primary_rectangle = display_pending_rectangle;
+                    display_pending_rectangle.right = 0;
+                    display_pending_rectangle.bottom = 0;
+                    display_pending_rectangle.left = display_width;
+                    display_pending_rectangle.top = display_height;
+                    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+                    {
+                        if(node->state_60 != 0)
+                        {
+                            process_scene_node_callbacks(node);
+                        }
+                        accumulate_scene_node_rectangle(primary_rectangle, node);
+                    }
+                    if(clip_display_rectangle(primary_rectangle))
+                    {
+                        dirty_flags = 0x10000;
+                    }
+                    if(secondary_rectangle != nullptr)
+                    {
+                        *secondary_rectangle = *primary_rectangle;
+                        for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+                        {
+                            if((node->flags & 0x20) != 0)
+                            {
+                                trim_display_rectangle_overlap(secondary_rectangle, node);
+                            }
+                        }
+                        if(clip_display_rectangle(secondary_rectangle))
+                        {
+                            dirty_flags |= 0x20000;
+                        }
+                    }
+                }
+                if(rectangle_flags != nullptr)
+                {
+                    *rectangle_flags = dirty_flags;
+                }
+            }
+            display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        } while(busy != 0);
+    } while((mode & 0xff00) != 0);
+    return mode;
+}
+
+// GAG.EXE: 0x00419AF0
+std::uint32_t release_display_lock()
+{
+    std::uint32_t result = 0x80000000;
+    if((display_lock_flags & 1) != 0)
+    {
+        DWORD thread_id = display_lock_release_api.get_current_thread_id();
+        if(thread_id == display_lock_owner_thread && (display_lock_flags & 0x3000) != 0)
+        {
+            result = 0;
+            --display_lock_recursion_count;
+            if(display_lock_recursion_count == 0)
+            {
+                if((display_lock_flags & 0x1000) != 0)
+                {
+                    display_lock_release_api.set_event(display_lock_release_event);
+                }
+                display_lock_owner_thread = 0;
+                display_lock_flags &= 0xffffcfff;
+            }
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041B690
+bool __fastcall clip_display_rectangle(DisplayRectangle *rectangle)
+{
+    if(rectangle->left < display_clip_bounds.left)
+    {
+        rectangle->left = display_clip_bounds.left;
+    }
+    if(rectangle->top < display_clip_bounds.top)
+    {
+        rectangle->top = display_clip_bounds.top;
+    }
+    if(display_clip_bounds.right < rectangle->right)
+    {
+        rectangle->right = display_clip_bounds.right;
+    }
+    if(display_clip_bounds.bottom < rectangle->bottom)
+    {
+        rectangle->bottom = display_clip_bounds.bottom;
+    }
+    return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
+}
+
+// GAG.EXE: 0x0041B640
+bool __fastcall constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
+{
+    if(rectangle->left < 0)
+    {
+        rectangle->left = 0;
+    }
+    if(rectangle->top < 0)
+    {
+        rectangle->top = 0;
+    }
+    if(display_width < rectangle->right)
+    {
+        rectangle->right = display_width;
+    }
+    if(display_height < rectangle->bottom)
+    {
+        rectangle->bottom = display_height;
+    }
+    return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
+}
+
+// GAG.EXE: 0x0041B560
+int __fastcall process_scene_node_callbacks(DisplaySceneNode *node)
+{
+    DisplayTraversalState state{ 0x01000000, display_scene_callback_api.time_get_time(), static_cast<std::uint32_t>(node->width), static_cast<std::uint32_t>(node->height),
+        node->callback_first_position, node->callback_current_position, &node->previous_width, &display_clip_bounds, nullptr };
+    int result = 1;
+    for(DisplaySceneCallbackNode *callback = node->callbacks; callback != nullptr; callback = callback->next)
+    {
+        state.callback_context = callback->context;
+        if(callback->callback(&state) == 0)
+        {
+            result = 0;
+        }
+    }
+    if(result == 0)
+    {
+        state.flags = 0x02000000;
+        for(DisplaySceneCallbackNode *callback = node->callbacks; callback != nullptr; callback = callback->next)
+        {
+            state.callback_context = callback->context;
+            result = callback->callback(&state);
+            if(result == 0x10)
+            {
+                break;
+            }
+            if(result == 0 && (callback->flags & 0x10000) == 0)
+            {
+                state.first_position = state.current_position;
+                if(state.current_position == node->callback_current_position)
+                {
+                    state.current_position = node->callback_alternate_position;
+                }
+                else
+                {
+                    state.current_position = node->callback_current_position;
+                }
+            }
+        }
+        node->callback_position = state.first_position;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041B790
+void __fastcall trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNode *node)
+{
+    if(node == nullptr || rectangle == nullptr || (node->flags & 0x01000000) != 0)
+    {
+        return;
+    }
+    std::int32_t node_left = node->x;
+    std::int32_t node_top = node->y;
+    std::int32_t node_right = node_left + node->width;
+    std::int32_t node_bottom = node_top + node->height;
+    std::int32_t overlap_left = node_left;
+    std::uint32_t edges = 0;
+    if(node_left <= rectangle->left)
+    {
+        overlap_left = rectangle->left;
+        edges = 1;
+    }
+    if(node_top <= rectangle->top)
+    {
+        node_top = rectangle->top;
+        edges |= 0x10000;
+    }
+    if(rectangle->right <= node_right)
+    {
+        node_right = rectangle->right;
+        edges |= 2;
+    }
+    if(rectangle->bottom <= node_bottom)
+    {
+        node_bottom = rectangle->bottom;
+        edges |= 0x20000;
+    }
+    std::int32_t overlap_width = node_right - overlap_left;
+    std::int32_t overlap_height = node_bottom - node_top;
+    if(overlap_width != 0 && overlap_left <= node_right && overlap_height != 0 && node_top <= node_bottom)
+    {
+        if((edges & 3) == 3)
+        {
+            if((edges & 0x10000) != 0)
+            {
+                rectangle->top += overlap_height;
+            }
+            if((edges & 0x20000) != 0)
+            {
+                rectangle->bottom -= overlap_height;
+            }
+        }
+        if((edges & 0x30000) == 0x30000)
+        {
+            if((edges & 1) != 0)
+            {
+                rectangle->left += overlap_width;
+            }
+            if((edges & 2) != 0)
+            {
+                rectangle->right -= overlap_width;
+            }
+        }
+    }
+}
+
+// GAG.EXE: 0x0041B860
+void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNode *node)
+{
+    if(rectangle == nullptr || node == nullptr)
+    {
+        return;
+    }
+    std::int32_t left = node->x + node->x_offset;
+    std::int32_t top = node->y + node->y_offset;
+    std::int32_t right;
+    std::int32_t bottom;
+    if(left == node->previous_x && top == node->previous_y)
+    {
+        right = left + node->extra_width;
+        bottom = top + node->extra_height;
+        left += node->previous_width;
+        top += node->previous_height;
+    }
+    else
+    {
+        node->x_offset = 0;
+        node->y_offset = 0;
+        node->x = left;
+        node->y = top;
+        right = node->previous_x;
+        bottom = node->previous_y;
+        if(right < left)
+        {
+            std::int32_t swap = left;
+            left = right;
+            right = swap;
+        }
+        if(bottom < top)
+        {
+            std::int32_t swap = top;
+            top = bottom;
+            bottom = swap;
+        }
+        right += node->width;
+        bottom += node->height;
+    }
+    if(left < 0)
+    {
+        left = 0;
+    }
+    if(top < 0)
+    {
+        top = 0;
+    }
+    if(node->surface->width < right)
+    {
+        right = node->surface->width;
+    }
+    if(node->surface->height < bottom)
+    {
+        bottom = node->surface->height;
+    }
+    if(left < right && top < bottom)
+    {
+        if(left < rectangle->left)
+        {
+            rectangle->left = left;
+        }
+        if(top < rectangle->top)
+        {
+            rectangle->top = top;
+        }
+        if(rectangle->right < right)
+        {
+            rectangle->right = right;
+        }
+        if(rectangle->bottom < bottom)
+        {
+            rectangle->bottom = bottom;
+        }
+    }
+    node->extra_width = 0;
+    node->extra_height = 0;
+    node->previous_width = node->width;
+    node->previous_height = node->height;
+    node->previous_x = node->x;
+    node->previous_y = node->y;
+}
+
+// GAG.EXE: 0x0041B6F0
+void __fastcall merge_display_rectangle(DisplayRectangle *destination, const DisplayRectangleTransform *transform, const DisplayRectangle *source)
+{
+    if(source == nullptr || destination == nullptr)
+    {
+        return;
+    }
+    std::int32_t left = source->left;
+    std::int32_t top = source->top;
+    std::int32_t right = source->right;
+    std::int32_t bottom = source->bottom;
+    if(transform != nullptr)
+    {
+        left = static_cast<std::int32_t>((static_cast<std::uint32_t>(left) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(left) + transform->x));
+        right = static_cast<std::int32_t>((static_cast<std::uint32_t>(right) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(right) + transform->x));
+        top = static_cast<std::int32_t>((static_cast<std::uint32_t>(top) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(top) + transform->y));
+        bottom = static_cast<std::int32_t>((static_cast<std::uint32_t>(bottom) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(bottom) + transform->y));
+    }
+    if(left < destination->left)
+    {
+        destination->left = left;
+    }
+    if(top < destination->top)
+    {
+        destination->top = top;
+    }
+    if(destination->right < right)
+    {
+        destination->right = right;
+    }
+    if(destination->bottom < bottom)
+    {
+        destination->bottom = bottom;
+    }
+    if(transform != nullptr)
+    {
+        if(destination->left < 0)
+        {
+            destination->left = 0;
+        }
+        if(destination->top < 0)
+        {
+            destination->top = 0;
+        }
+        if(static_cast<std::int32_t>(transform->width) < destination->right)
+        {
+            destination->right = transform->width;
+        }
+        if(static_cast<std::int32_t>(transform->height) < destination->bottom)
+        {
+            destination->bottom = transform->height;
+        }
+    }
+}
+
+// GAG.EXE: 0x004195B0
+std::uint32_t __fastcall queue_display_rectangle(DisplayRectangle *rectangle)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    if(!constrain_display_rectangle_to_surface(rectangle))
+    {
+        return 0;
+    }
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    merge_display_rectangle(&display_pending_rectangle, nullptr, rectangle);
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return 0;
+}
+
+// GAG.EXE: 0x00419550
+std::uint32_t __fastcall find_available_display_scene_index(std::uint32_t candidate)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return candidate;
+    }
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    DisplaySceneNode *current = display_scene_head;
+    DisplaySceneNode *previous = display_scene_head;
+    while(current != nullptr && ((candidate <= previous->unknown_2c && previous != current) || current->unknown_2c <= candidate))
+    {
+        std::uint32_t current_index = current->unknown_2c;
+        std::uint32_t next_candidate = candidate;
+        if(candidate <= current_index && current_index <= candidate)
+        {
+            next_candidate = candidate + 1;
+        }
+        candidate = next_candidate;
+        previous = current;
+        current = current->next;
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return candidate;
+}
+
+// GAG.EXE: 0x00419600
+std::uint32_t __fastcall wait_for_display_scene_ready(std::uint32_t timeout)
+{
+    if((display_lock_flags & 1) != 0)
+    {
+        display_lock_flags &= ~0x20u;
+        DWORD start = GetTickCount();
+        do
+        {
+            if((display_lock_flags & 0x20) != 0)
+            {
+                return 0;
+            }
+            display_lock_acquire_api.sleep(0);
+        } while(GetTickCount() - start <= timeout);
+    }
+    return 0x80000000;
+}
+
+// GAG.EXE: 0x00419660
+std::uint32_t __fastcall set_display_clip_rectangle(DisplayRectangle *rectangle)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t result = 0x20000000;
+    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
+    {
+        if(rectangle == nullptr)
+        {
+            display_clip_bounds = { 0, 0, 0, 0 };
+            return 0;
+        }
+        if(rectangle->right >= 0 && rectangle->bottom >= 0 && rectangle->left <= display_width && rectangle->top <= display_height)
+        {
+            constrain_display_rectangle_to_surface(rectangle);
+            display_clip_bounds = *rectangle;
+            return 0;
+        }
+        return 0x80000000;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00419B60
+std::uint32_t release_display_lock_mode_1000()
+{
+    std::uint32_t result = 0x80000000;
+    if((display_lock_flags & 1) != 0)
+    {
+        DWORD thread_id = display_lock_release_api.get_current_thread_id();
+        if(display_lock_owner_thread == thread_id && (display_lock_flags & 0x1000) != 0)
+        {
+            result = 0x1000;
+            if(display_lock_recursion_count == 1)
+            {
+                display_lock_flags &= ~0x1000u;
+                display_lock_release_api.set_event(display_lock_release_event);
+                result = 0;
+            }
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041ACC0
+DisplaySceneNode *__fastcall lock_display_scene_node(std::int32_t identifier)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return nullptr;
+    }
+    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    while(true)
+    {
+        bool busy = false;
+        DisplaySceneNode *result = nullptr;
+        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+        {
+            if(node->identifier == identifier)
+            {
+                if(node->lock_count == 0 || node->lock_owner_thread == thread_id)
+                {
+                    ++node->lock_count;
+                    node->lock_owner_thread = thread_id;
+                    result = node;
+                }
+                else
+                {
+                    busy = true;
+                }
+                break;
+            }
+        }
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        if(!busy)
+        {
+            return result;
+        }
+        display_lock_acquire_api.sleep(5);
+    }
+}
+
+// GAG.EXE: 0x0041AD50
+void __fastcall unlock_display_scene_node(std::int32_t identifier)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return;
+    }
+    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            if(node->lock_count != 0 && node->lock_owner_thread == thread_id)
+            {
+                --node->lock_count;
+                if(node->lock_count == 0)
+                {
+                    node->lock_owner_thread = 0;
+                }
+            }
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+}
+
+// GAG.EXE: 0x0041ADC0
+bool __fastcall set_display_scene_primary_owner(std::int32_t identifier, std::int32_t owner, bool replace_existing)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return false;
+    }
+    bool result = false;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            if(replace_existing || node->primary_owner == 0)
+            {
+                if(owner == 0)
+                {
+                    node->primary_owner = 0;
+                    result = true;
+                }
+                else
+                {
+                    for(std::uint32_t index = 0; index < node->owner_count; ++index)
+                    {
+                        if(node->owners[index] == owner)
+                        {
+                            node->primary_owner = owner;
+                            result = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x0041AE60
+std::int32_t __fastcall query_display_scene_by_index(std::int32_t index, DisplaySceneDescriptor *descriptor, std::uint32_t *callback_metadata)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0;
+    }
+    std::int32_t result = 0;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(static_cast<std::int32_t>(node->unknown_2c) == index)
+        {
+            result = node->identifier;
+            if(descriptor != nullptr)
+            {
+                descriptor->x = 0;
+                descriptor->y = 0;
+                descriptor->width = static_cast<std::int16_t>(node->width);
+                descriptor->height = static_cast<std::int16_t>(node->height);
+                descriptor->present = 1;
+                descriptor->reserved = 0;
+                descriptor->pixels = node->callback_first_position;
+            }
+            if(callback_metadata != nullptr)
+            {
+                callback_metadata[0] = node->rectangle_callback_state;
+                for(std::uint32_t metadata_index = 0; metadata_index < 7; ++metadata_index)
+                {
+                    callback_metadata[metadata_index + 1] = node->rectangle_callback_metadata[metadata_index];
+                }
+            }
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    if(result == 0)
+    {
+        if(descriptor != nullptr)
+        {
+            std::memset(descriptor, 0, sizeof(*descriptor));
+        }
+        if(callback_metadata != nullptr)
+        {
+            std::memset(callback_metadata, 0, 8 * sizeof(*callback_metadata));
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041AFA0
+std::uint32_t __fastcall blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source,
+    DisplayRectangle *rectangle, std::uint32_t flags)
+{
+    std::uint32_t result = begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(source)));
+    if(result == 0)
+    {
+        result = begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(destination)));
+        if(result == 0)
+        {
+            DisplayRectangleTransform transform{};
+            std::uint32_t temporary_palette[256];
+            transform.width = static_cast<std::uint16_t>(destination->width);
+            transform.height = static_cast<std::uint16_t>(destination->height);
+
+            if(destination->rectangle_callback_metadata[0] == 8 && source->rectangle_callback_metadata[0] == 8)
+            {
+                if((flags & 0x04000000) == 0 && destination->rectangle_callback_metadata[5] != 0 && source->rectangle_callback_metadata[5] != 0)
+                {
+                    std::uint32_t temporary_source_state[8];
+                    std::uint32_t *source_state;
+                    if(destination == display_scene_root)
+                    {
+                        source_state = &source->rectangle_callback_state;
+                    }
+                    else
+                    {
+                        std::memcpy(temporary_source_state, &source->rectangle_callback_state, sizeof(temporary_source_state));
+                        temporary_source_state[7] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(temporary_palette));
+                        build_indexed_to_indexed_palette(temporary_source_state, &destination->rectangle_callback_state);
+                        source_state = temporary_source_state;
+                    }
+                    if((flags & 0x02000000) == 0)
+                    {
+                        composite_opaque_indexed_to_8(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                    }
+                    else
+                    {
+                        composite_transparent_indexed_to_8(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                    }
+                }
+                else if((flags & 0x02000000) == 0)
+                {
+                    composite_opaque_8_to_8(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
+                }
+                else
+                {
+                    composite_transparent_8_to_8(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
+                }
+            }
+            else if(destination->rectangle_callback_metadata[0] == 0x10 && source->rectangle_callback_metadata[0] == 8 && (flags & 0x04000000) == 0 && source->rectangle_callback_metadata[5] != 0)
+            {
+                std::uint32_t temporary_source_state[8];
+                std::uint32_t *source_state;
+                if(destination == display_scene_root)
+                {
+                    source_state = &source->rectangle_callback_state;
+                }
+                else
+                {
+                    std::memcpy(temporary_source_state, &source->rectangle_callback_state, sizeof(temporary_source_state));
+                    temporary_source_state[7] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(temporary_palette));
+                    build_indexed_to_16_palette(temporary_source_state, &destination->rectangle_callback_state);
+                    source_state = temporary_source_state;
+                }
+                if((flags & 0x02000000) == 0)
+                {
+                    composite_opaque_indexed_to_16(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                }
+                else
+                {
+                    composite_transparent_indexed_to_16(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                }
+            }
+            end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(destination)), &transform, rectangle);
+        }
+        end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(source)), nullptr, nullptr);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041AF20
+std::uint32_t __fastcall offset_display_scene_node(std::int32_t identifier, std::int32_t x_delta, std::int32_t y_delta)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t result = 0x80000000;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            if((node->flags & 0x04000002) == 0)
+            {
+                node->x_offset += x_delta;
+                node->y_offset += y_delta;
+            }
+            result = 0;
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x0041B280
+std::uint32_t __fastcall begin_display_scene_update(std::int32_t identifier)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    while(true)
+    {
+        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        std::uint32_t result = display_lock_flags & 0x1000;
+        if(result == 0)
+        {
+            result = 0x80000000;
+            for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+            {
+                if(node->identifier == identifier)
+                {
+                    if(node->owner_count != 0 && (node->flags & 0x01000000) != 0)
+                    {
+                        node->flags &= ~0x01000000u;
+                        node->previous_width = 0;
+                        node->previous_height = 0;
+                        node->extra_width = node->width;
+                        node->extra_height = node->height;
+                    }
+                    if(display_lock_busy == 0)
+                    {
+                        display_lock_acquire_api.reset_event(display_lock_gate_event);
+                    }
+                    ++display_lock_busy;
+                    result = 0;
+                    break;
+                }
+            }
+        }
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        if(result != 0x1000)
+        {
+            return result;
+        }
+        display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+    }
+}
+
+// GAG.EXE: 0x0041B360
+std::uint32_t __fastcall end_display_scene_update(std::int32_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t result = 0x80000000;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            if(display_lock_busy != 0)
+            {
+                auto *accumulated_rectangle = reinterpret_cast<DisplayRectangle *>(&node->previous_width);
+                merge_display_rectangle(accumulated_rectangle, transform, rectangle);
+                --display_lock_busy;
+                if(display_lock_busy == 0)
+                {
+                    display_lock_release_api.set_event(display_lock_gate_event);
+                }
+                result = 0;
+            }
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x0041B1F0
+std::uint32_t __fastcall update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, std::uint32_t callback_value)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    if(scene == nullptr)
+    {
+        scene = display_scene_root;
+    }
+    std::uint32_t result = display_root_region_api.begin_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)));
+    if(result == 0)
+    {
+        DisplayRectangleTransform transform{ 0, 0, static_cast<std::uint16_t>(scene->width), static_cast<std::uint16_t>(scene->height) };
+        if(scene->root_rectangle_callback != nullptr)
+        {
+            scene->root_rectangle_callback(scene, rectangle, callback_value);
+        }
+        display_root_region_api.end_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)), &transform, rectangle);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041A830
+std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int(__fastcall *callback)(DisplayTraversalState *state), const void *context, std::uint32_t context_size,
+    std::uint32_t flags)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    while(true)
+    {
+        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        std::uint32_t result = display_lock_flags & 0x1000;
+        if(result == 0)
+        {
+            result = 0x80000000;
+            DisplaySceneNode *node = display_scene_head;
+            while(node != nullptr && node->identifier != identifier)
+            {
+                node = node->next;
+            }
+            if(node != nullptr)
+            {
+                DisplaySceneCallbackNode *previous = node->callbacks;
+                for(DisplaySceneCallbackNode *entry = node->callbacks; entry != nullptr; entry = entry->next)
+                {
+                    previous = entry;
+                }
+                HANDLE heap = display_scene_memory_api.get_process_heap();
+                auto *entry = static_cast<DisplaySceneCallbackNode *>(display_scene_memory_api.heap_alloc(heap, 0, context_size + sizeof(DisplaySceneCallbackNode)));
+                if(entry != nullptr)
+                {
+                    entry->unknown_00 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(entry));
+                    entry->next = nullptr;
+                    entry->flags = flags;
+                    entry->callback = callback;
+                    if(context == nullptr)
+                    {
+                        entry->context = nullptr;
+                    }
+                    else
+                    {
+                        entry->context = entry + 1;
+                        std::memcpy(entry->context, context, context_size);
+                    }
+                    ++node->state_60;
+                    result = 0;
+                    if((flags & 0x10000) == 0)
+                    {
+                        std::int32_t *buffer_position;
+                        if(node->callback_current_position == 0)
+                        {
+                            buffer_position = &node->callback_current_position;
+                        }
+                        else if(node->callback_alternate_position == 0)
+                        {
+                            buffer_position = &node->callback_alternate_position;
+                        }
+                        else
+                        {
+                            buffer_position = nullptr;
+                        }
+                        if(buffer_position != nullptr)
+                        {
+                            LPVOID buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<SIZE_T>(node->width) * static_cast<SIZE_T>(node->height));
+                            *buffer_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(buffer));
+                            if(buffer == nullptr)
+                            {
+                                --node->state_60;
+                                display_scene_memory_api.heap_free(heap, 0, entry);
+                                result = 0x80000000;
+                            }
+                        }
+                    }
+                    if(result == 0)
+                    {
+                        if(previous == nullptr)
+                        {
+                            node->callbacks = entry;
+                        }
+                        else
+                        {
+                            previous->next = entry;
+                        }
+                    }
+                }
+            }
+        }
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        if(result != 0x1000)
+        {
+            return result;
+        }
+        display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+    }
+}
+
+// GAG.EXE: 0x0041B950
+void __fastcall fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
+{
+    if(rectangle == nullptr || node == nullptr)
+    {
+        return;
+    }
+    std::int32_t left = rectangle->left;
+    std::int32_t top = rectangle->top;
+    std::int32_t right = rectangle->right;
+    std::int32_t bottom = rectangle->bottom;
+    if(left < 0)
+    {
+        left = 0;
+    }
+    if(top < 0)
+    {
+        top = 0;
+    }
+    if(node->width < right)
+    {
+        right = node->width;
+    }
+    if(node->height < bottom)
+    {
+        bottom = node->height;
+    }
+    std::int32_t row_width = right - left;
+    std::int32_t row_count = bottom - top;
+    if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
+    {
+        auto *row = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left;
+        do
+        {
+            std::memset(row, static_cast<std::uint8_t>(value), row_width);
+            row += node->sync_secondary_position;
+            --row_count;
+        } while(row_count != 0);
+    }
+}
+
+namespace
+{
+
+struct CompositeRegion
+{
+    std::int32_t source_x;
+    std::int32_t source_y;
+    std::int32_t destination_x;
+    std::int32_t destination_y;
+    std::int32_t width;
+    std::int32_t height;
+};
+
+// Non-original helper: common control flow shared by the six original compositor entry points.
+bool prepare_composite_region(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, std::uint32_t mode,
+    CompositeRegion &region)
+{
+    if(source == nullptr || destination == nullptr || rectangle == nullptr || (source->flags & 1) != 0 || (source->flags & 0x01000000) != 0)
+    {
+        return false;
+    }
+    std::int32_t source_x = 0;
+    std::int32_t source_y = 0;
+    std::int32_t destination_right;
+    std::int32_t destination_bottom;
+    if((mode & 0x01000000) == 0)
+    {
+        source_x = rectangle->left;
+        source_y = rectangle->top;
+        std::int32_t source_right = rectangle->right;
+        std::int32_t source_bottom = rectangle->bottom;
+        if(source_x < 0)
+        {
+            source_x = 0;
+        }
+        if(source_y < 0)
+        {
+            source_y = 0;
+        }
+        if(source->width < source_right)
+        {
+            source_right = source->width;
+        }
+        if(source->height < source_bottom)
+        {
+            source_bottom = source->height;
+        }
+        destination_right = (source_right - source_x) + destination_x;
+        destination_bottom = (source_bottom - source_y) + destination_y;
+        if(destination_x < 0)
+        {
+            source_x -= destination_x;
+            destination_x = 0;
+        }
+        if(destination_y < 0)
+        {
+            source_y -= destination_y;
+            destination_y = 0;
+        }
+        if(destination->width < destination_right)
+        {
+            destination_right = destination->width;
+        }
+        if(destination->height < destination_bottom)
+        {
+            destination_bottom = destination->height;
+        }
+        rectangle->left = destination_x;
+        rectangle->top = destination_y;
+        rectangle->right = destination_right;
+        rectangle->bottom = destination_bottom;
+    }
+    else
+    {
+        std::int32_t source_left = source->x;
+        std::int32_t source_top = source->y;
+        std::int32_t source_right = source_left + source->width;
+        std::int32_t source_bottom = source_top + source->height;
+        if(source_left < rectangle->left)
+        {
+            source_x = rectangle->left - source_left;
+            source_left = rectangle->left;
+        }
+        if(source_top < rectangle->top)
+        {
+            source_y = rectangle->top - source_top;
+            source_top = rectangle->top;
+        }
+        if(rectangle->right < source_right)
+        {
+            source_right = rectangle->right;
+        }
+        if(rectangle->bottom < source_bottom)
+        {
+            source_bottom = rectangle->bottom;
+        }
+        destination_x = source_left - destination->x;
+        if(destination_x < 0)
+        {
+            source_x -= destination_x;
+            destination_x = 0;
+        }
+        destination_y = source_top - destination->y;
+        if(destination_y < 0)
+        {
+            source_y -= destination_y;
+            destination_y = 0;
+        }
+        destination_right = source_right - destination->x;
+        destination_bottom = source_bottom - destination->y;
+        if(destination->width < destination_right)
+        {
+            destination_right = destination->width;
+        }
+        if(destination->height < destination_bottom)
+        {
+            destination_bottom = destination->height;
+        }
+    }
+    region = { source_x, source_y, destination_x, destination_y, destination_right - destination_x, destination_bottom - destination_y };
+    return region.width != 0 && destination_x <= destination_right && region.height != 0 && destination_y <= destination_bottom;
+}
+
+// Non-original helper: pixel conversion selected by each original compositor entry point.
+void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *source, void *source_state, const CompositeRegion &region, bool transparent, bool convert_palette,
+    bool destination_is_16_bit)
+{
+    auto *source_row = reinterpret_cast<const std::uint8_t *>(static_cast<std::uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position + region.source_x;
+    auto *destination_row = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
+                          + region.destination_x * (destination_is_16_bit ? 2 : 1);
+    const std::uint32_t *palette = nullptr;
+    if(convert_palette)
+    {
+        auto *state_words = static_cast<const std::uint32_t *>(source_state);
+        palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(state_words[7]));
+    }
+    for(std::int32_t row_index = 0; row_index < region.height; ++row_index)
+    {
+        if(destination_is_16_bit)
+        {
+            auto *destination_pixels = reinterpret_cast<std::uint16_t *>(destination_row);
+            for(std::int32_t column = 0; column < region.width; ++column)
+            {
+                std::uint8_t source_pixel = source_row[column];
+                if(!transparent || source_pixel != 0)
+                {
+                    destination_pixels[column] = static_cast<std::uint16_t>(palette[source_pixel]);
+                }
+            }
+        }
+        else
+        {
+            for(std::int32_t column = 0; column < region.width; ++column)
+            {
+                std::uint8_t source_pixel = source_row[column];
+                if(!transparent || source_pixel != 0)
+                {
+                    destination_row[column] = convert_palette ? static_cast<std::uint8_t>(palette[source_pixel]) : source_pixel;
+                }
+            }
+        }
+        source_row += source->sync_secondary_position;
+        destination_row += destination->sync_secondary_position;
+    }
+}
+
+void composite_scene_pixels(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    std::uint32_t mode, bool transparent, bool convert_palette, bool destination_is_16_bit)
+{
+    CompositeRegion region{};
+    if(prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
+    {
+        composite_indexed_pixels(destination, source, source_state, region, transparent, convert_palette, destination_is_16_bit);
+    }
+}
+
+} // namespace
+
+// GAG.EXE: 0x0041B9D0
+void __fastcall composite_transparent_8_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, false, false);
+}
+
+// GAG.EXE: 0x0041BC40
+void __fastcall composite_opaque_8_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, false, false);
+}
+
+// GAG.EXE: 0x0041BEE0
+void __fastcall composite_transparent_indexed_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, false);
+}
+
+// GAG.EXE: 0x0041C180
+void __fastcall composite_opaque_indexed_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, false);
+}
+
+// GAG.EXE: 0x0041C400
+void __fastcall composite_transparent_indexed_to_16(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, true);
+}
+
+// GAG.EXE: 0x0041C660
+void __fastcall composite_opaque_indexed_to_16(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
+    void *source_state, std::uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, true);
+}
+
+// GAG.EXE: 0x0041C8C0
+void __fastcall build_indexed_to_16_palette(std::uint32_t *source_state, const std::uint32_t *destination_state)
+{
+    if(source_state[1] != 8 || source_state[6] == 0 || destination_state[1] != 0x10)
+    {
+        return;
+    }
+    const auto count_bits = [](std::uint32_t mask, std::uint32_t &shift)
+    {
+        shift = 0;
+        if(mask != 0)
+        {
+            while(((mask >> shift) & 1) == 0)
+            {
+                ++shift;
+            }
+        }
+        std::uint32_t high_bit = 31;
+        if(mask != 0)
+        {
+            while((mask >> high_bit) == 0)
+            {
+                --high_bit;
+            }
+        }
+        return (high_bit + 1) - shift;
+    };
+    std::uint32_t red_shift;
+    std::uint32_t green_shift;
+    std::uint32_t blue_shift;
+    std::uint32_t red_bits = count_bits(destination_state[2], red_shift);
+    std::uint32_t green_bits = count_bits(destination_state[3], green_shift);
+    std::uint32_t blue_bits = count_bits(destination_state[4], blue_shift);
+    auto *source_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(source_state[6]));
+    auto *destination_palette = reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(source_state[7]));
+    for(std::uint32_t index = 0; index < source_state[5]; ++index)
+    {
+        std::uint32_t color = source_palette[index];
+        auto rounded_component = [](std::uint8_t component, std::uint32_t bits)
+        {
+            std::uint8_t rounding = static_cast<std::uint8_t>(1u << (((8u - bits) >> 1) & 31));
+            std::uint16_t rounded = static_cast<std::uint16_t>(component) + rounding;
+            return static_cast<std::uint8_t>(rounded > 0xff ? 0xff : rounded);
+        };
+        std::uint8_t red = rounded_component(static_cast<std::uint8_t>(color), red_bits);
+        std::uint8_t green = rounded_component(static_cast<std::uint8_t>(color >> 8), green_bits);
+        std::uint8_t blue = rounded_component(static_cast<std::uint8_t>(color >> 16), blue_bits);
+        destination_palette[index] = (static_cast<std::uint32_t>(red >> ((8u - red_bits) & 31)) << (red_shift & 31))
+                                   | (static_cast<std::uint32_t>(green >> ((8u - green_bits) & 31)) << (green_shift & 31))
+                                   | (static_cast<std::uint32_t>(blue >> ((8u - blue_bits) & 31)) << (blue_shift & 31));
+    }
+}
+
+// GAG.EXE: 0x0041CA00
+void __fastcall build_indexed_to_indexed_palette(std::uint32_t *source_state, const std::uint32_t *destination_state)
+{
+    if(source_state[1] != 8 || source_state[6] == 0 || destination_state[1] != 8 || destination_state[6] == 0)
+    {
+        return;
+    }
+    std::uint32_t source_count = source_state[5];
+    std::uint32_t destination_count = destination_state[5];
+    auto *source_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(source_state[6]));
+    auto *destination_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(destination_state[6]));
+    auto *mapping = reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(source_state[7]));
+    for(std::uint32_t source_index = 0; source_index < source_count; ++source_index)
+    {
+        std::uint32_t threshold = 0;
+        std::uint32_t destination_index;
+        while(true)
+        {
+            for(destination_index = 0; destination_index < destination_count; ++destination_index)
+            {
+                std::uint32_t source_color = source_palette[source_index];
+                std::uint32_t destination_color = destination_palette[destination_index];
+                std::uint32_t maximum_difference = 0;
+                for(std::uint32_t component = 0; component < 3; ++component)
+                {
+                    std::uint32_t source_component = (source_color >> (component * 8)) & 0xff;
+                    std::uint32_t destination_component = (destination_color >> (component * 8)) & 0xff;
+                    std::uint32_t difference = source_component < destination_component ? destination_component - source_component : source_component - destination_component;
+                    if(maximum_difference < difference)
+                    {
+                        maximum_difference = difference;
+                    }
+                }
+                if(maximum_difference <= threshold)
+                {
+                    break;
+                }
+            }
+            if(destination_index < destination_count)
+            {
+                break;
+            }
+            threshold += 10;
+            if(0x104 <= threshold)
+            {
+                break;
+            }
+        }
+        mapping[source_index] = destination_index;
+    }
+}
+
+// GAG.EXE: 0x0041AA10
+bool __fastcall configure_display_scene_palette(DisplaySceneNode *node, const std::uint32_t *palette, std::uint32_t count)
+{
+    if(node == nullptr)
+    {
+        node = display_scene_root;
+    }
+    bool result = false;
+    if(begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node))) == 0)
+    {
+        if(node->rectangle_callback_metadata[0] == 8)
+        {
+            result = true;
+            if(palette == nullptr)
+            {
+                node->rectangle_callback_metadata[4] = 0;
+                node->rectangle_callback_metadata[5] = 0;
+                node->rectangle_callback_metadata[6] = 0;
+                if(node == display_scene_root)
+                {
+                    for(DisplaySceneNode *entry = display_scene_head; entry != nullptr; entry = entry->next)
+                    {
+                        if(entry != node && entry->rectangle_callback_metadata[0] == 8 && entry->rectangle_callback_metadata[5] != 0)
+                        {
+                            entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+                        }
+                    }
+                    display_palette_source_state = nullptr;
+                    display_lock_flags |= 0x10;
+                }
+                else if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                {
+                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+                }
+                else
+                {
+                    node->rectangle_callback = nullptr;
+                }
+            }
+            else
+            {
+                std::uint32_t copy_count = count & 0x3fffffff;
+                std::memcpy(node->palette_source, palette, copy_count * sizeof(std::uint32_t));
+                node->rectangle_callback_metadata[4] = count;
+                node->rectangle_callback_metadata[5] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_source));
+                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
+                auto *node_state = &node->rectangle_callback_state;
+                if(node == display_scene_root)
+                {
+                    for(DisplaySceneNode *entry = display_scene_head; entry != nullptr; entry = entry->next)
+                    {
+                        if(entry != node && entry->rectangle_callback_metadata[0] == 8 && entry->rectangle_callback_metadata[5] != 0)
+                        {
+                            build_indexed_to_indexed_palette(&entry->rectangle_callback_state, node_state);
+                            entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+                        }
+                    }
+                    display_palette_source_state = node_state;
+                    display_lock_flags |= 0x10;
+                }
+                else if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                {
+                    if(display_scene_root->rectangle_callback_metadata[5] != 0)
+                    {
+                        build_indexed_to_indexed_palette(node_state, &display_scene_root->rectangle_callback_state);
+                        node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+                    }
+                }
+                else if(display_scene_root->rectangle_callback_metadata[0] == 0x10)
+                {
+                    build_indexed_to_16_palette(node_state, &display_scene_root->rectangle_callback_state);
+                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
+                }
+            }
+        }
+        end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node)), nullptr, nullptr);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00418EE0
+void __fastcall configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFormatDescriptor *format)
+{
+    node->rectangle_callback = nullptr;
+    node->root_rectangle_callback = nullptr;
+    std::memcpy(&node->rectangle_callback_state, format, sizeof(*format));
+    node->rectangle_callback_metadata[4] = 0;
+    node->rectangle_callback_metadata[5] = 0;
+    node->rectangle_callback_metadata[6] = 0;
+    if(display_scene_root == nullptr)
+    {
+        return;
+    }
+    std::uint32_t destination_bits = display_scene_root->rectangle_callback_metadata[0];
+    std::uint32_t source_bits = format->bits_per_pixel;
+    if(node == display_scene_root)
+    {
+        if(source_bits == 8)
+        {
+            if(format->palette_source != nullptr)
+            {
+                configure_display_scene_palette(node, format->palette_source, format->palette_count);
+            }
+            node->root_rectangle_callback = fill_display_scene_rectangle_8;
+        }
+        else if(source_bits == 0x10)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_16;
+        }
+        return;
+    }
+    if(destination_bits == 8)
+    {
+        if(source_bits == 8)
+        {
+            if(format->palette_source != nullptr)
+            {
+                configure_display_scene_palette(node, format->palette_source, format->palette_count);
+            }
+            else if(format->palette_entries != nullptr)
+            {
+                std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
+                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
+                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+            }
+            else
+            {
+                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+            }
+            node->root_rectangle_callback = fill_display_scene_rectangle_8;
+        }
+        else if(source_bits == 0x10)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_16;
+        }
+    }
+    else if(destination_bits == 0x10)
+    {
+        if(source_bits == 8)
+        {
+            if(format->palette_source != nullptr)
+            {
+                configure_display_scene_palette(node, format->palette_source, format->palette_count);
+            }
+            else if(format->palette_entries != nullptr)
+            {
+                std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
+                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
+                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
+            }
+            node->root_rectangle_callback = fill_display_scene_rectangle_8;
+        }
+        else if(source_bits == 0x10)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_16;
+        }
+    }
+    else if(destination_bits == 0x18)
+    {
+        if(source_bits == 8)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_8;
+        }
+        else if(source_bits == 0x10)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_16;
+        }
+    }
+}
+
+// GAG.EXE: 0x00419BC0
+DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+    DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format)
+{
+    if(owner != 0 && descriptor == nullptr)
+    {
+        return nullptr;
+    }
+    if(format == nullptr)
+    {
+        format = &default_display_pixel_format;
+    }
+    if((display_lock_flags & 1) == 0)
+    {
+        return nullptr;
+    }
+    DisplaySceneNode *result = nullptr;
+    DisplaySceneNode *previous = nullptr;
+    std::uint32_t previous_mode = 0;
+    bool locked_node = false;
+    std::int32_t requested_x = x;
+    std::uint32_t requested_index = index;
+    if((flags & 1) != 0)
+    {
+        requested_index = 0x7fffffff;
+        flags |= 0x22;
+    }
+    while(true)
+    {
+        if(locked_node)
+        {
+            display_lock_acquire_api.sleep(5);
+            locked_node = false;
+        }
+        if(previous_mode == 0x3000)
+        {
+            display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+        }
+        if(previous_mode == 0x2000)
+        {
+            display_lock_acquire_api.sleep(5);
+        }
+        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        previous_mode = display_lock_flags & 0x3000;
+        if(previous_mode == 0)
+        {
+            previous_mode = 0x80000000;
+            DisplaySceneNode *existing = display_scene_head;
+            previous = nullptr;
+            while(existing != nullptr && existing->unknown_2c < requested_index)
+            {
+                previous = existing;
+                existing = existing->next;
+            }
+            if(existing == nullptr || existing->unknown_2c != requested_index)
+            {
+                HANDLE heap = display_scene_memory_api.get_process_heap();
+                auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
+                if(node != nullptr)
+                {
+                    std::uint32_t bytes_per_pixel = format->bits_per_pixel >> 3;
+                    std::uint32_t pixel_bytes;
+                    if(requested_index == 0x7fffffff)
+                    {
+                        pixel_bytes = bytes_per_pixel * static_cast<std::uint32_t>(display_height) * static_cast<std::uint32_t>(display_width);
+                        display_scene_root = node;
+                        node->callback_first_position = display_scene_root_primary_position;
+                        node->sync_secondary_position = static_cast<std::int32_t>(bytes_per_pixel * display_width);
+                        node->width = display_width;
+                        node->height = display_height;
+                    }
+                    else
+                    {
+                        pixel_bytes = bytes_per_pixel * height * width;
+                        LPVOID pixels = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                        node->callback_first_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(pixels));
+                        if(pixels != nullptr)
+                        {
+                            node->sync_secondary_position = static_cast<std::int32_t>(bytes_per_pixel * width);
+                            node->width = static_cast<std::int32_t>(width);
+                            node->height = static_cast<std::int32_t>(height);
+                            node->x = requested_x;
+                            node->y = y;
+                            node->previous_x = requested_x;
+                            node->previous_y = y;
+                        }
+                    }
+                    if(node->callback_first_position == 0 && requested_index != 0x7fffffff)
+                    {
+                        display_scene_memory_api.heap_free(heap, 0, node);
+                    }
+                    else
+                    {
+                        if(node->callback_first_position != 0)
+                        {
+                            if((flags & 0x20000) != 0)
+                            {
+                                std::memset(reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_first_position)), 0, pixel_bytes);
+                            }
+                            if(requested_index == 0x7fffffff)
+                            {
+                                display_scene_root_secondary_position = node->sync_secondary_position;
+                            }
+                        }
+                        node->callback_position = node->callback_first_position;
+                        node->identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node));
+                        node->surface = reinterpret_cast<DisplaySceneSurface *>(&display_lock_flags);
+                        node->flags = (flags & 0xf7fcffbf) | 0x01000000;
+                        node->unknown_2c = requested_index;
+                        node->previous_width = node->width;
+                        node->previous_height = node->height;
+                        if(owner != 0)
+                        {
+                            if((flags & 0x10000) != 0 && node->primary_owner == 0)
+                            {
+                                node->primary_owner = owner;
+                            }
+                            node->owners[0] = owner;
+                            ++node->owner_count;
+                            node->flags |= flags & 0xffccffff;
+                            descriptor->x = 0;
+                            descriptor->y = 0;
+                            descriptor->width = static_cast<std::int16_t>(width);
+                            descriptor->height = static_cast<std::int16_t>(height);
+                            descriptor->present = 1;
+                            descriptor->reserved = 0;
+                            descriptor->pixels = node->callback_first_position;
+                        }
+                        ++display_scene_count;
+                        if(previous == nullptr)
+                        {
+                            node->next = display_scene_head;
+                            display_scene_head = node;
+                        }
+                        else
+                        {
+                            node->next = previous->next;
+                            previous->next = node;
+                        }
+                        configure_display_scene_format(node, format);
+                        result = node;
+                    }
+                }
+            }
+            else
+            {
+                if((flags & 0x08000000) != 0)
+                {
+                    if(requested_x < existing->x)
+                    {
+                        requested_x = existing->x;
+                    }
+                    if(y < existing->y)
+                    {
+                        y = existing->y;
+                    }
+                    if(static_cast<std::uint32_t>(existing->x + existing->width) < static_cast<std::uint32_t>(requested_x) + width)
+                    {
+                        requested_x = (existing->width - static_cast<std::int32_t>(width)) + existing->x;
+                    }
+                    if(static_cast<std::uint32_t>(existing->y + existing->height) < static_cast<std::uint32_t>(y) + height)
+                    {
+                        y = (existing->height - static_cast<std::int32_t>(height)) + existing->y;
+                    }
+                }
+                std::int32_t offset_x = requested_x - existing->x;
+                std::int32_t offset_y = y - existing->y;
+                bool owner_exists = false;
+                for(std::uint32_t owner_index = 0; owner_index < existing->owner_count; ++owner_index)
+                {
+                    if(existing->owners[owner_index] == owner)
+                    {
+                        owner_exists = true;
+                        break;
+                    }
+                }
+                bool fits = offset_x >= 0 && offset_y >= 0 && static_cast<std::uint32_t>(offset_x) + width <= static_cast<std::uint32_t>(existing->width)
+                         && static_cast<std::uint32_t>(offset_y) + height <= static_cast<std::uint32_t>(existing->height);
+                std::uint32_t existing_flags = existing->flags;
+                if((existing_flags & 0x40) != 0 || owner_exists || !fits || (existing->owner_count == 0 && (existing_flags & 2) == 0))
+                {
+                    locked_node = true;
+                    if(existing->lock_count == 0)
+                    {
+                        locked_node = false;
+                        if((flags & 0x200000) != 0)
+                        {
+                            if(width <= static_cast<std::uint32_t>(existing->width))
+                            {
+                                width = existing->width;
+                            }
+                            if(height <= static_cast<std::uint32_t>(existing->height))
+                            {
+                                height = existing->height;
+                            }
+                        }
+                        if((flags & 0x100000) != 0)
+                        {
+                            requested_x = existing->x;
+                            y = existing->y;
+                        }
+                        if(((existing->owner_count == 0 && owner != 0) || (existing->owner_count == 1 && owner_exists)) && (existing_flags & 0x42) == 0)
+                        {
+                            std::uint32_t pixel_bytes = (format->bits_per_pixel >> 3) * height * width;
+                            if(existing->rectangle_callback_metadata[0] == format->bits_per_pixel
+                                && ((existing_flags & 0x02000000) == 0 || (width == static_cast<std::uint32_t>(existing->width) && height == static_cast<std::uint32_t>(existing->height)))
+                                && ((existing_flags & 0x04000000) == 0 || (requested_x == existing->x && y == existing->y)))
+                            {
+                                DisplayRectangle old_rectangle{ existing->x, existing->y, existing->x + existing->width, existing->y + existing->height };
+                                LPVOID primary;
+                                LPVOID current;
+                                LPVOID alternate;
+                                bool allocation_success = true;
+                                HANDLE heap = display_scene_memory_api.get_process_heap();
+                                if(existing->width == static_cast<std::int32_t>(width) && existing->height == static_cast<std::int32_t>(height))
+                                {
+                                    primary = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position));
+                                    current = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_current_position));
+                                    alternate = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_alternate_position));
+                                }
+                                else
+                                {
+                                    if(existing->callback_alternate_position != 0)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_alternate_position)));
+                                    }
+                                    if(existing->callback_current_position != 0)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_current_position)));
+                                    }
+                                    bool had_current = existing->callback_current_position != 0;
+                                    bool had_alternate = existing->callback_alternate_position != 0;
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position)));
+                                    current = nullptr;
+                                    alternate = nullptr;
+                                    primary = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                    allocation_success = primary != nullptr;
+                                    if(had_current && allocation_success)
+                                    {
+                                        current = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                        if(current == nullptr)
+                                        {
+                                            allocation_success = false;
+                                        }
+                                    }
+                                    if(had_alternate && allocation_success)
+                                    {
+                                        alternate = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                        if(alternate == nullptr)
+                                        {
+                                            allocation_success = false;
+                                        }
+                                    }
+                                }
+                                if(allocation_success)
+                                {
+                                    existing->callback_first_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
+                                    existing->callback_current_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(current));
+                                    existing->callback_alternate_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(alternate));
+                                    queue_display_rectangle(&old_rectangle);
+                                    if((flags & 0x10000) != 0 && existing->primary_owner == 0)
+                                    {
+                                        existing->primary_owner = owner;
+                                    }
+                                    if((flags & 0x20000) != 0)
+                                    {
+                                        std::memset(primary, 0, pixel_bytes);
+                                    }
+                                    existing->owners[0] = owner;
+                                    existing->owner_count = 1;
+                                    existing->reference_count = 0;
+                                    existing->callback_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
+                                    existing->sync_secondary_position = static_cast<std::int32_t>((format->bits_per_pixel >> 3) * width);
+                                    existing->width = width;
+                                    existing->height = height;
+                                    existing->x = requested_x;
+                                    existing->y = y;
+                                    existing->previous_x = requested_x;
+                                    existing->previous_y = y;
+                                    existing->flags = flags | 0x01000000;
+                                    descriptor->x = 0;
+                                    descriptor->y = 0;
+                                    descriptor->width = static_cast<std::int16_t>(width);
+                                    descriptor->height = static_cast<std::int16_t>(height);
+                                    descriptor->present = 1;
+                                    descriptor->reserved = 0;
+                                    descriptor->pixels = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
+                                    result = existing;
+                                }
+                                else
+                                {
+                                    --display_scene_count;
+                                    if(previous == nullptr)
+                                    {
+                                        display_scene_head = existing->next;
+                                    }
+                                    else
+                                    {
+                                        previous->next = existing->next;
+                                    }
+                                    if(alternate != nullptr)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, alternate);
+                                    }
+                                    if(current != nullptr)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, current);
+                                    }
+                                    if(primary != nullptr)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, primary);
+                                    }
+                                    display_scene_memory_api.heap_free(heap, 0, existing);
+                                }
+                            }
+                        }
+                        else if(owner == 0)
+                        {
+                            result = existing;
+                        }
+                    }
+                }
+                else if(existing->rectangle_callback_metadata[0] == format->bits_per_pixel)
+                {
+                    result = existing;
+                    if(owner != 0)
+                    {
+                        if((flags & 0x10000) != 0 && existing->primary_owner == 0)
+                        {
+                            existing->primary_owner = owner;
+                        }
+                        if((flags & 0x20000) != 0 && existing->owner_count == 0)
+                        {
+                            std::memset(reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position)), 0,
+                                static_cast<std::uint32_t>(existing->width) * static_cast<std::uint32_t>(existing->height));
+                        }
+                        existing->owners[existing->owner_count] = owner;
+                        descriptor->x = static_cast<std::int16_t>(offset_x);
+                        descriptor->y = static_cast<std::int16_t>(offset_y);
+                        descriptor->width = static_cast<std::int16_t>(existing->width);
+                        descriptor->height = static_cast<std::int16_t>(existing->height);
+                        descriptor->present = 1;
+                        descriptor->reserved = 0;
+                        descriptor->pixels = existing->callback_first_position;
+                        ++existing->owner_count;
+                    }
+                }
+            }
+            if(result != nullptr && (result->unknown_2c != 0x7fffffff || result->reference_count == 0))
+            {
+                ++result->reference_count;
+            }
+        }
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        if((previous_mode & 0x3000) != 0)
+        {
+            continue;
+        }
+        if(!locked_node)
+        {
+            return result;
+        }
+    }
+}
+
+// GAG.EXE: 0x004192B0
+std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_position, const DisplayPixelFormatDescriptor *format, std::int32_t width, std::int32_t height,
+    int(__fastcall *synchronize)(void *context, void *payload, std::uint32_t mode), void *context, std::uint32_t worker_interval)
+{
+    if(primary_position == 0)
+    {
+        return nullptr;
+    }
+    if((display_lock_flags & 1) != 0)
+    {
+        return &display_lock_flags;
+    }
+
+    display_lock_flags = 0;
+    std::memset(&display_lock_critical_section, 0, sizeof(display_lock_critical_section));
+    display_lock_owner_thread = 0;
+    display_lock_recursion_count = 0;
+    display_lock_release_event = nullptr;
+    display_clip_bounds = {};
+    display_palette_source_state = nullptr;
+    display_scene_worker_thread = nullptr;
+    display_lock_gate_event = nullptr;
+    display_lock_busy = 0;
+    display_pending_rectangle = {};
+    display_width = 0;
+    display_height = 0;
+    display_scene_sync_api.synchronize = nullptr;
+    display_scene_sync_context = nullptr;
+    display_scene_worker_interval = 0;
+    display_scene_worker_rate = 0;
+    display_scene_count = 0;
+    display_scene_root = nullptr;
+    display_scene_head = nullptr;
+
+    display_scene_host_api.initialize_critical_section(&display_lock_critical_section);
+    display_lock_release_event = display_scene_host_api.create_event(nullptr, TRUE, TRUE, nullptr);
+    if(display_lock_release_event == nullptr)
+    {
+        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+        return nullptr;
+    }
+    display_lock_gate_event = display_scene_host_api.create_event(nullptr, TRUE, TRUE, nullptr);
+    if(display_lock_gate_event == nullptr)
+    {
+        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+        display_scene_host_api.close_handle(display_lock_release_event);
+        return nullptr;
+    }
+
+    display_width = width;
+    display_height = height;
+    display_lock_flags = 1;
+    display_scene_root_primary_position = primary_position;
+    display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
+    if(display_scene_root == nullptr)
+    {
+        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+        display_scene_host_api.close_handle(display_lock_release_event);
+        display_scene_host_api.close_handle(display_lock_gate_event);
+        display_lock_flags = 0;
+        return nullptr;
+    }
+    if(synchronize != nullptr)
+    {
+        display_scene_sync_api.synchronize = synchronize;
+        display_scene_sync_context = context;
+        display_scene_worker_interval = worker_interval;
+        DWORD thread_id = 0;
+        display_scene_worker_thread = display_scene_host_api.create_thread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(run_display_scene_worker), &display_lock_flags, 0, &thread_id);
+        if(display_scene_worker_thread == nullptr)
+        {
+            display_lock_flags |= 0x40000000;
+            release_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(display_scene_root)), 0);
+            display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+            display_scene_host_api.close_handle(display_lock_release_event);
+            display_scene_host_api.close_handle(display_lock_gate_event);
+            display_lock_flags = 0;
+            return nullptr;
+        }
+    }
+    display_clip_bounds = { 0, 0, width, height };
+    display_pending_rectangle.left = width;
+    display_pending_rectangle.top = height;
+    return &display_lock_flags;
+}
+
+// GAG.EXE: 0x004194B0
+std::uint32_t shutdown_display_scene_host()
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    if(display_scene_count != 1)
+    {
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        return 0x80000000;
+    }
+    display_lock_flags = (display_lock_flags & ~1U) | 0x40000000;
+    if(display_scene_worker_thread != nullptr)
+    {
+        display_scene_host_api.wait_for_single_object(display_scene_worker_thread, INFINITE);
+    }
+    release_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(display_scene_root)), 0);
+    display_scene_host_api.close_handle(display_lock_release_event);
+    display_scene_host_api.close_handle(display_lock_gate_event);
+    display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+    return 0;
+}
+
+// GAG.EXE: 0x0041B3F0
+DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
+{
+    DWORD frame_start = display_scene_worker_api.time_get_time();
+    DWORD rate_start = frame_start;
+    std::uint32_t frame_count = 0;
+    while((*flags & 0x40000000) == 0)
+    {
+        DisplayRectangle primary_rectangle;
+        DisplayRectangle secondary_rectangle;
+        std::uint32_t dirty_flags;
+        if(display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags) == 0)
+        {
+            if(dirty_flags != 0 && display_scene_worker_api.synchronize_node(display_scene_root, &primary_rectangle) != 0)
+            {
+                *flags |= 0x20;
+                if((dirty_flags & 0x20000) != 0 && display_scene_root->root_rectangle_callback != nullptr)
+                {
+                    display_scene_root->root_rectangle_callback(display_scene_root, &secondary_rectangle, 0);
+                }
+                if((dirty_flags & 0x10000) != 0)
+                {
+                    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+                    {
+                        if(node->rectangle_callback != nullptr)
+                        {
+                            node->rectangle_callback(display_scene_root, 0, 0, node, &primary_rectangle, &node->rectangle_callback_state, 0x01000000);
+                        }
+                    }
+                }
+                display_scene_worker_api.publish_node(display_scene_root);
+                display_scene_worker_api.release_mode_1000();
+                if((*flags & 0x10) != 0)
+                {
+                    display_scene_sync_api.synchronize(display_scene_sync_context, display_palette_source_state, 2);
+                    *flags &= ~0x10U;
+                }
+                display_scene_sync_api.synchronize(display_scene_sync_context, &primary_rectangle, 1);
+            }
+            display_scene_worker_api.release_lock();
+        }
+        DWORD now = display_scene_worker_api.time_get_time();
+        DWORD elapsed = now - frame_start;
+        if(elapsed < display_scene_worker_interval)
+        {
+            DWORD delay = display_scene_worker_interval - elapsed;
+            display_scene_worker_api.sleep(delay);
+            frame_start = now + delay;
+        }
+        else
+        {
+            display_scene_worker_api.sleep(0);
+            frame_start = now;
+        }
+        if(dirty_flags != 0)
+        {
+            ++frame_count;
+        }
+        if(now - rate_start >= 1000)
+        {
+            display_scene_worker_rate = frame_count;
+            frame_count = 0;
+            rate_start = now;
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x0041A480
+std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std::int32_t owner)
+{
+    if((identifier == 0 && owner == 0) || (display_lock_flags & 1) == 0)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t previous_mode = 0;
+    std::uint32_t previous_busy = 0;
+    bool locked_node = false;
+    while(true)
+    {
+        if(locked_node)
+        {
+            display_lock_acquire_api.sleep(5);
+            locked_node = false;
+        }
+        if(previous_busy != 0)
+        {
+            display_lock_acquire_api.wait_for_single_object(display_lock_gate_event, INFINITE);
+        }
+        if(previous_mode == 0x3000)
+        {
+            display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+        }
+        if(previous_mode == 0x2000)
+        {
+            display_lock_acquire_api.sleep(5);
+        }
+        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        std::uint32_t observed_busy = display_lock_busy;
+        previous_mode = display_lock_flags & 0x3000;
+        previous_busy = display_lock_busy;
+        std::uint32_t result = previous_mode;
+        if(previous_mode == 0 && display_lock_busy == 0)
+        {
+            result = 0x80000000;
+            DisplaySceneNode *previous = nullptr;
+            DisplaySceneNode *node = display_scene_head;
+            while(node != nullptr)
+            {
+                DisplaySceneNode *next = node->next;
+                DisplaySceneNode *retained_node = node;
+                if(node->identifier == identifier || identifier == 0)
+                {
+                    if(node->lock_count == 0)
+                    {
+                        std::int32_t remaining_owner = owner;
+                        if(owner != 0)
+                        {
+                            for(std::uint32_t owner_index = 0; owner_index < node->owner_count; ++owner_index)
+                            {
+                                if(node->owners[owner_index] == owner)
+                                {
+                                    --node->owner_count;
+                                    node->owners[owner_index] = node->owners[node->owner_count];
+                                    node->owners[node->owner_count] = 0;
+                                    if(node->owner_count == 0)
+                                    {
+                                        node->flags = (node->flags & ~0x40u) | 0x01000000;
+                                        if(node->rectangle_callback_metadata[0] == 8)
+                                        {
+                                            node->rectangle_callback_metadata[4] = 0;
+                                            node->rectangle_callback_metadata[5] = 0;
+                                            node->rectangle_callback_metadata[6] = 0;
+                                            if(node != display_scene_root)
+                                            {
+                                                if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                                                {
+                                                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+                                                }
+                                                else
+                                                {
+                                                    node->rectangle_callback = nullptr;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if(node->primary_owner == owner)
+                                    {
+                                        node->primary_owner = 0;
+                                    }
+                                    result = 0;
+                                    remaining_owner = 0;
+                                    break;
+                                }
+                            }
+                        }
+                        if(static_cast<std::int32_t>(node->unknown_2c) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
+                        {
+                            if(remaining_owner == 0 && node->owner_count < node->reference_count)
+                            {
+                                result = 0;
+                                --node->reference_count;
+                            }
+                            if(node->reference_count == 0)
+                            {
+                                DisplayRectangle dirty_rectangle{};
+                                dirty_rectangle.left = node->x <= node->previous_x ? node->x : node->previous_x;
+                                dirty_rectangle.top = node->y <= node->previous_y ? node->y : node->previous_y;
+                                dirty_rectangle.right = node->width + (node->x < node->previous_x ? node->previous_x : node->x);
+                                dirty_rectangle.bottom = node->height + (node->y < node->previous_y ? node->previous_y : node->y);
+                                queue_display_rectangle(&dirty_rectangle);
+                                --display_scene_count;
+                                if(previous == nullptr)
+                                {
+                                    display_scene_head = next;
+                                }
+                                else
+                                {
+                                    previous->next = next;
+                                }
+                                HANDLE heap = display_scene_memory_api.get_process_heap();
+                                DisplaySceneCallbackNode *callback = node->callbacks;
+                                while(callback != nullptr)
+                                {
+                                    DisplaySceneCallbackNode *next_callback = callback->next;
+                                    display_scene_memory_api.heap_free(heap, 0, callback);
+                                    callback = next_callback;
+                                }
+                                if(node->callback_alternate_position != 0)
+                                {
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_alternate_position)));
+                                }
+                                if(node->callback_current_position != 0)
+                                {
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_current_position)));
+                                }
+                                if(static_cast<std::int32_t>(node->unknown_2c) == 0x7fffffff)
+                                {
+                                    display_scene_root = nullptr;
+                                }
+                                else
+                                {
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_first_position)));
+                                }
+                                display_scene_memory_api.heap_free(heap, 0, node);
+                                retained_node = nullptr;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        locked_node = true;
+                    }
+                    if(identifier != 0)
+                    {
+                        break;
+                    }
+                }
+                node = next;
+                if(retained_node != nullptr)
+                {
+                    previous = retained_node;
+                }
+            }
+        }
+        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        if((previous_mode & 0x3000) != 0 || observed_busy != 0)
+        {
+            continue;
+        }
+        if(!locked_node)
+        {
+            return result;
+        }
+    }
+}
+
+// GAG.EXE: 0x0041BE60
+void __fastcall fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
+{
+    if(rectangle == nullptr || node == nullptr)
+    {
+        return;
+    }
+    std::int32_t left = rectangle->left;
+    std::int32_t top = rectangle->top;
+    std::int32_t right = rectangle->right;
+    std::int32_t bottom = rectangle->bottom;
+    if(left < 0)
+    {
+        left = 0;
+    }
+    if(top < 0)
+    {
+        top = 0;
+    }
+    if(node->width < right)
+    {
+        right = node->width;
+    }
+    if(node->height < bottom)
+    {
+        bottom = node->height;
+    }
+    std::int32_t row_width = right - left;
+    std::int32_t row_count = bottom - top;
+    if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
+    {
+        auto *row = reinterpret_cast<std::uint16_t *>(reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position
+                                                      + left * static_cast<std::int32_t>(sizeof(std::uint16_t)));
+        do
+        {
+            for(std::int32_t column = 0; column < row_width; ++column)
+            {
+                row[column] = static_cast<std::uint16_t>(value);
+            }
+            row = reinterpret_cast<std::uint16_t *>(reinterpret_cast<std::uint8_t *>(row) + node->sync_secondary_position);
+            --row_count;
+        } while(row_count != 0);
+    }
+}
+
+// GAG.EXE: 0x004190D0
+int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *output_rectangle)
+{
+    DisplayRectangle geometry{ 0, 0, node->width, node->height };
+    std::int32_t primary_position = node->callback_first_position;
+    std::int32_t secondary_position = node->sync_secondary_position;
+    DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
+    int synchronized = display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x10000);
+    if(synchronized == 0)
+    {
+        return 0;
+    }
+    synchronized = 1;
+    if(node->sync_secondary_position != secondary_position || node->callback_first_position != primary_position || node->width != geometry.right || node->height != geometry.bottom)
+    {
+        if(node->width == geometry.right && node->height == geometry.bottom)
+        {
+            if(output_rectangle != nullptr)
+            {
+                *output_rectangle = geometry;
+            }
+            node->callback_first_position = primary_position;
+            node->callback_position = primary_position;
+            node->sync_secondary_position = secondary_position;
+            if(node == display_scene_root)
+            {
+                display_scene_root_primary_position = primary_position;
+                display_scene_root_secondary_position = secondary_position;
+            }
+        }
+        else
+        {
+            synchronized = 0;
+            node->width = geometry.right;
+            node->height = geometry.bottom;
+            if(node == display_scene_root)
+            {
+                display_width = geometry.right;
+                display_height = geometry.bottom;
+            }
+            queue_display_rectangle(&geometry);
+            display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
+        }
+    }
+    return synchronized;
+}
+
+// GAG.EXE: 0x00419230
+void __fastcall publish_display_scene_node(DisplaySceneNode *node)
+{
+    DisplayRectangle geometry{ 0, 0, node->width, node->height };
+    std::int32_t primary_position = node->callback_first_position;
+    std::int32_t secondary_position = node->sync_secondary_position;
+    DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
+    display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
+}
+
+// GAG.EXE: 0x00419710
+std::uint32_t __fastcall dispatch_display_scene_update(void *target, std::uint32_t options)
+{
+    if((display_lock_flags & 1) == 0 || display_scene_sync_api.synchronize == nullptr)
+    {
+        return 0x80000000;
+    }
+    std::uint32_t result = 0x20000000;
+    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
+    {
+        result = 0x80000000;
+        DisplayRectangle local_rectangle;
+        DisplayRectangle *rectangle = static_cast<DisplayRectangle *>(target);
+        if((options & 0x100) != 0)
+        {
+            local_rectangle = { display_width, display_height, 0, 0 };
+            DisplaySceneNode *node = static_cast<DisplaySceneNode *>(target);
+            rectangle = &local_rectangle;
+            if(contains_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node))))
+            {
+                accumulate_scene_node_rectangle(rectangle, node);
+            }
+        }
+        std::uint32_t attempts = 0;
+        while(true)
+        {
+            if(synchronize_display_scene_node(display_scene_root, rectangle) == 0)
+            {
+                ++attempts;
+            }
+            else
+            {
+                attempts = 0;
+            }
+            if(attempts == 0)
+            {
+                break;
+            }
+            if(attempts >= 10)
+            {
+                return 0x80000000;
+            }
+            display_lock_acquire_api.sleep(5);
+        }
+        if(!constrain_display_rectangle_to_surface(rectangle))
+        {
+            publish_display_scene_node(display_scene_root);
+        }
+        else
+        {
+            DisplayRectangle secondary_rectangle = *rectangle;
+            for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+            {
+                if((node->flags & 0x20) != 0)
+                {
+                    trim_display_rectangle_overlap(&secondary_rectangle, node);
+                }
+            }
+            bool secondary_valid = constrain_display_rectangle_to_surface(&secondary_rectangle);
+            if(secondary_valid && display_scene_root->root_rectangle_callback != nullptr)
+            {
+                display_scene_root->root_rectangle_callback(display_scene_root, &secondary_rectangle, 0);
+            }
+            for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+            {
+                if(node->rectangle_callback != nullptr)
+                {
+                    node->rectangle_callback(display_scene_root, 0, 0, node, rectangle, &node->rectangle_callback_state, 0x01000000);
+                }
+            }
+            publish_display_scene_node(display_scene_root);
+            if((options & 0x200) == 0)
+            {
+                display_scene_sync_api.synchronize(display_scene_sync_context, rectangle, 1);
+            }
+            result = 0;
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0041AC70
+bool __fastcall contains_display_scene_node(std::int32_t identifier)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return false;
+    }
+    bool found = false;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            found = true;
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return found;
+}
+
+// GAG.EXE: 0x00414540
+std::uint32_t end_display_target()
+{
+    std::uint32_t result = 0x200000;
+    if((display_palette_flags & 0x40000000) != 0)
+    {
+        if((display_palette_flags & 0x100002) != 0)
+        {
+            display_palette_flags &= 0xbfffffff;
+            return 0;
+        }
+        result = 0;
+        display_target_api.release_backend_target(display_backend, display_backend_target);
+        display_palette_flags &= 0xbfffffff;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00413340
+HWND __fastcall find_top_level_display_window(HWND window)
+{
+    while((static_cast<std::uint32_t>(display_cooperative_level_api.get_window_long(window, GWL_STYLE)) & WS_CHILD) != 0)
+    {
+        window = display_cooperative_level_api.get_parent(window);
+    }
+    return window;
+}
+
+// GAG.EXE: 0x004134D0
+void shutdown_display_mode_host()
+{
+    if((display_palette_flags & 0x80000000) == 0)
+    {
+        return;
+    }
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_mode_host_shutdown_api.enter_critical_section(&display_host_critical_section);
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                break;
+            }
+            display_mode_host_shutdown_api.leave_critical_section(&display_host_critical_section);
+        }
+        else
+        {
+            display_mode_host_shutdown_api.sleep(5);
+        }
+    }
+    display_mode_host_shutdown_api.teardown_palette_surface();
+    DisplayMode *mode = display_mode_head;
+    while(mode != nullptr)
+    {
+        DisplayMode *next = mode->next;
+        display_mode_host_shutdown_api.heap_free(display_mode_host_shutdown_api.get_process_heap(), 0, mode);
+        mode = next;
+    }
+    display_palette_flags &= 0x7fffffff;
+    display_mode_host_shutdown_api.delete_critical_section(&display_host_critical_section);
+
+    display_palette_flags = 0;
+    std::memset(&display_host_critical_section, 0, sizeof(display_host_critical_section));
+    current_display_mode = nullptr;
+    display_direct_draw = nullptr;
+    display_direct_draw_primary_surface = nullptr;
+    display_direct_draw_secondary_surface = nullptr;
+    display_mode_head = nullptr;
+    display_mode_tail = nullptr;
+    display_mode_iterator = nullptr;
+    display_mode_count = 0;
+    display_palette_bits_per_pixel = 0;
+    display_palette_surface_bits_per_pixel = 0;
+    display_palette_dc = nullptr;
+    display_palette_dib_dc = nullptr;
+    display_palette = nullptr;
+    display_palette_bitmap = nullptr;
+    display_palette_window = nullptr;
+    display_palette_previous_palette = nullptr;
+    display_palette_previous_bitmap = nullptr;
+    display_palette_pixels = nullptr;
+    display_palette_width = 0;
+    display_palette_height = 0;
+    std::memset(display_palette_entries, 0, sizeof(display_palette_entries));
+}
+
+void set_display_mode_host_shutdown_api_for_testing(const DisplayModeHostShutdownApi &api)
+{
+    display_mode_host_shutdown_api = api;
+}
+
+// Non-original helper: shared busy-wait/critical-section acquisition sequence used by the original display-mode setters.
+void acquire_display_mode_change_lock()
+{
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_mode_change_api.enter_critical_section(&display_host_critical_section);
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                return;
+            }
+            display_mode_change_api.leave_critical_section(&display_host_critical_section);
+        }
+        else
+        {
+            display_mode_change_api.sleep(5);
+        }
+    }
+}
+
+// GAG.EXE: 0x00413780
+std::uint32_t __fastcall set_active_display_mode(DisplayMode *mode)
+{
+    std::uint32_t result = 0x200000;
+    acquire_display_mode_change_lock();
+    if((display_palette_flags & 0x200002) == 0)
+    {
+        std::uint32_t cooperative_result = 0;
+        const std::uint32_t previous_cooperative = display_palette_flags & 0x1000;
+        if(previous_cooperative == 0)
+        {
+            cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
+        }
+        if(cooperative_result == 0)
+        {
+            if(display_mode_change_api.set_direct_draw_mode(display_direct_draw, mode->width, mode->height, mode->bits_per_pixel) == 0)
+            {
+                result = 0;
+            }
+            if(previous_cooperative == 0)
+            {
+                display_mode_change_api.set_cooperative_mode(0);
+            }
+        }
+    }
+    else
+    {
+        DEVMODEA settings{};
+        settings.dmSize = sizeof(settings);
+        settings.dmFields = mode->unknown_0008;
+        settings.dmDisplayFlags = mode->surface_caps;
+        settings.dmPelsWidth = static_cast<DWORD>(mode->width);
+        settings.dmPelsHeight = static_cast<DWORD>(mode->height);
+        settings.dmDisplayFrequency = mode->unknown_0010;
+        settings.dmBitsPerPel = static_cast<DWORD>(mode->bits_per_pixel);
+        if(display_mode_change_api.change_display_settings(&settings, 0) == DISP_CHANGE_SUCCESSFUL)
+        {
+            result = 0;
+            current_display_mode = mode;
+        }
+    }
+    display_mode_change_api.leave_critical_section(&display_host_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x004138D0
+std::uint32_t restore_active_display_mode()
+{
+    std::uint32_t result = 0x200000;
+    acquire_display_mode_change_lock();
+    if((display_palette_flags & 0x200002) == 0)
+    {
+        std::uint32_t cooperative_result = 0;
+        const std::uint32_t previous_cooperative = display_palette_flags & 0x1000;
+        if(previous_cooperative == 0)
+        {
+            cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
+        }
+        if(cooperative_result == 0)
+        {
+            if(display_mode_change_api.restore_direct_draw_mode(display_direct_draw) == 0)
+            {
+                result = 0;
+            }
+            if(previous_cooperative == 0)
+            {
+                display_mode_change_api.set_cooperative_mode(0);
+            }
+        }
+    }
+    else if(display_mode_change_api.change_display_settings(nullptr, 0) == DISP_CHANGE_SUCCESSFUL)
+    {
+        display_mode_change_api.find_current_mode();
+        result = 0;
+    }
+    display_mode_change_api.leave_critical_section(&display_host_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x0041F9C0
+std::uint32_t __fastcall set_active_display_mode_if_graphics_ready(DisplayMode *mode)
+{
+    if((graphics_host_flags & 0x800) != 0)
+    {
+        return set_active_display_mode(mode);
+    }
+    return 0x200000;
+}
+
+// GAG.EXE: 0x0041F9E0
+std::uint32_t restore_active_display_mode_if_graphics_ready()
+{
+    if((graphics_host_flags & 0x800) != 0)
+    {
+        return restore_active_display_mode();
+    }
+    return 0x200000;
+}
+
+// GAG.EXE: 0x00413590
+std::uint32_t __fastcall set_display_cooperative_mode(std::uint32_t mode)
+{
+    if(display_palette_window == nullptr)
+    {
+        return 0x200000;
+    }
+    display_palette_api.enter_lock();
+    if((mode & 0x1000) == 0)
+    {
+        if((display_palette_flags & 0x1000) != 0)
+        {
+            HWND window = find_top_level_display_window(display_palette_window);
+            if(display_cooperative_level_api.set_cooperative_level(display_direct_draw, window, 8) == 0)
+            {
+                display_palette_flags &= ~0x1000U;
+            }
+        }
+    }
+    else if((display_palette_flags & 0x1000) == 0)
+    {
+        HWND window = find_top_level_display_window(display_palette_window);
+        if(display_cooperative_level_api.set_cooperative_level(display_direct_draw, window, 0x15) == 0)
+        {
+            display_palette_flags |= 0x1000;
+        }
+    }
+    display_palette_api.leave_lock();
+    return 0;
+}
+
+// GAG.EXE: 0x004140B0
+void __fastcall operate_display_surface(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, std::int32_t mode)
+{
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_palette_api.enter_lock();
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                break;
+            }
+            display_palette_api.leave_lock();
+        }
+        else
+        {
+            display_surface_operation_api.sleep(5);
+        }
+    }
+    if((display_palette_flags & 0x100002) == 0)
+    {
+        RECT rectangle{ x, y, x + width - 1, y + height - 1 };
+        if(mode == 1)
+        {
+            display_surface_operation_api.blt_fast(display_direct_draw_primary_surface, x, y, display_direct_draw_secondary_surface, &rectangle, 0x10);
+        }
+        else if(mode == 2)
+        {
+            std::uint32_t effects[25]{};
+            effects[0] = 100;
+            display_surface_operation_api.blt(display_direct_draw_primary_surface, &rectangle, display_direct_draw_secondary_surface, &rectangle, 0x400, effects);
+        }
+    }
+    else if(mode == 1)
+    {
+        display_surface_operation_api.bit_blt(display_palette_dc, x, y, width, height, display_palette_dib_dc, x, y, SRCCOPY);
+    }
+    else if(mode == 2)
+    {
+        display_surface_operation_api.pat_blt(display_palette_dc, x, y, width, height, BLACKNESS);
+    }
+    display_palette_api.leave_lock();
+}
+
+// GAG.EXE: 0x00414220
+void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uint32_t mode)
+{
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_region_synchronization_api.enter_critical_section(&display_host_critical_section);
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                break;
+            }
+            display_region_synchronization_api.leave_critical_section(&display_host_critical_section);
+        }
+        else
+        {
+            display_region_synchronization_api.sleep(5);
+        }
+    }
+    if((display_palette_flags & 0x100002) == 0)
+    {
+        auto *native_rectangle = reinterpret_cast<RECT *>(rectangle);
+        if(mode == 1)
+        {
+            display_region_synchronization_api.blt_fast(display_direct_draw_primary_surface, rectangle->left, rectangle->top, display_direct_draw_secondary_surface, native_rectangle, 0x10);
+        }
+        else if(mode == 2)
+        {
+            std::uint32_t effects[25]{};
+            effects[0] = sizeof(effects);
+            display_region_synchronization_api.blt(display_direct_draw_primary_surface, native_rectangle, display_direct_draw_secondary_surface, native_rectangle, 0x400, effects);
+        }
+    }
+    else if(mode == 1)
+    {
+        display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, display_palette_dib_dc,
+            rectangle->left, rectangle->top, SRCCOPY);
+    }
+    else if(mode == 2)
+    {
+        display_region_synchronization_api.pat_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, BLACKNESS);
+    }
+    display_region_synchronization_api.leave_critical_section(&display_host_critical_section);
+}
+
+// GAG.EXE: 0x00414360
+std::uint32_t __fastcall begin_display_target(void **pixels, DisplayRectangle *rectangle, std::uint32_t *pitch)
+{
+    const bool direct_draw = (display_palette_flags & 0x100002) == 0;
+    std::uint32_t busy;
+    do
+    {
+        busy = (display_palette_flags & 0x40000000) >> 30;
+        if(busy != 0)
+        {
+            display_target_begin_api.sleep(5);
+        }
+        else
+        {
+            display_target_begin_api.enter_critical_section(&display_host_critical_section);
+            busy = (display_palette_flags & 0x40000000) >> 30;
+            if(busy == 0)
+            {
+                display_palette_flags |= 0x40000000;
+            }
+            display_target_begin_api.leave_critical_section(&display_host_critical_section);
+        }
+    } while(busy != 0);
+
+    if(direct_draw)
+    {
+        constexpr HRESULT surface_lost = static_cast<HRESULT>(0x887601c2);
+        if(display_target_begin_api.is_surface_lost(display_direct_draw_secondary_surface) == surface_lost && display_target_begin_api.restore_surface(display_direct_draw_secondary_surface) != 0)
+        {
+            return 0x200000;
+        }
+        LegacyDirectDrawSurfaceDescriptor descriptor{};
+        descriptor.size = sizeof(descriptor);
+        if(display_target_begin_api.lock_surface(display_direct_draw_secondary_surface, nullptr, &descriptor, 1, nullptr) == 0)
+        {
+            display_palette_pixels = descriptor.surface;
+            *pixels = descriptor.surface;
+            *pitch = descriptor.pitch;
+            rectangle->left = 0;
+            rectangle->top = 0;
+            rectangle->right = static_cast<std::int32_t>(descriptor.width);
+            rectangle->bottom = static_cast<std::int32_t>(descriptor.height);
+            return 0;
+        }
+    }
+    else
+    {
+        *pixels = display_palette_pixels;
+        *pitch = static_cast<std::uint32_t>((current_display_mode->bits_per_pixel >> 3) * display_palette_width);
+        rectangle->left = 0;
+        rectangle->top = 0;
+        rectangle->right = display_palette_width;
+        rectangle->bottom = display_palette_height;
+        if(display_palette_pixels != nullptr)
+        {
+            return 0;
+        }
+    }
+    display_palette_flags &= 0xbfffffff;
+    return 0x200000;
+}
+
+// GAG.EXE: 0x004139B0
+void *__fastcall create_display_surface(std::int32_t width, std::int32_t height, const LegacyDisplayPixelFormat *format, std::uint32_t options)
+{
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_palette_api.enter_lock();
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                break;
+            }
+            display_palette_api.leave_lock();
+        }
+        else
+        {
+            display_surface_creation_api.sleep(5);
+        }
+    }
+
+    void *result = nullptr;
+    display_surface_creation_api.teardown();
+    std::uint32_t mode_flags = (options & 0x100) | 0x10;
+    if((display_palette_flags & 0x100002) == 0)
+    {
+        while(true)
+        {
+            std::uint32_t previous_flags = display_palette_flags;
+            LegacyDirectDrawSurfaceDescriptor descriptor{};
+            descriptor.size = sizeof(descriptor);
+            if((mode_flags & 0x100) == 0)
+            {
+                descriptor.flags = 0;
+                descriptor.caps = 0x200;
+                if(display_surface_creation_api.create_direct_draw_surface(display_direct_draw, &descriptor, &display_direct_draw_primary_surface, nullptr) == 0)
+                {
+                    descriptor = {};
+                    descriptor.size = sizeof(descriptor);
+                    descriptor.flags = 0x1006;
+                    descriptor.height = static_cast<std::uint32_t>(height);
+                    descriptor.width = static_cast<std::uint32_t>(width);
+                    descriptor.pixel_format.size = sizeof(descriptor.pixel_format);
+                    descriptor.pixel_format.flags = format->flags;
+                    descriptor.pixel_format.bits_per_pixel = format->bits_per_pixel;
+                    descriptor.pixel_format.red_mask = format->red_mask;
+                    descriptor.pixel_format.green_mask = format->green_mask;
+                    descriptor.pixel_format.blue_mask = format->blue_mask;
+                    descriptor.caps = 0x840;
+                    if(display_surface_creation_api.create_direct_draw_surface(display_direct_draw, &descriptor, &display_direct_draw_secondary_surface, nullptr) == 0)
+                    {
+                        result = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+                        display_palette_flags |= mode_flags;
+                    }
+                    else
+                    {
+                        display_surface_creation_api.release_surface(display_direct_draw_primary_surface);
+                        display_direct_draw_primary_surface = nullptr;
+                    }
+                }
+                break;
+            }
+
+            if(display_surface_creation_api.set_cooperative_mode(0x1000) == 0)
+            {
+                descriptor.flags = 0x20;
+                descriptor.back_buffer_count = 1;
+                descriptor.caps = 0x218;
+                if(display_surface_creation_api.create_direct_draw_surface(display_direct_draw, &descriptor, &display_direct_draw_primary_surface, nullptr) == 0)
+                {
+                    std::uint32_t caps = 4;
+                    if(display_surface_creation_api.get_attached_surface(display_direct_draw_primary_surface, &caps, &display_direct_draw_secondary_surface) == 0)
+                    {
+                        result = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+                        display_palette_flags |= mode_flags;
+                    }
+                }
+            }
+            if(display_direct_draw_secondary_surface != nullptr)
+            {
+                break;
+            }
+            if((previous_flags & 0x1000) == 0)
+            {
+                display_surface_creation_api.set_cooperative_mode(0);
+            }
+            if(display_direct_draw_primary_surface != nullptr)
+            {
+                display_surface_creation_api.release_surface(display_direct_draw_primary_surface);
+                display_direct_draw_primary_surface = nullptr;
+            }
+            mode_flags &= ~0x100U;
+        }
+    }
+    else
+    {
+        display_palette_dc = display_surface_creation_api.get_dc(display_palette_window);
+        display_palette_dib_dc = display_surface_creation_api.create_compatible_dc(display_palette_dc);
+        if(display_palette_dib_dc == nullptr)
+        {
+            display_surface_creation_api.release_dc(display_palette_window, display_palette_dc);
+            display_palette_dc = nullptr;
+        }
+        else
+        {
+            HANDLE heap = display_surface_creation_api.get_process_heap();
+            auto *bitmap_info = static_cast<BITMAPINFO *>(display_surface_creation_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x428));
+            if(bitmap_info == nullptr)
+            {
+                display_surface_creation_api.delete_dc(display_palette_dib_dc);
+                display_palette_dib_dc = nullptr;
+            }
+            else
+            {
+                DWORD compression;
+                DWORD color_count;
+                if(format->bits_per_pixel == 8)
+                {
+                    std::memset(display_palette_entries, 0, sizeof(display_palette_entries));
+                    struct Palette256
+                    {
+                        WORD version;
+                        WORD count;
+                        PALETTEENTRY entries[0x100];
+                    } palette{ 0x300, 0x100, {} };
+                    display_palette = display_surface_creation_api.create_palette(reinterpret_cast<const LOGPALETTE *>(&palette));
+                    if(display_palette != nullptr)
+                    {
+                        display_palette_previous_palette = display_surface_creation_api.select_palette(display_palette_dc, display_palette, FALSE);
+                    }
+                    compression = BI_RGB;
+                    color_count = 0x100;
+                }
+                else if(format->bits_per_pixel == 0x10)
+                {
+                    compression = format->green_mask == 0x7e0 ? BI_BITFIELDS : BI_RGB;
+                    color_count = format->green_mask == 0x7e0 ? 0x10000 : 0x8000;
+                }
+                else
+                {
+                    compression = 0;
+                    color_count = 0;
+                    if(format->bits_per_pixel == 0x20)
+                    {
+                        compression = BI_BITFIELDS;
+                        color_count = 0x1000000;
+                    }
+                }
+
+                if(display_palette == nullptr && format->bits_per_pixel == 8)
+                {
+                    display_surface_creation_api.delete_dc(display_palette_dib_dc);
+                    display_surface_creation_api.release_dc(display_palette_window, display_palette_dc);
+                    display_palette_dib_dc = nullptr;
+                    display_palette_dc = nullptr;
+                }
+                else
+                {
+                    bitmap_info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bitmap_info->bmiHeader.biWidth = width;
+                    bitmap_info->bmiHeader.biHeight = -height;
+                    bitmap_info->bmiHeader.biPlanes = 1;
+                    bitmap_info->bmiHeader.biBitCount = static_cast<WORD>(format->bits_per_pixel);
+                    bitmap_info->bmiHeader.biCompression = compression;
+                    bitmap_info->bmiHeader.biSizeImage = (format->bits_per_pixel >> 3) * height * width;
+                    bitmap_info->bmiHeader.biClrUsed = color_count;
+                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[0] = format->red_mask;
+                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[1] = format->green_mask;
+                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[2] = format->blue_mask;
+                    display_palette_bitmap = display_surface_creation_api.create_dib_section(display_palette_dc, bitmap_info, DIB_RGB_COLORS, &result, nullptr, 0);
+                    if(display_palette_bitmap == nullptr)
+                    {
+                        if(format->bits_per_pixel == 8)
+                        {
+                            display_surface_creation_api.select_palette(display_palette_dc, display_palette_previous_palette, FALSE);
+                            display_surface_creation_api.delete_object(display_palette);
+                            display_palette = nullptr;
+                            display_palette_previous_palette = nullptr;
+                        }
+                        display_surface_creation_api.delete_dc(display_palette_dib_dc);
+                        display_surface_creation_api.release_dc(display_palette_window, display_palette_dc);
+                        display_palette_dib_dc = nullptr;
+                        display_palette_dc = nullptr;
+                    }
+                    else
+                    {
+                        display_palette_width = width;
+                        display_palette_height = height;
+                        display_palette_bits_per_pixel = static_cast<std::int32_t>(format->bits_per_pixel);
+                        display_palette_pixels = result;
+                        display_palette_previous_bitmap = static_cast<HBITMAP>(display_surface_creation_api.select_object(display_palette_dib_dc, display_palette_bitmap));
+                        if(format->bits_per_pixel == 8)
+                        {
+                            display_surface_creation_api.set_palette_entries(display_palette, 0, 0xec, display_palette_entries);
+                            display_surface_creation_api.realize_palette(display_palette_dc);
+                            RGBQUAD colors[0x100];
+                            for(std::uint32_t index = 0; index < 0x100; ++index)
+                            {
+                                colors[index].rgbRed = display_palette_entries[index].peRed;
+                                colors[index].rgbGreen = display_palette_entries[index].peGreen;
+                                colors[index].rgbBlue = display_palette_entries[index].peBlue;
+                                colors[index].rgbReserved = 0;
+                            }
+                            display_surface_creation_api.set_dib_color_table(display_palette_dib_dc, 0, 0x100, colors);
+                        }
+                        display_palette_flags |= mode_flags;
+                    }
+                }
+                display_surface_creation_api.heap_free(heap, 0, bitmap_info);
+            }
+        }
+    }
+    display_palette_api.leave_lock();
+    return result;
+}
+
+// GAG.EXE: 0x00413F80
+void teardown_display_palette_surface()
+{
+    while(true)
+    {
+        if((display_palette_flags & 0x40000000) == 0)
+        {
+            display_palette_api.enter_lock();
+            if((display_palette_flags & 0x40000000) == 0)
+            {
+                break;
+            }
+            display_palette_api.leave_lock();
+        }
+        else
+        {
+            display_palette_teardown_api.sleep(5);
+        }
+    }
+    if((display_palette_flags & 0x10) != 0)
+    {
+        if((display_palette_flags & 0x100002) != 0)
+        {
+            if(display_palette != nullptr)
+            {
+                display_palette_teardown_api.select_palette(display_palette_dc, display_palette_previous_palette, FALSE);
+                display_palette_teardown_api.delete_object(display_palette);
+                display_palette = nullptr;
+                display_palette_previous_palette = nullptr;
+            }
+            display_palette_teardown_api.select_object(display_palette_dib_dc, display_palette_previous_bitmap);
+            display_palette_teardown_api.delete_object(display_palette_bitmap);
+            display_palette_bitmap = nullptr;
+            display_palette_previous_bitmap = nullptr;
+            display_palette_teardown_api.delete_dc(display_palette_dib_dc);
+            display_palette_teardown_api.release_dc(display_palette_window, display_palette_dc);
+            display_palette_dib_dc = nullptr;
+            display_palette_dc = nullptr;
+            display_palette_width = 0;
+            display_palette_height = 0;
+            display_palette_bits_per_pixel = 0;
+            display_palette_pixels = nullptr;
+        }
+        display_palette_flags &= ~0x10U;
+    }
+    display_palette_api.leave_lock();
+}
+
+// GAG.EXE: 0x00413480
+HDC get_display_palette_dc()
+{
+    return display_palette_dc;
+}
+
+// GAG.EXE: 0x00413490
+HDC get_display_palette_dib_dc()
+{
+    return display_palette_dib_dc;
+}
+
+// GAG.EXE: 0x004134A0
+HBITMAP get_display_palette_bitmap()
+{
+    return display_palette_bitmap;
+}
+
+// GAG.EXE: 0x004134B0
+HPALETTE get_display_palette_handle()
+{
+    return display_palette;
+}
+
+// GAG.EXE: 0x004134C0
+PALETTEENTRY *get_display_palette_entries()
+{
+    return display_palette_entries;
+}
+
+// GAG.EXE: 0x00414610
+UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::uint32_t update_flags)
+{
+    bool palette_unchanged = true;
+    display_palette_api.enter_lock();
+    bool present_after_update = false;
+    if(palette_entries != nullptr)
+    {
+        std::memcpy(display_palette_entries, palette_entries, sizeof(display_palette_entries));
+    }
+    UINT result = 0;
+    if((display_palette_flags & 0x100002) != 0 && display_palette_bits_per_pixel == 8)
+    {
+        if(display_palette_surface_bits_per_pixel == 8)
+        {
+            if((display_palette_flags & 0x10000) == 0)
+            {
+                HWND host_window = display_palette_api.get_host_window();
+                HWND foreground_window = display_palette_api.get_foreground_window();
+                if(foreground_window != host_window)
+                {
+                    DWORD foreground_process;
+                    DWORD host_process;
+                    display_palette_api.get_window_thread_process_id(foreground_window, &foreground_process);
+                    display_palette_api.get_window_thread_process_id(host_window, &host_process);
+                    if(foreground_process != host_process)
+                    {
+                        display_palette_flags |= 0x10000;
+                    }
+                }
+                if((display_palette_flags & 0x10000) == 0 && (display_palette_flags & 0x20000) != 0)
+                {
+                    palette_unchanged = false;
+                    display_palette_api.unrealize_object(display_palette);
+                    for(std::uint32_t index = 0; index < 0xec; ++index)
+                    {
+                        display_palette_entries[index].peFlags = 1;
+                    }
+                    update_flags |= 0x10000;
+                    display_palette_api.select_palette(display_palette_dc, display_palette, FALSE);
+                    display_palette_flags &= 0xfffdffff;
+                }
+            }
+            if((display_palette_flags & 0x10000) != 0)
+            {
+                palette_unchanged = false;
+                display_palette_api.unrealize_object(display_palette);
+                for(std::uint32_t index = 0; index < 0xec; ++index)
+                {
+                    display_palette_entries[index].peFlags = 0;
+                }
+                update_flags |= 0x10000;
+                display_palette_api.select_palette(display_palette_dc, display_palette, TRUE);
+                display_palette_flags |= 0x20000;
+            }
+            if((update_flags & 0x10000) == 0)
+            {
+                if(display_palette_api.animate_palette(display_palette, 0, 0xec, display_palette_entries) != FALSE)
+                {
+                    result = 0xec;
+                }
+            }
+            else
+            {
+                if(palette_unchanged)
+                {
+                    display_palette_api.unrealize_object(display_palette);
+                }
+                result = display_palette_api.set_palette_entries(display_palette, 0, 0xec, display_palette_entries);
+                if(display_palette_api.realize_palette(display_palette_dc) == 0xffffffff)
+                {
+                    result = 0;
+                }
+                update_flags |= 0x20000;
+            }
+        }
+        else
+        {
+            present_after_update = true;
+            update_flags |= 0x20000;
+        }
+        if((update_flags & 0x20000) != 0)
+        {
+            RGBQUAD colors[0x100];
+            for(std::uint32_t index = 0; index < 0x100; ++index)
+            {
+                colors[index].rgbBlue = display_palette_entries[index].peBlue;
+                colors[index].rgbGreen = display_palette_entries[index].peGreen;
+                colors[index].rgbRed = display_palette_entries[index].peRed;
+                colors[index].rgbReserved = 0;
+            }
+            display_palette_api.set_dib_color_table(display_palette_dib_dc, 0, 0x100, colors);
+        }
+    }
+    display_palette_api.leave_lock();
+    if(present_after_update)
+    {
+        display_palette_api.present(display_palette_width, display_palette_height, 1);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00414590
+void enable_display_palette_mode()
+{
+    display_palette_api.enter_lock();
+    if((display_palette_flags & 0x100002) != 0)
+    {
+        display_palette_flags |= 0x10000;
+        apply_display_palette(nullptr, 0);
+    }
+    display_palette_api.leave_lock();
+}
+
+// GAG.EXE: 0x004145D0
+void disable_display_palette_mode()
+{
+    display_palette_api.enter_lock();
+    if((display_palette_flags & 0x100002) != 0)
+    {
+        display_palette_flags &= 0xfffeffff;
+        apply_display_palette(nullptr, 0);
+    }
+    display_palette_api.leave_lock();
+}
+
+// GAG.EXE: 0x00420A90
+void __fastcall enqueue_runtime_message(std::uint32_t message)
+{
+    if((graphics_host_flags & 0x400) == 0)
+    {
+        return;
+    }
+    runtime_queue_api.enter_queue_lock();
+    if(message == 0x30f)
+    {
+        runtime_message_write_index = 0;
+        runtime_message_read_index = 0;
+    }
+    std::uint32_t previous_index = runtime_message_write_index == 0 ? 0x1f : runtime_message_write_index - 1;
+    if(runtime_message_write_index == runtime_message_read_index || runtime_message_queue[previous_index] != message)
+    {
+        runtime_message_available = 1;
+        runtime_message_queue[runtime_message_write_index] = message;
+        ++runtime_message_write_index;
+        if(runtime_message_write_index == 0x20)
+        {
+            runtime_message_write_index = 0;
+        }
+        if(runtime_message_write_index == runtime_message_read_index)
+        {
+            ++runtime_message_read_index;
+            if(runtime_message_read_index == 0x20)
+            {
+                runtime_message_read_index = 0;
+            }
+        }
+    }
+    runtime_queue_api.leave_queue_lock();
+}
+
+// GAG.EXE: 0x00420B50
+std::uint32_t dequeue_runtime_message()
+{
+    if(runtime_message_available == 0)
+    {
+        return 0;
+    }
+    std::uint32_t message = 0;
+    runtime_queue_api.enter_queue_lock();
+    if(runtime_message_write_index != runtime_message_read_index)
+    {
+        message = runtime_message_queue[runtime_message_read_index];
+        ++runtime_message_read_index;
+        if(runtime_message_read_index == 0x20)
+        {
+            runtime_message_read_index = 0;
+        }
+        if(runtime_message_write_index == runtime_message_read_index)
+        {
+            runtime_message_available = 0;
+        }
+    }
+    runtime_queue_api.leave_queue_lock();
+    return message;
+}
+
+// GAG.EXE: 0x00420CB0
+void clear_credits_runtime_flag()
+{
+    if((graphics_host_flags & 0x40000000) != 0)
+    {
+        graphics_host_flags &= 0xbfffffff;
+    }
+}
+
+void set_runtime_queue_api_for_testing(const RuntimeQueueApi &api)
+{
+    runtime_queue_api = api;
+}
+
+void set_runtime_pair_indices_for_testing(std::uint32_t read_index, std::uint32_t write_index)
+{
+    runtime_pair_read_index = read_index;
+    runtime_pair_write_index = write_index;
+}
+
+void get_runtime_pair_indices_for_testing(std::uint32_t *read_index, std::uint32_t *write_index)
+{
+    *read_index = runtime_pair_read_index;
+    *write_index = runtime_pair_write_index;
+}
+
+void reset_runtime_message_queue_for_testing()
+{
+    runtime_message_available = 0;
+    std::memset(runtime_message_queue, 0, sizeof(runtime_message_queue));
+    runtime_message_write_index = 0;
+    runtime_message_read_index = 0;
+}
+
+void reset_runtime_byte_queue_for_testing()
+{
+    runtime_byte_available = 0;
+    std::memset(runtime_byte_queue, 0, sizeof(runtime_byte_queue));
+    runtime_byte_read_index = 0;
+    runtime_byte_write_index = 0;
+}
+
+void reset_runtime_pair_queue_for_testing()
+{
+    runtime_pair_available = 0;
+    std::memset(runtime_pair_queue, 0, sizeof(runtime_pair_queue));
+    runtime_pair_read_index = 0;
+    runtime_pair_write_index = 0;
+}
+
+void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, std::uint32_t status)
+{
+    runtime_input_session_record = record;
+    runtime_input_session_status = status;
+}
+
+void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api)
+{
+    runtime_input_session_api = api;
+}
+
+void set_runtime_input_session_globals_for_testing(void *input_object, void *alternate_resource_context, void *value_1, void *value_2, void *graphics_state, void *configuration)
+{
+    runtime_input_object = input_object;
+    runtime_input_alternate_resource_context = alternate_resource_context;
+    runtime_input_value_1 = value_1;
+    runtime_input_value_2 = value_2;
+    runtime_input_graphics_state = graphics_state;
+    runtime_input_configuration = configuration;
+}
+
+void *get_runtime_input_object_for_testing()
+{
+    return runtime_input_object;
+}
+
+void *get_runtime_input_resource_for_testing()
+{
+    return runtime_input_resource;
+}
+
+std::uint32_t get_runtime_input_character_width_for_testing()
+{
+    return runtime_input_character_width;
+}
+
+void *get_runtime_input_session_value_for_testing()
+{
+    return runtime_input_session_value;
+}
+
+void set_runtime_command_loop_api_for_testing(const RuntimeCommandLoopApi &api)
+{
+    runtime_command_loop_api = api;
+}
+
+void set_runtime_message_processor_api_for_testing(const RuntimeMessageProcessorApi &api)
+{
+    runtime_message_processor_api = api;
+}
+
+void set_runtime_target_update_api_for_testing(const RuntimeTargetUpdateApi &api)
+{
+    runtime_target_update_api = api;
+}
+
+void set_runtime_target_flags_for_testing(std::uint32_t flags)
+{
+    runtime_target_flags = flags;
+}
+
+void set_display_lock_release_api_for_testing(const DisplayLockReleaseApi &api)
+{
+    display_lock_release_api = api;
+}
+
+void set_display_lock_acquire_api_for_testing(const DisplayLockAcquireApi &api)
+{
+    display_lock_acquire_api = api;
+}
+
+void set_display_lock_state_for_testing(std::uint32_t flags, DWORD owner_thread, std::uint32_t recursion_count, HANDLE release_event)
+{
+    display_lock_flags = flags;
+    display_lock_owner_thread = owner_thread;
+    display_lock_recursion_count = recursion_count;
+    display_lock_release_event = release_event;
+}
+
+void set_display_root_region_api_for_testing(const DisplayRootRegionApi &api)
+{
+    display_root_region_api = api;
+}
+
+void set_display_root_region_state_for_testing(std::uint32_t lock_flags, DisplaySceneNode *root)
+{
+    display_lock_flags = lock_flags;
+    display_scene_root = root;
+}
+
+void get_display_lock_state_for_testing(std::uint32_t *flags, DWORD *owner_thread, std::uint32_t *recursion_count)
+{
+    *flags = display_lock_flags;
+    *owner_thread = display_lock_owner_thread;
+    *recursion_count = display_lock_recursion_count;
+}
+
+void set_display_clip_bounds_for_testing(const DisplayRectangle &bounds)
+{
+    display_clip_bounds = bounds;
+}
+
+void set_display_scene_callback_api_for_testing(const DisplaySceneCallbackApi &api)
+{
+    display_scene_callback_api = api;
+}
+
+void set_display_scene_sync_api_for_testing(const DisplaySceneSyncApi &api)
+{
+    display_scene_sync_api = api;
+}
+
+void set_display_scene_memory_api_for_testing(const DisplaySceneMemoryApi &api)
+{
+    display_scene_memory_api = api;
+}
+
+void set_display_scene_host_api_for_testing(const DisplaySceneHostApi &api)
+{
+    display_scene_host_api = api;
+}
+
+void set_display_scene_worker_api_for_testing(const DisplaySceneWorkerApi &api)
+{
+    display_scene_worker_api = api;
+}
+
+void set_display_scene_sync_state_for_testing(void *context, DisplaySceneNode *root_node)
+{
+    display_scene_sync_context = context;
+    display_scene_root = root_node;
+}
+
+void set_display_scene_worker_state_for_testing(std::uint32_t interval, std::uint32_t *palette_source_state)
+{
+    display_scene_worker_interval = interval;
+    display_palette_source_state = palette_source_state;
+}
+
+std::uint32_t get_display_scene_worker_rate_for_testing()
+{
+    return display_scene_worker_rate;
+}
+
+void set_display_scene_root_primary_position_for_testing(std::int32_t primary_position)
+{
+    display_scene_root_primary_position = primary_position;
+}
+
+void set_display_lock_acquire_state_for_testing(HANDLE gate_event, std::uint32_t busy, const DisplayRectangle &pending_rectangle, std::int32_t width, std::int32_t height, DisplaySceneNode *scene_head)
+{
+    display_lock_gate_event = gate_event;
+    display_lock_busy = busy;
+    display_pending_rectangle = pending_rectangle;
+    display_width = width;
+    display_height = height;
+    display_scene_head = scene_head;
+    display_scene_count = 0;
+    for(DisplaySceneNode *node = scene_head; node != nullptr; node = node->next)
+    {
+        ++display_scene_count;
+    }
+}
+
+DisplayRectangle get_display_pending_rectangle_for_testing()
+{
+    return display_pending_rectangle;
+}
+
+void set_display_palette_api_for_testing(const DisplayPaletteApi &api)
+{
+    display_palette_api = api;
+}
+
+void set_display_palette_teardown_api_for_testing(const DisplayPaletteTeardownApi &api)
+{
+    display_palette_teardown_api = api;
+}
+
+void set_display_cooperative_level_api_for_testing(const DisplayCooperativeLevelApi &api)
+{
+    display_cooperative_level_api = api;
+}
+
+void set_display_mode_change_api_for_testing(const DisplayModeChangeApi &api)
+{
+    display_mode_change_api = api;
+}
+
+void set_display_mode_change_state_for_testing(std::uint32_t flags, void *display, DisplayMode *current_mode)
+{
+    display_palette_flags = flags;
+    display_direct_draw = display;
+    current_display_mode = current_mode;
+}
+
+void set_display_surface_operation_api_for_testing(const DisplaySurfaceOperationApi &api)
+{
+    display_surface_operation_api = api;
+}
+
+void set_display_region_synchronization_api_for_testing(const DisplayRegionSynchronizationApi &api)
+{
+    display_region_synchronization_api = api;
+}
+
+void set_display_region_synchronization_state_for_testing(std::uint32_t flags, void *primary_surface, void *secondary_surface, HDC primary_context, HDC secondary_context)
+{
+    display_palette_flags = flags;
+    display_direct_draw_primary_surface = primary_surface;
+    display_direct_draw_secondary_surface = secondary_surface;
+    display_palette_dc = primary_context;
+    display_palette_dib_dc = secondary_context;
+}
+
+void set_display_target_begin_api_for_testing(const DisplayTargetBeginApi &api)
+{
+    display_target_begin_api = api;
+}
+
+void set_display_target_begin_state_for_testing(std::uint32_t flags, void *secondary_surface, void *pixels, std::int32_t width, std::int32_t height, DisplayMode *mode)
+{
+    display_palette_flags = flags;
+    display_direct_draw_secondary_surface = secondary_surface;
+    display_palette_pixels = pixels;
+    display_palette_width = width;
+    display_palette_height = height;
+    current_display_mode = mode;
+}
+
+void set_display_surface_creation_api_for_testing(const DisplaySurfaceCreationApi &api)
+{
+    display_surface_creation_api = api;
+}
+
+void set_display_palette_state_for_testing(std::uint32_t flags, std::int32_t display_bits_per_pixel, std::int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette,
+    std::int32_t width, std::int32_t height)
+{
+    display_palette_flags = flags;
+    display_palette_bits_per_pixel = display_bits_per_pixel;
+    display_palette_surface_bits_per_pixel = surface_bits_per_pixel;
+    display_palette_dc = palette_dc;
+    display_palette_dib_dc = dib_dc;
+    display_palette = palette;
+    display_palette_width = width;
+    display_palette_height = height;
+}
+
+void set_display_palette_bitmap_for_testing(HBITMAP bitmap)
+{
+    display_palette_bitmap = bitmap;
+}
+
+void set_display_palette_teardown_state_for_testing(HWND window, HPALETTE previous_palette, HBITMAP previous_bitmap)
+{
+    display_palette_window = window;
+    display_palette_previous_palette = previous_palette;
+    display_palette_previous_bitmap = previous_bitmap;
+}
+
+void set_display_cooperative_state_for_testing(HWND window, void *display)
+{
+    display_palette_window = window;
+    display_direct_draw = display;
+}
+
+void set_display_surface_operation_state_for_testing(void *primary_surface, void *secondary_surface)
+{
+    display_direct_draw_primary_surface = primary_surface;
+    display_direct_draw_secondary_surface = secondary_surface;
+}
+
+std::uint32_t get_display_palette_flags_for_testing()
+{
+    return display_palette_flags;
+}
+
+const PALETTEENTRY *get_display_palette_entries_for_testing()
+{
+    return display_palette_entries;
+}
+
+void set_display_target_api_for_testing(const DisplayTargetApi &api)
+{
+    display_target_api = api;
+}
+
+void set_display_target_state_for_testing(void *backend, void *target)
+{
+    display_backend = backend;
+    display_backend_target = target;
+}
+
+// GAG.EXE: 0x0041CE40
+void application_hook_no_op_1() {}
+
+// GAG.EXE: 0x0041CE50
+void application_hook_no_op_2() {}
+
+// GAG.EXE: 0x0041CDC0
+void __fastcall set_application_lock_flag(ApplicationState *state)
+{
+    state->flags |= 0x40000000;
+}
+
+// GAG.EXE: 0x0041CD30
+void __fastcall set_application_inactive_flags(ApplicationState *state)
+{
+    std::uint32_t previous_flags = state->flags;
+    state->flags = previous_flags | 0x1000002;
+    state->flags = previous_flags | 0x9000002;
+}
+
+// GAG.EXE: 0x0041CD50
+void __fastcall clear_runtime_active_flag(ApplicationState *state)
+{
+    std::uint32_t previous_flags = state->flags;
+    state->flags = previous_flags & 0xfeffffff;
+    if((previous_flags & 0x40000000) == 0)
+    {
+        clear_cursor_flag_above_client(state);
+    }
+}
+
+// GAG.EXE: 0x0041CDD0
+void __fastcall clear_application_lock_flag(ApplicationState *state)
+{
+    std::uint32_t previous_flags = state->flags;
+    state->flags = previous_flags & 0xbfffffff;
+    if((previous_flags & 0x01000000) == 0)
+    {
+        clear_cursor_flag_above_client(state);
+    }
+}
+
+// GAG.EXE: 0x00417970
+void __fastcall free_heap_memory(void *memory)
+{
+    if(memory != nullptr)
+    {
+        HeapFree(GetProcessHeap(), 0, memory);
+    }
+}
+
+void set_display_mode_list_for_testing(DisplayMode *head)
+{
+    display_mode_head = head;
+}
+
+void set_graphics_host_flags_for_testing(std::uint32_t flags)
+{
+    graphics_host_flags = flags;
+}
+
+void set_drive_discovery_api_for_testing(const DriveDiscoveryApi &api)
+{
+    drive_discovery_api = api;
+}
+
+void set_cursor_state_api_for_testing(const CursorStateApi &api)
+{
+    cursor_state_api = api;
+}
+
+void set_validation_api_for_testing(const ValidationApi &api)
+{
+    validation_api = api;
+}
+
+void set_window_class_api_for_testing(const WindowClassApi &api)
+{
+    window_class_api = api;
+}
+
+void reset_custom_control_registration_for_testing()
+{
+    custom_control_registered = 0;
+    custom_control_instance = nullptr;
+}
+
+void set_custom_control_registration_state_for_testing(std::uint32_t registered, HINSTANCE instance)
+{
+    custom_control_registered = registered;
+    custom_control_instance = instance;
+}
+
+void set_window_procedure_api_for_testing(const WindowProcedureApi &api)
+{
+    window_procedure_api = api;
+}
+
+void set_settings_registry_api_for_testing(const SettingsRegistryApi &api)
+{
+    settings_registry_api = api;
+}
+
+void set_cursor_visibility_api_for_testing(const CursorVisibilityApi &api)
+{
+    cursor_visibility_api = api;
+}
+
+void set_finish_credits_callback_for_testing(void (*callback)())
+{
+    finish_credits_callback = callback;
+}
+
+void set_runtime_subsystem_callback_for_testing(void (*callback)())
+{
+    runtime_subsystem_callback = callback;
+}
+
+void set_display_switch_api_for_testing(const DisplaySwitchApi &api)
+{
+    display_switch_api = api;
+}
+
+void set_active_object_for_testing(void *object)
+{
+    active_object = static_cast<std::uint8_t *>(object);
+}
+
+std::uint32_t get_graphics_host_flags_for_testing()
+{
+    return graphics_host_flags;
+}
+
+void set_runtime_state_transition_for_testing(std::uint32_t current_value, std::uint32_t saved_value, void(__fastcall *callback)(std::uint32_t value))
+{
+    runtime_state_value = current_value;
+    saved_runtime_state_value = saved_value;
+    runtime_state_transition_callback = callback;
+}
+
+std::uint32_t get_runtime_state_value_for_testing()
+{
+    return runtime_state_value;
+}
+
+int run_startup(HINSTANCE instance, LPSTR command_line, int show_command, const StartupApi &api)
+{
+    ApplicationState *state = api.initialize_application(640, 480, instance, command_line, show_command);
+    if(state == nullptr)
+    {
+        return 0;
+    }
+
+    api.set_runtime_flag_40();
+
+    MSG message{};
+    message.message = WM_COMMAND;
+    do
+    {
+        api.get_message(&message, nullptr, 0, 0);
+        api.translate_message(&message);
+        api.dispatch_message(&message);
+    } while(message.message != WM_QUIT);
+
+    if((state->flags & 0x2000) != 0)
+    {
+        api.show_cursor(TRUE);
+        api.message_box(nullptr, state->message_table + 0x1040, state->message_table, MB_ICONERROR);
+    }
+
+    return static_cast<int>(message.wParam);
+}
+
+StartupApi make_win32_startup_api()
+{
+    return { initialize_gag_application, set_runtime_flag_40, GetMessageA, TranslateMessage, DispatchMessageA, ShowCursor, MessageBoxA };
+}
+
+namespace
+{
+
+constexpr char registry_key[] = "SOFTWARE\\ZES't Corp.\\GAG";
+constexpr char expected_version[] = "Russian Edition Version 2.51";
+constexpr char version_value[] = "version";
+constexpr char path_value[] = "path";
+constexpr char settings_value[] = "set";
+
+} // namespace
+
+// GAG.EXE: 0x0040CD00
+std::int32_t __fastcall select_bounded_random_value(std::int32_t minimum, std::int32_t maximum)
+{
+    if(!script_random_seeded)
+    {
+        script_utility_api.seed_random(script_utility_api.get_tick_count());
+        script_random_seeded = true;
+    }
+    if(minimum < -10000)
+    {
+        minimum = -10000;
+    }
+    if(maximum > 10000)
+    {
+        maximum = 10000;
+    }
+    if(maximum <= minimum)
+    {
+        return minimum;
+    }
+    return minimum + script_utility_api.random() % (maximum - minimum);
+}
+
+void set_script_utility_api_for_testing(const ScriptUtilityApi &api)
+{
+    script_utility_api = api;
+    script_random_seeded = false;
+}
+
+// GAG.EXE: 0x0040CF50
+int __fastcall copy_string(char *destination, const char *source)
+{
+    int length = 0;
+    while((*destination = *source) != '\0')
+    {
+        ++destination;
+        ++source;
+        ++length;
+    }
+    return length;
+}
+
+// GAG.EXE: 0x0040D0B0
+ScriptTextBuffer *create_script_text_buffer()
+{
+    auto *buffer = static_cast<ScriptTextBuffer *>(script_utility_api.virtual_alloc(nullptr, 64000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if(buffer == nullptr)
+    {
+        return nullptr;
+    }
+    buffer->length = 0;
+    buffer->capacity = 0xf9f4;
+    buffer->data = reinterpret_cast<char *>(buffer + 1);
+    return buffer;
+}
+
+// GAG.EXE: 0x0040D0E0
+void __fastcall clear_script_text_buffer(ScriptTextBuffer *buffer)
+{
+    if(buffer != nullptr)
+    {
+        buffer->length = 0;
+    }
+}
+
+// GAG.EXE: 0x0040D0F0
+void __fastcall begin_script_text_document(ScriptTextBuffer *buffer, const char *text)
+{
+    if(buffer != nullptr)
+    {
+        buffer->length += copy_string(buffer->data + buffer->length, text);
+        buffer->data[buffer->length++] = '\r';
+        buffer->data[buffer->length++] = '\n';
+        buffer->data[buffer->length++] = '\r';
+        buffer->data[buffer->length++] = '\n';
+    }
+}
+
+// GAG.EXE: 0x0040D140
+void __fastcall end_script_text_document(ScriptTextBuffer *buffer, const char *text)
+{
+    if(buffer != nullptr)
+    {
+        buffer->data[buffer->length++] = '\r';
+        buffer->data[buffer->length++] = '\n';
+        buffer->length += copy_string(buffer->data + buffer->length, text);
+    }
+}
+
+// GAG.EXE: 0x0040D180
+void __fastcall append_script_text_property(ScriptTextBuffer *buffer, std::uint32_t property, const char *value)
+{
+    if(buffer == nullptr)
+    {
+        return;
+    }
+    const char *name = nullptr;
+    switch(property)
+    {
+    case 0x01:
+        name = "object";
+        break;
+    case 0x03:
+        name = "event";
+        break;
+    case 0x04:
+        name = "mouse";
+        break;
+    case 0x07:
+        name = "command";
+        break;
+    case 0x08:
+        name = "list";
+        break;
+    case 0x0b:
+        name = "fademask";
+        break;
+    case 0x0c:
+        name = "load";
+        break;
+    case 0x0d:
+        name = "source";
+        break;
+    case 0x0e:
+        name = "section";
+        break;
+    case 0x0f:
+        name = "font";
+        break;
+    case 0x10:
+        name = "time";
+        break;
+    case 0x20:
+        name = "language";
+        break;
+    case 0x40:
+        name = "inventory";
+        break;
+    case 0x50:
+        name = "flags";
+        break;
+    case 0x60:
+        name = "try";
+        break;
+    case 0x70:
+        name = "catch";
+        break;
+    case 0x80:
+        name = "volume";
+        break;
+    case 0x90:
+        name = "exception";
+        break;
+    case 0xa0:
+        name = "drivespeed";
+        break;
+    case 0xb0:
+        name = "exfiles";
+        break;
+    default:
+        return;
+    }
+    buffer->length += copy_string(buffer->data + buffer->length, name);
+    buffer->data[buffer->length++] = '=';
+    if(value != nullptr)
+    {
+        buffer->length += copy_string(buffer->data + buffer->length, value);
+        buffer->data[buffer->length++] = ' ';
+    }
+}
+
+// GAG.EXE: 0x0040D400
+void __fastcall end_script_text_statement(ScriptTextBuffer *buffer)
+{
+    if(buffer != nullptr)
+    {
+        if(buffer->data[buffer->length - 1] == ' ')
+        {
+            --buffer->length;
+        }
+        buffer->data[buffer->length++] = ';';
+        buffer->data[buffer->length++] = '\r';
+        buffer->data[buffer->length++] = '\n';
+    }
+}
+
+// Non-original helper shared by the two recovered slash-scope emitters.
+static void append_script_text_scope_name(ScriptTextBuffer *buffer, const char *name)
+{
+    buffer->data[buffer->length++] = '/';
+    buffer->length += copy_string(buffer->data + buffer->length, name);
+    buffer->data[buffer->length++] = ':';
+}
+
+// GAG.EXE: 0x0040D440
+void __fastcall append_script_text_scope(ScriptTextBuffer *buffer, std::uint32_t scope)
+{
+    if(buffer == nullptr)
+    {
+        return;
+    }
+    switch(scope)
+    {
+    case 0x01000000:
+        append_script_text_scope_name(buffer, "FILE");
+        return;
+    case 0x0f000000:
+        append_script_text_scope_name(buffer, "ZONE");
+        return;
+    case 0x0b000000:
+        append_script_text_scope_name(buffer, "POS");
+        return;
+    case 0x0c000000:
+        append_script_text_scope_name(buffer, "COMM");
+        return;
+    case 0x0d000000:
+        append_script_text_scope_name(buffer, "MOUSE");
+        return;
+    case 0x20000000:
+        append_script_text_scope_name(buffer, "AMOUSE");
+        return;
+    case 0x0a000000:
+        append_script_text_scope_name(buffer, "F");
+        return;
+    case 0x00200000:
+        append_script_text_scope_name(buffer, "GLOBAL");
+        return;
+    default:
+        return;
+    }
+}
+
+// GAG.EXE: 0x0040D610
+void __fastcall append_script_text_preload_directive(ScriptTextBuffer *buffer, std::uint32_t scope)
+{
+    if(buffer != nullptr && scope == 0x50000000)
+    {
+        append_script_text_scope_name(buffer, "PRELOAD");
+    }
+}
+
+// GAG.EXE: 0x0040CE90
+void __fastcall append_script_text_scoped_tokens(ScriptTextBuffer *buffer, std::uint32_t scope, const char *text)
+{
+    if(text[0] == '\0')
+    {
+        return;
+    }
+
+    int offset = 0;
+    do
+    {
+        int token_length = 0;
+        char token[32];
+        char character = text[offset];
+        while(character != '\0' && text[offset] != ':' && text[offset] != ' ')
+        {
+            token[token_length++] = text[offset];
+            ++offset;
+            character = text[offset];
+        }
+        if(token_length != 0)
+        {
+            token[token_length] = '\0';
+            append_script_text_scope(buffer, scope);
+            if(text[offset] == ' ')
+            {
+                ++offset;
+                append_script_text_delimiter(buffer, token, ' ');
+            }
+            else if(text[offset] == ':')
+            {
+                ++offset;
+                append_script_text_delimiter(buffer, token, ':');
+                token_length = 0;
+                character = text[offset];
+                while(character != '\0' && text[offset] > '/' && text[offset] < ':')
+                {
+                    token[token_length++] = text[offset];
+                    ++offset;
+                    character = text[offset];
+                }
+                if(token_length != 0)
+                {
+                    token[token_length] = '\0';
+                    ++offset;
+                    append_script_text_delimiter(buffer, token, ' ');
+                }
+            }
+        }
+    } while(text[offset] != '\0');
+}
+
+// GAG.EXE: 0x0040D650
+void __fastcall append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, char delimiter)
+{
+    if(buffer != nullptr)
+    {
+        if(text != nullptr)
+        {
+            buffer->length += copy_string(buffer->data + buffer->length, text);
+        }
+        buffer->data[buffer->length++] = delimiter;
+    }
+}
+
+// GAG.EXE: 0x0040D690
+void __fastcall append_script_text_integer(ScriptTextBuffer *buffer, std::uint32_t value, char delimiter)
+{
+    if(buffer != nullptr)
+    {
+        if(static_cast<std::int32_t>(value) < 0)
+        {
+            value = 0 - value;
+            buffer->data[buffer->length++] = '-';
+        }
+        std::uint32_t divisor = 1;
+        std::uint32_t quotient = value / 10;
+        while(quotient != 0)
+        {
+            quotient = value / (divisor * 100);
+            divisor *= 10;
+        }
+        while(divisor != 0)
+        {
+            buffer->data[buffer->length++] = static_cast<char>(value / divisor) + '0';
+            value %= divisor;
+            divisor /= 10;
+        }
+        buffer->data[buffer->length++] = delimiter;
+    }
+}
+
+// GAG.EXE: 0x0040D740
+int __fastcall find_script_property_value(char *value, const char *property_name, const char *text, std::uint32_t text_length, std::uint32_t start_offset)
+{
+    if(value != nullptr)
+    {
+        std::memset(value, 0, 32);
+    }
+
+    std::uint32_t offset = start_offset;
+    while(true)
+    {
+        if(offset < text_length)
+        {
+            while(text[offset] != '[' && text[offset] != '=')
+            {
+                ++offset;
+                if(offset >= text_length)
+                {
+                    return -1;
+                }
+            }
+
+            if(text[offset] != '[')
+            {
+                if(offset != 0)
+                {
+                    while(true)
+                    {
+                        const char preceding = text[offset - 1];
+                        if(preceding == ']' || preceding == '\n' || preceding == '\r' || preceding == ' ' || preceding == ';')
+                        {
+                            break;
+                        }
+                        --offset;
+                        if(offset == 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                char candidate[32];
+                int candidate_length = 0;
+                while(text[offset] != '=' && candidate_length < 31)
+                {
+                    candidate[candidate_length++] = text[offset++];
+                }
+                ++offset;
+                candidate[candidate_length] = '\0';
+                if(strings_equal(candidate, property_name))
+                {
+                    if(value != nullptr)
+                    {
+                        int value_length = 0;
+                        while(offset < text_length)
+                        {
+                            const char character = text[offset];
+                            if(character == '[' || character == ':' || character == ';' || character == ' ' || character == '\r')
+                            {
+                                break;
+                            }
+                            value[value_length++] = character;
+                            ++offset;
+                            if(value_length >= 31)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    return static_cast<int>(offset + 1);
+                }
+            }
+        }
+
+        if(offset >= text_length || text[offset] == '[')
+        {
+            return -1;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040D830
+int __fastcall find_script_section(const char *section_name, const char *text, int text_length)
+{
+    int remaining = text_length;
+    const char *cursor = text;
+    bool found_opening_bracket = false;
+    while(true)
+    {
+        while(remaining != 0)
+        {
+            --remaining;
+            found_opening_bracket = *cursor++ == '[';
+            if(found_opening_bracket)
+            {
+                break;
+            }
+        }
+        if(!found_opening_bracket)
+        {
+            return -1;
+        }
+
+        const char *candidate = section_name;
+        while(true)
+        {
+            const char text_character = *cursor;
+            const char name_character = *candidate;
+            --remaining;
+            if(remaining == 0)
+            {
+                return -1;
+            }
+            ++cursor;
+            ++candidate;
+            if(name_character == '\0' || text_character == ']')
+            {
+                found_opening_bracket = false;
+                if(static_cast<char>(text_character + name_character) == ']')
+                {
+                    return text_length - remaining;
+                }
+                break;
+            }
+            found_opening_bracket = false;
+            if(text_character != name_character)
+            {
+                break;
+            }
+        }
+    }
+}
+
+// GAG.EXE: 0x00418230
+std::int32_t __fastcall parse_path_numeric_identifier(const char *path)
+{
+    std::uint32_t offset = 0;
+    std::int32_t result = -1;
+    while(path[offset] != '\0' && path[offset] != '\\')
+    {
+        ++offset;
+    }
+    if(path[offset] == '\0')
+    {
+        if(offset != 0)
+        {
+            offset = 0;
+        }
+        if(path[offset] == '\0')
+        {
+            return result;
+        }
+    }
+
+    do
+    {
+        const char character = path[offset];
+        if(character >= '0' && character <= '9')
+        {
+            if(result == -1)
+            {
+                result = character - '0';
+            }
+            else
+            {
+                result = character - '0' + result * 10;
+            }
+        }
+        ++offset;
+    } while(path[offset] != '\0');
+    return result;
+}
+
+// GAG.EXE: 0x004182A0
+std::uint32_t __fastcall enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox)
+{
+    char path[0x104];
+    WIN32_FIND_DATAA find_data;
+    copy_string(path, state->directory);
+    append_string(path, "*");
+    append_string(path, state->extension);
+    HANDLE find = archive_comment_enumeration_api.find_first(path, &find_data);
+    if(find == INVALID_HANDLE_VALUE)
+    {
+        return 2;
+    }
+
+    state->archive_paths = static_cast<char *>(archive_comment_enumeration_api.heap_alloc(archive_comment_enumeration_api.get_process_heap(), 0, 10 * 0x104));
+    if(state->archive_paths == nullptr)
+    {
+        archive_comment_enumeration_api.find_close(find);
+        return 0x10000;
+    }
+    state->comment_capacity = 10;
+
+    do
+    {
+        std::sprintf(path, "%s%s", state->directory, find_data.cFileName);
+        CdfArchive *archive = archive_comment_enumeration_api.open_archive(path, 0);
+        if(archive == nullptr)
+        {
+            if(archive_comment_enumeration_api.get_error(nullptr) == 0x10000)
+            {
+                archive_comment_enumeration_api.heap_free(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths);
+                state->archive_paths = nullptr;
+                state->comment_capacity = 0;
+                state->comment_count = 0;
+                archive_comment_enumeration_api.find_close(find);
+                archive_comment_enumeration_api.delete_file(path);
+                return 0x10000;
+            }
+        }
+        else
+        {
+            copy_string(state->archive_paths + state->comment_count * 0x104, path);
+            std::memset(path, 0, sizeof(path));
+            const std::uint32_t comment_size = archive_comment_enumeration_api.get_entry_size(archive, 0, "COMMENT.TXT");
+            if(comment_size < sizeof(path) && archive_comment_enumeration_api.read_entry(archive, 0, "COMMENT.TXT", path) != 0)
+            {
+                path[comment_size] = '\0';
+                archive_comment_enumeration_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>(path));
+                ++state->comment_count;
+                const std::uint32_t identifier_limit = static_cast<std::uint32_t>(parse_path_numeric_identifier(find_data.cFileName) + 1);
+                if(static_cast<std::int32_t>(state->maximum_identifier) < static_cast<std::int32_t>(identifier_limit))
+                {
+                    state->maximum_identifier = identifier_limit;
+                }
+                else if(state->comment_count > state->maximum_identifier)
+                {
+                    state->maximum_identifier = state->comment_count;
+                }
+                if(state->comment_count == state->comment_capacity)
+                {
+                    char *grown = static_cast<char *>(
+                        archive_comment_enumeration_api.heap_realloc(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths, (state->comment_capacity + 10) * 0x104));
+                    if(grown == nullptr)
+                    {
+                        archive_comment_enumeration_api.close_archive(archive);
+                        break;
+                    }
+                    state->archive_paths = grown;
+                    state->comment_capacity += 10;
+                }
+            }
+            archive_comment_enumeration_api.close_archive(archive);
+        }
+    } while(archive_comment_enumeration_api.find_next(find, &find_data) != FALSE);
+
+    archive_comment_enumeration_api.find_close(find);
+    if(state->comment_count == 0)
+    {
+        if(state->archive_paths != nullptr)
+        {
+            archive_comment_enumeration_api.heap_free(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths);
+            state->archive_paths = nullptr;
+        }
+        state->comment_capacity = 0;
+        return 2;
+    }
+    return 0;
+}
+
+void set_archive_comment_enumeration_api_for_testing(const ArchiveCommentEnumerationApi &api)
+{
+    archive_comment_enumeration_api = api;
+}
+
+// GAG.EXE: 0x00418560
+INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if(message == WM_INITDIALOG)
+    {
+        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
+        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        const std::uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
+        if(result == 0)
+        {
+            archive_comment_dialog_api.send_message(listbox, 0x186, 0, 0);
+            archive_comment_dialog_api.set_focus(listbox);
+            archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths));
+            return 0;
+        }
+        if(result == 2)
+        {
+            archive_comment_dialog_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>("-No entries found...-"));
+            archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
+            return 1;
+        }
+        if(result == 0x10000)
+        {
+            archive_comment_dialog_api.end_dialog(dialog, 0x10000);
+            return 1;
+        }
+        return 0;
+    }
+    if(message == WM_COMMAND)
+    {
+        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(archive_comment_dialog_api.send_message(control, 0x7ff0, 2, 0));
+        const std::uint32_t command = LOWORD(wparam);
+        if(command == 1)
+        {
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+            if(state->archive_paths != nullptr)
+            {
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+                archive_comment_dialog_api.end_dialog(dialog, 0);
+            }
+            else
+            {
+                archive_comment_dialog_api.end_dialog(dialog, 2);
+            }
+            return 1;
+        }
+        if(command == 2)
+        {
+            if(state->archive_paths != nullptr)
+            {
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+            }
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+            archive_comment_dialog_api.end_dialog(dialog, 1);
+            return 1;
+        }
+        if(command == 1000)
+        {
+            const std::uint32_t notification = HIWORD(wparam);
+            if(notification == 1 && state->archive_paths != nullptr)
+            {
+                const LRESULT selection = archive_comment_dialog_api.send_message(listbox, 0x188, 0, 0);
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
+            }
+            else if(notification == 2 && state->archive_paths != nullptr)
+            {
+                const LRESULT selection = archive_comment_dialog_api.send_message(listbox, 0x188, 0, 0);
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+                archive_comment_dialog_api.end_dialog(dialog, 0);
+            }
+            return 1;
+        }
+        return 1;
+    }
+    if(message == 0x30f || message == 0x311)
+    {
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        archive_comment_dialog_api.send_message(control, message, wparam, lparam);
+        return 1;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00417550
+INT_PTR __fastcall run_archive_comment_dialog(HWND parent, const char *directory, const char *path, char *output)
+{
+    output[0] = '\0';
+    if(custom_control_registered == 0)
+    {
+        return 0;
+    }
+
+    ArchiveCommentDialogState state{};
+    char drive[0x20];
+    char split_directory[0x20];
+    state.directory = directory;
+    state.output_1 = output;
+    state.output_2 = output;
+    archive_comment_dialog_launch_api.split_path(path, drive, split_directory, state.file_name, state.extension);
+    const INT_PTR result = archive_comment_dialog_launch_api.dialog_box(custom_control_instance, MAKEINTRESOURCEA(101), parent, archive_comment_dialog_procedure, reinterpret_cast<LPARAM>(&state));
+    if(result != 0)
+    {
+        output[0] = '\0';
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004188A0
+INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if(message == WM_INITDIALOG)
+    {
+        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
+        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        HWND edit = archive_comment_dialog_api.get_dialog_item(dialog, 1009);
+        archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+        archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
+        archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
+        const std::uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
+        if(result == 0)
+        {
+            archive_comment_dialog_api.send_message(listbox, LB_SETCURSEL, 0, 0);
+        }
+        else if(result == 2)
+        {
+            archive_comment_dialog_api.send_message(listbox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>("-No entries found...-"));
+        }
+        else if(result == 0x10000)
+        {
+            archive_comment_dialog_api.end_dialog(dialog, 0x10000);
+            return 1;
+        }
+        archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
+        archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
+        archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
+        archive_comment_dialog_api.set_focus(edit);
+        if(state->value_0000 == nullptr)
+        {
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
+        }
+        else
+        {
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(state->value_0000));
+        }
+        return 0;
+    }
+    if(message == WM_COMMAND)
+    {
+        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        HWND edit = archive_comment_dialog_api.get_dialog_item(dialog, 1009);
+        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(archive_comment_dialog_api.send_message(control, 0x7ff0, 2, 0));
+        if(state == nullptr)
+        {
+            return 1;
+        }
+        const std::uint32_t command = LOWORD(wparam);
+        const std::uint32_t notification = HIWORD(wparam);
+        if(command == IDOK)
+        {
+            char name[0x104]{};
+            name[0] = 3;
+            name[1] = 1;
+            INT_PTR dialog_result = 2;
+            const LRESULT length = archive_comment_dialog_api.send_message(edit, EM_GETLINE, 0, reinterpret_cast<LPARAM>(name));
+            if(length != 0)
+            {
+                name[length] = '\0';
+                const LRESULT match = archive_comment_dialog_api.send_message(listbox, LB_FINDSTRINGEXACT, 0, reinterpret_cast<LPARAM>(name));
+                if(match == LB_ERR)
+                {
+                    copy_string(state->output_2, name);
+                    copy_string(state->output_1, state->directory);
+                    append_three_digit_decimal_suffix(state->file_name, state->maximum_identifier, name);
+                    append_string(name, state->extension);
+                    append_string(state->output_1, name);
+                }
+                else
+                {
+                    char prompt[0x104];
+                    std::sprintf(prompt, "%s%c%s%c ?", "Replace ", '"', name, '"');
+                    if(archive_comment_dialog_api.message_box(dialog, prompt, "SAVE", 0x34) == IDNO)
+                    {
+                        return 1;
+                    }
+                }
+                if(state->value_0000 != nullptr)
+                {
+                    archive_comment_dialog_api.sleep(100);
+                }
+                dialog_result = 0;
+            }
+            if(state->archive_paths != nullptr)
+            {
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+            }
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+            archive_comment_dialog_api.end_dialog(dialog, dialog_result);
+            return 1;
+        }
+        if(command == IDCANCEL)
+        {
+            if(state->archive_paths != nullptr)
+            {
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+            }
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+            archive_comment_dialog_api.end_dialog(dialog, 1);
+            return 1;
+        }
+        if(command == 1000 && (notification == LBN_SELCHANGE || notification == LBN_DBLCLK) && state->archive_paths != nullptr)
+        {
+            char name[0x104];
+            const LRESULT selection = archive_comment_dialog_api.send_message(listbox, LB_GETCURSEL, 0, 0);
+            archive_comment_dialog_api.send_message(listbox, LB_GETTEXT, selection, reinterpret_cast<LPARAM>(name));
+            archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
+            archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(name));
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
+            if(notification == LBN_DBLCLK)
+            {
+                char prompt[0x104];
+                std::sprintf(prompt, "%s%c%s%c ?", "Replace ", '"', name, '"');
+                if(archive_comment_dialog_api.message_box(dialog, prompt, "SAVE", 0x34) == IDNO)
+                {
+                    return 1;
+                }
+                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
+                archive_comment_dialog_api.end_dialog(dialog, 0);
+            }
+            return 1;
+        }
+        if(command == 1009 && (notification == EN_SETFOCUS || notification == EN_CHANGE))
+        {
+            char name[0x104]{};
+            name[0] = 3;
+            name[1] = 1;
+            LRESULT length = archive_comment_dialog_api.send_message(edit, EM_GETLINE, 0, reinterpret_cast<LPARAM>(name));
+            if(length != 0)
+            {
+                name[length] = '\0';
+                const LRESULT match = archive_comment_dialog_api.send_message(listbox, LB_FINDSTRINGEXACT, 0, reinterpret_cast<LPARAM>(name));
+                if(match != LB_ERR)
+                {
+                    archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + match * 0x104));
+                    return 1;
+                }
+            }
+            if(state->value_0000 == nullptr)
+            {
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
+            }
+            else
+            {
+                archive_comment_dialog_api.send_message(control, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(state->value_0000));
+            }
+            return 1;
+        }
+        return 1;
+    }
+    if(message == 0x30f || message == 0x311)
+    {
+        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
+        archive_comment_dialog_api.send_message(control, message, wparam, lparam);
+        return 1;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x004175F0
+INT_PTR __fastcall run_archive_selection_dialog(HWND parent, const char *directory, const char *path, void *initial_value, char *output_path, char *output_name)
+{
+    output_path[0] = '\0';
+    output_name[0] = '\0';
+    if(custom_control_registered == 0)
+    {
+        return 0;
+    }
+    ArchiveCommentDialogState state{};
+    char drive[0x20];
+    char split_directory[0x20];
+    state.value_0000 = initial_value;
+    state.directory = directory;
+    state.output_1 = output_path;
+    state.output_2 = output_name;
+    archive_comment_dialog_launch_api.split_path(path, drive, split_directory, state.file_name, state.extension);
+    return archive_comment_dialog_launch_api.dialog_box(custom_control_instance, MAKEINTRESOURCEA(103), parent, archive_selection_dialog_procedure, reinterpret_cast<LPARAM>(&state));
+}
+
+void set_archive_comment_dialog_api_for_testing(const ArchiveCommentDialogApi &api)
+{
+    archive_comment_dialog_api = api;
+}
+
+void set_archive_comment_dialog_launch_api_for_testing(const ArchiveCommentDialogLaunchApi &api)
+{
+    archive_comment_dialog_launch_api = api;
+}
+
+// GAG.EXE: 0x0040EA40
+std::uint32_t __fastcall extract_script_property_name(ScriptParserState *parser, char *name)
+{
+    name[0] = '\0';
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+
+    const std::uint32_t text_length = parser->text_length;
+    std::uint32_t token_start = parser->cursor;
+    for(std::uint32_t offset = parser->cursor; offset < text_length; ++offset)
+    {
+        switch(parser->text[offset])
+        {
+        case '\t':
+        case '\n':
+        case '\r':
+        case ' ':
+        case '(':
+        case ')':
+        case ',':
+        case '/':
+        case ':':
+        case ';':
+            token_start = offset + 1;
+            break;
+        case '=':
+        {
+            std::memset(name, 0, 32);
+            std::uint32_t name_length = 0;
+            while(token_start < text_length && name_length < 31 && parser->text[token_start] != '=')
+            {
+                name[name_length++] = parser->text[token_start++];
+            }
+            name[name_length] = '\0';
+            parser->cursor = token_start + 1;
+            return name_length;
+        }
+        case '[':
+            return 0xffffffff;
+        default:
+            break;
+        }
+    }
+    return 0xffffffff;
+}
+
+// GAG.EXE: 0x0040EB70
+std::uint32_t __fastcall extract_script_scope_name(ScriptParserState *parser, char *name)
+{
+    name[0] = '\0';
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+
+    std::uint32_t offset = parser->cursor;
+    while(offset < parser->text_length)
+    {
+        const char character = parser->text[offset];
+        if(character == '/')
+        {
+            break;
+        }
+        if(character == ';' || character == '[')
+        {
+            return 0xffffffff;
+        }
+        ++offset;
+    }
+    if(offset >= parser->text_length)
+    {
+        return 0xffffffff;
+    }
+
+    std::memset(name, 0, 32);
+    std::uint32_t name_length = 0;
+    while(++offset < parser->text_length && name_length < 31)
+    {
+        const char character = parser->text[offset];
+        switch(character)
+        {
+        case '\t':
+        case '\n':
+        case '\r':
+        case ' ':
+        case '(':
+        case ',':
+        case '/':
+        case ':':
+        case ';':
+        case '[':
+            parser->cursor = offset;
+            return name_length;
+        default:
+            name[name_length++] = character;
+            break;
+        }
+    }
+    name[name_length] = '\0';
+    parser->cursor = offset;
+    return name_length;
+}
+
+// GAG.EXE: 0x0040ECB0
+std::uint32_t __fastcall extract_script_parenthesized_text(ScriptParserState *parser, char *text, std::uint32_t text_capacity)
+{
+    text[0] = '\0';
+    if(parser == nullptr || parser->cursor >= parser->text_length || parser->text[parser->cursor] != '(')
+    {
+        return 0xffffffff;
+    }
+
+    std::memset(text, 0, text_capacity);
+    std::uint32_t text_length = 0;
+    std::uint32_t offset = parser->cursor;
+    while(offset + 1 < parser->text_length && text_length < text_capacity - 1 && parser->text[offset + 1] != ')')
+    {
+        const char character = parser->text[offset + 1];
+        if(character == '[')
+        {
+            return 0xffffffff;
+        }
+        text[text_length++] = character;
+        ++offset;
+    }
+    text[text_length] = '\0';
+    parser->cursor = offset + 2;
+    return text_length;
+}
+
+// GAG.EXE: 0x0040ED80
+int __fastcall find_whitespace_token_index(const char *text, const char *token)
+{
+    int token_index = -1;
+    int text_offset = 0;
+    while(text[text_offset] != '\0')
+    {
+        while(text[text_offset] == '\t' || text[text_offset] == '\n' || text[text_offset] == '\r' || text[text_offset] == ' ')
+        {
+            ++text_offset;
+        }
+
+        ++token_index;
+        int candidate_offset = 0;
+        int matches = 1;
+        while(true)
+        {
+            const char character = text[text_offset++];
+            if(character == '\0' || character == '\t' || character == '\n' || character == '\r' || character == ' ')
+            {
+                if(matches != 0 && token[candidate_offset] == '\0')
+                {
+                    return token_index;
+                }
+                break;
+            }
+            if(matches != 0)
+            {
+                if(token[candidate_offset] == character)
+                {
+                    ++candidate_offset;
+                }
+                else
+                {
+                    --matches;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+// GAG.EXE: 0x0040F0A0
+std::uint32_t __fastcall extract_script_token(ScriptParserState *parser, char *token, std::uint32_t token_capacity)
+{
+    token[0] = '\0';
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+
+    std::uint32_t offset = parser->cursor;
+    while(true)
+    {
+        if(offset >= parser->text_length)
+        {
+            return 0xffffffff;
+        }
+        switch(parser->text[offset])
+        {
+        case '(':
+        {
+            if(parser->text_length - 1 <= offset)
+            {
+                return 0xffffffff;
+            }
+            char character;
+            do
+            {
+                character = parser->text[offset + 1];
+                ++offset;
+                if(offset >= parser->text_length)
+                {
+                    break;
+                }
+                if(character == ')')
+                {
+                    break;
+                }
+            } while(character != '[');
+            if(character != ')')
+            {
+                return 0xffffffff;
+            }
+        }
+            [[fallthrough]];
+        case '\t':
+        case '\n':
+        case '\r':
+        case ' ':
+        case ',':
+        case ':':
+            ++offset;
+            break;
+        case '/':
+        case ';':
+        case '[':
+            return 0xffffffff;
+        default:
+        {
+            std::memset(token, 0, token_capacity);
+            std::uint32_t token_length = 0;
+            while(offset < parser->text_length && token_length < token_capacity - 1)
+            {
+                const char character = parser->text[offset];
+                switch(character)
+                {
+                case '\t':
+                case '\n':
+                case '\r':
+                case ' ':
+                case '(':
+                case ',':
+                case '/':
+                case ':':
+                case ';':
+                case '[':
+                    token[token_length] = '\0';
+                    parser->cursor = offset;
+                    return token_length;
+                default:
+                    token[token_length++] = character;
+                    ++offset;
+                    break;
+                }
+            }
+            token[token_length] = '\0';
+            parser->cursor = offset;
+            return token_length;
+        }
+        }
+    }
+}
+
+// GAG.EXE: 0x00408AA0
+void __fastcall parse_script_typed_value(ScriptParserState *parser, void *value, std::uint32_t *value_type)
+{
+    const std::uint32_t saved_cursor = parser->cursor;
+    const std::int32_t integer_value = script_typed_value_api.parse_integer_expression(parser);
+    *static_cast<std::int32_t *>(value) = integer_value;
+    if(integer_value != 0x7fffffff)
+    {
+        *value_type = 2;
+        return;
+    }
+
+    parser->cursor = saved_cursor;
+    const std::uint32_t flag = parse_image_flag(parser);
+    *static_cast<std::uint32_t *>(value) = flag;
+    if(flag != 0)
+    {
+        *value_type = 1;
+        return;
+    }
+
+    parser->cursor = saved_cursor;
+    if(parse_script_value_token(parser, static_cast<char *>(value), 0x20) != 0xffffffff)
+    {
+        *value_type = 4;
+        return;
+    }
+    *value_type = 0x7fffffff;
+}
+
+// GAG.EXE: 0x00408B20
+void __fastcall append_natural_mouse_image_flag(ScriptTextBuffer *buffer, std::uint32_t flags)
+{
+    if(buffer == nullptr)
+    {
+        return;
+    }
+    while(flags != 0)
+    {
+        std::uint32_t emitted = 0;
+        if((flags & 0x00010000) != 0)
+        {
+            emitted = 1;
+            flags &= 0xfffeffff;
+            append_script_text_scope(buffer, 0x0a000000);
+            buffer->length += copy_string(buffer->data + buffer->length, "NATURALMOUSE");
+            buffer->data[buffer->length++] = ' ';
+        }
+        if(emitted == 0)
+        {
+            break;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040A9D0
+void __fastcall serialize_image_flag_overrides(ScriptTextBuffer *buffer, std::uint32_t flags)
+{
+    while(buffer != nullptr)
+    {
+        bool emitted = false;
+        if((flags & 1) != 0)
+        {
+            emitted = true;
+            flags &= 0xfffffffe;
+            append_script_text_scope(buffer, 0x0a000000);
+            buffer->length += copy_string(buffer->data + buffer->length, "PRIMARY");
+            buffer->data[buffer->length++] = ' ';
+        }
+        if((flags & 0x04000000) != 0)
+        {
+            emitted = true;
+            flags &= 0xfbffffff;
+            if((script_runtime_root->flags & 0x04000000) == 0)
+            {
+                append_script_text_scope(buffer, 0x0a000000);
+                buffer->length += copy_string(buffer->data + buffer->length, "NOPAL");
+                buffer->data[buffer->length++] = ' ';
+            }
+        }
+        else if((script_runtime_root->flags & 0x04000000) != 0)
+        {
+            buffer->data[buffer->length++] = '/';
+            buffer->length += copy_string(buffer->data + buffer->length, "INVERT_NOPAL");
+            buffer->data[buffer->length++] = ' ';
+        }
+        if(!emitted || flags == 0)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040EEB0
+std::uint32_t __fastcall parse_script_parameter_token(const char *text, std::int32_t token_index, void *value, std::uint32_t *value_type)
+{
+    char token[0x104];
+    token[0] = '\0';
+    std::int32_t current_index = -1;
+    std::uint32_t offset = 0;
+    while(text[offset] != '\0')
+    {
+        while(text[offset] == '\t' || text[offset] == '\n' || text[offset] == '\r' || text[offset] == ' ')
+        {
+            ++offset;
+        }
+        if(text[offset] == '\0')
+        {
+            break;
+        }
+        ++current_index;
+        if(current_index == token_index)
+        {
+            std::uint32_t length = 0;
+            while(text[offset] != '\0' && text[offset] != '\t' && text[offset] != '\n' && text[offset] != '\r' && text[offset] != ' ')
+            {
+                token[length++] = text[offset++];
+            }
+            token[length] = '\0';
+            break;
+        }
+        while(text[offset] != '\0' && text[offset] != '\t' && text[offset] != '\n' && text[offset] != '\r' && text[offset] != ' ')
+        {
+            ++offset;
+        }
+    }
+
+    const std::uint32_t expected_type = *value_type;
+    if(token[0] == '\0')
+    {
+        if(expected_type == 1)
+        {
+            *static_cast<std::uint32_t *>(value) = 0x07000000;
+        }
+        else if(expected_type == 2 || expected_type == 4)
+        {
+            *static_cast<std::uint32_t *>(value) = 0;
+        }
+        return 0;
+    }
+
+    ScriptParserState token_parser;
+    token_parser.text = token;
+    token_parser.text_length = static_cast<std::uint32_t>(std::strlen(token));
+    token_parser.cursor = 0;
+    parse_script_typed_value(&token_parser, value, value_type);
+    return *value_type != 0x7fffffff && (expected_type == 0 || expected_type == *value_type) ? 1 : 0;
+}
+
+// GAG.EXE: 0x0040F070
+std::uint32_t __fastcall evaluate_script_parameter(ScriptParserState *parser, const char *name, void *value, std::uint32_t *value_type)
+{
+    const std::int32_t token_index = find_whitespace_token_index(parser->scratch_text, name);
+    return parse_script_parameter_token(parser->creation_text, token_index, value, value_type);
+}
+
+// GAG.EXE: 0x0040F4F0
+std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parser)
+{
+    if(parser == nullptr)
+    {
+        return 0x7fffffff;
+    }
+
+    const std::uint32_t saved_cursor = parser->cursor;
+    std::int32_t result = parse_script_integer_literal(parser);
+    if(result != 0x7fffffff)
+    {
+        return result;
+    }
+
+    char token[0x20];
+    if(extract_script_token(parser, token, sizeof(token)) == 0xffffffff)
+    {
+        parser->cursor = saved_cursor;
+        return 0x7fffffff;
+    }
+    if(fixed_dword_memory_equal(token, "PARAM", 4))
+    {
+        parse_script_value_token(parser, token, sizeof(token));
+        std::uint32_t value_type = 2;
+        if(script_integer_expression_api.evaluate_parameter(parser, token, &result, &value_type) == 0)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        return result;
+    }
+    if(fixed_dword_memory_equal(token, "RAND", 4))
+    {
+        std::int32_t minimum = parse_script_integer_expression(parser);
+        if(minimum == 0x7fffffff)
+        {
+            minimum = -10000;
+        }
+        std::int32_t maximum = parse_script_integer_expression(parser);
+        if(maximum == 0x7fffffff)
+        {
+            maximum = 10000;
+        }
+        return script_integer_expression_api.select_random(minimum, maximum);
+    }
+    if(fixed_dword_memory_equal(token, "RELZ", 4))
+    {
+        char name[0x20];
+        if(parse_script_value_token(parser, name, sizeof(name)) == 0xffffffff)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        std::int32_t offset = parse_script_integer_expression(parser);
+        if(offset == 0x7fffffff)
+        {
+            offset = 0;
+        }
+        RuntimeTreeLink84 *link = script_integer_expression_api.find_link_0084(name);
+        if(link == nullptr)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        return offset + (token[4] == 'X' ? link->x : link->y);
+    }
+    if(fixed_dword_memory_equal(token, "RELI", 4))
+    {
+        char name[0x20];
+        if(parse_script_value_token(parser, name, sizeof(name)) == 0xffffffff)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        std::int32_t offset = parse_script_integer_expression(parser);
+        if(offset == 0x7fffffff)
+        {
+            offset = 0;
+        }
+        RuntimeTreePrimaryResourceLink *link = script_integer_expression_api.find_primary_link(name);
+        if(link == nullptr)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        return offset + (token[4] == 'X' ? link->x : link->y);
+    }
+    if(fixed_dword_memory_equal(token, "RELM", 4))
+    {
+        std::int32_t offset = parse_script_integer_expression(parser);
+        if(offset == 0x7fffffff)
+        {
+            offset = 0;
+        }
+        std::int32_t runtime_value;
+        script_integer_expression_api.query_runtime(token[4] == 'X' ? 9 : 10, nullptr, &runtime_value);
+        return runtime_value + offset;
+    }
+    if(fixed_dword_memory_equal(token, "VALUE", 4))
+    {
+        char object_name[0x20];
+        char field_name[0x20];
+        if(parse_script_value_token(parser, object_name, sizeof(object_name)) == 0xffffffff || parse_script_value_token(parser, field_name, sizeof(field_name)) == 0xffffffff)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        result = script_integer_expression_api.get_object_integer(object_name, field_name);
+        if(result == 0x7fffffff)
+        {
+            parser->cursor = saved_cursor;
+        }
+        return result;
+    }
+    if(fixed_dword_memory_equal(token, "PHASE", 4))
+    {
+        if(parse_script_value_token(parser, token, sizeof(token)) == 0xffffffff)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        RuntimeTreePrimaryResourceLink *link = script_integer_expression_api.find_primary_link(token);
+        if(link == nullptr)
+        {
+            parser->cursor = saved_cursor;
+            return 0x7fffffff;
+        }
+        script_integer_expression_api.query_runtime(0x0b, &link->resource_identity, &result);
+        return result;
+    }
+
+    parser->cursor = saved_cursor;
+    return 0x7fffffff;
+}
+
+// GAG.EXE: 0x0040F2C0
+std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, char *value, std::uint32_t value_capacity)
+{
+    std::uint32_t result = extract_script_token(parser, value, value_capacity);
+    if(result == 0xffffffff)
+    {
+        return result;
+    }
+
+    if(fixed_dword_memory_equal(value, "PARAM", 4))
+    {
+        char parameter_name[0x20];
+        parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
+        std::uint32_t value_type = 4;
+        result = script_value_parse_api.evaluate_parameter(parser, parameter_name, value, &value_type) == 0 ? 0 : 0x20;
+    }
+    if(fixed_dword_memory_equal(value, "SVALUE", 4))
+    {
+        char object_name[0x20];
+        char field_name[0x20];
+        parse_script_value_token(parser, object_name, sizeof(object_name));
+        parse_script_value_token(parser, field_name, sizeof(field_name));
+        result = get_script_object_string(object_name, field_name, value) == 0 ? 0 : 0x20;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0040E580
+std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
+{
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+
+    char token[0x20];
+    if(extract_script_token(parser, token, sizeof(token)) == 0xffffffff)
+    {
+        return 0xffffffff;
+    }
+    if(fixed_dword_memory_equal(token, "BVALUE", 4))
+    {
+        char object_name[0x20];
+        char field_name[0x20];
+        parse_script_value_token(parser, object_name, sizeof(object_name));
+        parse_script_value_token(parser, field_name, sizeof(field_name));
+        std::uint32_t value = 0x03000000;
+        return query_or_create_script_object_field(object_name, field_name, &value, 1);
+    }
+    if(fixed_dword_memory_equal(token, "PARAM", 4))
+    {
+        char parameter_name[0x20];
+        parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
+        std::uint32_t value_type = 1;
+        std::uint32_t value;
+        if(script_value_parse_api.evaluate_parameter(parser, parameter_name, &value, &value_type) == 0)
+        {
+            return 0xffffffff;
+        }
+        return value;
+    }
+
+    struct ImageFlagMapping
+    {
+        const char *name;
+        std::uint32_t value;
+    };
+    static constexpr ImageFlagMapping mappings[]{
+        { "PRIMARY",        0x00000001 },
+        { "CONTROL",        0x00000020 },
+        { "PERMANENT",      0x00000400 },
+        { "LOAD_ONLY",      0x00000200 },
+        { "DOUBLE",         0x00200000 },
+        { "SEPARATED",      0x00000040 },
+        { "STOPPED",        0x00000010 },
+        { "NOSKIP",         0x00100000 },
+        { "NOCLS",          0x01000000 },
+        { "NOPAL",          0x04000000 },
+        { "ON",             0x03000000 },
+        { "OFF",            0x07000000 },
+        { "NATURALMOUSE",   0x00010000 },
+        { "DUAL",           0x00200000 },
+        { "ONE_STEP",       0x00000200 },
+        { "RESTART",        0x00020000 },
+        { "NOFADE",         0x00000001 },
+        { "PALFADE",        0x00000002 },
+        { "FRAMEFADE",      0x00000004 },
+        { "COLORED",        0x00000001 },
+        { "LOWCASE",        0x00000010 },
+        { "UPPCASE",        0x00000020 },
+        { "NOINV",          0x00000010 },
+        { "NOSAVE",         0x00000100 },
+        { "RESIDENT",       0x00000400 },
+        { "COMMENT",        0x00000800 },
+        { "INVENTORY_PACK", 0x00001000 },
+        { "NOMOUSE",        0x00002000 },
+        { "NOCONTROL",      0x00004000 },
+        { "NONTRANSP",      0x00000020 },
+        { "STATIC",         0x00000002 },
+        { "FIXSIZE",        0x02000000 },
+        { "FIXPOS",         0x04000000 },
+        { "NOCOMMENT",      0x00000001 },
+        { "PAL_NOADJUST",   0x04000000 },
+    };
+    for(const ImageFlagMapping &mapping : mappings)
+    {
+        if(strings_equal(token, mapping.name))
+        {
+            return mapping.value;
+        }
+    }
+    return 0xffffffff;
+}
+
+// GAG.EXE: 0x00421440
+std::uint32_t __fastcall parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, std::uint32_t *flags)
+{
+    std::uint32_t saved_cursor = parser->cursor;
+    *flags = runtime_tree_command_target_api.parse_image_flag(parser);
+    if(*flags != 0)
+    {
+        if(*flags == 0xffffffff)
+        {
+            *flags = 0;
+        }
+        return 0;
+    }
+
+    parser->cursor = saved_cursor;
+    runtime_tree_command_target_api.parse_value_token(parser, resource_name, 0x20);
+    saved_cursor = parser->cursor;
+    *flags = runtime_tree_command_target_api.parse_image_flag(parser);
+    if(*flags == 0xffffffff)
+    {
+        std::memcpy(tree_name, resource_name, 0x20);
+        std::memcpy(resource_name, parser->resource->name, 0x20);
+        *flags = 0;
+        return 1;
+    }
+    if(*flags == 0)
+    {
+        parser->cursor = saved_cursor;
+        runtime_tree_command_target_api.parse_value_token(parser, tree_name, 0x20);
+        const std::uint32_t trailing_flags = runtime_tree_command_target_api.parse_image_flag(parser);
+        if(static_cast<std::int32_t>(trailing_flags) > 0)
+        {
+            *flags = trailing_flags;
+            return 1;
+        }
+    }
+    else
+    {
+        std::memcpy(tree_name, resource_name, 0x20);
+        std::memcpy(resource_name, parser->resource->name, 0x20);
+    }
+    return 1;
+}
+
+void set_runtime_tree_command_target_api_for_testing(const RuntimeTreeCommandTargetApi &api)
+{
+    runtime_tree_command_target_api = api;
+}
+
+// GAG.EXE: 0x00406B40
+std::uint32_t __fastcall apply_runtime_tree_image_flags(ScriptParserState *parser)
+{
+    auto *owner = static_cast<RuntimeTreeNode *>(parser->owner);
+    while(true)
+    {
+        const std::uint32_t flag = parse_image_flag(parser);
+        if(flag == 0xffffffff)
+        {
+            break;
+        }
+        if(flag == 1)
+        {
+            script_runtime_root->flags |= flag;
+        }
+        else if(flag == 0x04000000)
+        {
+            script_runtime_root->palette_flags |= flag;
+        }
+        else
+        {
+            owner->flags |= flag;
+        }
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00406CB0
+RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *parser)
+{
+    RuntimeTreeNode *owner = parser->owner;
+    char resource_name[0x20];
+    char tree_name[0x20];
+    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
+    {
+        return nullptr;
+    }
+    const std::uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
+    RuntimeGenericResourceNode *resource;
+    if(tree_name_result == 0xffffffff)
+    {
+        std::memcpy(tree_name, resource_name, sizeof(tree_name));
+        resource = parser->resource;
+    }
+
+    RuntimeTreeNode *node = runtime_tree_conditional_create_api.find_descendant(owner, tree_name);
+    bool saw_condition = false;
+    std::uint8_t conditions_match = 1;
+    void *parent_selector = owner;
+    while(true)
+    {
+        std::uint32_t scope = parse_script_scope_code(parser);
+        if(scope == 0x00010000)
+        {
+            saw_condition = true;
+            char object_name[0x20];
+            char field_name[0x20];
+            std::uint8_t value[0x80];
+            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
+            {
+                parse_script_typed_value(parser, value, &scope);
+                if(scope != 0x7fffffff)
+                {
+                    conditions_match &= runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<std::int32_t>(scope));
+                }
+            }
+        }
+        else if(scope == 0x00200000)
+        {
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            {
+                return nullptr;
+            }
+            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+        }
+        else if(scope == 0x0e000000)
+        {
+            saw_condition = true;
+            char container_name[0x20];
+            if(parse_script_value_token(parser, container_name, sizeof(container_name)) != 0xffffffff)
+            {
+                conditions_match &= runtime_tree_conditional_create_api.container_matches(container_name);
+            }
+        }
+
+        if(scope == 0xffffffff)
+        {
+            if(node != nullptr && (node->flags & 0x800) != 0)
+            {
+                saw_condition = true;
+                conditions_match = 0;
+            }
+            if(saw_condition)
+            {
+                if(node == nullptr)
+                {
+                    if(conditions_match != 0)
+                    {
+                        if(tree_name_result != 0xffffffff)
+                        {
+                            resource = runtime_tree_conditional_create_api.load_resource(resource_name);
+                        }
+                        node = runtime_tree_conditional_create_api.create_node(resource, parent_selector, tree_name, nullptr);
+                    }
+                }
+                else if(conditions_match == 0)
+                {
+                    runtime_tree_conditional_create_api.destroy_node(node, nullptr);
+                    node = nullptr;
+                }
+            }
+            return node;
+        }
+    }
+}
+
+// GAG.EXE: 0x00406EA0
+RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *parser)
+{
+    RuntimeTreeNode *owner = parser->owner;
+    char resource_name[0x20];
+    char tree_name[0x20];
+    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
+    {
+        return nullptr;
+    }
+    const std::uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
+    RuntimeGenericResourceNode *resource;
+    if(tree_name_result == 0xffffffff)
+    {
+        std::memcpy(tree_name, resource_name, sizeof(tree_name));
+        resource = parser->resource;
+    }
+
+    void *parent_selector = owner;
+    while(true)
+    {
+        std::uint32_t scope = parse_script_scope_code(parser);
+        if(scope == 0x00010000)
+        {
+            char object_name[0x20];
+            char field_name[0x20];
+            std::uint8_t value[0x80];
+            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
+            {
+                parse_script_typed_value(parser, value, &scope);
+                if(scope != 0x7fffffff && !runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<std::int32_t>(scope)))
+                {
+                    return nullptr;
+                }
+            }
+        }
+        else if(scope == 0x00200000)
+        {
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            {
+                return nullptr;
+            }
+            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+        }
+        else if(scope == 0x0e000000)
+        {
+            char container_name[0x20];
+            if(parse_script_value_token(parser, container_name, sizeof(container_name)) != 0xffffffff && !runtime_tree_conditional_create_api.container_matches(container_name))
+            {
+                return nullptr;
+            }
+        }
+
+        if(scope == 0xffffffff)
+        {
+            if(tree_name_result != 0xffffffff)
+            {
+                resource = runtime_tree_conditional_create_api.load_resource(resource_name);
+            }
+            return runtime_tree_conditional_create_api.create_node(resource, parent_selector, tree_name, nullptr);
+        }
+    }
+}
+
+// GAG.EXE: 0x0040F380
+std::int32_t __fastcall parse_script_integer_literal(ScriptParserState *parser)
+{
+    std::uint32_t offset = parser->cursor;
+    bool negative = false;
+    while(true)
+    {
+        if(offset >= parser->text_length)
+        {
+            return 0x7fffffff;
+        }
+        switch(parser->text[offset])
+        {
+        case '(':
+        {
+            if(parser->text_length - 1 <= offset)
+            {
+                return 0x7fffffff;
+            }
+            char character;
+            do
+            {
+                character = parser->text[offset + 1];
+                ++offset;
+                if(offset >= parser->text_length)
+                {
+                    break;
+                }
+                if(character == ')')
+                {
+                    break;
+                }
+            } while(character != '[');
+            if(character != ')')
+            {
+                return 0x7fffffff;
+            }
+        }
+            [[fallthrough]];
+        case '\t':
+        case '\n':
+        case '\r':
+        case ' ':
+        case ',':
+        case ':':
+            ++offset;
+            continue;
+        case '-':
+            negative = true;
+            [[fallthrough]];
+        case '+':
+            ++offset;
+            break;
+        case '/':
+        case ';':
+        case '[':
+            return 0x7fffffff;
+        default:
+            break;
+        }
+        break;
+    }
+
+    std::int32_t value = 0;
+    bool no_digits = true;
+    while(offset < parser->text_length)
+    {
+        const char character = parser->text[offset];
+        if(character < '0' || character > '9')
+        {
+            break;
+        }
+        value = character - '0' + value * 10;
+        ++offset;
+        no_digits = false;
+    }
+    if(no_digits)
+    {
+        return 0x7fffffff;
+    }
+    parser->cursor = offset;
+    return negative ? -value : value;
+}
+
+// GAG.EXE: 0x0040D8A0
+std::uint32_t __fastcall parse_script_property_code(ScriptParserState *parser)
+{
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+    char name[32];
+    if(extract_script_property_name(parser, name) == 0xffffffff)
+    {
+        return 0xffffffff;
+    }
+
+    struct Mapping
+    {
+        const char *name;
+        std::uint32_t code;
+    };
+    static constexpr Mapping mappings[]{
+        { "object",      0x01 },
+        { "image",       0x05 },
+        { "zone",        0x02 },
+        { "mouse",       0x04 },
+        { "event",       0x03 },
+        { "local",       0x06 },
+        { "command",     0x07 },
+        { "list",        0x08 },
+        { "path",        0x09 },
+        { "load",        0x0c },
+        { "sublocation", 0x0a },
+        { "section",     0x0e },
+        { "source",      0x0d },
+        { "font",        0x0f },
+        { "fademask",    0x0b },
+        { "time",        0x10 },
+        { "text",        0x30 },
+        { "language",    0x20 },
+        { "inventory",   0x40 },
+        { "flags",       0x50 },
+        { "try",         0x60 },
+        { "catch",       0x70 },
+        { "volume",      0x80 },
+        { "exception",   0x90 },
+        { "drivespeed",  0xa0 },
+        { "exfiles",     0xb0 },
+        { "class",       0xc0 },
+        { "template",    0xd0 },
+        { "params",      0xe0 },
+        { "layer",       0xf0 },
+    };
+    for(const Mapping &mapping : mappings)
+    {
+        if(strings_equal(name, mapping.name))
+        {
+            return mapping.code;
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x0040DC00
+std::uint32_t __fastcall parse_script_scope_code(ScriptParserState *parser)
+{
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+    char name[32];
+    if(extract_script_scope_name(parser, name) == 0xffffffff)
+    {
+        return 0xffffffff;
+    }
+
+    struct Mapping
+    {
+        const char *name;
+        std::uint32_t code;
+    };
+    static constexpr Mapping mappings[]{
+        { "FILE",         0x01000000 },
+        { "LIST",         0x00100000 },
+        { "GLOBAL",       0x00200000 },
+        { "RECT",         0x02000000 },
+        { "F",            0x0a000000 },
+        { "POS",          0x0b000000 },
+        { "MOUSE",        0x0d000000 },
+        { "AMOUSE",       0x20000000 },
+        { "DEST",         0x06000000 },
+        { "SOUR",         0x05000000 },
+        { "ZONE",         0x0f000000 },
+        { "COMM",         0x0c000000 },
+        { "PCOMM",        0x10000000 },
+        { "OWNER",        0x30000000 },
+        { "C",            0x0e000000 },
+        { "RATIO",        0x00300000 },
+        { "RAD",          0x00400000 },
+        { "LINE",         0x00500000 },
+        { "TIME",         0x00600000 },
+        { "PATH",         0x00700000 },
+        { "IMAGE",        0x00800000 },
+        { "LOOP",         0x00900000 },
+        { "R",            0x00a00000 },
+        { "P",            0x00b00000 },
+        { "KEYUP",        0x00c00000 },
+        { "TRANSPARENT",  0x00d00000 },
+        { "TEXT",         0x00e00000 },
+        { "FONT",         0x00f00000 },
+        { "V",            0x00010000 },
+        { "UPDOWN",       0x00020000 },
+        { "NOMATCHES",    0x00030000 },
+        { "Z",            0x00040000 },
+        { "LAYER",        0x00050000 },
+        { "INVERT_NOPAL", 0x00060000 },
+    };
+    for(const Mapping &mapping : mappings)
+    {
+        if(strings_equal(name, mapping.name))
+        {
+            return mapping.code;
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x0040DFD0
+std::uint32_t __fastcall parse_script_opcode(ScriptParserState *parser)
+{
+    if(parser == nullptr)
+    {
+        return 0xffffffff;
+    }
+    char name[32];
+    if(extract_script_scope_name(parser, name) == 0xffffffff)
+    {
+        return 0xffffffff;
+    }
+
+    struct Mapping
+    {
+        const char *name;
+        std::uint32_t code;
+    };
+    static constexpr Mapping mappings[]{
+        { "PLOAD",           0x40000000 },
+        { "PRELOAD",         0x50000000 },
+        { "GPLOAD",          0x00007000 },
+        { "CHLOAD",          0x00008000 },
+        { "LOADNOFADE",      0x40000001 },
+        { "RELOADNOFADE",    0x50000001 },
+        { "PEXIT",           0x70000000 },
+        { "CONTINUE",        0xb0000000 },
+        { "SPLOAD",          0x60000000 },
+        { "SET",             0x80000000 },
+        { "PLAY",            0x90000000 },
+        { "WAIT",            0xa0000000 },
+        { "LSCROLL",         0xc0000000 },
+        { "RSCROLL",         0xd0000000 },
+        { "MOVZ",            0xe0000000 },
+        { "WAITB",           0xf0000000 },
+        { "LCYCLE",          0x00010000 },
+        { "INCLUDE",         0x00020000 },
+        { "EXCLUDE",         0x00030000 },
+        { "SWRAND",          0x00040000 },
+        { "SWLOCK",          0x00050000 },
+        { "BREAK",           0x00060000 },
+        { "RAND",            0x00070000 },
+        { "COND",            0x00080000 },
+        { "MOVI",            0x00090000 },
+        { "LABEL",           0x000a0000 },
+        { "GOTO",            0x000b0000 },
+        { "STOP",            0x000c0000 },
+        { "QUIT",            0x000d0000 },
+        { "FCHANGE",         0x000e0000 },
+        { "SLEEP",           0x000f0000 },
+        { "DISABLE",         0x00001000 },
+        { "ENABLE",          0x00000001 },
+        { "ADD",             0x00003000 },
+        { "SWVALUE",         0x00004000 },
+        { "VALUE",           0x00005000 },
+        { "CSEND",           0x00006000 },
+        { "COPY",            0x00009000 },
+        { "DRAW_BEGIN",      0x0000a000 },
+        { "DRAW_END",        0x0000b000 },
+        { "GAME",            0x0000c000 },
+        { "GEXIT",           0x0000d000 },
+        { "HIDE_MOUSE",      0x0000e000 },
+        { "SHOW_MOUSE",      0x0000f000 },
+        { "COMMENT",         0x00000100 },
+        { "INPSTR",          0x00000200 },
+        { "MESSAGE",         0x00000300 },
+        { "CLS",             0x00000400 },
+        { "EMPTY",           0x00000500 },
+        { "FADE",            0x00000600 },
+        { "CATCH",           0x00000700 },
+        { "DISABLE_GLOBALS", 0x00000800 },
+    };
+    for(const Mapping &mapping : mappings)
+    {
+        if(strings_equal(name, mapping.name))
+        {
+            return mapping.code;
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x0040D070
+bool __fastcall fixed_dword_memory_equal(const void *left, const void *right, std::uint32_t byte_count)
+{
+    const std::uint32_t *left_dwords = static_cast<const std::uint32_t *>(left);
+    const std::uint32_t *right_dwords = static_cast<const std::uint32_t *>(right);
+    std::uint32_t count = byte_count >> 2;
+    bool equal = count == 0;
+    while(count != 0)
+    {
+        --count;
+        equal = true;
+        if(*left_dwords != *right_dwords)
+        {
+            return false;
+        }
+        ++left_dwords;
+        ++right_dwords;
+    }
+    return equal;
+}
+
+// GAG.EXE: 0x004068C0
+void __fastcall set_script_runtime_flags(std::uint32_t mask, int enabled)
+{
+    if(script_runtime_root != nullptr)
+    {
+        if(enabled != 0)
+        {
+            script_runtime_root->flags |= mask;
+        }
+        else
+        {
+            script_runtime_root->flags &= ~mask;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040C370
+void reset_script_runtime_transient_indices()
+{
+    if(script_runtime_root != nullptr)
+    {
+        script_runtime_root->transient_index_1 = 0;
+        script_runtime_root->transient_index_2 = 0;
+    }
+}
+
+// GAG.EXE: 0x004050B0
+RuntimeGenericResourceNode *__fastcall find_runtime_generic_resource(void *identity)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(RuntimeGenericResourceNode *node = script_runtime_root->generic_resources; node != nullptr; node = node->next)
+    {
+        if(node->identity == identity)
+        {
+            return node;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00405080
+void remove_all_runtime_generic_resources()
+{
+    if(script_runtime_root == nullptr)
+    {
+        return;
+    }
+    RuntimeGenericResourceNode *node = script_runtime_root->generic_resources;
+    while(node != nullptr)
+    {
+        RuntimeGenericResourceNode *next = node->next;
+        remove_runtime_generic_resource(node->identity);
+        node = next;
+    }
+}
+
+// GAG.EXE: 0x00406A70
+std::uint32_t __fastcall dispatch_runtime_tree_section_command(ScriptParserState *parser)
+{
+    parser->owner->flags &= ~0x200u;
+    char resource_name[0x20];
+    char section_name[0x20];
+    char creation_text[0x104];
+    if(runtime_tree_basic_command_api.parse_value(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
+    {
+        return 0;
+    }
+    runtime_tree_basic_command_api.extract_parenthesized(parser, creation_text, sizeof(creation_text));
+    RuntimeGenericResourceNode *resource;
+    if(runtime_tree_basic_command_api.parse_value(parser, section_name, sizeof(section_name)) == 0xffffffff)
+    {
+        resource = parser->resource;
+        std::memcpy(section_name, resource_name, sizeof(section_name));
+    }
+    else
+    {
+        resource = runtime_tree_basic_command_api.load_resource(resource_name);
+        if(resource == nullptr)
+        {
+            return 0;
+        }
+        runtime_tree_basic_command_api.extract_parenthesized(parser, creation_text, sizeof(creation_text));
+    }
+    RuntimeTreeNode *result = runtime_tree_basic_command_api.dispatch_section(resource, parser->owner, section_name, creation_text);
+    return result == parser->owner ? 0 : static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(result));
+}
+
+// GAG.EXE: 0x00406B90
+bool __fastcall parse_runtime_language(ScriptParserState *parser)
+{
+    return runtime_tree_basic_command_api.parse_value(parser, script_runtime_root->language, sizeof(script_runtime_root->language)) != 0xffffffff;
+}
+
+// GAG.EXE: 0x00406C00
+RuntimeTreeNode *__fastcall create_runtime_tree_command(ScriptParserState *parser)
+{
+    RuntimeTreeNode *owner = parser->owner;
+    char resource_name[0x20];
+    char tree_name[0x20];
+    if(runtime_tree_basic_command_api.parse_value(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
+    {
+        return nullptr;
+    }
+    const std::uint32_t tree_name_result = runtime_tree_basic_command_api.parse_value(parser, tree_name, sizeof(tree_name));
+    void *parent_selector = nullptr;
+    while(true)
+    {
+        const std::uint32_t scope = runtime_tree_basic_command_api.parse_scope(parser);
+        if(scope == 0x00200000)
+        {
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            {
+                return nullptr;
+            }
+            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+        }
+        if(scope == 0xffffffff)
+        {
+            break;
+        }
+    }
+    RuntimeGenericResourceNode *resource;
+    if(tree_name_result == 0xffffffff)
+    {
+        std::memcpy(tree_name, resource_name, sizeof(tree_name));
+        resource = parser->resource;
+    }
+    else
+    {
+        resource = runtime_tree_basic_command_api.load_resource(resource_name);
+    }
+    return runtime_tree_basic_command_api.create_node(resource, parent_selector, tree_name, nullptr);
+}
+
+void set_runtime_tree_basic_command_api_for_testing(const RuntimeTreeBasicCommandApi &api)
+{
+    runtime_tree_basic_command_api = api;
+}
+
+// GAG.EXE: 0x004050E0
+void __fastcall set_runtime_generic_resource_position(void *identity, std::uint32_t position)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return;
+    }
+    for(RuntimeGenericResourceNode *node = script_runtime_root->generic_resources; node != nullptr; node = node->next)
+    {
+        if(node->identity == identity)
+        {
+            if(position < static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->resource_metadata)))
+            {
+                node->current_position = position;
+            }
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x00405110
+std::uint32_t __fastcall read_runtime_generic_resource_token(void *identity, char *output, std::uint32_t capacity, std::uint8_t delimiter)
+{
+    RuntimeGenericResourceNode *resource = find_runtime_generic_resource(identity);
+    if(resource == nullptr)
+    {
+        return 0xffffffff;
+    }
+    const auto *data = static_cast<const std::uint8_t *>(resource->resource_data);
+    std::uint32_t length = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->resource_metadata));
+    std::uint32_t position = resource->current_position;
+    std::uint32_t copied = 0;
+    while(position < length)
+    {
+        std::uint8_t value = data[position];
+        if(value == delimiter || value == ';' || (value != '\r' && value != '\n'))
+        {
+            break;
+        }
+        ++position;
+    }
+    std::memset(output, 0, capacity);
+    if(data[position] == ';' || data[position] == delimiter)
+    {
+        return 0x7fffffff;
+    }
+    while(position < length && copied < capacity && data[position] != delimiter && data[position] != ';')
+    {
+        output[copied] = static_cast<char>(data[position]);
+        ++position;
+        ++copied;
+    }
+    output[copied] = 0;
+    if(data[position] != ';')
+    {
+        ++position;
+    }
+    resource->current_position = position;
+    return copied;
+}
+
+// GAG.EXE: 0x00404EE0
+RuntimeGenericResourceNode *__fastcall find_or_load_runtime_generic_resource(const char *resource_name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    char name[0x100]{};
+    copy_file_name_from_path(name, resource_name);
+    RuntimeGenericResourceNode *last = nullptr;
+    for(RuntimeGenericResourceNode *node = script_runtime_root->generic_resources; node != nullptr; node = node->next)
+    {
+        last = node;
+        if(fixed_dword_memory_equal(name, node->name, 0x20))
+        {
+            return static_cast<RuntimeGenericResourceNode *>(node->identity);
+        }
+    }
+    void *resource_data = name;
+    void *resource_metadata;
+    script_runtime_root->dispatch_resource_operation(6, &resource_data, &resource_metadata);
+    if(resource_data == nullptr)
+    {
+        return nullptr;
+    }
+    auto *node = static_cast<RuntimeGenericResourceNode *>(runtime_generic_resource_load_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeGenericResourceNode)));
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    std::memcpy(node->name, name, sizeof(node->name));
+    node->identity = node;
+    node->resource_data = resource_data;
+    node->resource_metadata = resource_metadata;
+    if(last != nullptr)
+    {
+        last->next = node;
+    }
+    else
+    {
+        script_runtime_root->generic_resources = node;
+    }
+    return node;
+}
+
+void set_runtime_generic_resource_load_api_for_testing(const RuntimeGenericResourceLoadApi &api)
+{
+    runtime_generic_resource_load_api = api;
+}
+
+// GAG.EXE: 0x00405210
+RuntimeTreeParserContext *__fastcall find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, std::uint32_t start_offset,
+    const char *creation_text)
+{
+    RuntimeTreeParserContext *last = nullptr;
+    for(RuntimeTreeParserContext *context = owner->parser_contexts; context != nullptr; context = context->next)
+    {
+        last = context;
+        if(strings_equal(context->name, name))
+        {
+            return context;
+        }
+    }
+    auto *context = static_cast<RuntimeTreeParserContext *>(runtime_tree_parser_context_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeParserContext)));
+    if(context != nullptr)
+    {
+        copy_string(context->name, name);
+        context->owner = owner;
+        context->resource = resource;
+        context->resource_data = resource->resource_data;
+        context->resource_metadata = resource->resource_metadata;
+        context->start_offset = start_offset;
+        context->cursor = start_offset;
+        resource->current_position = start_offset;
+        ++resource->active_references;
+        if(creation_text != nullptr)
+        {
+            copy_string(context->creation_text, creation_text);
+        }
+        context->creation_text_pointer = context->creation_text;
+        context->scratch_text_pointer = context->scratch_text;
+        context->name_pointer = context->name;
+        if(last != nullptr)
+        {
+            last->next = context;
+        }
+        else
+        {
+            owner->parser_contexts = context;
+        }
+    }
+    return context;
+}
+
+void set_runtime_tree_parser_context_api_for_testing(const RuntimeTreeParserContextApi &api)
+{
+    runtime_tree_parser_context_api = api;
+}
+
+// GAG.EXE: 0x004052F0
+void __fastcall release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
+{
+    RuntimeTreeParserContext *context = owner->parser_contexts;
+    while(context != nullptr)
+    {
+        RuntimeTreeParserContext *next = context->next;
+        if(context->resource->active_references != 0)
+        {
+            --context->resource->active_references;
+        }
+        if(context->resource->active_references == 0)
+        {
+            runtime_tree_parser_release_api.remove_resource(context->resource);
+        }
+        runtime_tree_parser_release_api.heap_free(script_runtime_root->heap, 0, context);
+        context = next;
+    }
+}
+
+// GAG.EXE: 0x00405350
+RuntimeTreeParserContext *__fastcall find_existing_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name)
+{
+    RuntimeTreeParserContext *context = owner->parser_contexts;
+    while(context != nullptr && !strings_equal(context->name, name))
+    {
+        context = context->next;
+    }
+    return context;
+}
+
+void set_runtime_tree_parser_release_api_for_testing(const RuntimeTreeParserReleaseApi &api)
+{
+    runtime_tree_parser_release_api = api;
+}
+
+// GAG.EXE: 0x00405410
+RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
+{
+    RuntimeTreeNode *current = runtime_tree_creation_api.find_node(script_runtime_root->runtime_tree);
+    RuntimeGenericResourceNode *resolved_resource = runtime_tree_creation_api.find_resource(resource);
+    if(resolved_resource == nullptr)
+    {
+        return nullptr;
+    }
+
+    RuntimeTreeNode *root = nullptr;
+    RuntimeTreeNode *last = nullptr;
+    if(current == nullptr)
+    {
+        void *existing = runtime_tree_creation_api.find_root_by_name(tree_name);
+        if(existing != nullptr)
+        {
+            return static_cast<RuntimeTreeNode *>(existing);
+        }
+        last = script_runtime_root->runtime_tree;
+    }
+    else
+    {
+        root = runtime_tree_creation_api.find_ancestor_root(current);
+        void *existing = runtime_tree_creation_api.find_descendant_by_name(root, tree_name);
+        if(existing != nullptr)
+        {
+            return static_cast<RuntimeTreeNode *>(existing);
+        }
+        last = current->child;
+    }
+    while(last != nullptr && last->next != nullptr)
+    {
+        last = last->next;
+    }
+
+    std::uint32_t text_length = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resolved_resource->resource_metadata));
+    std::uint32_t start_offset = static_cast<std::uint32_t>(runtime_tree_creation_api.find_section(tree_name, static_cast<const char *>(resolved_resource->resource_data), text_length));
+    if(start_offset == 0xffffffff)
+    {
+        return nullptr;
+    }
+    char class_name[0x20];
+    if(runtime_tree_creation_api.find_property(class_name, "class", static_cast<const char *>(resolved_resource->resource_data), text_length, start_offset) != -1)
+    {
+        if(strings_equal(class_name, "TEMPLATE"))
+        {
+            return nullptr;
+        }
+        if(current == nullptr)
+        {
+            for(RuntimeTreeNode *node = script_runtime_root->runtime_tree; node != nullptr; node = node->next)
+            {
+                if(strings_equal(node->class_name, class_name))
+                {
+                    return nullptr;
+                }
+            }
+        }
+        else
+        {
+            for(RuntimeTreeNode *node = runtime_tree_creation_api.begin_enumeration(root); node != nullptr; node = runtime_tree_creation_api.next_enumeration(root))
+            {
+                if(strings_equal(node->class_name, class_name))
+                {
+                    return nullptr;
+                }
+            }
+        }
+    }
+
+    auto *node = static_cast<RuntimeTreeNode *>(runtime_tree_creation_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeNode)));
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    std::memcpy(node->name, tree_name, sizeof(node->name));
+    node->identity = node;
+    if(parent_selector == reinterpret_cast<void *>(0xffffffff))
+    {
+        node->parent = reinterpret_cast<RuntimeTreeNode *>(0xffffffff);
+    }
+    else
+    {
+        node->parent = current;
+    }
+    RuntimeTreeParserContext *context = runtime_tree_creation_api.create_parser_context(node, tree_name, resolved_resource, start_offset, static_cast<const char *>(creation_context));
+    if(context == nullptr)
+    {
+        runtime_tree_creation_api.heap_free(script_runtime_root->heap, 0, node);
+        runtime_tree_creation_api.remove_resource(resource);
+        return nullptr;
+    }
+
+    if(parent_selector == reinterpret_cast<void *>(0xffffffff))
+    {
+        if(script_runtime_root->runtime_tree != nullptr)
+        {
+            script_runtime_root->runtime_tree->previous = node;
+            node->next = script_runtime_root->runtime_tree;
+        }
+        script_runtime_root->runtime_tree = node;
+    }
+    else if(last != nullptr)
+    {
+        last->next = node;
+        node->previous = last;
+    }
+    else if(current != nullptr)
+    {
+        current->child = node;
+    }
+    else
+    {
+        script_runtime_root->runtime_tree = node;
+    }
+
+    RuntimeTreeNode *result = runtime_tree_creation_api.dispatch_parser(context);
+    if(result != nullptr && (result->flags & 0x8000) == 0)
+    {
+        runtime_tree_creation_api.activate_node(result);
+    }
+    return result;
+}
+
+void set_runtime_tree_creation_api_for_testing(const RuntimeTreeCreationApi &api)
+{
+    runtime_tree_creation_api = api;
+}
+
+// GAG.EXE: 0x00405D00
+RuntimeTreeNode *__fastcall find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, std::uint32_t success_cursor)
+{
+    RuntimeTreeNode *result = nullptr;
+    std::uint32_t saved_cursor = parser->cursor;
+    for(;;)
+    {
+        std::uint32_t property = runtime_tree_jump_api.parse_property(parser);
+        if(property == 0x70)
+        {
+            char resource_name[0x20];
+            runtime_tree_jump_api.parse_name(parser, resource_name, sizeof(resource_name));
+            if(strings_equal(resource_name, target))
+            {
+                runtime_tree_jump_api.synchronize_owner(parser->owner);
+                if(runtime_tree_jump_api.parse_name(parser, resource_name, sizeof(resource_name)) != -1)
+                {
+                    char tree_name[0x20];
+                    RuntimeGenericResourceNode *resource;
+                    if(runtime_tree_jump_api.parse_name(parser, tree_name, sizeof(tree_name)) == -1)
+                    {
+                        std::memcpy(tree_name, resource_name, sizeof(tree_name));
+                        resource = parser->resource;
+                    }
+                    else
+                    {
+                        resource = runtime_tree_jump_api.find_or_load_resource(resource_name);
+                    }
+                    result = runtime_tree_jump_api.create_node(resource, nullptr, tree_name, nullptr);
+                }
+                break;
+            }
+        }
+        if(property == 0xffffffff)
+        {
+            break;
+        }
+    }
+    parser->cursor = result == nullptr ? saved_cursor : success_cursor;
+    return result;
+}
+
+void set_runtime_tree_jump_api_for_testing(const RuntimeTreeJumpApi &api)
+{
+    runtime_tree_jump_api = api;
+}
+
+void set_runtime_tree_conditional_create_api_for_testing(const RuntimeTreeConditionalCreateApi &api)
+{
+    runtime_tree_conditional_create_api = api;
+}
+
+// GAG.EXE: 0x00405E00
+void __fastcall reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
+{
+    parser->cursor = parser->start_offset;
+    for(;;)
+    {
+        std::uint32_t property = runtime_tree_parser_reset_api.parse_property(parser);
+        if(property == 0xffffffff)
+        {
+            return;
+        }
+        if(property == 10)
+        {
+            RuntimeTreeNode *included = runtime_tree_parser_reset_api.resolve_included_tree(parser);
+            if(included != nullptr)
+            {
+                for(RuntimeTreeParserContext *context = included->parser_contexts; context != nullptr; context = context->next)
+                {
+                    reset_runtime_tree_parser_context_recursive(reinterpret_cast<ScriptParserState *>(context));
+                }
+            }
+        }
+    }
+}
+
+// GAG.EXE: 0x00405DC0
+void __fastcall reset_runtime_tree_parser_contexts(void *identity)
+{
+    RuntimeTreeNode *node = runtime_tree_parser_reset_api.find_node(identity);
+    if(node != nullptr)
+    {
+        for(RuntimeTreeParserContext *context = node->parser_contexts; context != nullptr; context = context->next)
+        {
+            reset_runtime_tree_parser_context_recursive(reinterpret_cast<ScriptParserState *>(context));
+        }
+    }
+}
+
+void set_runtime_tree_parser_reset_api_for_testing(const RuntimeTreeParserResetApi &api)
+{
+    runtime_tree_parser_reset_api = api;
+}
+
+// GAG.EXE: 0x00405380
+RuntimeTreeNode *__fastcall dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text)
+{
+    RuntimeTreeNode *node = runtime_tree_section_dispatch_api.find_node(node_identity);
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeGenericResourceNode *resource = runtime_tree_section_dispatch_api.find_resource(resource_identity);
+    if(resource == nullptr)
+    {
+        return nullptr;
+    }
+    int start_offset = runtime_tree_section_dispatch_api.find_section(section_name, static_cast<const char *>(resource->resource_data),
+        static_cast<int>(reinterpret_cast<std::uintptr_t>(resource->resource_metadata)));
+    if(start_offset == -1)
+    {
+        return nullptr;
+    }
+    RuntimeTreeParserContext *context = runtime_tree_section_dispatch_api.create_parser_context(node, section_name, resource, static_cast<std::uint32_t>(start_offset), creation_text);
+    if(context == nullptr)
+    {
+        runtime_tree_section_dispatch_api.remove_resource(resource_identity);
+        return nullptr;
+    }
+    return runtime_tree_section_dispatch_api.dispatch_parser(context);
+}
+
+void set_runtime_tree_section_dispatch_api_for_testing(const RuntimeTreeSectionDispatchApi &api)
+{
+    runtime_tree_section_dispatch_api = api;
+}
+
+// GAG.EXE: 0x00407040
+void __fastcall add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
+{
+    for(RuntimeTreeAuxiliaryNode *node = owner->auxiliary_head; node != nullptr; node = node->next)
+    {
+        if(strings_equal(node->name, name))
+        {
+            return;
+        }
+    }
+    auto *node = static_cast<RuntimeTreeAuxiliaryNode *>(runtime_tree_auxiliary_create_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeAuxiliaryNode)));
+    if(node == nullptr)
+    {
+        return;
+    }
+    node->identity = const_cast<char *>(name);
+    void *metadata;
+    runtime_tree_auxiliary_create_api.resolve(6, &node->identity, &metadata);
+    if(node->identity == nullptr)
+    {
+        runtime_tree_auxiliary_create_api.heap_free(script_runtime_root->heap, 0, node);
+        return;
+    }
+    copy_string(node->name, name);
+    node->identity = node;
+    node->next = owner->auxiliary_head;
+    owner->auxiliary_head = node;
+}
+
+// GAG.EXE: 0x004070F0
+std::uint32_t __fastcall parse_runtime_tree_auxiliary_names(ScriptParserState *parser)
+{
+    char name[0x20];
+    while(parse_script_value_token(parser, name, sizeof(name)) != 0xffffffff)
+    {
+        add_runtime_tree_auxiliary_name(parser->owner, name);
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00407130
+std::uint32_t __fastcall add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner)
+{
+    const char *text = reinterpret_cast<const char *>(script_runtime_root) + 0x96c;
+    if(text[0] == '\0')
+    {
+        return 0;
+    }
+    const int length = static_cast<int>(std::strlen(text));
+    int offset = 0;
+    std::uint32_t result = 0;
+    while(offset < length)
+    {
+        while(offset < length && text[offset] == ' ')
+        {
+            ++offset;
+        }
+        char name[0x80];
+        int name_length = 0;
+        while(offset < length && text[offset] != ' ')
+        {
+            name[name_length++] = text[offset++];
+        }
+        name[name_length] = '\0';
+        if(name[0] != '\0')
+        {
+            result = 1;
+            add_runtime_tree_auxiliary_name(owner, name);
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004071E0
+void __fastcall release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
+{
+    while(owner->auxiliary_head != nullptr)
+    {
+        RuntimeTreeAuxiliaryNode *node = owner->auxiliary_head;
+        owner->auxiliary_head = node->next;
+        runtime_tree_auxiliary_release_api.notify(7, 0, node);
+        runtime_tree_auxiliary_release_api.heap_free(script_runtime_root->heap, 0, node);
+    }
+}
+
+void set_runtime_tree_auxiliary_release_api_for_testing(const RuntimeTreeAuxiliaryReleaseApi &api)
+{
+    runtime_tree_auxiliary_release_api = api;
+}
+
+void set_runtime_tree_auxiliary_create_api_for_testing(const RuntimeTreeAuxiliaryCreateApi &api)
+{
+    runtime_tree_auxiliary_create_api = api;
+}
+
+// Non-original helper preserving the original inclusive head-through-tail free traversal.
+template<typename Link>
+void free_runtime_tree_link_range(Link *head, Link *tail)
+{
+    for(Link *link = head; link != nullptr;)
+    {
+        Link *next = link->next;
+        runtime_tree_destruction_core_api.heap_free(script_runtime_root->heap, 0, link);
+        if(link == tail)
+        {
+            break;
+        }
+        link = next;
+    }
+}
+
+// Non-original helper for the seven confirmed selector/global destinations inside ScriptRuntimeRoot.
+void route_runtime_tree_global_link(std::size_t selector_offset, std::size_t selector_field_offset, std::size_t global_offset, void *value)
+{
+    auto *root_bytes = reinterpret_cast<std::uint8_t *>(script_runtime_root);
+    void *selector = *reinterpret_cast<void **>(root_bytes + selector_offset);
+    if(selector == nullptr)
+    {
+        *reinterpret_cast<void **>(root_bytes + global_offset) = value;
+    }
+    else
+    {
+        *reinterpret_cast<void **>(static_cast<std::uint8_t *>(selector) + selector_field_offset) = value;
+    }
+}
+
+// GAG.EXE: 0x00406360
+void __fastcall update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode *replacement)
+{
+    if(removed->parent != nullptr)
+    {
+        return;
+    }
+    route_runtime_tree_global_link(0xfc0, 0x40, 0xfa4, replacement == nullptr ? nullptr : replacement->scene_link_head);
+    route_runtime_tree_global_link(0xfbc, 0x48, 0xfa0, replacement == nullptr ? nullptr : replacement->secondary_resource_link_head);
+    route_runtime_tree_global_link(0xfa8, 0x24, 0xf8c, replacement == nullptr ? nullptr : replacement->primary_resource_link_head);
+    route_runtime_tree_global_link(0xfb0, 0x24, 0xf94, replacement == nullptr ? nullptr : replacement->link_0084_head);
+    route_runtime_tree_global_link(0xfb8, 0x24, 0xf9c, replacement == nullptr ? nullptr : replacement->link_008c_head);
+    route_runtime_tree_global_link(0xfac, 0x24, 0xf90, replacement == nullptr ? nullptr : replacement->link_007c_head);
+    route_runtime_tree_global_link(0xfb4, 0x24, 0xf98, replacement == nullptr ? nullptr : replacement->container_head);
+}
+
+// GAG.EXE: 0x00406190
+void __fastcall publish_runtime_tree_global_links(RuntimeTreeNode *node)
+{
+    if(node->parent != nullptr)
+    {
+        if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+        {
+            if(node->scene_link_tail != nullptr)
+            {
+                script_runtime_root->global_scene_link_tail = node->scene_link_tail;
+            }
+            if(node->secondary_resource_link_tail != nullptr)
+            {
+                script_runtime_root->global_secondary_resource_link_tail = node->secondary_resource_link_tail;
+            }
+            if(node->primary_resource_link_tail != nullptr)
+            {
+                script_runtime_root->plan_terminal = reinterpret_cast<RuntimePlanNode *>(node->primary_resource_link_tail);
+            }
+            if(node->link_0084_tail != nullptr)
+            {
+                script_runtime_root->global_link_0084_tail = node->link_0084_tail;
+            }
+            if(node->link_008c_tail != nullptr)
+            {
+                script_runtime_root->global_link_008c_tail = node->link_008c_tail;
+            }
+            if(node->link_007c_tail != nullptr)
+            {
+                script_runtime_root->global_link_007c_tail = node->link_007c_tail;
+            }
+            if(node->container_tail != nullptr)
+            {
+                script_runtime_root->container_tail = node->container_tail;
+            }
+        }
+        return;
+    }
+    route_runtime_tree_global_link(0xfc0, 0x40, 0xfa4, node->scene_link_head);
+    route_runtime_tree_global_link(0xfbc, 0x48, 0xfa0, node->secondary_resource_link_head);
+    route_runtime_tree_global_link(0xfa8, 0x24, 0xf8c, node->primary_resource_link_head);
+    route_runtime_tree_global_link(0xfb0, 0x24, 0xf94, node->link_0084_head);
+    route_runtime_tree_global_link(0xfb8, 0x24, 0xf9c, node->link_008c_head);
+    route_runtime_tree_global_link(0xfac, 0x24, 0xf90, node->link_007c_head);
+    route_runtime_tree_global_link(0xfb4, 0x24, 0xf98, node->container_head);
+}
+
+// GAG.EXE: 0x004068F0
+void __fastcall append_script_runtime_flags(ScriptTextBuffer *buffer, std::uint32_t flags)
+{
+    if(flags == 0)
+    {
+        return;
+    }
+    append_script_text_property(buffer, 0x50, nullptr);
+    while((flags & 0x04000101) != 0)
+    {
+        if((flags & 0x04000000) != 0)
+        {
+            flags &= ~0x04000000u;
+            append_script_text_delimiter(buffer, "PAL_NOADJUST", ' ');
+        }
+        if((flags & 1) != 0)
+        {
+            flags &= ~1u;
+            append_script_text_delimiter(buffer, "NOCOMMENT", ' ');
+        }
+        if((flags & 0x100) != 0)
+        {
+            flags &= ~0x100u;
+            append_script_text_delimiter(buffer, "NOSAVE", ' ');
+        }
+    }
+    end_script_text_statement(buffer);
+}
+
+// GAG.EXE: 0x004069D0
+void __fastcall serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr || script_runtime_root->runtime_tree == nullptr)
+    {
+        return;
+    }
+    append_script_text_delimiter(buffer, nullptr, '\r');
+    append_script_text_delimiter(buffer, nullptr, '\n');
+    for(RuntimeTreeNode *node = script_runtime_root->runtime_tree; node != nullptr; node = node->next)
+    {
+        RuntimeTreeParserContext *context = find_existing_runtime_tree_parser_context(node, reinterpret_cast<const char *>(node));
+        if(context != nullptr)
+        {
+            append_script_text_property(buffer, 0xe, nullptr);
+            append_script_text_delimiter(buffer, context->resource->name, ':');
+            append_script_text_delimiter(buffer, node->name, ' ');
+            if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            {
+                append_script_text_scope(buffer, 0x200000);
+            }
+            end_script_text_statement(buffer);
+        }
+    }
+}
+
+// GAG.EXE: 0x00406BB0
+void __fastcall serialize_runtime_language(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return;
+    }
+    const char *language = reinterpret_cast<const char *>(script_runtime_root) + 0x828;
+    if(*language != '\0')
+    {
+        append_script_text_property(buffer, 0x20, nullptr);
+        append_script_text_delimiter(buffer, language, ' ');
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x004073D0
+void __fastcall serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr || script_runtime_root->fixed_name_nodes == nullptr)
+    {
+        return;
+    }
+    append_script_text_delimiter(buffer, nullptr, '\r');
+    append_script_text_delimiter(buffer, nullptr, '\n');
+    for(RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes; node != nullptr; node = node->next)
+    {
+        append_script_text_property(buffer, 0x10, node->name);
+        append_script_text_scope(buffer, 0x1000000);
+        append_script_text_delimiter(buffer, node->serialized_value, ' ');
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x00405E50
+RuntimeTreeNode *__fastcall destroy_runtime_tree_node(void *identity, void *replacement_identity)
+{
+    RuntimeTreeNode *node = runtime_tree_destruction_core_api.find_node(identity);
+    RuntimeTreeNode *replacement = runtime_tree_destruction_core_api.find_node(replacement_identity);
+    if(node == nullptr)
+    {
+        return replacement;
+    }
+    if((node->flags & 0x8000) != 0)
+    {
+        runtime_tree_destruction_core_api.notify(0x40, 0, node);
+    }
+    for(RuntimeTreeNode *child = node->child; child != nullptr;)
+    {
+        RuntimeTreeNode *next = child->next;
+        destroy_runtime_tree_node(child->identity, nullptr);
+        child = next;
+    }
+    RuntimeTreeNode *parent = runtime_tree_destruction_core_api.find_node(node->parent);
+    if(node->scene_link_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_scene_links(node->parent, node);
+        free_runtime_tree_link_range(node->scene_link_head, node->scene_link_tail);
+    }
+    if(node->secondary_resource_link_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_secondary_links(node->parent, node);
+        free_runtime_tree_link_range(node->secondary_resource_link_head, node->secondary_resource_link_tail);
+    }
+    if(node->primary_resource_link_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_primary_links(node->parent, node);
+        free_runtime_tree_link_range(node->primary_resource_link_head, node->primary_resource_link_tail);
+    }
+    if(node->link_007c_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_links_7c(node->parent, node);
+        free_runtime_tree_link_range(node->link_007c_head, node->link_007c_tail);
+    }
+    if(node->link_0084_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_links_84(node->parent, node);
+        free_runtime_tree_link_range(node->link_0084_head, node->link_0084_tail);
+    }
+    if(node->link_008c_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_links_8c(node->parent, node);
+        free_runtime_tree_link_range(node->link_008c_head, node->link_008c_tail);
+    }
+    if(node->container_tail != nullptr)
+    {
+        runtime_tree_destruction_core_api.remove_containers(node->parent, node);
+        for(ScriptObjectContainer *container = node->container_head; container != nullptr;)
+        {
+            ScriptObjectContainer *next = container->next;
+            runtime_tree_destruction_core_api.destroy_container(container);
+            if(container == node->container_tail)
+            {
+                break;
+            }
+            container = next;
+        }
+    }
+    runtime_tree_destruction_core_api.release_auxiliary(node);
+    runtime_tree_destruction_core_api.release_parsers(node);
+    if((node->flags & 0x2000) != 0)
+    {
+        runtime_tree_destruction_core_api.notify(0xe, 0, nullptr);
+    }
+    if((node->flags & 0x4000) != 0)
+    {
+        runtime_tree_destruction_core_api.notify(0x20, 0, nullptr);
+    }
+    if(replacement != nullptr && (replacement->flags & 0x200) != 0)
+    {
+        RuntimeTreeParserContext *context = runtime_tree_destruction_core_api.find_parser(replacement, reinterpret_cast<const char *>(replacement));
+        if(context != nullptr)
+        {
+            replacement = runtime_tree_destruction_core_api.dispatch_parser(context);
+        }
+    }
+    runtime_tree_destruction_core_api.update_global_links(node, replacement);
+    if(node->previous == nullptr)
+    {
+        if(parent == nullptr)
+        {
+            script_runtime_root->runtime_nodes = reinterpret_cast<RuntimeNamedNode *>(node->next);
+        }
+        else
+        {
+            parent->child = node->next;
+        }
+    }
+    else
+    {
+        node->previous->next = node->next;
+    }
+    if(node->next != nullptr)
+    {
+        node->next->previous = node->previous;
+    }
+    runtime_tree_destruction_core_api.heap_free(script_runtime_root->heap, 0, node);
+    return replacement;
+}
+
+void set_runtime_tree_destruction_core_api_for_testing(const RuntimeTreeDestructionCoreApi &api)
+{
+    runtime_tree_destruction_core_api = api;
+}
+
+// GAG.EXE: 0x0042A1B0
+RuntimeMediaBackend *__fastcall create_runtime_bitmap_backend(std::uint32_t, std::uint32_t extension_bytes, void *bitmap_data)
+{
+    auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0x978 + extension_bytes));
+    if(backend == nullptr)
+    {
+        return nullptr;
+    }
+    if(extension_bytes != 0)
+    {
+        backend->extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0x978;
+    }
+    backend->type = 0xac;
+    backend->identity = backend;
+    backend->source_data = bitmap_data;
+    if(*static_cast<std::uint16_t *>(bitmap_data) != 0x4d42)
+    {
+        backend->error_state = 1;
+        backend->media_flags |= 0x80000000;
+    }
+    backend->format_data = static_cast<std::uint8_t *>(bitmap_data) + 0x0e;
+    backend->field_001c = 0x0300;
+    backend->field_001e = 0x00ec;
+    backend->media_flags |= 0x20;
+    runtime_bitmap_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    if(runtime_media_backend_head == nullptr)
+    {
+        runtime_media_backend_head = backend;
+        backend->previous = nullptr;
+    }
+    else
+    {
+        runtime_media_backend_tail->next = backend;
+        backend->previous = runtime_media_backend_tail;
+    }
+    backend->next = nullptr;
+    runtime_media_backend_tail = backend;
+    runtime_bitmap_backend_create_api.release_mutex(runtime_media_backend_mutex);
+    return backend;
+}
+
+// GAG.EXE: 0x00429EB0
+RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32_t, void *data, std::uint32_t extension_bytes, std::uint32_t storage)
+{
+    RuntimeAnimationBackend *backend = nullptr;
+    auto read_u32 = [](const std::uint8_t *source)
+    {
+        std::uint32_t value;
+        std::memcpy(&value, source, sizeof(value));
+        return value;
+    };
+    if(storage == 0x01000000)
+    {
+        backend = static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0xa58 + extension_bytes));
+        if(backend == nullptr)
+        {
+            return nullptr;
+        }
+        backend->base.stream_record = static_cast<AsyncFileRecord *>(data);
+        backend->base.format_data = backend->header;
+        if(extension_bytes != 0)
+        {
+            backend->base.extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0xa58;
+        }
+        std::memcpy(backend->header, data, sizeof(backend->header));
+        const std::uint16_t signature = *reinterpret_cast<const std::uint16_t *>(backend->header + 4);
+        if(signature == 0xaf11)
+        {
+            backend->base.frame_duration = (read_u32(backend->header + 0x10) * 5 + 5) * 2;
+            backend->data_start = static_cast<std::uint8_t *>(data) + 0x80;
+            backend->base.frame_header = backend->data_start;
+            backend->data_end = static_cast<std::uint8_t *>(backend->data_start) + read_u32(static_cast<std::uint8_t *>(backend->data_start));
+            backend->base.error_state = 0;
+        }
+        else if(signature == 0xaf12)
+        {
+            backend->base.frame_duration = read_u32(backend->header + 0x10);
+            backend->data_start = static_cast<std::uint8_t *>(data) + read_u32(backend->header + 0x50);
+            backend->data_end = static_cast<std::uint8_t *>(data) + read_u32(backend->header + 0x54);
+            backend->base.error_state = 0;
+        }
+        else
+        {
+            backend->base.error_state = 1;
+            backend->base.media_flags |= 0x80000000;
+        }
+        backend->source_cursor = backend->data_start;
+    }
+    else if(storage == 0x02000000)
+    {
+        auto *record = static_cast<AsyncFileRecord *>(data);
+        const std::uint32_t saved_position = runtime_animation_backend_create_api.get_position(record);
+        std::uint8_t header[0x80];
+        std::uint32_t bytes_read;
+        runtime_animation_backend_create_api.read_record(record, header, sizeof(header), &bytes_read, 0);
+        backend = static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0xa70 + extension_bytes));
+        if(backend == nullptr)
+        {
+            return nullptr;
+        }
+        backend->base.format_data = backend->header;
+        backend->base.frame_header = reinterpret_cast<std::uint8_t *>(backend) + 0xa58;
+        backend->base.chunk_header = reinterpret_cast<std::uint8_t *>(backend) + 0xa68;
+        if(extension_bytes != 0)
+        {
+            backend->base.extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0xa70;
+        }
+        backend->base.stream_record = record;
+        std::memcpy(backend->header, header, sizeof(header));
+        const std::uint16_t signature = *reinterpret_cast<const std::uint16_t *>(backend->header + 4);
+        if(signature == 0xaf12)
+        {
+            backend->base.frame_duration = read_u32(backend->header + 0x10);
+            backend->data_start = reinterpret_cast<void *>(saved_position + read_u32(backend->header + 0x50));
+            backend->data_end = reinterpret_cast<void *>(saved_position + read_u32(backend->header + 0x54));
+            backend->base.error_state = 0;
+        }
+        else if(signature != 0xaf11)
+        {
+            backend->base.error_state = 1;
+            backend->base.media_flags |= 0x80000000;
+        }
+        runtime_animation_backend_create_api.set_position(record, saved_position);
+    }
+    else
+    {
+        return nullptr;
+    }
+    backend->base.identity = backend;
+    backend->base.type = 0xaa;
+    backend->base.media_flags |= storage | 0x21;
+    backend->base.field_001c = 0x0300;
+    backend->base.field_001e = 0x0100;
+    backend->base.sound_handle = 0xffffffff;
+    backend->base.scale_x = 1;
+    backend->base.scale_y = 1;
+    runtime_animation_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    if(runtime_media_backend_head == nullptr)
+    {
+        runtime_media_backend_head = &backend->base;
+        backend->base.previous = nullptr;
+    }
+    else
+    {
+        runtime_media_backend_tail->next = &backend->base;
+        backend->base.previous = runtime_media_backend_tail;
+    }
+    backend->base.next = nullptr;
+    runtime_media_backend_tail = &backend->base;
+    runtime_animation_backend_create_api.release_mutex(runtime_media_backend_mutex);
+    return backend;
+}
+
+// GAG.EXE: 0x0042B620
+RuntimeMediaBackend *__fastcall acquire_runtime_media_backend(void *identity)
+{
+    RuntimeMediaBackend *result = nullptr;
+    const DWORD thread_id = runtime_media_backend_api.get_current_thread_id();
+    for(;;)
+    {
+        bool contended = false;
+        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+        for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
+        {
+            if(backend->identity == identity)
+            {
+                if(backend->recursion_count == 0 || backend->owner_thread == thread_id)
+                {
+                    backend->owner_thread = thread_id;
+                    ++backend->recursion_count;
+                    result = backend;
+                }
+                else
+                {
+                    contended = true;
+                }
+                break;
+            }
+        }
+        runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+        if(!contended)
+        {
+            return result;
+        }
+        runtime_media_backend_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x0042B5B0
+std::uint32_t __fastcall get_runtime_media_backend_type(void *identity)
+{
+    std::uint32_t result = 0;
+    runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
+    {
+        if(backend->identity == identity)
+        {
+            result = backend->type;
+            break;
+        }
+    }
+    runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+    return result;
+}
+
+// GAG.EXE: 0x004299B0
+std::uint8_t __fastcall classify_runtime_media_data(const void *data)
+{
+    const auto *bytes = static_cast<const std::uint8_t *>(data);
+    std::uint16_t signature;
+    std::memcpy(&signature, bytes + 4, sizeof(signature));
+    if(signature == 0xaf12)
+    {
+        return 3;
+    }
+    if(bytes[0] == 'B' && bytes[1] == 'M')
+    {
+        return 1;
+    }
+    static constexpr std::uint8_t wave_format_signature[7]{ 'W', 'A', 'V', 'E', 'f', 'm', 't' };
+    if(std::memcmp(bytes + 8, wave_format_signature, sizeof(wave_format_signature)) == 0)
+    {
+        return 2;
+    }
+    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    return std::memcmp(bytes, configuration_signature, sizeof(configuration_signature)) == 0 ? 4 : 0;
+}
+
+// GAG.EXE: 0x00404920
+std::uint32_t __fastcall read_compressor_input(void *destination, std::uint32_t requested_size)
+{
+    if(compressor_input_position >= compressor_input_size)
+    {
+        return 0;
+    }
+    std::uint32_t copied_size = compressor_input_size - compressor_input_position;
+    if(requested_size < copied_size)
+    {
+        copied_size = requested_size;
+    }
+    std::memcpy(destination, compressor_input + compressor_input_position, copied_size);
+    compressor_input_position += copied_size;
+    return copied_size;
+}
+
+// GAG.EXE: 0x0042B2A0
+void __fastcall set_runtime_media_backend_scale(void *identity, std::uint32_t scale_x, std::uint32_t scale_y)
+{
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
+    {
+        if(backend->identity == identity)
+        {
+            backend->scale_x = scale_x;
+            backend->scale_y = scale_y;
+            break;
+        }
+    }
+    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+}
+
+// GAG.EXE: 0x0042A440
+std::uint32_t __fastcall stop_runtime_animation_backend(void *identity)
+{
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    RuntimeMediaBackend *backend = runtime_media_backend_head;
+    while(backend != nullptr && backend->identity != identity)
+    {
+        backend = backend->next;
+    }
+    if(backend == nullptr)
+    {
+        runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        return 0;
+    }
+    backend->media_flags |= 0x10000;
+    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x0042B600
+void *__fastcall get_locked_runtime_media_extension(void *identity)
+{
+    RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
+    return backend == nullptr ? nullptr : backend->extension_data;
+}
+
+// GAG.EXE: 0x0042B720
+UINT __fastcall apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, std::uint32_t *flags, std::uint32_t force)
+{
+    auto *entries = reinterpret_cast<PALETTEENTRY *>(static_cast<std::uint8_t *>(palette_data) + 4);
+    if((*flags & 0x40000) == 0)
+    {
+        if((*flags & 0x80000) != 0)
+        {
+            for(std::uint32_t index = 0; index < 236; ++index)
+            {
+                entries[index].peFlags = PC_EXPLICIT;
+            }
+            runtime_palette_update_api.select_palette(target->device_context, target->palette, FALSE);
+            force = 1;
+            *flags &= ~0x80000u;
+        }
+    }
+    else
+    {
+        for(std::uint32_t index = 0; index < 236; ++index)
+        {
+            entries[index].peFlags = 0;
+        }
+        runtime_palette_update_api.select_palette(target->device_context, target->palette, TRUE);
+        force = 1;
+        *flags |= 0x80000;
+    }
+
+    if(force == 0)
+    {
+        return runtime_palette_update_api.animate_palette(target->palette, 0, 236, entries) != FALSE ? 236 : 0;
+    }
+    runtime_palette_update_api.unrealize_object(target->palette);
+    const UINT result = runtime_palette_update_api.set_palette_entries(target->palette, 0, 236, entries);
+    if(result != 0)
+    {
+        runtime_palette_update_api.realize_palette(target->device_context);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0042A290
+std::uint32_t __fastcall configure_runtime_bitmap_backend(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, void *callback, std::uint32_t flags)
+{
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    RuntimeMediaBackend *backend = runtime_media_backend_head;
+    while(backend != nullptr && backend->identity != identity)
+    {
+        backend = backend->next;
+    }
+    if(backend == nullptr)
+    {
+        runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        return 0;
+    }
+    backend->media_flags |= flags;
+    if(callback == nullptr)
+    {
+        callback = reinterpret_cast<std::uint8_t *>(backend) + 0x1c;
+    }
+    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x18, &callback, sizeof(callback));
+    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x934, transform, 10 * sizeof(std::uint32_t));
+    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x924, descriptor, 4 * sizeof(std::uint32_t));
+    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x0042A340
+std::uint32_t __fastcall configure_runtime_animation_backend(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, const void *comparison_palette, std::uint32_t flags,
+    RuntimeAnimationCallback callback)
+{
+    runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    RuntimeMediaBackend *backend = runtime_media_backend_head;
+    while(backend != nullptr && backend->identity != identity)
+    {
+        backend = backend->next;
+    }
+    if(backend == nullptr)
+    {
+        runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        return 0;
+    }
+    if(comparison_palette == nullptr)
+    {
+        comparison_palette = reinterpret_cast<std::uint8_t *>(backend) + 0x1c;
+    }
+    backend->comparison_palette = comparison_palette;
+    backend->animation_callback = callback == nullptr ? present_runtime_animation_frame : callback;
+    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x934, transform, 10 * sizeof(std::uint32_t));
+    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x924, descriptor, 4 * sizeof(std::uint32_t));
+    backend->dirty_left = 32000;
+    backend->dirty_top = 32000;
+    backend->dirty_right = 0;
+    backend->dirty_bottom = 0;
+    backend->media_flags |= flags;
+    HANDLE thread = runtime_animation_backend_configure_api.create_thread(nullptr, 0, run_runtime_animation_thread, backend, 0, reinterpret_cast<LPDWORD>(&backend->source_data));
+    runtime_animation_backend_configure_api.close_handle(thread);
+    runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x00427E60
+void __fastcall configure_runtime_resource_palette(RuntimeResourceObject *resource)
+{
+    auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
+    const auto *palette = reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(backend) + 0x20);
+    auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier));
+    const std::int32_t owner = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(resource));
+    if((resource->type_flags & 1) == 0)
+    {
+        if(runtime_resource_palette_configure_api.set_primary_owner(resource->scene_identifier, owner, false)
+            && ((resource->backend_flags & 0x4000000) == 0 || runtime_resource_palette_bits_per_pixel > 8))
+        {
+            runtime_resource_palette_configure_api.configure_palette(scene, palette, 0x100);
+        }
+    }
+    else
+    {
+        runtime_resource_palette_configure_api.set_primary_owner(resource->scene_identifier, owner, false);
+        runtime_resource_palette_configure_api.configure_palette(nullptr, palette, 0xec);
+        if((resource->backend_flags & 0x4000000) == 0 || runtime_resource_palette_bits_per_pixel > 8)
+        {
+            runtime_resource_palette_configure_api.configure_palette(scene, palette, 0x100);
+        }
+    }
+}
+
+// GAG.EXE: 0x00415D90
+void __fastcall build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
+{
+    if((backend->media_flags & 0x4000000) != 0)
+    {
+        return;
+    }
+    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
+    void *comparison_palette_pointer = nullptr;
+    std::memcpy(&comparison_palette_pointer, backend_bytes + 0x18, sizeof(comparison_palette_pointer));
+    const auto *comparison_palette = static_cast<const std::uint8_t *>(comparison_palette_pointer);
+    const std::uint8_t *source_color = backend_bytes + 0x20;
+    std::uint8_t *remap = backend_bytes + 0x824;
+    std::uint32_t bits_per_pixel = 0;
+    std::memcpy(&bits_per_pixel, backend_bytes + 0x93c, sizeof(bits_per_pixel));
+    const std::uint16_t comparison_count = bits_per_pixel == 8 ? 0xec : 0x100;
+    for(std::uint16_t source_index = 0; source_index < 0x100; ++source_index)
+    {
+        std::uint8_t tolerance = 0;
+        std::uint16_t comparison_index;
+        for(;;)
+        {
+            comparison_index = 0;
+            const std::uint8_t *comparison_color = comparison_palette;
+            do
+            {
+                comparison_color += 4;
+                std::uint32_t component = 0;
+                for(; component < 3; ++component)
+                {
+                    const std::uint8_t left = comparison_color[component];
+                    const std::uint8_t right = source_color[component];
+                    const std::uint8_t difference = left < right ? static_cast<std::uint8_t>(right - left) : static_cast<std::uint8_t>(left - right);
+                    if(tolerance < difference)
+                    {
+                        break;
+                    }
+                }
+                if(component == 3)
+                {
+                    break;
+                }
+                ++comparison_index;
+            } while(comparison_index < comparison_count);
+            if(comparison_index < comparison_count)
+            {
+                break;
+            }
+            tolerance = static_cast<std::uint8_t>(tolerance + 10);
+        }
+        *remap++ = static_cast<std::uint8_t>(comparison_index);
+        source_color += 4;
+    }
+}
+
+// GAG.EXE: 0x00417260
+std::uint8_t __fastcall convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
+{
+    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
+    auto *format = static_cast<std::uint8_t *>(backend->format_data);
+    std::uint32_t format_header_size = 0;
+    std::memcpy(&format_header_size, format, sizeof(format_header_size));
+    const std::uint8_t *source_palette = format + format_header_size;
+    for(std::uint32_t index = 0; index < 0x100; ++index)
+    {
+        const std::uint8_t blue = source_palette[index * 4];
+        const std::uint8_t green = source_palette[index * 4 + 1];
+        const std::uint8_t red = source_palette[index * 4 + 2];
+        backend_bytes[0x20 + index * 4] = red;
+        backend_bytes[0x21 + index * 4] = green;
+        backend_bytes[0x22 + index * 4] = blue;
+        backend_bytes[0x23 + index * 4] = 1;
+        std::memcpy(backend_bytes + 0x420 + index * 4, source_palette + index * 4, sizeof(std::uint32_t));
+    }
+    build_runtime_palette_index_remap(backend);
+    auto *bitmap_file = static_cast<std::uint8_t *>(backend->source_data);
+    std::uint32_t pixel_offset = 0;
+    std::memcpy(&pixel_offset, bitmap_file + 0x0a, sizeof(pixel_offset));
+    const std::uint8_t *source = bitmap_file + pixel_offset;
+    std::uint16_t destination_x = 0;
+    std::uint16_t destination_y = 0;
+    std::uint16_t destination_stride = 0;
+    std::uint8_t *destination_base = nullptr;
+    std::memcpy(&destination_x, backend_bytes + 0x924, sizeof(destination_x));
+    std::memcpy(&destination_y, backend_bytes + 0x926, sizeof(destination_y));
+    std::memcpy(&destination_stride, backend_bytes + 0x928, sizeof(destination_stride));
+    std::memcpy(&destination_base, backend_bytes + 0x930, sizeof(destination_base));
+    std::uint8_t *destination = destination_base + destination_y * destination_stride + destination_x;
+    std::int32_t width = 0;
+    std::int32_t signed_height = 0;
+    std::memcpy(&width, format + 4, sizeof(width));
+    std::memcpy(&signed_height, format + 8, sizeof(signed_height));
+    std::int32_t height = signed_height;
+    std::int32_t destination_row_adjustment;
+    if(height < 0)
+    {
+        height = -height;
+        destination_row_adjustment = destination_stride - width;
+    }
+    else
+    {
+        destination += destination_stride * (height - 1);
+        destination_row_adjustment = -(destination_stride + width);
+    }
+    const std::uint32_t source_row_padding = (static_cast<std::uint32_t>(width) + 3 & ~3u) - static_cast<std::uint32_t>(width);
+    std::uint8_t result = 0;
+    if((backend->media_flags & 0x4000000) == 0)
+    {
+        const std::uint8_t *remap = backend_bytes + 0x824;
+        do
+        {
+            std::int32_t remaining = width;
+            do
+            {
+                result = remap[*source++];
+                *destination++ = result;
+                --remaining;
+            } while(remaining != 0);
+            destination += destination_row_adjustment;
+            source += source_row_padding;
+            --height;
+        } while(height != 0);
+    }
+    else
+    {
+        do
+        {
+            std::memcpy(destination, source, static_cast<std::size_t>(width));
+            source += width + source_row_padding;
+            destination += width + destination_row_adjustment;
+            --height;
+        } while(height != 0);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x0042B300
+void __fastcall finalize_runtime_media_backend(void *identity)
+{
+    runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    RuntimeMediaBackend *backend = runtime_media_backend_head;
+    while(backend != nullptr)
+    {
+        if(backend->identity == identity)
+        {
+            if(backend->type == 0xaa)
+            {
+                backend->media_flags &= 0xffffdffe;
+                break;
+            }
+            if(backend->type == 0xac)
+            {
+                if((backend->media_flags & 0x20) != 0)
+                {
+                    backend->media_flags &= ~0x20u;
+                    runtime_media_backend_finalize_api.convert_bitmap(backend);
+                    const std::uint32_t flags = backend->media_flags;
+                    if((flags & 0x100) == 0)
+                    {
+                        auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
+                        std::int32_t bits_per_pixel = 0;
+                        std::memcpy(&bits_per_pixel, backend_bytes + 0x93c, sizeof(bits_per_pixel));
+                        HPALETTE palette = nullptr;
+                        HDC destination = nullptr;
+                        HDC source = nullptr;
+                        std::memcpy(&palette, backend_bytes + 0x940, sizeof(palette));
+                        std::memcpy(&destination, backend_bytes + 0x938, sizeof(destination));
+                        std::memcpy(&source, backend_bytes + 0x948, sizeof(source));
+                        if(bits_per_pixel == 8 && (flags & 0x10) == 0 && (flags & 0x20) != 0)
+                        {
+                            runtime_media_backend_finalize_api.set_palette_entries(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(backend_bytes + 0x20));
+                            runtime_media_backend_finalize_api.realize_palette(destination);
+                            backend->media_flags &= ~0x20u;
+                        }
+                        runtime_media_backend_finalize_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(backend_bytes + 0x420));
+                        std::uint16_t x = 0;
+                        std::uint16_t y = 0;
+                        std::memcpy(&x, backend_bytes + 0x924, sizeof(x));
+                        std::memcpy(&y, backend_bytes + 0x926, sizeof(y));
+                        std::int32_t width = 0;
+                        std::int32_t height = 0;
+                        auto *format = static_cast<const std::uint8_t *>(backend->format_data);
+                        std::memcpy(&width, format + 4, sizeof(width));
+                        std::memcpy(&height, format + 8, sizeof(height));
+                        runtime_media_backend_finalize_api.bit_blt(destination, x, y, width, height, source, x, y, SRCCOPY);
+                    }
+                }
+                break;
+            }
+        }
+        backend = backend->next;
+    }
+    runtime_media_backend_finalize_api.release_mutex(runtime_media_backend_mutex);
+}
+
+// GAG.EXE: 0x0042A4C0
+void __fastcall fail_runtime_animation(RuntimeMediaBackend *backend, std::uint32_t error)
+{
+    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
+    backend->error_state = error;
+    backend->media_flags |= 0x80000000;
+    RuntimeAnimationCallback callback = nullptr;
+    std::memcpy(&callback, backend_bytes + 0x9b8, sizeof(callback));
+    if(callback(backend) == 0)
+    {
+        HWND window = nullptr;
+        std::memcpy(&window, backend_bytes + 0x934, sizeof(window));
+        runtime_animation_failure_api.post_message(window, 0x7ffe, reinterpret_cast<WPARAM>(backend->identity), static_cast<LPARAM>(0x80000000u));
+    }
+    backend->media_flags |= 1;
+}
+
+// GAG.EXE: 0x0042A4A0
+void pause_all_runtime_animations()
+{
+    runtime_animation_control_flags |= 0x1000000;
+}
+
+// GAG.EXE: 0x0042A4B0
+void resume_all_runtime_animations()
+{
+    runtime_animation_control_flags &= ~0x1000000u;
+}
+
+// Non-original helper: exact control phase of RunRuntimeAnimationThread.
+RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimationBackend *animation, std::uint32_t current_time, std::uint32_t *wait_milliseconds)
+{
+    RuntimeMediaBackend &backend = animation->base;
+    *wait_milliseconds = 0;
+    if((backend.media_flags & 0x10000) != 0)
+    {
+        backend.media_flags |= 0x1000;
+        runtime_animation_control_api.destroy_sound(backend.sound_handle);
+        if(backend.animation_callback(&backend) == 0)
+        {
+            runtime_animation_control_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x1000);
+        }
+        return RuntimeAnimationControlResult::Exit;
+    }
+    if((backend.media_flags & 0x80000000) != 0)
+    {
+        return RuntimeAnimationControlResult::Wait;
+    }
+    if((backend.media_flags & 0x40) != 0)
+    {
+        const auto *header = static_cast<const std::uint8_t *>(backend.format_data);
+        std::uint16_t width = 0;
+        std::uint16_t height = 0;
+        std::memcpy(&width, header + 8, sizeof(width));
+        std::memcpy(&height, header + 10, sizeof(height));
+        backend.dirty_left = 0;
+        backend.dirty_top = 0;
+        backend.dirty_right = width;
+        backend.dirty_bottom = height;
+        backend.media_flags |= 0x8000;
+        backend.animation_callback(&backend);
+        backend.dirty_left = 32000;
+        backend.dirty_top = 32000;
+        backend.dirty_right = 0;
+        backend.dirty_bottom = 0;
+        backend.media_flags &= ~0x40u;
+    }
+    if((backend.media_flags & 0x20000) != 0)
+    {
+        backend.frame_number = 0;
+        const std::uint32_t storage = backend.media_flags & 0x3000000;
+        if(storage == 0x1000000)
+        {
+            animation->source_cursor = animation->data_start;
+        }
+        else if(storage == 0x2000000)
+        {
+            runtime_animation_control_api.set_stream_position(backend.stream_record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(animation->data_start)));
+        }
+        if(backend.sound_handle != 0)
+        {
+            runtime_animation_control_api.destroy_sound(backend.sound_handle);
+            backend.sound_handle = 0;
+        }
+        backend.timing_correction = 0;
+        const std::uint32_t old_flags = backend.media_flags;
+        backend.media_flags = old_flags & ~0x20000u;
+        if((old_flags & 0x2201) == 0x201)
+        {
+            backend.media_flags = old_flags & 0xfffdfffeu;
+        }
+    }
+    if((backend.media_flags & 1) != 0 || (runtime_animation_control_flags & 0x1000000) != 0)
+    {
+        if((backend.media_flags & 0x2000) == 0)
+        {
+            if(backend.sound_handle != 0)
+            {
+                runtime_animation_control_api.start_sound(backend.sound_handle, 0);
+            }
+            backend.media_flags |= 0x2000;
+            backend.animation_callback(&backend);
+            runtime_animation_control_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x2000);
+        }
+        return RuntimeAnimationControlResult::Wait;
+    }
+    if((backend.media_flags & 0x2000) != 0)
+    {
+        if(backend.sound_handle != 0)
+        {
+            runtime_animation_control_api.stop_sound(backend.sound_handle, 0);
+        }
+        backend.next_frame_time = 0;
+        backend.previous_frame_time = current_time - backend.frame_duration;
+        backend.media_flags &= ~0x2000u;
+    }
+    if(static_cast<std::int32_t>(current_time) < static_cast<std::int32_t>(backend.next_frame_time))
+    {
+        *wait_milliseconds = backend.next_frame_time - current_time;
+        return RuntimeAnimationControlResult::Wait;
+    }
+    return RuntimeAnimationControlResult::DecodeFrame;
+}
+
+// Non-original helper: exact frame scheduling phase of RunRuntimeAnimationThread.
+void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, std::uint32_t current_time)
+{
+    if(backend->frame_number > 1)
+    {
+        backend->timing_correction += (current_time - backend->previous_frame_time) - backend->frame_duration;
+    }
+    backend->previous_frame_time = current_time;
+    std::uint32_t next_frame_time = current_time;
+    if(backend->timing_correction < static_cast<std::int32_t>(backend->frame_duration))
+    {
+        std::uint32_t duration = backend->frame_duration;
+        if(backend->timing_correction < 0)
+        {
+            duration = static_cast<std::uint32_t>(static_cast<std::int32_t>(duration << 2) / 3);
+        }
+        else
+        {
+            next_frame_time -= backend->timing_correction;
+        }
+        next_frame_time += duration;
+    }
+    backend->next_frame_time = next_frame_time;
+    if((backend->media_flags & 0x100000) != 0)
+    {
+        backend->next_frame_time = current_time + backend->frame_duration;
+    }
+    backend->previous_frame_time += backend->timing_adjustment;
+    backend->next_frame_time += backend->timing_adjustment;
+}
+
+// Non-original helper: exact frame acquisition phase of RunRuntimeAnimationThread.
+bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
+{
+    RuntimeMediaBackend &backend = animation->base;
+    const std::uint32_t storage = backend.media_flags & 0x3000000;
+    if(storage == 0x1000000)
+    {
+        backend.frame_header = animation->source_cursor;
+        backend.frame_buffer = static_cast<std::uint8_t *>(animation->source_cursor) + 0x10;
+    }
+    else if(storage == 0x2000000)
+    {
+        std::uint32_t bytes_read = 0;
+        runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
+        if(bytes_read != 0x10)
+        {
+            runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
+            return false;
+        }
+    }
+    ++backend.frame_number;
+    std::uint16_t frame_magic = 0;
+    std::memcpy(&frame_magic, static_cast<const std::uint8_t *>(backend.frame_header) + 4, sizeof(frame_magic));
+    if(frame_magic != 0xf1fa)
+    {
+        runtime_animation_frame_acquire_api.fail_animation(&backend, 1);
+        return false;
+    }
+    if((backend.media_flags & 0x2000000) != 0)
+    {
+        std::uint32_t frame_size = 0;
+        std::memcpy(&frame_size, backend.frame_header, sizeof(frame_size));
+        std::uint32_t payload_size = frame_size - 0x10;
+        if(payload_size > 899999)
+        {
+            payload_size = 0;
+        }
+        if(payload_size != 0)
+        {
+            if(backend.allocation_2_active < payload_size)
+            {
+                void *buffer = nullptr;
+                if(backend.allocation_2_active == 0)
+                {
+                    buffer = runtime_animation_frame_acquire_api.heap_alloc(runtime_media_backend_heap, 0, payload_size);
+                }
+                else
+                {
+                    buffer = runtime_animation_frame_acquire_api.heap_realloc(runtime_media_backend_heap, 0, backend.frame_buffer, payload_size);
+                }
+                if(buffer == nullptr)
+                {
+                    runtime_animation_frame_acquire_api.fail_animation(&backend, 2);
+                    return false;
+                }
+                backend.allocation_2_active = payload_size;
+                backend.frame_buffer = buffer;
+            }
+            std::uint32_t bytes_read = 0;
+            runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_buffer, payload_size, &bytes_read, 1);
+            if(bytes_read != payload_size)
+            {
+                runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
+                return false;
+            }
+        }
+    }
+    animation->source_cursor = backend.frame_buffer;
+    return true;
+}
+
+// Non-original helper: exact visual chunk dispatch phase of RunRuntimeAnimationThread.
+void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
+{
+    RuntimeMediaBackend &backend = animation->base;
+    animation->source_cursor = backend.frame_buffer;
+    backend.media_flags |= 0x10000000;
+    backend.animation_callback(&backend);
+    std::uint16_t chunk_count = 0;
+    std::memcpy(&chunk_count, static_cast<const std::uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
+    for(std::uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
+    {
+        backend.chunk_header = animation->source_cursor;
+        const auto *chunk = static_cast<const std::uint8_t *>(backend.chunk_header);
+        std::uint16_t chunk_type = 0;
+        std::memcpy(&chunk_type, chunk + 4, sizeof(chunk_type));
+        std::uint32_t payload_size = 0;
+        if(chunk_type == 0x10)
+        {
+            const auto *format = static_cast<const std::uint8_t *>(backend.format_data);
+            std::uint16_t width = 0;
+            std::uint16_t height = 0;
+            std::memcpy(&width, format + 8, sizeof(width));
+            std::memcpy(&height, format + 10, sizeof(height));
+            payload_size = static_cast<std::uint32_t>(width) * height;
+        }
+        else
+        {
+            std::uint32_t chunk_size = 0;
+            std::memcpy(&chunk_size, chunk, sizeof(chunk_size));
+            payload_size = chunk_size - 6;
+        }
+        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + 6;
+        bool marks_pixels = true;
+        switch(chunk_type)
+        {
+        case 4:
+            runtime_animation_decode_api.decode_palette(&backend);
+            backend.media_flags |= 0x4000;
+            marks_pixels = false;
+            break;
+        case 5:
+            runtime_animation_decode_api.decode_mvz5(&backend);
+            break;
+        case 7:
+            runtime_animation_decode_api.decode_delta_flc(&backend);
+            break;
+        case 8:
+            runtime_animation_decode_api.decode_mvz8(&backend);
+            break;
+        case 0xb:
+            runtime_animation_decode_api.ignore_chunk_11();
+            backend.media_flags |= 0x4000;
+            marks_pixels = false;
+            break;
+        case 0xc:
+            runtime_animation_decode_api.ignore_chunk_12();
+            break;
+        case 0xd:
+            runtime_animation_decode_api.ignore_chunk_13();
+            break;
+        case 0xf:
+            runtime_animation_decode_api.decode_byte_run(&backend);
+            break;
+        case 0x10:
+            runtime_animation_decode_api.decode_literal(&backend);
+            break;
+        default:
+            marks_pixels = false;
+            break;
+        }
+        if(marks_pixels)
+        {
+            backend.media_flags |= 0x8000;
+        }
+        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + payload_size;
+    }
+    backend.media_flags |= 0x20000000;
+    backend.animation_callback(&backend);
+}
+
+// Non-original helper: exact presentation/completion phase of RunRuntimeAnimationThread.
+void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
+{
+    RuntimeMediaBackend &backend = animation->base;
+    const std::int32_t presentation_threshold = static_cast<std::int32_t>(backend.frame_duration * 4u);
+    if((backend.media_flags & 0x100) == 0 && (backend.timing_correction <= presentation_threshold || (backend.media_flags & 0x100000) != 0))
+    {
+        if(backend.animation_callback(&backend) != 0)
+        {
+            backend.dirty_left = 32000;
+            backend.dirty_top = 32000;
+            backend.dirty_right = 0;
+            backend.dirty_bottom = 0;
+        }
+        runtime_animation_completion_api.sleep(0);
+    }
+    if((backend.media_flags & 0x200) != 0)
+    {
+        backend.media_flags |= 1;
+    }
+    std::uint16_t total_frames = 0;
+    std::memcpy(&total_frames, static_cast<const std::uint8_t *>(backend.format_data) + 6, sizeof(total_frames));
+    if((backend.media_flags & 0x400) == 0 && total_frames == backend.frame_number)
+    {
+        backend.media_flags |= 1;
+        backend.timing_correction = 0;
+        if((backend.media_flags & 0x800) != 0)
+        {
+            backend.media_flags |= 0x10000;
+        }
+    }
+    if(total_frames < backend.frame_number)
+    {
+        backend.frame_number = 1;
+        backend.timing_correction = 0;
+        backend.timing_adjustment = 0;
+        backend.media_flags |= 0x40000000;
+        backend.animation_callback(&backend);
+        runtime_animation_completion_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x40000000);
+        const std::uint32_t storage = backend.media_flags & 0x3000000;
+        if(storage == 0x1000000)
+        {
+            animation->source_cursor = animation->data_end;
+        }
+        else if(storage == 0x2000000)
+        {
+            runtime_animation_completion_api.set_stream_position(backend.stream_record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(animation->data_end)));
+        }
+    }
+}
+
+// Non-original helper: exact audio chunk prepass of RunRuntimeAnimationThread.
+void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
+{
+    RuntimeMediaBackend &backend = animation->base;
+    animation->source_cursor = backend.frame_buffer;
+    std::uint16_t chunk_count = 0;
+    std::memcpy(&chunk_count, static_cast<const std::uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
+    for(std::uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
+    {
+        backend.chunk_header = animation->source_cursor;
+        auto *chunk = static_cast<std::uint8_t *>(backend.chunk_header);
+        std::uint16_t chunk_type = 0;
+        std::memcpy(&chunk_type, chunk + 4, sizeof(chunk_type));
+        std::uint32_t payload_size = 0;
+        if(chunk_type == 0x10)
+        {
+            const auto *format = static_cast<const std::uint8_t *>(backend.format_data);
+            std::uint16_t width = 0;
+            std::uint16_t height = 0;
+            std::memcpy(&width, format + 8, sizeof(width));
+            std::memcpy(&height, format + 10, sizeof(height));
+            payload_size = static_cast<std::uint32_t>(width) * height;
+        }
+        else
+        {
+            std::uint32_t chunk_size = 0;
+            std::memcpy(&chunk_size, chunk, sizeof(chunk_size));
+            payload_size = chunk_size - 6;
+        }
+        animation->source_cursor = chunk + 6;
+        if(chunk_type == 0x300)
+        {
+            if(backend.sound_slot != nullptr && (backend.media_flags & 0x800000) == 0)
+            {
+                const std::uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                while(backend.sound_slot->playback_state == 0 && (backend.media_flags & 0x10000) == 0)
+                {
+                    runtime_animation_audio_api.sleep(0);
+                }
+                backend.timing_adjustment = ((wait_start - backend.frame_duration * 5u) - backend.sound_slot->playback_state) / (backend.synchronized_sound_frame - backend.frame_number);
+                const std::uint32_t wait_end = runtime_animation_audio_api.time_get_time();
+                backend.previous_frame_time += wait_end - wait_start;
+                backend.next_frame_time += wait_end - wait_start;
+                const std::uint32_t storage = backend.media_flags & 0x3000000;
+                if(storage == 0x1000000)
+                {
+                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, animation->source_cursor, payload_size, 0);
+                }
+                else if(storage == 0x2000000)
+                {
+                    std::uint8_t *destination = static_cast<std::uint8_t *>(backend.audio_buffer);
+                    if((backend.media_flags & 0x400000) == 0)
+                    {
+                        backend.media_flags |= 0x400000;
+                        destination += payload_size;
+                    }
+                    else
+                    {
+                        backend.media_flags &= ~0x400000u;
+                    }
+                    std::memcpy(destination, animation->source_cursor, payload_size);
+                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, destination, payload_size, 0);
+                }
+                backend.sound_slot->playback_state = 0;
+                backend.synchronized_sound_frame = backend.frame_number;
+            }
+        }
+        else if(chunk_type == 0x200)
+        {
+            if(backend.sound_slot != nullptr && (backend.media_flags & 0x800000) == 0)
+            {
+                backend.sound_slot->schedule_state = 0;
+                backend.sound_slot->playback_state = 0;
+                backend.media_flags |= 0x400000;
+                const std::uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                bool available = true;
+                const std::uint32_t storage = backend.media_flags & 0x3000000;
+                if(storage == 0x1000000)
+                {
+                    backend.audio_buffer = animation->source_cursor;
+                }
+                else if(storage == 0x2000000)
+                {
+                    if(backend.allocation_1_active < payload_size)
+                    {
+                        void *buffer = backend.allocation_1_active == 0 ? runtime_animation_audio_api.heap_alloc(runtime_media_backend_heap, 0, payload_size)
+                                                                        : runtime_animation_audio_api.heap_realloc(runtime_media_backend_heap, 0, backend.audio_buffer, payload_size);
+                        if(buffer == nullptr)
+                        {
+                            available = false;
+                            runtime_animation_audio_api.destroy_sound(backend.sound_handle);
+                            backend.sound_slot = nullptr;
+                        }
+                        else
+                        {
+                            backend.audio_buffer = buffer;
+                            backend.allocation_1_active = payload_size;
+                        }
+                    }
+                    if(available)
+                    {
+                        std::memcpy(backend.audio_buffer, animation->source_cursor, payload_size);
+                    }
+                }
+                if(available)
+                {
+                    const std::uint32_t half_size = payload_size >> 1;
+                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, backend.audio_buffer, half_size, 1);
+                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, static_cast<std::uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
+                    runtime_animation_audio_api.stop_sound(backend.sound_handle, 0);
+                    while(backend.sound_slot->schedule_state == 0 && (backend.media_flags & 0x10000) == 0)
+                    {
+                        runtime_animation_audio_api.sleep(0);
+                    }
+                    const std::uint32_t elapsed = backend.sound_slot->schedule_state - wait_start;
+                    backend.previous_frame_time += elapsed;
+                    backend.next_frame_time += elapsed;
+                }
+                backend.synchronized_sound_frame = backend.frame_number;
+            }
+        }
+        else if(chunk_type == 0x400)
+        {
+            backend.timing_adjustment = 0;
+            runtime_animation_audio_api.start_sound(backend.sound_handle, 0);
+        }
+        else if(chunk_type == 0x600 && (backend.media_flags & 0x800000) == 0)
+        {
+            backend.sound_handle = runtime_animation_audio_api.create_sound(reinterpret_cast<WAVEFORMATEX *>(chunk + 0x12));
+            backend.sound_slot = runtime_animation_audio_api.get_sound_slot(backend.sound_handle);
+        }
+        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + payload_size;
+    }
+}
+
+// GAG.EXE: 0x0042A520
+DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
+{
+    auto *animation = static_cast<RuntimeAnimationBackend *>(backend_pointer);
+    runtime_animation_worker_api.gdi_set_batch_limit(1);
+    std::uint32_t wait_milliseconds = 0;
+    for(;;)
+    {
+        runtime_animation_worker_api.sleep(wait_milliseconds);
+        for(;;)
+        {
+            const std::uint32_t current_time = runtime_animation_worker_api.time_get_time();
+            const RuntimeAnimationControlResult control = process_runtime_animation_control(animation, current_time, &wait_milliseconds);
+            if(control == RuntimeAnimationControlResult::Exit)
+            {
+                runtime_animation_worker_api.exit_thread(0);
+                return 0;
+            }
+            if(control == RuntimeAnimationControlResult::Wait)
+            {
+                break;
+            }
+            schedule_runtime_animation_frame(&animation->base, current_time);
+            if(!acquire_runtime_animation_frame(animation))
+            {
+                wait_milliseconds = 0;
+                break;
+            }
+            process_runtime_animation_audio_chunks(animation);
+            decode_runtime_animation_frame_chunks(animation);
+            complete_runtime_animation_frame(animation);
+        }
+    }
+}
+
+// GAG.EXE: 0x0042B850
+std::int32_t __fastcall present_runtime_animation_frame(RuntimeMediaBackend *backend)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    std::uint32_t flags = backend->media_flags;
+    if((flags & 0x10000000) != 0)
+    {
+        backend->media_flags = flags & ~0x10000000u;
+        return 1;
+    }
+    if((flags & 0x20000000) != 0)
+    {
+        backend->media_flags = flags & ~0x20000000u;
+        return 1;
+    }
+    std::int32_t bits_per_pixel = 0;
+    HDC destination = nullptr;
+    HPALETTE palette = nullptr;
+    HDC source = nullptr;
+    std::memcpy(&bits_per_pixel, bytes + 0x93c, sizeof(bits_per_pixel));
+    std::memcpy(&destination, bytes + 0x938, sizeof(destination));
+    std::memcpy(&palette, bytes + 0x940, sizeof(palette));
+    std::memcpy(&source, bytes + 0x948, sizeof(source));
+    if((flags & 0x4000) != 0)
+    {
+        if(bits_per_pixel == 8)
+        {
+            if((flags & 0x10) == 0)
+            {
+                if((flags & 0x20) == 0)
+                {
+                    runtime_animation_present_api.animate_palette(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(bytes + 0x20));
+                }
+                else
+                {
+                    runtime_animation_present_api.set_palette_entries(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(bytes + 0x20));
+                    runtime_animation_present_api.realize_palette(destination);
+                    backend->media_flags &= ~0x20u;
+                }
+                runtime_animation_present_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(bytes + 0x420));
+            }
+        }
+        else if((flags & 0x10) == 0)
+        {
+            runtime_animation_present_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(bytes + 0x420));
+        }
+    }
+    if((backend->media_flags & 0x8000) != 0)
+    {
+        std::uint16_t origin_x = 0;
+        std::uint16_t origin_y = 0;
+        std::int32_t left = 0;
+        std::int32_t top = 0;
+        std::int32_t right = 0;
+        std::int32_t bottom = 0;
+        std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
+        std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
+        std::memcpy(&left, bytes + 0x98c, sizeof(left));
+        std::memcpy(&top, bytes + 0x990, sizeof(top));
+        std::memcpy(&right, bytes + 0x994, sizeof(right));
+        std::memcpy(&bottom, bytes + 0x998, sizeof(bottom));
+        const int x = origin_x + left;
+        const int y = origin_y + top;
+        const int width = right - left;
+        const int height = bottom - top;
+        if((backend->media_flags & 0x200000) == 0)
+        {
+            runtime_animation_present_api.bit_blt(destination, x, y, width, height, source, x, y, SRCCOPY);
+        }
+        else if((backend->media_flags & 0x200000) == 0x200000)
+        {
+            runtime_animation_present_api.stretch_blt(destination, origin_x + left * 2, origin_y + top * 2, width * 2, height * 2, source, x, y, width, height, SRCCOPY);
+        }
+    }
+    backend->media_flags &= 0xffff3fffu;
+    return 1;
+}
+
+// GAG.EXE: 0x00415E60
+void __fastcall decode_runtime_animation_palette(RuntimeMediaBackend *backend)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    std::uint16_t packet_count = 0;
+    std::memcpy(&packet_count, source, sizeof(packet_count));
+    source += 2;
+    std::uint8_t *palette_entries = bytes + 0x20;
+    std::uint8_t *dib_colors = bytes + 0x420;
+    do
+    {
+        const std::uint8_t skip = *source++;
+        std::uint16_t color_count = *source++;
+        if(color_count == 0)
+        {
+            color_count = 0x100;
+        }
+        else
+        {
+            palette_entries += skip * 4;
+            dib_colors += skip * 4;
+        }
+        do
+        {
+            const std::uint8_t red = *source++;
+            const std::uint8_t green = *source++;
+            const std::uint8_t blue = *source++;
+            palette_entries[0] = red;
+            palette_entries[1] = green;
+            palette_entries[2] = blue;
+            palette_entries[3] = 1;
+            dib_colors[0] = blue;
+            dib_colors[1] = green;
+            dib_colors[2] = red;
+            dib_colors[3] = 0;
+            palette_entries += 4;
+            dib_colors += 4;
+            --color_count;
+        } while(color_count != 0);
+        --packet_count;
+    } while(packet_count != 0);
+    build_runtime_palette_index_remap(backend);
+}
+
+// Non-original shared implementation for the two mapped GAG MVZ chunk decoders.
+void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_counted)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    const auto read_word = [](const std::uint8_t *value)
+    {
+        std::uint16_t result = 0;
+        std::memcpy(&result, value, sizeof(result));
+        return result;
+    };
+    const std::uint16_t area_width = read_word(source);
+    const std::uint16_t area_height = read_word(source + 2);
+    const std::uint16_t area_x = read_word(source + 4);
+    const std::uint16_t area_y = read_word(source + 6);
+    source += 0x10;
+    std::uint16_t origin_x = 0;
+    std::uint16_t origin_y = 0;
+    std::uint16_t destination_stride = 0;
+    std::uint8_t *destination_base = nullptr;
+    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
+    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
+    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
+    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
+    const std::uint32_t scale_x = backend->scale_x;
+    const std::uint32_t scale_y = backend->scale_y;
+    const std::uint32_t left = area_x * scale_x;
+    const std::uint32_t top = area_y * scale_y;
+    const std::uint32_t output_width = area_width * scale_x;
+    const std::uint32_t output_height = area_height * scale_y;
+    std::memcpy(bytes + 0x98c, &left, sizeof(left));
+    std::memcpy(bytes + 0x990, &top, sizeof(top));
+    const std::uint32_t right = left + output_width;
+    const std::uint32_t bottom = top + output_height;
+    std::memcpy(bytes + 0x994, &right, sizeof(right));
+    std::memcpy(bytes + 0x998, &bottom, sizeof(bottom));
+    const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
+    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
+    const std::uint32_t destination_x = origin_x + left;
+    const std::uint32_t destination_y = origin_y + top;
+    for(std::uint32_t y = 0; y < area_height; ++y)
+    {
+        std::uint32_t packet_count = 0;
+        if(packet_counted)
+        {
+            packet_count = read_word(source);
+            source += 2;
+        }
+        std::uint32_t x = 0;
+        do
+        {
+            if(packet_counted)
+            {
+                x += *source++;
+                --packet_count;
+            }
+            const std::uint8_t control_byte = *source++;
+            const std::uint8_t type = control_byte >> 6;
+            const std::uint8_t control = control_byte & 0x3f;
+            std::uint32_t count = 0;
+            if(type == 0)
+            {
+                count = control;
+                const std::uint8_t value = map_value(*source++);
+                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                {
+                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    std::memset(destination, value, count * scale_x);
+                }
+            }
+            else if(type == 1)
+            {
+                count = control;
+                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                {
+                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    for(std::uint32_t index = 0; index < count; ++index)
+                    {
+                        const std::uint8_t value = map_value(source[index]);
+                        std::memset(destination, value, scale_x);
+                        destination += scale_x;
+                    }
+                }
+                source += count;
+            }
+            else
+            {
+                std::uint32_t source_x = 0;
+                std::uint32_t source_y = 0;
+                if(type == 2)
+                {
+                    const std::uint32_t value = static_cast<std::uint32_t>(control) << 8 | *source++;
+                    count = 3;
+                    source_x = value & 0x1ff;
+                    source_y = y - ((value >> 9) & 0x1f);
+                }
+                else
+                {
+                    const std::uint32_t value = static_cast<std::uint32_t>(control) << 16 | static_cast<std::uint32_t>(source[0]) << 8 | source[1];
+                    source += 2;
+                    count = value & 0x1f;
+                    source_x = (value >> 5) & 0x3ff;
+                    source_y = y - ((value >> 15) & 0x7f);
+                }
+                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                {
+                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    const std::uint8_t *copy_source = destination_base + (destination_y + source_y * scale_y + repeat_y) * destination_stride + destination_x + source_x * scale_x;
+                    for(std::uint32_t index = 0; index < count * scale_x; ++index)
+                    {
+                        *destination++ = *copy_source++;
+                    }
+                }
+            }
+            x += count;
+        } while(packet_counted ? packet_count != 0 : x < area_width);
+    }
+}
+
+// GAG.EXE: 0x00415EE0
+void __fastcall decode_runtime_animation_mvz8(RuntimeMediaBackend *backend)
+{
+    decode_runtime_animation_mvz(backend, true);
+}
+
+// GAG.EXE: 0x00416420
+void __fastcall decode_runtime_animation_mvz5(RuntimeMediaBackend *backend)
+{
+    decode_runtime_animation_mvz(backend, false);
+}
+
+// GAG.EXE: 0x00416900
+void __fastcall decode_runtime_animation_literal(RuntimeMediaBackend *backend)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
+    std::uint16_t source_width = 0;
+    std::uint16_t source_height = 0;
+    std::uint16_t origin_x = 0;
+    std::uint16_t origin_y = 0;
+    std::uint16_t destination_stride = 0;
+    std::uint8_t *destination_base = nullptr;
+    std::memcpy(&source_width, header + 8, sizeof(source_width));
+    std::memcpy(&source_height, header + 10, sizeof(source_height));
+    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
+    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
+    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
+    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
+    const std::uint32_t horizontal_scale = backend->scale_x;
+    const std::uint32_t effective_horizontal_scale = horizontal_scale < 2 ? 1 : horizontal_scale;
+    const std::uint32_t output_width = source_width * effective_horizontal_scale;
+    const std::uint32_t output_height = source_height * backend->scale_y;
+    const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
+    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    std::uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
+    const std::uint32_t destination_row_adjustment = destination_stride - output_width;
+    std::int32_t zero = 0;
+    std::memcpy(bytes + 0x98c, &zero, sizeof(zero));
+    std::memcpy(bytes + 0x990, &zero, sizeof(zero));
+    std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
+    std::memcpy(bytes + 0x998, &output_height, sizeof(output_height));
+    for(std::uint16_t row = 0; row < source_height; ++row)
+    {
+        const std::uint8_t *source_row = source;
+        for(std::uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
+        {
+            source = source_row;
+            for(std::uint16_t column = 0; column < source_width; ++column)
+            {
+                const std::uint8_t value = copy_indices ? *source++ : bytes[0x824 + *source++];
+                for(std::uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
+                {
+                    *destination++ = value;
+                }
+            }
+            destination += destination_row_adjustment;
+        }
+    }
+}
+
+// GAG.EXE: 0x00416AD0
+void __fastcall decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
+    std::uint16_t source_width = 0;
+    std::uint16_t source_height = 0;
+    std::uint16_t origin_x = 0;
+    std::uint16_t origin_y = 0;
+    std::uint16_t destination_stride = 0;
+    std::uint8_t *destination_base = nullptr;
+    std::memcpy(&source_width, header + 8, sizeof(source_width));
+    std::memcpy(&source_height, header + 10, sizeof(source_height));
+    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
+    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
+    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
+    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
+    const std::uint32_t effective_horizontal_scale = backend->scale_x < 2 ? 1 : backend->scale_x;
+    const std::uint32_t output_width = source_width * effective_horizontal_scale;
+    const std::uint32_t output_height = source_height * backend->scale_y;
+    const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
+    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
+    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    std::uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
+    const std::uint32_t destination_row_adjustment = destination_stride - output_width;
+    const std::int32_t zero = 0;
+    std::memcpy(bytes + 0x98c, &zero, sizeof(zero));
+    std::memcpy(bytes + 0x990, &zero, sizeof(zero));
+    std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
+    std::memcpy(bytes + 0x998, &output_height, sizeof(output_height));
+    for(std::uint16_t row = 0; row < source_height; ++row)
+    {
+        const std::uint8_t *source_row = source;
+        for(std::uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
+        {
+            source = source_row + 1;
+            std::uint32_t produced = 0;
+            do
+            {
+                const std::int8_t encoded_count = static_cast<std::int8_t>(*source++);
+                const std::uint32_t count = encoded_count < 0 ? static_cast<std::uint32_t>(-encoded_count) : static_cast<std::uint32_t>(encoded_count);
+                if(encoded_count < 0)
+                {
+                    for(std::uint32_t index = 0; index < count; ++index)
+                    {
+                        const std::uint8_t value = map_value(*source++);
+                        for(std::uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
+                        {
+                            *destination++ = value;
+                        }
+                    }
+                }
+                else
+                {
+                    const std::uint8_t value = map_value(*source++);
+                    for(std::uint32_t index = 0; index < count * effective_horizontal_scale; ++index)
+                    {
+                        *destination++ = value;
+                    }
+                }
+                produced += count;
+            } while(produced < source_width);
+            destination += destination_row_adjustment;
+        }
+    }
+}
+
+// GAG.EXE: 0x00416DA0
+void __fastcall decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
+{
+    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
+    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
+    std::uint16_t source_width = 0;
+    std::uint16_t origin_x = 0;
+    std::uint16_t origin_y = 0;
+    std::uint16_t destination_stride = 0;
+    std::uint8_t *destination_base = nullptr;
+    std::memcpy(&source_width, header + 8, sizeof(source_width));
+    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
+    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
+    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
+    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
+    const std::uint32_t scale_x = backend->scale_x < 2 ? 1 : backend->scale_x;
+    const std::uint32_t scale_y = backend->scale_y;
+    const std::uint32_t output_width = source_width * scale_x;
+    const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
+    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
+    const auto read_signed_word = [](const std::uint8_t *value)
+    {
+        std::int16_t result = 0;
+        std::memcpy(&result, value, sizeof(result));
+        return result;
+    };
+    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    std::uint16_t remaining_lines = 0;
+    std::memcpy(&remaining_lines, source, sizeof(remaining_lines));
+    source += 2;
+    std::int32_t current_y = 0;
+    do
+    {
+        for(;;)
+        {
+            const std::int16_t control = read_signed_word(source);
+            if(control >= 0 || (static_cast<std::uint16_t>(control) & 0x4000) == 0)
+            {
+                break;
+            }
+            source += 2;
+            current_y += -static_cast<std::int32_t>(control) * static_cast<std::int32_t>(scale_y);
+        }
+        const std::uint8_t *line_source = source;
+        const std::uint8_t *line_end = source;
+        for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+        {
+            source = line_source;
+            std::int16_t packet_count = read_signed_word(source);
+            source += 2;
+            std::uint8_t *destination_row = destination_base + (origin_y + current_y) * destination_stride + origin_x;
+            if(packet_count < 0)
+            {
+                const std::uint8_t value = map_value(static_cast<std::uint8_t>(packet_count));
+                std::memset(destination_row + output_width - scale_x, value, scale_x);
+                std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
+                packet_count = read_signed_word(source);
+                source += 2;
+            }
+            if(current_y < *reinterpret_cast<std::int32_t *>(bytes + 0x990))
+            {
+                std::memcpy(bytes + 0x990, &current_y, sizeof(current_y));
+            }
+            std::int32_t current_x = 0;
+            for(std::int16_t packet = 0; packet < packet_count; ++packet)
+            {
+                current_x += static_cast<std::uint32_t>(*source++) * scale_x;
+                if(current_x < *reinterpret_cast<std::int32_t *>(bytes + 0x98c))
+                {
+                    std::memcpy(bytes + 0x98c, &current_x, sizeof(current_x));
+                }
+                const std::int8_t encoded_count = static_cast<std::int8_t>(*source++);
+                if(encoded_count >= 0)
+                {
+                    const std::uint32_t count = static_cast<std::uint32_t>(encoded_count) * 2;
+                    for(std::uint32_t index = 0; index < count; ++index)
+                    {
+                        const std::uint8_t value = map_value(*source++);
+                        std::memset(destination_row + current_x, value, scale_x);
+                        current_x += scale_x;
+                    }
+                }
+                else
+                {
+                    const std::uint32_t count = static_cast<std::uint32_t>(-encoded_count);
+                    const std::uint8_t first = map_value(*source++);
+                    const std::uint8_t second = map_value(*source++);
+                    for(std::uint32_t index = 0; index < count; ++index)
+                    {
+                        std::memset(destination_row + current_x, first, scale_x);
+                        current_x += scale_x;
+                        std::memset(destination_row + current_x, second, scale_x);
+                        current_x += scale_x;
+                    }
+                }
+            }
+            if(*reinterpret_cast<std::int32_t *>(bytes + 0x994) < current_x)
+            {
+                std::memcpy(bytes + 0x994, &current_x, sizeof(current_x));
+            }
+            ++current_y;
+            line_end = source;
+        }
+        source = line_end;
+        --remaining_lines;
+    } while(remaining_lines != 0);
+    if(*reinterpret_cast<std::int32_t *>(bytes + 0x998) < current_y)
+    {
+        std::memcpy(bytes + 0x998, &current_y, sizeof(current_y));
+    }
+}
+
+// GAG.EXE: 0x0042B820
+void ignore_runtime_animation_chunk_11() {}
+
+// GAG.EXE: 0x0042B830
+void ignore_runtime_animation_chunk_12() {}
+
+// GAG.EXE: 0x0042B840
+void ignore_runtime_animation_chunk_13() {}
+
+// GAG.EXE: 0x0042B4E0
+std::uint32_t __fastcall destroy_runtime_media_backend(void *identity)
+{
+    RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
+    std::uint32_t result = 0;
+    if(backend != nullptr)
+    {
+        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+        if(backend->previous == nullptr)
+        {
+            runtime_media_backend_head = backend->next;
+        }
+        else
+        {
+            backend->previous->next = backend->next;
+        }
+        if(backend->next == nullptr)
+        {
+            runtime_media_backend_tail = backend->previous;
+        }
+        else
+        {
+            backend->next->previous = backend->previous;
+        }
+        result = 1;
+        runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+        if(backend->type == 0xaa)
+        {
+            if(backend->allocation_1_active != 0)
+            {
+                result = runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->audio_buffer) & 1;
+            }
+            if(backend->allocation_2_active != 0)
+            {
+                result &= runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->frame_buffer);
+            }
+        }
+        result &= runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00410CC0
+RuntimeGenericBackend *__fastcall acquire_runtime_generic_backend(void *identity)
+{
+    for(;;)
+    {
+        RuntimeGenericBackend *result = nullptr;
+        std::uint32_t contended = 0;
+        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
+        {
+            if(backend->identity == identity)
+            {
+                contended = (backend->flags & 0x10000) >> 16;
+                if(contended == 0)
+                {
+                    backend->flags |= 0x10000;
+                    result = backend;
+                }
+                break;
+            }
+        }
+        runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+        if(contended == 0)
+        {
+            return result;
+        }
+        runtime_generic_backend_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x00410C40
+RuntimeGenericBackend *__fastcall create_runtime_generic_backend(std::uint32_t value_0010, std::uint32_t value_000c)
+{
+    auto *backend =
+        static_cast<RuntimeGenericBackend *>(runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackend)));
+    RuntimeGenericBackend *result = backend;
+    if(backend != nullptr)
+    {
+        backend->identity = backend;
+        backend->text_size = value_000c;
+        backend->text = reinterpret_cast<const char *>(static_cast<std::uintptr_t>(value_0010));
+        runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        if(runtime_generic_backend_enabled == 0)
+        {
+            result = nullptr;
+            runtime_generic_backend_create_api.heap_free(runtime_generic_backend_create_api.get_process_heap(), 0, backend);
+        }
+        else
+        {
+            backend->next = runtime_generic_backend_head;
+            runtime_generic_backend_head = backend;
+        }
+        runtime_generic_backend_create_api.release_mutex(runtime_generic_backend_mutex);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00410D40
+void __fastcall clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
+{
+    backend->flags &= 0xfffeffff;
+}
+
+// GAG.EXE: 0x00410DE0
+void *__fastcall find_available_runtime_generic_child(std::uint32_t maximum_end_position)
+{
+    void *result = nullptr;
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
+    {
+        for(RuntimeGenericBackendChild *child = backend->children; child != nullptr; child = child->next)
+        {
+            if((child->flags & 0x300) == 0 && child->state_end_position <= maximum_end_position)
+            {
+                result = child->identity;
+                runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+                return result;
+            }
+        }
+    }
+    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+    return result;
+}
+
+// GAG.EXE: 0x00410E50
+std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *backend, std::int32_t category, const char *name)
+{
+    std::uint32_t position = 0;
+    std::int32_t found_category;
+    char token[32];
+    do
+    {
+        do
+        {
+            found_category = 0;
+            token[0] = '\0';
+            while(position < backend->text_size && backend->text[position] != '=')
+            {
+                ++position;
+            }
+            if(backend->text[position] == '=')
+            {
+                while(backend->text[position] != '\t' && backend->text[position] != '\n' && backend->text[position] != '\r')
+                {
+                    if(backend->text[position] == ':')
+                    {
+                        break;
+                    }
+                    --position;
+                    if(backend->text[position] == ' ')
+                    {
+                        break;
+                    }
+                }
+                std::uint32_t input = position + 1;
+                std::uint32_t length = 0;
+                while(backend->text[input] != '=' && length < 30)
+                {
+                    token[length++] = backend->text[input++];
+                }
+                token[length] = '\0';
+                if(std::strcmp(token, "section") == 0)
+                {
+                    found_category = 0x10;
+                }
+                if(std::strcmp(token, "entry") == 0)
+                {
+                    found_category = 0x20;
+                }
+                if(std::strcmp(token, "control") == 0)
+                {
+                    found_category = 0x30;
+                }
+                if(std::strcmp(token, "text") == 0)
+                {
+                    found_category = 0x40;
+                }
+                position = input + 1;
+            }
+            else
+            {
+                position = 0xffffffff;
+            }
+        } while(category != found_category && position != 0xffffffff);
+
+        if(position != 0xffffffff)
+        {
+            std::uint32_t length = 0;
+            while(backend->text[position] != ' ' && static_cast<std::uint8_t>(backend->text[position]) != 9 && static_cast<std::uint8_t>(backend->text[position]) != 0x3b && length < 30)
+            {
+                token[length++] = backend->text[position++];
+            }
+            token[length] = '\0';
+        }
+    } while(std::strcmp(token, name) != 0 && position != 0xffffffff);
+
+    std::int32_t result = -1;
+    if(position != 0xffffffff)
+    {
+        result = static_cast<std::int32_t>(position + 1);
+        if(found_category != 0x20)
+        {
+            const std::uint32_t size = backend->text_size;
+            while(true)
+            {
+                if(position < size)
+                {
+                    while(position < size && backend->text[position] != '=' && backend->text[position] != '[')
+                    {
+                        ++position;
+                    }
+                }
+                if(backend->text[position] == '=')
+                {
+                    while(position < size && backend->text[position] != ';' && backend->text[position] != '[')
+                    {
+                        ++position;
+                    }
+                    if(backend->text[position] == ';')
+                    {
+                        result = static_cast<std::int32_t>(position + 1);
+                    }
+                }
+                if(backend->text[position] == '[' || position == size)
+                {
+                    break;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004110B0
+RuntimeGenericBackendChild *__fastcall create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const std::uint32_t *context, std::uintptr_t selection, std::uint32_t flags)
+{
+    RuntimeGenericBackendChild *child = nullptr;
+    RuntimeGenericBackend *backend = runtime_generic_child_create_api.acquire_backend(backend_identity);
+    if(backend != nullptr)
+    {
+        std::uint32_t default_selection;
+        std::uint32_t parser_position;
+        std::uint32_t text_search_position;
+        std::uint32_t additional_flags;
+        if((selection >> 16) == 0)
+        {
+            default_selection = selection & 0xffff;
+            parser_position = 0;
+            text_search_position = 0;
+            additional_flags = 0x1000;
+        }
+        else
+        {
+            const char *name = reinterpret_cast<const char *>(selection);
+            std::int32_t entry_position = runtime_generic_child_create_api.find_text_entry(backend, 0x20, name);
+            if(entry_position != -1)
+            {
+                std::uint32_t position = static_cast<std::uint32_t>(entry_position);
+                default_selection = runtime_generic_child_create_api.parse_integer(backend->text, &position, backend->text_size, 0);
+            }
+            parser_position = runtime_generic_child_create_api.find_text_entry(backend, 0x30, name);
+            additional_flags = 0;
+            text_search_position = runtime_generic_child_create_api.find_text_entry(backend, 0x40, name);
+        }
+        if(default_selection != 0x7fffffff && parser_position != 0xffffffff && text_search_position != 0xffffffff)
+        {
+            child = static_cast<RuntimeGenericBackendChild *>(
+                runtime_generic_child_create_api.heap_alloc(runtime_generic_child_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackendChild)));
+            if(child != nullptr)
+            {
+                child->identity = child;
+                child->parent = backend;
+                child->font_identity = font_identity;
+                child->default_selection = default_selection;
+                child->parser_position = parser_position;
+                child->text_search_position = text_search_position;
+                child->flags |= additional_flags | flags;
+                child->context[0] = context[0];
+                child->context[1] = context[1];
+                runtime_generic_child_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+                child->next = backend->children;
+                backend->children = child;
+                ++backend->child_count;
+                runtime_generic_child_create_api.release_mutex(runtime_generic_backend_mutex);
+                runtime_generic_child_create_api.build_child_state(child->identity, 0, nullptr, nullptr, nullptr);
+            }
+        }
+        runtime_generic_child_create_api.clear_backend_ready(backend);
+    }
+    return child;
+}
+
+void set_runtime_generic_child_create_api_for_testing(const RuntimeGenericChildCreateApi &api)
+{
+    runtime_generic_child_create_api = api;
+}
+
+// GAG.EXE: 0x004212E0
+void __fastcall process_available_runtime_generic_children(std::uint32_t maximum_end_position)
+{
+    for(void *identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position); identity != nullptr;
+        identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position))
+    {
+        std::uint32_t context[2];
+        DisplaySceneDescriptor descriptor;
+        std::uint32_t state[15];
+        if(runtime_generic_child_scene_api.build_child_state(identity, 0, state, reinterpret_cast<std::uint32_t *>(&descriptor), context) != 0)
+        {
+            auto *rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
+            if(rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+            {
+                rectangle->right = static_cast<std::uint16_t>(descriptor.width);
+                rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+            }
+            if(context[1] == 0)
+            {
+                context[1] = runtime_generic_child_scene_api.find_scene_index(0x80000);
+            }
+            std::int32_t x = static_cast<std::int32_t>(state[2]);
+            std::int32_t y = static_cast<std::int32_t>(state[3]);
+            if((runtime_pointer_event_record[14] & 1) != 0)
+            {
+                x = 10000;
+                y = 10000;
+            }
+            DisplaySceneNode *scene =
+                runtime_generic_child_scene_api.acquire_scene(context[1], x, y, rectangle->right, rectangle->bottom, 0x20000, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
+            const std::int32_t scene_identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene));
+            if(runtime_generic_child_scene_api.begin_scene_update(scene_identifier) == 0)
+            {
+                runtime_generic_child_scene_api.publish_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), static_cast<std::int32_t>(maximum_end_position));
+                runtime_generic_child_scene_api.end_scene_update(scene_identifier, reinterpret_cast<DisplayRectangleTransform *>(&descriptor), rectangle);
+            }
+            runtime_generic_child_scene_api.set_child_context(identity, context);
+        }
+        else if(runtime_generic_child_scene_api.get_child_context(identity, context))
+        {
+            if(context[0] == 0x0047EF60)
+            {
+                runtime_generic_child_scene_api.destroy_child(identity);
+                const std::int32_t scene_identifier = runtime_generic_child_scene_api.query_scene(static_cast<std::int32_t>(context[1]), nullptr, nullptr);
+                if(scene_identifier != 0)
+                {
+                    runtime_generic_child_scene_api.release_scene(scene_identifier, static_cast<std::int32_t>(context[0]));
+                }
+            }
+            else
+            {
+                runtime_generic_child_scene_api.enable_child_mode_200(identity);
+            }
+        }
+    }
+}
+
+void set_runtime_generic_child_scene_api_for_testing(const RuntimeGenericChildSceneApi &api)
+{
+    runtime_generic_child_scene_api = api;
+}
+
+void set_runtime_pointer_event_flags_for_testing(std::uint32_t flags)
+{
+    runtime_pointer_event_record[14] = flags;
+}
+
+// GAG.EXE: 0x00411220
+RuntimeGenericBackendChild *__fastcall acquire_runtime_generic_backend_child(void *identity)
+{
+    for(;;)
+    {
+        RuntimeGenericBackendChild *result = nullptr;
+        std::uint32_t contended = 0;
+        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        bool found = false;
+        for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr && !found; backend = backend->next)
+        {
+            for(RuntimeGenericBackendChild *child = backend->children; child != nullptr; child = child->next)
+            {
+                if(child->identity == identity)
+                {
+                    contended = (child->flags & 0x10000) >> 16;
+                    if(contended == 0)
+                    {
+                        child->flags |= 0x10000;
+                        result = child;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+        }
+        runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+        if(contended == 0)
+        {
+            return result;
+        }
+        runtime_generic_backend_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x004118F0
+std::int32_t __fastcall parse_runtime_generic_integer(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+{
+    std::uint32_t cursor = *position;
+    const char alternate_stop = (flags & 0x1000) == 0 ? ':' : '#';
+    while(cursor < end && text[cursor] != ';' && text[cursor] != '@' && text[cursor] != alternate_stop && (text[cursor] < '0' || text[cursor] > '9'))
+    {
+        ++cursor;
+    }
+    if(text[cursor] < '0' || text[cursor] > '9')
+    {
+        return 0x7fffffff;
+    }
+    if(text[cursor] == '+')
+    {
+        ++cursor;
+    }
+    const bool negative = text[cursor] == '-';
+    if(negative)
+    {
+        ++cursor;
+    }
+    std::int32_t value = 0;
+    while(text[cursor] >= '0' && text[cursor] <= '9')
+    {
+        value = text[cursor] - '0' + value * 10;
+        ++cursor;
+    }
+    if(negative)
+    {
+        value = -value;
+    }
+    *position = text[cursor] == ';' ? cursor : cursor + 1;
+    return value;
+}
+
+// GAG.EXE: 0x004119A0
+std::int32_t __fastcall skip_runtime_generic_statement(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+{
+    std::uint32_t cursor = *position;
+    do
+    {
+        while(cursor < end && text[cursor] != ';' && text[cursor] != '@')
+        {
+            ++cursor;
+        }
+        if(text[cursor] == '@')
+        {
+            if((flags & 0x1000) == 0)
+            {
+                ++cursor;
+                while(cursor < end && text[cursor] != '@')
+                {
+                    ++cursor;
+                }
+                if(cursor >= end)
+                {
+                    break;
+                }
+                ++cursor;
+            }
+            else if((flags & 0x1000) == 0x1000)
+            {
+                if(cursor >= end)
+                {
+                    break;
+                }
+                ++cursor;
+            }
+        }
+        if(cursor >= end)
+        {
+            return -1;
+        }
+    } while(text[cursor] != ';');
+    if(cursor >= end)
+    {
+        return -1;
+    }
+    *position = cursor + 1;
+    return 0;
+}
+
+// GAG.EXE: 0x00411A20
+std::int32_t __fastcall parse_runtime_generic_directive(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+{
+    if((flags & 0x1000) != 0)
+    {
+        return 0x10000;
+    }
+    std::uint32_t cursor = *position;
+    char name[32]{};
+    while(cursor < end && text[cursor] != '@' && text[cursor] != '[')
+    {
+        ++cursor;
+    }
+    if(text[cursor] != '@')
+    {
+        return -1;
+    }
+    ++cursor;
+    std::uint32_t length = 0;
+    while(cursor < end && length < 30 && text[cursor] != '@' && text[cursor] != ':' && text[cursor] != '[')
+    {
+        name[length++] = text[cursor++];
+    }
+    name[length] = '\0';
+    if(cursor == end || text[cursor] == '[')
+    {
+        return -1;
+    }
+    std::int32_t result = -1;
+    if(length == 0 || std::strcmp(name, "THIS") == 0)
+    {
+        result = 0x10000;
+    }
+    if(std::strcmp(name, "TEXT") == 0)
+    {
+        result = 0x40000;
+    }
+    if(std::strcmp(name, "JMP") == 0)
+    {
+        result = 0x20000;
+    }
+    if(std::strcmp(name, "END") == 0)
+    {
+        result = 0x30000;
+    }
+    *position = cursor + 1;
+    return result;
+}
+
+// GAG.EXE: 0x00411560
+std::uint32_t __fastcall build_runtime_generic_backend_child_state(void *identity, std::uint32_t selection, std::uint32_t *state, std::uint32_t *descriptor, std::uint32_t *context)
+{
+    std::uint32_t result = 0;
+    if(state != nullptr)
+    {
+        state[0] = 0xffffffff;
+    }
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child == nullptr)
+    {
+        return result;
+    }
+
+    std::uint32_t flags = child->flags;
+    std::uint32_t effective_selection = selection;
+    if((flags & 2) == 0)
+    {
+        if((flags & 0x100) == 0)
+        {
+            effective_selection = child->default_selection;
+        }
+    }
+    else if((flags & 0x100) == 0)
+    {
+        effective_selection = child->state[10];
+    }
+
+    if((flags & 1) == 0 || child->computed_state[9] != effective_selection)
+    {
+        RuntimeGenericBackend *parent = child->parent;
+        std::uint32_t cursor = child->parser_position;
+        const char *text = parent->text;
+        flags = child->flags;
+        std::uint32_t parsed_selection;
+        do
+        {
+            parsed_selection = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+            if(parsed_selection == effective_selection && parsed_selection != 0x7fffffff)
+            {
+                child->computed_state[0] = 0;
+                child->flags |= 1;
+                child->computed_state[4] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(child->font_identity));
+                child->computed_state[3] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(text));
+
+                std::uint32_t state_start;
+                std::uint32_t following_selection;
+                do
+                {
+                    state_start = cursor;
+                    skip_runtime_generic_statement(text, &cursor, parent->text_size, flags);
+                    following_selection = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                } while(following_selection == effective_selection);
+
+                cursor = state_start;
+                child->computed_state[5] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[6] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[7] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[8] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[1] = select_runtime_generic_text(&child->computed_state[11], text, &cursor, parent->text_size, child->text_search_position, child->font_identity, flags);
+                child->computed_state[9] = parsed_selection;
+                child->computed_state[2] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[10] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                if(child->computed_state[1] == 0xffffffff)
+                {
+                    child->computed_state[0] = 0xffffffff;
+                }
+                if(child->computed_state[5] == 0x7fffffff)
+                {
+                    child->computed_state[5] = child->state[5];
+                }
+                if(child->computed_state[6] == 0x7fffffff)
+                {
+                    child->computed_state[6] = child->state[6];
+                }
+                if(child->computed_state[2] == 0x7fffffff)
+                {
+                    child->computed_state[2] = 0;
+                }
+                break;
+            }
+            skip_runtime_generic_statement(text, &cursor, parent->text_size, flags);
+        } while(parsed_selection != 0x7fffffff);
+    }
+
+    if((child->flags & 1) != 0 && child->computed_state[9] == effective_selection)
+    {
+        result = 1;
+        if(state != nullptr)
+        {
+            std::memcpy(state, child->computed_state, sizeof(child->computed_state));
+        }
+    }
+    if(descriptor != nullptr)
+    {
+        std::memcpy(descriptor, child->descriptor, sizeof(child->descriptor));
+    }
+    if(context != nullptr)
+    {
+        std::memcpy(context, child->context, sizeof(child->context));
+    }
+    release_runtime_generic_backend_child_lock(child);
+    return result;
+}
+
+// GAG.EXE: 0x00411420
+void __fastcall publish_runtime_generic_backend_child_state(void *identity, const std::uint32_t *state, const std::uint32_t *descriptor, std::int32_t end_offset)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child == nullptr)
+    {
+        return;
+    }
+    if(state[0] == 0)
+    {
+        child->flags |= 2;
+        child->state_end_position = state[2] + end_offset;
+        if(descriptor != nullptr)
+        {
+            std::memcpy(child->descriptor, descriptor, sizeof(child->descriptor));
+        }
+        if(child->descriptor[3] != 0)
+        {
+            draw_runtime_generic_text(child->parent->text, child->parent->text_size, state, child->font_identity, reinterpret_cast<DisplaySceneDescriptor *>(child->descriptor), child->flags);
+        }
+    }
+    std::memcpy(child->state, state, sizeof(child->state));
+    child->flags &= ~1u;
+    release_runtime_generic_backend_child_lock(child);
+}
+
+// GAG.EXE: 0x004122C0
+std::uint32_t __fastcall measure_runtime_font_glyph(std::uint8_t character, const RuntimeMediaBackend *backend)
+{
+    const std::uint16_t atlas_stride = backend->destination_stride;
+    const std::uint32_t glyph_width = atlas_stride >> 4;
+    std::uint32_t rows_remaining = backend->destination_reserved >> 4;
+    const std::uint8_t *pixels = backend->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
+    std::uint32_t maximum_width = 0;
+    do
+    {
+        std::uint32_t transparent_run = 0;
+        std::uint32_t row_width = 0;
+        std::uint32_t columns_remaining = glyph_width;
+        do
+        {
+            ++transparent_run;
+            if(*pixels != 0)
+            {
+                row_width += transparent_run;
+                transparent_run = 0;
+            }
+            ++pixels;
+            --columns_remaining;
+        } while(columns_remaining != 0);
+        pixels += atlas_stride - glyph_width;
+        if(static_cast<std::int32_t>(maximum_width) < static_cast<std::int32_t>(row_width))
+        {
+            maximum_width = row_width;
+        }
+        --rows_remaining;
+    } while(rows_remaining != 0);
+    if(maximum_width == 0)
+    {
+        maximum_width = atlas_stride >> 5;
+    }
+    return maximum_width;
+}
+
+// GAG.EXE: 0x00412370
+std::uint32_t __fastcall draw_runtime_font_glyph(DisplaySceneDescriptor *destination, std::uint8_t character, std::int32_t x, std::int32_t y, const RuntimeMediaBackend *font, std::uint32_t low_color,
+    std::uint32_t high_color)
+{
+    std::uint8_t low_mask = 0xff;
+    std::uint8_t high_mask = 0xff;
+    std::uint8_t low_value = 0;
+    std::uint8_t high_value = 0;
+    if(high_color < 0x100)
+    {
+        high_value = static_cast<std::uint8_t>(high_color);
+        high_mask = 0;
+    }
+    if(low_color < 0x100)
+    {
+        low_value = static_cast<std::uint8_t>(low_color);
+        low_mask = 0;
+    }
+
+    const std::uint32_t destination_width = static_cast<std::uint16_t>(destination->width);
+    const std::uint32_t destination_height = static_cast<std::uint16_t>(destination->height);
+    const std::uint32_t atlas_stride = font->destination_stride;
+    const std::uint32_t glyph_width = atlas_stride >> 4;
+    std::uint32_t rows_remaining = font->destination_reserved >> 4;
+    std::int32_t source_row_advance = static_cast<std::int32_t>(atlas_stride - glyph_width);
+    std::int32_t destination_row_advance = static_cast<std::int32_t>(destination_width - glyph_width);
+    std::uint32_t draw_width = glyph_width;
+
+    const std::int32_t right_overflow = static_cast<std::int32_t>(glyph_width) + x - static_cast<std::int32_t>(destination_width);
+    if(right_overflow > 0 && static_cast<std::int32_t>(destination_width) <= static_cast<std::int32_t>(glyph_width) + x)
+    {
+        draw_width -= static_cast<std::uint32_t>(right_overflow);
+        if(draw_width == 0 || static_cast<std::int32_t>(glyph_width) < right_overflow)
+        {
+            return glyph_width;
+        }
+        source_row_advance += right_overflow;
+        destination_row_advance += right_overflow;
+    }
+    const std::int32_t bottom_overflow = static_cast<std::int32_t>(rows_remaining) + y - static_cast<std::int32_t>(destination_height);
+    if(bottom_overflow > 0 && static_cast<std::int32_t>(destination_height) <= static_cast<std::int32_t>(rows_remaining) + y)
+    {
+        const std::uint32_t clipped_width = draw_width - static_cast<std::uint32_t>(bottom_overflow);
+        const bool underflow = static_cast<std::int32_t>(draw_width) < bottom_overflow;
+        draw_width = clipped_width;
+        if(draw_width == 0 || underflow)
+        {
+            return glyph_width;
+        }
+    }
+
+    const std::uint8_t *source = font->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
+    auto *destination_pixels = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(destination->pixels));
+    std::uint8_t *output = destination_pixels + destination_width * y + x;
+    std::uint32_t maximum_width = 0;
+    do
+    {
+        std::uint32_t transparent_run = 0;
+        std::uint32_t row_width = 0;
+        std::uint32_t columns_remaining = draw_width;
+        do
+        {
+            ++transparent_run;
+            const std::uint8_t pixel = *source;
+            if(pixel != 0)
+            {
+                *output = pixel < 0x10 ? static_cast<std::uint8_t>((pixel & high_mask) | high_value) : static_cast<std::uint8_t>((pixel & low_mask) | low_value);
+                row_width += transparent_run;
+                transparent_run = 0;
+            }
+            ++source;
+            ++output;
+            --columns_remaining;
+        } while(columns_remaining != 0);
+        source += source_row_advance;
+        output += destination_row_advance;
+        if(static_cast<std::int32_t>(maximum_width) < static_cast<std::int32_t>(row_width))
+        {
+            maximum_width = row_width;
+        }
+        --rows_remaining;
+    } while(rows_remaining != 0);
+    if(maximum_width == 0)
+    {
+        maximum_width = draw_width >> 1;
+    }
+    return maximum_width;
+}
+
+// GAG.EXE: 0x00411800
+std::uint32_t __fastcall initialize_runtime_standalone_text(const char *text, std::uint32_t value_0014, std::uint32_t value_0018, void *font_identity, std::uint32_t low_color,
+    std::uint32_t high_color, RuntimeStandaloneTextState *state)
+{
+    if(get_runtime_media_backend_type(font_identity) != 0xac)
+    {
+        return 0;
+    }
+
+    std::uint32_t text_length = 0;
+    while(text[text_length] != '\0')
+    {
+        ++text_length;
+    }
+    const std::uint32_t end = text_length + 1;
+    if(text_length == 0)
+    {
+        return 0;
+    }
+
+    std::memset(state, 0, sizeof(*state));
+    std::uint32_t position = 0;
+    measure_runtime_generic_text(state->bounds, text, &position, end, font_identity, 0);
+    state->text = text;
+    state->font_identity = font_identity;
+    state->value_0014 = value_0014;
+    state->value_0018 = value_0018;
+    state->low_color = low_color;
+    state->high_color = high_color;
+    return 1;
+}
+
+// GAG.EXE: 0x004118C0
+void __fastcall draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination)
+{
+    std::uint32_t text_length = 0;
+    while(state->text[text_length] != '\0')
+    {
+        ++text_length;
+    }
+    draw_runtime_generic_text(state->text, text_length + 1, reinterpret_cast<const std::uint32_t *>(state), state->font_identity, destination, 0);
+}
+
+// GAG.EXE: 0x00411FF0
+void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, const std::uint32_t *state, void *font_identity, DisplaySceneDescriptor *destination, std::uint32_t flags)
+{
+    std::uint32_t cursor = state[1];
+    RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
+    if(font == nullptr)
+    {
+        return;
+    }
+    const auto *format = static_cast<const std::uint8_t *>(font->format_data);
+    const std::uint32_t cell_width = static_cast<std::uint32_t>(*reinterpret_cast<const std::int32_t *>(format + 4) >> 4);
+    const std::int32_t signed_cell_height = *reinterpret_cast<const std::int32_t *>(format + 8);
+    const std::uint32_t cell_height = signed_cell_height < 1 ? static_cast<std::uint32_t>(-signed_cell_height) >> 4 : static_cast<std::uint32_t>(signed_cell_height >> 4);
+    std::int32_t x = static_cast<std::uint16_t>(destination->x);
+    std::int32_t y = static_cast<std::uint16_t>(destination->y);
+
+    while(cursor < end)
+    {
+        switch(text[cursor])
+        {
+        case '\n':
+        case '\r':
+            ++cursor;
+            break;
+        case ' ':
+            x += static_cast<std::int32_t>(cell_width >> 1);
+            break;
+        case '#':
+        case ';':
+            if((flags & 0x1000) != 0)
+            {
+                goto release;
+            }
+            x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+            break;
+        case '@':
+            if((flags & 0x1000) != 0)
+            {
+                x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+                break;
+            }
+            if(end - 10 <= cursor)
+            {
+                goto release;
+            }
+            {
+                const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                if(directive == -1)
+                {
+                    break;
+                }
+                if(directive == 0x10000 || directive == 0x30000)
+                {
+                    goto release;
+                }
+                if(directive == 0x20000)
+                {
+                    const std::int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
+                    if(target == 0x7fffffff)
+                    {
+                        goto release;
+                    }
+                    for(;;)
+                    {
+                        std::int32_t candidate_directive;
+                        do
+                        {
+                            candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                            if(candidate_directive == -1)
+                            {
+                                goto release;
+                            }
+                        } while(candidate_directive != 0x10000);
+                        const std::int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
+                        if(candidate == 0x7fffffff)
+                        {
+                            goto release;
+                        }
+                        if(candidate == target)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        case '\\':
+            if(end - 1 <= cursor)
+            {
+                goto release;
+            }
+            ++cursor;
+            if(text[cursor] == 'n')
+            {
+                x = static_cast<std::uint16_t>(destination->x);
+                y += static_cast<std::int32_t>(cell_height);
+            }
+            else if(text[cursor] == 't')
+            {
+                if(text[cursor + 1] < '0' || text[cursor + 1] > '9')
+                {
+                    x += static_cast<std::int32_t>(cell_width * 2);
+                }
+                else
+                {
+                    std::int32_t tab_width = 0;
+                    ++cursor;
+                    while(text[cursor] >= '0' && text[cursor] <= '9')
+                    {
+                        tab_width = text[cursor] - '0' + tab_width * 10;
+                        ++cursor;
+                    }
+                    x += tab_width;
+                }
+            }
+            break;
+        default:
+            x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+            break;
+        }
+        ++cursor;
+    }
+
+release:
+    release_runtime_media_backend_lock(static_cast<RuntimeMediaBackend *>(font_identity));
+}
+
+// GAG.EXE: 0x00411CF0
+void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *text, std::uint32_t *position, std::uint32_t end, void *font_identity, std::uint32_t flags)
+{
+    std::uint32_t cursor = *position;
+    std::memset(bounds, 0, 4 * sizeof(*bounds));
+    RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
+    if(font == nullptr)
+    {
+        return;
+    }
+
+    const auto *format = static_cast<const std::uint8_t *>(font->format_data);
+    const std::uint32_t cell_width = static_cast<std::uint32_t>(*reinterpret_cast<const std::int32_t *>(format + 4) >> 4);
+    const std::int32_t signed_cell_height = *reinterpret_cast<const std::int32_t *>(format + 8);
+    const std::uint32_t cell_height = signed_cell_height < 1 ? static_cast<std::uint32_t>(-signed_cell_height) >> 4 : static_cast<std::uint32_t>(signed_cell_height >> 4);
+    std::uint32_t current_width = 0;
+    std::uint32_t maximum_width = 0;
+    std::uint32_t height = cell_height;
+    std::uint32_t output_height = 0;
+    bool publish = false;
+
+    do
+    {
+        std::uint32_t next_cursor = cursor;
+        switch(text[cursor])
+        {
+        case '\n':
+        case '\r':
+            next_cursor = cursor + 1;
+            break;
+        case ' ':
+            current_width += cell_width >> 1;
+            break;
+        case '#':
+        case ';':
+            if((flags & 0x1000) != 0)
+            {
+                publish = true;
+                goto complete;
+            }
+            current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+            break;
+        case '@':
+            if((flags & 0x1000) != 0)
+            {
+                current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+                break;
+            }
+            if(end - 10 <= cursor)
+            {
+                goto release;
+            }
+            {
+                const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                next_cursor = cursor;
+                if(directive != -1)
+                {
+                    if(directive == 0x10000 || directive == 0x30000)
+                    {
+                        publish = true;
+                        goto complete;
+                    }
+                    if(directive == 0x20000)
+                    {
+                        const std::int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
+                        if(target == 0x7fffffff)
+                        {
+                            goto release;
+                        }
+                        for(;;)
+                        {
+                            std::int32_t candidate_directive;
+                            do
+                            {
+                                candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                                if(candidate_directive == -1)
+                                {
+                                    goto release;
+                                }
+                            } while(candidate_directive != 0x10000);
+                            const std::int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
+                            if(candidate == 0x7fffffff)
+                            {
+                                goto release;
+                            }
+                            next_cursor = cursor;
+                            if(candidate == target)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        case '[':
+            goto release;
+        case '\\':
+            if(end - 10 <= cursor)
+            {
+                goto release;
+            }
+            next_cursor = cursor + 1;
+            if(text[next_cursor] == 'n')
+            {
+                if(maximum_width < current_width)
+                {
+                    maximum_width = current_width;
+                }
+                current_width = 0;
+                height += cell_height;
+            }
+            else if(text[next_cursor] == 't')
+            {
+                std::int32_t tab_width;
+                if(text[next_cursor + 1] < '0' || text[next_cursor + 1] > '9')
+                {
+                    tab_width = static_cast<std::int32_t>(cell_width * 2);
+                    cursor = next_cursor;
+                }
+                else
+                {
+                    tab_width = 0;
+                    cursor += 2;
+                    while(text[cursor] >= '0')
+                    {
+                        if(text[cursor] > '9')
+                        {
+                            break;
+                        }
+                        tab_width = text[cursor] - '0' + tab_width * 10;
+                        ++cursor;
+                    }
+                }
+                current_width += static_cast<std::uint32_t>(tab_width);
+                next_cursor = cursor;
+            }
+            break;
+        default:
+            current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+            break;
+        }
+        cursor = next_cursor + 1;
+    } while(cursor < end);
+    publish = true;
+
+complete:
+    if(publish)
+    {
+        if(maximum_width < current_width)
+        {
+            maximum_width = current_width;
+        }
+        if(height != 0)
+        {
+            output_height = height;
+        }
+        bounds[0] = 0;
+        bounds[1] = 0;
+        bounds[2] = maximum_width;
+        bounds[3] = output_height;
+        *position = cursor;
+    }
+release:
+    release_runtime_media_backend_lock(static_cast<RuntimeMediaBackend *>(font_identity));
+}
+
+// GAG.EXE: 0x00411BC0
+std::uint32_t __fastcall select_runtime_generic_text(std::uint32_t *bounds, const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t search_position, void *font_identity,
+    std::uint32_t flags)
+{
+    std::uint32_t cursor = *position;
+    std::uint32_t result = 0xffffffff;
+    const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+    if(directive == -1)
+    {
+        std::memset(bounds, 0, 4 * sizeof(*bounds));
+    }
+    else if(directive == 0x10000)
+    {
+        result = cursor;
+        measure_runtime_generic_text(bounds, text, &cursor, end, font_identity, flags);
+    }
+    else if(directive == 0x40000)
+    {
+        const std::int32_t requested = parse_runtime_generic_integer(text, &cursor, end, flags);
+        if(requested != 0x7fffffff)
+        {
+            std::uint32_t candidate_cursor = search_position;
+            for(;;)
+            {
+                std::int32_t candidate_directive;
+                do
+                {
+                    candidate_directive = parse_runtime_generic_directive(text, &candidate_cursor, end, flags);
+                    if(candidate_directive == -1)
+                    {
+                        goto finish;
+                    }
+                } while(candidate_directive != 0x10000);
+                const std::int32_t candidate = parse_runtime_generic_integer(text, &candidate_cursor, end, flags);
+                if(candidate == 0x7fffffff)
+                {
+                    goto finish;
+                }
+                if(candidate == requested)
+                {
+                    break;
+                }
+            }
+            result = candidate_cursor;
+            measure_runtime_generic_text(bounds, text, &candidate_cursor, end, font_identity, flags);
+        }
+    }
+
+finish:
+    if(result != 0xffffffff)
+    {
+        if(text[cursor] != ';')
+        {
+            ++cursor;
+        }
+        *position = cursor;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004112B0
+void __fastcall release_runtime_generic_backend_child_lock(RuntimeGenericBackendChild *child)
+{
+    child->flags &= ~0x10000u;
+}
+
+// GAG.EXE: 0x0042B6A0
+void __fastcall release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
+{
+    if(backend != nullptr && backend->recursion_count != 0)
+    {
+        --backend->recursion_count;
+    }
+}
+
+// GAG.EXE: 0x00427A30
+void __fastcall render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
+{
+    auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
+    if(resource->field_0074 != 0 && (resource->type_flags & 1) != 0 && (resource->type_flags & 0x80) == 0)
+    {
+        std::uint32_t context[2];
+        std::uint32_t state[15];
+        if(query_runtime_generic_backend_child_state(reinterpret_cast<void *>(static_cast<std::uintptr_t>(resource->field_0074)), state, nullptr, context))
+        {
+            std::int32_t source_identifier = 0;
+            if(context[1] != 0)
+            {
+                source_identifier = query_display_scene_by_index(static_cast<std::int32_t>(context[1]), nullptr, nullptr);
+            }
+            blit_bitmap_with_optional_palette_remap(reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), static_cast<std::int32_t>(state[6]) - resource->x,
+                static_cast<std::int32_t>(state[7]) - resource->y, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(source_identifier)),
+                reinterpret_cast<DisplayRectangle *>(&state[11]), 0);
+        }
+    }
+}
+
+// GAG.EXE: 0x00427AB0
+void __fastcall update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
+{
+    auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
+    void *identity = reinterpret_cast<void *>(static_cast<std::uintptr_t>(resource->field_0074));
+    if(identity == nullptr)
+    {
+        return;
+    }
+
+    std::uint32_t context[2];
+    DisplaySceneDescriptor descriptor;
+    DisplayRectangle destination_rectangle;
+    std::uint32_t state[15];
+    if((resource->type_flags & 1) == 0 || (resource->type_flags & 0x80) != 0)
+    {
+        if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state, reinterpret_cast<std::uint32_t *>(&descriptor), context) != 0)
+        {
+            auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
+            if(state_rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+            {
+                state_rectangle->right = static_cast<std::uint16_t>(descriptor.width);
+                state_rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+            }
+            if(context[1] == 0)
+            {
+                context[1] = find_available_display_scene_index(0x80000);
+            }
+            if((runtime_pointer_event_record[14] & 1) != 0)
+            {
+                state[5] = 10000;
+                state[6] = 10000;
+            }
+            DisplaySceneNode *scene = acquire_display_scene_node(context[1], static_cast<std::int32_t>(state[5]), static_cast<std::int32_t>(state[6]), state_rectangle->right, state_rectangle->bottom,
+                0x20000, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
+            if(begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene))) == 0)
+            {
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
+                end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)), reinterpret_cast<DisplayRectangleTransform *>(&descriptor), state_rectangle);
+            }
+            set_runtime_generic_backend_child_context(identity, context);
+        }
+        return;
+    }
+
+    if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state, nullptr, context) != 0)
+    {
+        if(context[1] == 0)
+        {
+            std::memset(&descriptor, 0, sizeof(descriptor));
+        }
+        else
+        {
+            query_display_scene_by_index(static_cast<std::int32_t>(context[1]), &descriptor, nullptr);
+        }
+        auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
+        if(state_rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+        {
+            state_rectangle->right = static_cast<std::uint16_t>(descriptor.width);
+            state_rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+        }
+        if(context[1] == 0)
+        {
+            context[1] = find_available_display_scene_index(0x80000);
+        }
+        DisplaySceneNode *scene = acquire_display_scene_node(context[1], 10000, 10000, state_rectangle->right, state_rectangle->bottom, 0, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
+        if(begin_display_scene_update(resource->scene_identifier) == 0)
+        {
+            destination_rectangle.left = static_cast<std::int32_t>(state[5]) - resource->x;
+            destination_rectangle.top = static_cast<std::int32_t>(state[6]) - resource->y;
+            destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
+            destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
+            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            std::memcpy(&descriptor.width, resource->scene_descriptor + 4, 8);
+            descriptor.pixels = *reinterpret_cast<const std::int32_t *>(resource->scene_descriptor + 12);
+            descriptor.y = static_cast<std::int16_t>(state[6]) - static_cast<std::int16_t>(resource->y);
+            descriptor.x = static_cast<std::int16_t>(state[5]) - static_cast<std::int16_t>(resource->x);
+            if((runtime_pointer_event_record[14] & 1) == 0)
+            {
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
+            }
+            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &destination_rectangle);
+        }
+        set_runtime_generic_backend_child_context(identity, context);
+        return;
+    }
+
+    if(query_runtime_generic_backend_child_state(identity, state, nullptr, context) != 0)
+    {
+        DisplaySceneNode *scene = nullptr;
+        if(context[1] != 0)
+        {
+            scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(query_display_scene_by_index(static_cast<std::int32_t>(context[1]), &descriptor, nullptr)));
+        }
+        if(begin_display_scene_update(resource->scene_identifier) == 0)
+        {
+            auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
+            destination_rectangle.left = static_cast<std::int32_t>(state[5]) - resource->x;
+            destination_rectangle.top = static_cast<std::int32_t>(state[6]) - resource->y;
+            destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
+            destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
+            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            std::memcpy(&descriptor.width, resource->scene_descriptor + 4, 8);
+            descriptor.pixels = *reinterpret_cast<const std::int32_t *>(resource->scene_descriptor + 12);
+            descriptor.y = static_cast<std::int16_t>(state[6]) - static_cast<std::int16_t>(resource->y);
+            descriptor.x = static_cast<std::int16_t>(state[5]) - static_cast<std::int16_t>(resource->x);
+            if((runtime_pointer_event_record[14] & 1) == 0)
+            {
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
+            }
+            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &destination_rectangle);
+        }
+    }
+}
+
+// GAG.EXE: 0x00427EF0
+std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
+{
+    auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
+    std::uint32_t flags = backend->media_flags;
+    if((flags & 0x1000) != 0)
+    {
+        const std::uint32_t resource_flags = resource->type_flags;
+        destroy_runtime_resource(resource);
+        if((resource_flags & 2) == 0)
+        {
+            --runtime_resource_count;
+        }
+        return 1;
+    }
+    if((flags & 0x80000000) != 0)
+    {
+        return 0;
+    }
+    if((flags & 0x10000000) != 0)
+    {
+        if(current_runtime_resource == resource && (flags & 0x100000) == 0 && static_cast<std::int32_t>(backend->frame_duration * 4) < backend->timing_correction)
+        {
+            resource->state_flags |= 1;
+        }
+        else
+        {
+            begin_display_scene_update(resource->scene_identifier);
+            resource->state_flags &= ~1u;
+        }
+        render_runtime_generic_backend_child(backend);
+        backend->media_flags &= ~0x10000000u;
+        return 1;
+    }
+    if((flags & 0x2000) != 0)
+    {
+        if((resource->type_flags & 0x10) != 0 && (flags & 0x20) != 0)
+        {
+            backend->media_flags = flags & ~0x20u;
+            if((resource->type_flags & 2) == 0)
+            {
+                ++runtime_resource_count;
+            }
+        }
+        return 1;
+    }
+    if((flags & 0x40000000) != 0)
+    {
+        if(resource->frame_limit != 0xffffffff)
+        {
+            if(resource->frames_remaining == 0)
+            {
+                backend->media_flags = flags | 1;
+                resource->frames_remaining = resource->frame_limit;
+            }
+            else
+            {
+                --resource->frames_remaining;
+            }
+        }
+        backend->media_flags &= ~0x40000000u;
+        return 1;
+    }
+    if((flags & 0x4000) != 0)
+    {
+        configure_runtime_resource_palette(resource);
+        if((resource->type_flags & 1) != 0)
+        {
+            if((backend->media_flags & 0x20) == 0)
+            {
+                apply_display_palette(backend->palette_entries, 0x20000);
+            }
+            backend->dirty_left = 0;
+            backend->dirty_top = 0;
+            const auto *format = static_cast<const std::uint16_t *>(backend->format_data);
+            backend->dirty_right = static_cast<std::uint32_t>(format[4]) * resource->requested_width;
+            backend->dirty_bottom = static_cast<std::uint32_t>(format[5]) * resource->requested_height;
+        }
+    }
+    if((backend->media_flags & 0x20) != 0 && (resource->type_flags & 2) == 0)
+    {
+        ++runtime_resource_count;
+    }
+    if((backend->media_flags & 0x20000000) != 0)
+    {
+        update_runtime_generic_backend_child(backend);
+        if((resource->state_flags & 1) == 0)
+        {
+            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&backend->destination_x),
+                reinterpret_cast<const DisplayRectangle *>(&backend->dirty_left));
+        }
+        backend->media_flags &= ~0x20000000u;
+    }
+    backend->media_flags &= 0xbfff3fdfu;
+    return 1;
+}
+
+// GAG.EXE: 0x00411340
+std::uint32_t __fastcall get_runtime_generic_backend_child_flags(void *identity)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child == nullptr)
+    {
+        return 0x7fffffff;
+    }
+    const std::uint32_t flags = child->flags;
+    release_runtime_generic_backend_child_lock(child);
+    return flags;
+}
+
+// GAG.EXE: 0x00411360
+void __fastcall clear_runtime_generic_backend_child_ready(void *identity)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        child->flags &= ~2u;
+        release_runtime_generic_backend_child_lock(child);
+    }
+}
+
+// GAG.EXE: 0x00411380
+void __fastcall enable_runtime_generic_backend_child_mode_200(void *identity)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        child->flags |= 0x200;
+        release_runtime_generic_backend_child_lock(child);
+    }
+}
+
+// GAG.EXE: 0x004113A0
+void __fastcall disable_runtime_generic_backend_child_mode_200(void *identity)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        child->flags &= ~0x200u;
+        release_runtime_generic_backend_child_lock(child);
+    }
+}
+
+// GAG.EXE: 0x004113C0
+bool __fastcall get_runtime_generic_backend_child_context(void *identity, std::uint32_t *context)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        context[0] = child->context[0];
+        context[1] = child->context[1];
+        release_runtime_generic_backend_child_lock(child);
+    }
+    return child != nullptr;
+}
+
+// GAG.EXE: 0x004113F0
+bool __fastcall set_runtime_generic_backend_child_context(void *identity, const std::uint32_t *context)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        child->context[0] = context[0];
+        child->context[1] = context[1];
+        release_runtime_generic_backend_child_lock(child);
+    }
+    return child != nullptr;
+}
+
+// GAG.EXE: 0x004114D0
+std::uint32_t __fastcall query_runtime_generic_backend_child_state(void *identity, std::uint32_t *state, std::uint32_t *descriptor, std::uint32_t *context)
+{
+    std::uint32_t result = 0;
+    if(state != nullptr)
+    {
+        state[0] = 0xffffffff;
+    }
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child != nullptr)
+    {
+        if((child->flags & 2) != 0)
+        {
+            if(descriptor != nullptr)
+            {
+                std::memcpy(descriptor, child->descriptor, sizeof(child->descriptor));
+            }
+            if(context != nullptr)
+            {
+                std::memcpy(context, child->context, sizeof(child->context));
+            }
+            if(state != nullptr)
+            {
+                std::memcpy(state, child->state, sizeof(child->state));
+            }
+            result = 1;
+        }
+        release_runtime_generic_backend_child_lock(child);
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004112C0
+void *__fastcall destroy_runtime_generic_backend_child(void *identity)
+{
+    RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
+    if(child == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeGenericBackend *parent = child->parent;
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    RuntimeGenericBackendChild *previous = nullptr;
+    RuntimeGenericBackendChild *current = parent->children;
+    while(current != nullptr && current != child)
+    {
+        previous = current;
+        current = current->next;
+    }
+    if(previous == nullptr)
+    {
+        parent->children = child->next;
+    }
+    else
+    {
+        previous->next = child->next;
+    }
+    --parent->child_count;
+    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+    runtime_generic_backend_api.heap_free(runtime_generic_backend_api.get_process_heap(), 0, child);
+    return reinterpret_cast<void *>(1);
+}
+
+// GAG.EXE: 0x00410D50
+std::uint32_t __fastcall destroy_runtime_generic_backend(void *identity)
+{
+    RuntimeGenericBackend *backend = acquire_runtime_generic_backend(identity);
+    if(backend == nullptr)
+    {
+        return 0;
+    }
+    while(backend->children != nullptr)
+    {
+        destroy_runtime_generic_backend_child(backend->children->identity);
+    }
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    RuntimeGenericBackend *previous = nullptr;
+    RuntimeGenericBackend *current = runtime_generic_backend_head;
+    while(current != nullptr && current != backend)
+    {
+        previous = current;
+        current = current->next;
+    }
+    RuntimeGenericBackend *next = backend->next;
+    if(previous != nullptr)
+    {
+        previous->next = backend->next;
+        next = runtime_generic_backend_head;
+    }
+    runtime_generic_backend_head = next;
+    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+    runtime_generic_backend_api.heap_free(runtime_generic_backend_api.get_process_heap(), 0, backend);
+    return 1;
+}
+
+// GAG.EXE: 0x00402040
+void __fastcall destroy_runtime_sound_handle(std::uint32_t handle)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(slot->active != 0)
+        {
+            slot->active = 0;
+            RuntimeSoundBufferNode *buffer = slot->buffers;
+            while(buffer != nullptr)
+            {
+                RuntimeSoundBufferNode *next = buffer->next;
+                runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, buffer);
+                buffer = next;
+            }
+            if(runtime_sound_maximum_handle <= handle)
+            {
+                runtime_sound_maximum_handle = handle;
+                if(handle != 0)
+                {
+                    do
+                    {
+                        runtime_sound_maximum_handle = handle;
+                        if(slot->active != 0)
+                        {
+                            break;
+                        }
+                        --slot;
+                        --handle;
+                        runtime_sound_maximum_handle = handle;
+                    } while(runtime_sound_slots < slot);
+                }
+            }
+            runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+            return;
+        }
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+}
+
+// GAG.EXE: 0x00401820
+std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format)
+{
+    if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
+    {
+        return 0;
+    }
+    std::uint16_t conversion_flags = 0;
+    if(runtime_sound_create_api.ensure_ready(source_format, 0x600) == 0)
+    {
+        return 0;
+    }
+    runtime_sound_create_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
+    runtime_sound_create_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(runtime_sound_fault != 0)
+    {
+        runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+        runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+        return 0;
+    }
+    if(runtime_sound_create_api.formats_equal(runtime_sound_output_format, source_format) == 0)
+    {
+        std::uint32_t candidate = 1;
+        do
+        {
+            if(runtime_sound_slots[candidate].active == 0)
+            {
+                break;
+            }
+            ++candidate;
+        } while(candidate < 0x400);
+        if(candidate > 0x3ff)
+        {
+            candidate = 0x3ff;
+        }
+        if(runtime_sound_slots[candidate].active == 0)
+        {
+            runtime_sound_output_initialized = 0;
+            if(runtime_sound_output_ready != 0)
+            {
+                runtime_sound_create_api.wave_out_reset(runtime_sound_wave_out);
+                runtime_sound_create_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
+                runtime_sound_create_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
+                runtime_sound_create_api.wave_out_reset(runtime_sound_wave_out);
+                runtime_sound_create_api.wave_out_close(runtime_sound_wave_out);
+                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+                if(runtime_sound_thread != nullptr)
+                {
+                    runtime_sound_create_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+                    runtime_sound_create_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+                    runtime_sound_create_api.close_handle(runtime_sound_thread);
+                    runtime_sound_thread = nullptr;
+                    runtime_sound_thread_id = 0;
+                }
+                runtime_sound_ready = 0;
+                std::uint32_t handle = 1;
+                if(runtime_sound_maximum_handle > 1)
+                {
+                    do
+                    {
+                        runtime_sound_create_api.destroy_sound(handle);
+                        ++handle;
+                    } while(handle < runtime_sound_maximum_handle);
+                }
+                runtime_sound_create_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+            }
+            runtime_sound_create_api.cleanup_format_buffer();
+            runtime_sound_maximum_handle = 0;
+            runtime_sound_thread = runtime_sound_create_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
+            if(runtime_sound_thread == nullptr)
+            {
+                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+                runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+                return 0;
+            }
+            if(runtime_sound_create_api.initialize_mixer(source_format, 0x600) == 0)
+            {
+                runtime_sound_create_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+                runtime_sound_create_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+                runtime_sound_create_api.close_handle(runtime_sound_thread);
+                runtime_sound_thread = nullptr;
+                runtime_sound_thread_id = 0;
+                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+                runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+                return 0;
+            }
+            runtime_sound_ready = 1;
+        }
+        else if(runtime_sound_create_api.calculate_conversion(runtime_sound_output_format, source_format, &conversion_flags) == 0)
+        {
+            runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+            runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+            return 0;
+        }
+    }
+    std::uint32_t handle = 1;
+    do
+    {
+        if(runtime_sound_slots[handle].active == 0)
+        {
+            break;
+        }
+        ++handle;
+    } while(handle < 0x400);
+    if(handle < 0x401)
+    {
+        RuntimeSoundSlot &slot = runtime_sound_slots[handle];
+        slot.playing = 0;
+        slot.buffers = nullptr;
+        slot.playback_state = 0;
+        slot.schedule_state = 0;
+        slot.loop_value_1 = 0;
+        slot.loop_value_2 = 0;
+        slot.volume = 100;
+        slot.conversion_flags = conversion_flags;
+        slot.transition_flags = 0;
+        slot.active = 1;
+        if(handle == 0x400)
+        {
+            runtime_sound_fault = slot.playing;
+            runtime_sound_output_initialized = slot.playback_state;
+            runtime_sound_thread_id = slot.loop_value_1;
+            const std::uintptr_t window_value = reinterpret_cast<std::uintptr_t>(runtime_sound_window);
+            runtime_sound_window = reinterpret_cast<HWND>((window_value & 0x0000ff00u) | (static_cast<std::uintptr_t>(slot.conversion_flags) << 16) | slot.volume);
+        }
+        if(runtime_sound_maximum_handle <= handle)
+        {
+            runtime_sound_maximum_handle = handle;
+        }
+        runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+        runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+        return handle;
+    }
+    runtime_sound_create_api.release_mutex(runtime_sound_mutex);
+    runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
+    return 0xffffffff;
+}
+
+// GAG.EXE: 0x00401BB0
+std::uint32_t __fastcall queue_runtime_sound_data(std::uint32_t handle, void *data, std::uint32_t size, std::int32_t replace)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle <= runtime_sound_maximum_handle && handle != 0)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(slot->active != 0)
+        {
+            auto *node = static_cast<RuntimeSoundBufferNode *>(runtime_sound_destroy_api.heap_alloc(runtime_sound_destroy_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeSoundBufferNode)));
+            node->size = size;
+            node->offset = 0;
+            node->next = nullptr;
+            node->data = data;
+            node->unknown_000c = 0;
+            slot->playback_state = 0;
+            RuntimeSoundBufferNode *tail = slot->buffers;
+            if(replace != 0)
+            {
+                while(tail != nullptr)
+                {
+                    RuntimeSoundBufferNode *next = tail->next;
+                    runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, tail);
+                    tail = next;
+                }
+                slot->schedule_state = 0;
+                tail = nullptr;
+            }
+            if(tail == nullptr)
+            {
+                slot->buffers = node;
+            }
+            else
+            {
+                while(tail->next != nullptr)
+                {
+                    tail = tail->next;
+                }
+                tail->next = node;
+            }
+            runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+            return 1;
+        }
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    return 0;
+}
+
+// GAG.EXE: 0x00401CD0
+std::uint32_t __fastcall start_runtime_sound(std::uint32_t handle, std::int32_t reset_timing)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(reset_timing != 0)
+        {
+            slot->schedule_state = 0;
+        }
+        slot->playing = 1;
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+        return 1;
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    return 0;
+}
+
+// GAG.EXE: 0x00401D50
+std::uint32_t __fastcall stop_runtime_sound(std::uint32_t handle, std::int32_t reset_timing)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(slot->playing != 0)
+        {
+            slot->playing = 0;
+            if(reset_timing != 0)
+            {
+                slot->playback_state = 0;
+            }
+        }
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+        return 1;
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    return 0;
+}
+
+// GAG.EXE: 0x00403380
+void __fastcall set_runtime_sound_loop_value(std::uint32_t handle, std::uint32_t value)
+{
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(slot->active != 0)
+        {
+            slot->loop_value_1 = value;
+            slot->loop_value_2 = value;
+        }
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    }
+}
+
+// GAG.EXE: 0x004033E0
+RuntimeSoundSlot *__fastcall get_runtime_sound_slot(std::uint32_t handle)
+{
+    if(handle != 0 && handle < 0x400 && runtime_sound_slots[handle].active != 0)
+    {
+        return &runtime_sound_slots[handle];
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00401DE0
+std::uint32_t __fastcall fade_out_runtime_sound(std::uint32_t handle, std::int32_t duration_ms, std::int32_t reset_timing)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(slot->playing != 0)
+        {
+            if(reset_timing != 0)
+            {
+                slot->playback_state = 0;
+            }
+            const std::uint32_t old_flags = slot->transition_flags;
+            slot->transition_flags = old_flags & ~2u;
+            slot->transition_flags = (old_flags & ~2u) | 1;
+            slot->fade_current = 0;
+            const std::uint64_t blocks = (static_cast<std::uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            if(static_cast<std::int32_t>(blocks) == 0)
+            {
+                slot->fade_step = 100;
+            }
+            else
+            {
+                slot->fade_step = static_cast<std::uint8_t>(100 / blocks);
+                slot->fade_block_index = 0;
+            }
+            if(slot->fade_step == 0)
+            {
+                const std::int32_t index = static_cast<std::int32_t>(blocks / 100) - 1;
+                slot->fade_block_index = index;
+                slot->fade_current = index;
+            }
+            slot->playing = 0;
+        }
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+        return 1;
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    return 0;
+}
+
+// GAG.EXE: 0x00401F10
+std::uint32_t __fastcall fade_in_runtime_sound(std::uint32_t handle, std::int32_t duration_ms, std::int32_t reset_timing)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle != 0 && handle <= runtime_sound_maximum_handle)
+    {
+        RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
+        if(reset_timing != 0)
+        {
+            slot->schedule_state = 0;
+        }
+        if(slot->playing == 0)
+        {
+            const std::uint32_t old_flags = slot->transition_flags;
+            slot->transition_flags = old_flags & ~1u;
+            slot->transition_flags = (old_flags & ~1u) | 2;
+            slot->fade_current = 0;
+            const std::uint64_t blocks = (static_cast<std::uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            if(static_cast<std::int32_t>(blocks) == 0)
+            {
+                slot->fade_step = 100;
+            }
+            else
+            {
+                slot->fade_step = static_cast<std::uint8_t>(100 / blocks);
+                slot->fade_block_index = 0;
+            }
+            if(slot->fade_step == 0)
+            {
+                const std::int32_t index = static_cast<std::int32_t>(blocks / 100) - 1;
+                slot->fade_block_index = index;
+                slot->fade_current = index;
+            }
+            slot->playing = 1;
+        }
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+        return 1;
+    }
+    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+    return 0;
+}
+
+// GAG.EXE: 0x00403310
+std::uint32_t __fastcall set_runtime_sound_volume(std::uint32_t handle, std::uint8_t volume)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    if(volume > 100)
+    {
+        volume = 100;
+    }
+    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    if(handle <= runtime_sound_maximum_handle && handle != 0)
+    {
+        runtime_sound_slots[handle].volume = volume;
+        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
+        return 1;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x004035C0
+void CALLBACK runtime_wave_out_callback(HWAVEOUT wave_out, UINT message, DWORD_PTR, DWORD_PTR, DWORD_PTR)
+{
+    if(message == WOM_OPEN)
+    {
+        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_OPEN, reinterpret_cast<WPARAM>(wave_out), 0);
+    }
+    else if(message == WOM_CLOSE)
+    {
+        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_CLOSE, reinterpret_cast<WPARAM>(wave_out), 0);
+        runtime_sound_output_ready = 0;
+    }
+    else if(message == WOM_DONE)
+    {
+        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_DONE, reinterpret_cast<WPARAM>(wave_out), runtime_wave_out_callback_api.time_get_time());
+    }
+}
+
+// GAG.EXE: 0x00401190
+std::uint32_t shutdown_runtime_sound()
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
+    runtime_sound_output_initialized = 0;
+    if(runtime_sound_output_ready != 0)
+    {
+        runtime_sound_shutdown_api.wave_out_reset(runtime_sound_wave_out);
+        runtime_sound_shutdown_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
+        runtime_sound_shutdown_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
+        runtime_sound_shutdown_api.wave_out_reset(runtime_sound_wave_out);
+        runtime_sound_shutdown_api.wave_out_close(runtime_sound_wave_out);
+        if(runtime_sound_thread != nullptr)
+        {
+            runtime_sound_shutdown_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+            runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+            runtime_sound_shutdown_api.close_handle(runtime_sound_thread);
+            runtime_sound_thread = nullptr;
+            runtime_sound_thread_id = 0;
+        }
+        std::uint32_t handle = 1;
+        if(runtime_sound_maximum_handle > 1)
+        {
+            do
+            {
+                runtime_sound_shutdown_api.destroy_sound(handle);
+                ++handle;
+            } while(handle < runtime_sound_maximum_handle);
+        }
+        runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    }
+    runtime_sound_shutdown_api.cleanup_format_buffer();
+    runtime_sound_enabled = 0;
+    runtime_sound_shutdown_api.close_handle(runtime_sound_mutex);
+    runtime_sound_shutdown_api.close_handle(runtime_sound_lifecycle_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x004010A0
+void toggle_runtime_sound_state()
+{
+    runtime_sound_toggle_state = ~runtime_sound_toggle_state;
+}
+
+// GAG.EXE: 0x004015D0
+std::uint32_t __fastcall pause_runtime_sound_output(std::int32_t close_output)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
+    runtime_sound_mixing_suppressed = 1;
+    if(close_output != 0)
+    {
+        runtime_sound_output_initialized = 0;
+        if(runtime_sound_output_ready != 0)
+        {
+            runtime_sound_pause_resume_api.wave_out_reset(runtime_sound_wave_out);
+            runtime_sound_pause_resume_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
+            runtime_sound_pause_resume_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
+            runtime_sound_pause_resume_api.wave_out_reset(runtime_sound_wave_out);
+            runtime_sound_pause_resume_api.wave_out_close(runtime_sound_wave_out);
+            if(runtime_sound_thread != nullptr)
+            {
+                runtime_sound_pause_resume_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+                runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+                runtime_sound_pause_resume_api.close_handle(runtime_sound_thread);
+                runtime_sound_thread = nullptr;
+                runtime_sound_thread_id = 0;
+            }
+        }
+    }
+    runtime_sound_pause_resume_api.release_mutex(runtime_sound_lifecycle_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x004016D0
+std::uint32_t resume_runtime_sound_output()
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
+    runtime_sound_mixing_suppressed = 0;
+    if(runtime_sound_output_initialized == 0 && runtime_sound_output_ready == 0)
+    {
+        runtime_sound_thread = runtime_sound_pause_resume_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
+        if(runtime_sound_thread == nullptr)
+        {
+            runtime_sound_output_initialized = 0;
+        }
+        else
+        {
+            while(runtime_sound_window == nullptr)
+            {
+                if(runtime_sound_fault != 0)
+                {
+                    return 0;
+                }
+                runtime_sound_pause_resume_api.sleep(0);
+            }
+            const MMRESULT result =
+                runtime_sound_pause_resume_api.wave_out_open(&runtime_sound_wave_out, WAVE_MAPPER, runtime_sound_output_format, reinterpret_cast<DWORD_PTR>(runtime_wave_out_callback), 0, 0x30000);
+            if(result == MMSYSERR_NOERROR)
+            {
+                while(runtime_sound_output_ready == 0)
+                {
+                    runtime_sound_pause_resume_api.sleep(0);
+                }
+                runtime_sound_output_initialized = 1;
+            }
+            else
+            {
+                runtime_sound_pause_resume_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+                runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+                runtime_sound_pause_resume_api.close_handle(runtime_sound_thread);
+                runtime_sound_thread = nullptr;
+                runtime_sound_thread_id = 0;
+                runtime_sound_output_initialized = 0;
+            }
+        }
+    }
+    runtime_sound_pause_resume_api.release_mutex(runtime_sound_lifecycle_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x004010B0
+std::uint32_t __fastcall ensure_runtime_sound_ready(WAVEFORMATEX *format, std::uint32_t mixer_argument)
+{
+    if(runtime_sound_enabled == 0)
+    {
+        return 0;
+    }
+    runtime_sound_readiness_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
+    if(runtime_sound_ready == 0)
+    {
+        runtime_sound_maximum_handle = 0;
+        runtime_sound_thread = runtime_sound_readiness_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
+        if(runtime_sound_thread != nullptr)
+        {
+            runtime_sound_readiness_api.sleep(2);
+            if(runtime_sound_readiness_api.initialize_mixer(format, mixer_argument) == 0)
+            {
+                runtime_sound_readiness_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
+                runtime_sound_readiness_api.wait_for_single_object(runtime_sound_thread, INFINITE);
+                runtime_sound_readiness_api.close_handle(runtime_sound_thread);
+                runtime_sound_thread = nullptr;
+                runtime_sound_thread_id = 0;
+            }
+            else
+            {
+                runtime_sound_ready = 1;
+            }
+        }
+    }
+    runtime_sound_readiness_api.release_mutex(runtime_sound_lifecycle_mutex);
+    return 1;
+}
+
+// GAG.EXE: 0x00402100
+DWORD WINAPI run_runtime_sound_thread(LPVOID)
+{
+    runtime_sound_window_creation_failed = 0;
+    runtime_sound_window =
+        runtime_sound_thread_api.create_window_ex(0, "SoundClassName", nullptr, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 0x244, 0x1e0, nullptr, nullptr, runtime_sound_instance, nullptr);
+    if(runtime_sound_window == nullptr)
+    {
+        runtime_sound_window_creation_failed = 1;
+        return 0;
+    }
+    runtime_sound_thread_api.show_window(runtime_sound_window, SW_HIDE);
+    runtime_sound_thread_api.set_thread_priority(runtime_sound_thread_api.get_current_thread(), THREAD_PRIORITY_HIGHEST);
+    MSG message{};
+    while(runtime_sound_thread_api.get_message(&message, nullptr, 0, 0) != 0)
+    {
+        runtime_sound_thread_api.dispatch_message(&message);
+    }
+    runtime_sound_window = nullptr;
+    runtime_sound_thread_api.set_thread_priority(runtime_sound_thread_api.get_current_thread(), THREAD_PRIORITY_NORMAL);
+    runtime_sound_thread_api.exit_thread(1);
+    return 1;
+}
+
+// GAG.EXE: 0x004021E0
+LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    if(message == WOM_OPEN)
+    {
+        for(std::uint32_t index = 0; index < 2; ++index)
+        {
+            RuntimeSoundOutputBlock &output = runtime_sound_outputs[index];
+            output.format->wFormatTag = runtime_sound_output_format->wFormatTag;
+            output.format->nChannels = runtime_sound_output_format->nChannels;
+            output.format->nSamplesPerSec = runtime_sound_output_format->nSamplesPerSec;
+            output.format->nAvgBytesPerSec = runtime_sound_output_format->nAvgBytesPerSec;
+            output.format->nBlockAlign = runtime_sound_output_format->nBlockAlign;
+            output.format->wBitsPerSample = runtime_sound_output_format->wBitsPerSample;
+            output.header->dwLoops = 0;
+            output.header->dwFlags = 0;
+            output.header->lpData = reinterpret_cast<LPSTR>(output.data);
+            output.header->dwBufferLength = runtime_sound_mixer_data_size;
+            output.header->dwUser = 0;
+            runtime_sound_window_api.wave_out_prepare_header(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
+            output.header->dwFlags |= WHDR_DONE;
+        }
+        runtime_sound_output_index = 0;
+        runtime_sound_output_initialized = 1;
+        runtime_sound_output_ready = 1;
+    }
+    if(message == WOM_OPEN || message == WOM_DONE)
+    {
+        if(runtime_sound_output_initialized != 0)
+        {
+            for(std::uint32_t count = 0; count < 2; ++count)
+            {
+                RuntimeSoundOutputBlock &output = runtime_sound_outputs[runtime_sound_output_index];
+                if((output.header->dwFlags & WHDR_DONE) != 0)
+                {
+                    output.header->dwFlags &= ~WHDR_DONE;
+                    runtime_sound_window_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+                    runtime_sound_mixer(static_cast<std::uint32_t>(wparam));
+                    runtime_sound_window_api.release_mutex(runtime_sound_mutex);
+                    runtime_sound_window_api.wave_out_write(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
+                    ++runtime_sound_output_index;
+                    if(runtime_sound_output_index > 1)
+                    {
+                        runtime_sound_output_index = 0;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+    if(message == WM_DESTROY)
+    {
+        runtime_sound_window_api.post_quit_message(0);
+        return 0;
+    }
+    if(message == WOM_CLOSE)
+    {
+        runtime_sound_window_api.destroy_window(window);
+        return 0;
+    }
+    return runtime_sound_window_api.def_window_proc(window, message, wparam, lparam);
+}
+
+// Non-original helper: exact 8-bit saturating add used by GAG's PCM mixers.
+void mix_unsigned_8bit_sample(std::uint8_t *destination, std::uint8_t scaled_sample, std::uint8_t scaled_silence)
+{
+    const int mixed = static_cast<int>(*destination) + static_cast<int>(scaled_sample) - static_cast<int>(scaled_silence);
+    if(mixed < 0)
+    {
+        *destination = 2;
+    }
+    else if(mixed > 255)
+    {
+        *destination = 0xfd;
+    }
+    else
+    {
+        *destination = static_cast<std::uint8_t>(mixed);
+    }
+}
+
+// Non-original helper: exact signed 16-bit overflow clamps used by GAG's PCM mixers.
+void mix_signed_16bit_sample(std::uint16_t *destination, std::uint16_t scaled_sample)
+{
+    const std::uint16_t original = *destination;
+    *destination = static_cast<std::uint16_t>(original + scaled_sample);
+    if(original < 0x8000)
+    {
+        if(scaled_sample < 0x8000 && *destination > 0x7fff)
+        {
+            *destination = 0x7ffa;
+        }
+    }
+    else if(scaled_sample > 0x7ffe && *destination < 0x8000)
+    {
+        *destination = 0x8005;
+    }
+}
+
+// Non-original helper shared by the four address-bearing PCM mixer entry points.
+void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
+{
+    const bool sixteen_bit = mode >= 2;
+    std::uint8_t *output = runtime_sound_outputs[runtime_sound_output_index].data;
+    if(output == nullptr)
+    {
+        return;
+    }
+    std::uint32_t clear_bytes = runtime_sound_mixer_data_size;
+    if(mode == 1 || mode == 2)
+    {
+        clear_bytes &= ~1U;
+    }
+    else if(mode == 3)
+    {
+        clear_bytes &= ~3U;
+    }
+    std::memset(output, sixteen_bit ? 0 : 0x80, clear_bytes);
+    if(runtime_sound_base_state != 0)
+    {
+        return;
+    }
+    std::uint32_t handle = 1;
+    do
+    {
+        RuntimeSoundSlot &slot = runtime_sound_slots[handle];
+        if(slot.active != 0)
+        {
+            if(slot.playing != 0)
+            {
+                if((slot.transition_flags & 2) == 0 || slot.volume == 0)
+                {
+                    slot.transition_flags &= ~2U;
+                    if(slot.playback_state == 0)
+                    {
+                        slot.playback_state = marker;
+                    }
+                    if(slot.buffers != nullptr)
+                    {
+                        slot.buffers->unknown_000c = 0;
+                    }
+                    ++handle;
+                    continue;
+                }
+                if(slot.fade_step == 0)
+                {
+                    if(slot.fade_current == 0)
+                    {
+                        slot.fade_current = slot.fade_block_index;
+                        --slot.volume;
+                    }
+                    else
+                    {
+                        --slot.fade_current;
+                    }
+                }
+                else if(slot.volume < slot.fade_step)
+                {
+                    slot.volume = 0;
+                }
+                else
+                {
+                    slot.volume = static_cast<std::uint8_t>(slot.volume - slot.fade_step);
+                }
+            }
+            if((slot.transition_flags & 1) == 0 || slot.volume > 99)
+            {
+                slot.transition_flags &= ~1U;
+            }
+            else if(slot.fade_step == 0)
+            {
+                if(slot.fade_current == 0)
+                {
+                    slot.fade_current = slot.fade_block_index;
+                    ++slot.volume;
+                }
+                else
+                {
+                    --slot.fade_current;
+                }
+            }
+            else
+            {
+                const std::uint8_t volume = static_cast<std::uint8_t>(slot.volume + slot.fade_step);
+                slot.volume = volume < 101 ? volume : 100;
+            }
+            std::uint32_t output_offset = 0;
+            for(;;)
+            {
+                RuntimeSoundBufferNode *node = slot.buffers;
+                if(node == nullptr || output_offset >= runtime_sound_mixer_data_size)
+                {
+                    break;
+                }
+                if(node->data != nullptr)
+                {
+                    std::uint32_t output_multiplier = 1;
+                    std::uint32_t input_stride = 1;
+                    const std::uint16_t conversion = slot.conversion_flags;
+                    if(sixteen_bit)
+                    {
+                        if((conversion & 0x1000) != 0)
+                        {
+                            output_multiplier = 2;
+                        }
+                    }
+                    else if((conversion & 0x2000) != 0)
+                    {
+                        input_stride = 2;
+                    }
+                    if((conversion & 0x00f0) != 0)
+                    {
+                        input_stride = sixteen_bit ? 0x10 / ((conversion & 0x00f0) >> 4) : (input_stride << 4) / ((conversion & 0x00f0) >> 4);
+                    }
+                    if((conversion & 0x000f) != 0)
+                    {
+                        output_multiplier = (conversion & 0x000f) * output_multiplier * 2;
+                    }
+                    if((node->offset * output_multiplier) / input_stride == runtime_sound_mixer_data_size || (node->unknown_000c * output_multiplier) / input_stride == runtime_sound_mixer_data_size)
+                    {
+                        slot.schedule_state = marker;
+                    }
+                    const std::uint32_t available = ((node->size - node->offset) * output_multiplier) / input_stride;
+                    std::uint32_t output_bytes = runtime_sound_mixer_data_size - output_offset;
+                    if(available <= output_bytes)
+                    {
+                        output_bytes = available;
+                    }
+                    if((sixteen_bit ? output_bytes >> 1 : output_bytes) != 0)
+                    {
+                        std::uint32_t source_count = (sixteen_bit ? output_bytes >> 1 : output_bytes) / output_multiplier;
+                        std::uint8_t *destination = output + output_offset;
+                        const std::uint8_t *source = static_cast<const std::uint8_t *>(node->data) + node->offset;
+                        const std::uint32_t volume = slot.volume;
+                        const std::uint8_t scaled_silence = static_cast<std::uint8_t>((volume * 0x80U) / 100U);
+                        if(runtime_sound_mixing_suppressed == 0)
+                        {
+                            if(sixteen_bit)
+                            {
+                                std::uint16_t *destination_16 = reinterpret_cast<std::uint16_t *>(destination);
+                                if(conversion == 0)
+                                {
+                                    do
+                                    {
+                                        const std::int16_t sample = *reinterpret_cast<const std::int16_t *>(source);
+                                        source += 2;
+                                        mix_signed_16bit_sample(destination_16++, static_cast<std::uint16_t>((static_cast<std::int64_t>(sample) * volume) / 100));
+                                    } while(--source_count != 0);
+                                }
+                                else if((conversion & 0xf000) == 0)
+                                {
+                                    do
+                                    {
+                                        const std::int16_t sample = *reinterpret_cast<const std::int16_t *>(source);
+                                        source += input_stride * 2;
+                                        const std::uint16_t scaled = static_cast<std::uint16_t>((static_cast<std::int64_t>(sample) * volume) / 100);
+                                        std::uint32_t repeat = output_multiplier;
+                                        do
+                                        {
+                                            mix_signed_16bit_sample(destination_16++, scaled);
+                                        } while(--repeat != 0);
+                                    } while(--source_count != 0);
+                                }
+                                else
+                                {
+                                    std::uint32_t byte_count = source_count << 1;
+                                    do
+                                    {
+                                        const std::uint8_t scaled_byte = static_cast<std::uint8_t>((*source * volume) / 100U - 0x80U);
+                                        source += input_stride;
+                                        const std::uint16_t scaled = static_cast<std::uint16_t>(scaled_byte << 8);
+                                        std::uint32_t repeat = output_multiplier >> 1;
+                                        do
+                                        {
+                                            mix_signed_16bit_sample(destination_16++, scaled);
+                                        } while(--repeat != 0);
+                                    } while(--byte_count != 0);
+                                }
+                            }
+                            else if(conversion == 0)
+                            {
+                                do
+                                {
+                                    mix_unsigned_8bit_sample(destination++, static_cast<std::uint8_t>((*source++ * volume) / 100U), scaled_silence);
+                                } while(--source_count != 0);
+                            }
+                            else if((conversion & 0xf000) == 0)
+                            {
+                                do
+                                {
+                                    std::uint8_t scaled = static_cast<std::uint8_t>((*source * volume) / 100U);
+                                    source += input_stride;
+                                    std::uint32_t repeat = output_multiplier;
+                                    do
+                                    {
+                                        mix_unsigned_8bit_sample(destination++, scaled, scaled_silence);
+                                    } while(--repeat != 0);
+                                } while(--source_count != 0);
+                            }
+                            else
+                            {
+                                do
+                                {
+                                    const std::uint8_t centered = static_cast<std::uint8_t>(source[1] - 0x80);
+                                    std::uint8_t scaled = static_cast<std::uint8_t>((centered * volume) / 100U);
+                                    source += input_stride;
+                                    std::uint32_t repeat = output_multiplier;
+                                    do
+                                    {
+                                        mix_unsigned_8bit_sample(destination++, scaled, scaled_silence);
+                                    } while(--repeat != 0);
+                                } while(--source_count != 0);
+                            }
+                        }
+                    }
+                    output_offset += output_bytes;
+                    const std::uint32_t input_bytes = (output_bytes * input_stride) / output_multiplier;
+                    node->offset += input_bytes;
+                    if(node->unknown_000c <= runtime_sound_mixer_data_size)
+                    {
+                        node->unknown_000c += input_bytes;
+                    }
+                    if(node->offset < node->size)
+                    {
+                        break;
+                    }
+                }
+                if(slot.loop_value_1 == 0)
+                {
+                    slot.buffers = node->next;
+                    runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, node);
+                    slot.playback_state = marker;
+                    continue;
+                }
+                node->offset = 0;
+                if(slot.loop_value_1 == 0xffffffff || --slot.loop_value_2 != 0)
+                {
+                    continue;
+                }
+                slot.loop_value_2 = slot.loop_value_1;
+                slot.playing = 1;
+                slot.playback_state = marker;
+                break;
+            }
+        }
+        ++handle;
+    } while(handle <= static_cast<std::uint8_t>(runtime_sound_maximum_handle));
+}
+
+// GAG.EXE: 0x004023C0
+void __fastcall mix_runtime_sound_8bit_mono(std::uint32_t marker)
+{
+    mix_runtime_sound_pcm(marker, 0);
+}
+
+// GAG.EXE: 0x00402770
+void __fastcall mix_runtime_sound_8bit_stereo(std::uint32_t marker)
+{
+    mix_runtime_sound_pcm(marker, 1);
+}
+
+// GAG.EXE: 0x00402B10
+void __fastcall mix_runtime_sound_16bit_mono(std::uint32_t marker)
+{
+    mix_runtime_sound_pcm(marker, 2);
+}
+
+// GAG.EXE: 0x00402F10
+void __fastcall mix_runtime_sound_16bit_stereo(std::uint32_t marker)
+{
+    mix_runtime_sound_pcm(marker, 3);
+}
+
+// GAG.EXE: 0x00401330
+std::uint32_t __fastcall initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, std::uint32_t)
+{
+    if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
+    {
+        return 0;
+    }
+    runtime_sound_output_ready = 0;
+    const std::int32_t sample_width = static_cast<std::int32_t>(format->nChannels) * static_cast<std::int32_t>(format->wBitsPerSample);
+    runtime_sound_mixer_data_size = static_cast<std::uint32_t>((sample_width + (sample_width < 0 ? 7 : 0)) >> 3) * (format->nSamplesPerSec / 11000) * 0x800;
+    const std::uint32_t block_stride = runtime_sound_mixer_data_size + 0x32;
+    if(runtime_sound_output_initialized != 0)
+    {
+        return 1;
+    }
+    runtime_sound_format_buffer = runtime_wave_mixer_initialize_api.heap_alloc(runtime_wave_mixer_initialize_api.get_process_heap(), 0, block_stride * 2);
+    if(runtime_sound_format_buffer == nullptr)
+    {
+        return 0;
+    }
+    std::memset(runtime_sound_format_buffer, 0, block_stride * 2);
+    for(std::uint32_t index = 0; index < 2; ++index)
+    {
+        std::uint8_t *block = static_cast<std::uint8_t *>(runtime_sound_format_buffer) + block_stride * index;
+        runtime_sound_outputs[index].format = reinterpret_cast<WAVEFORMATEX *>(block);
+        runtime_sound_outputs[index].header = reinterpret_cast<WAVEHDR *>(block + 0x12);
+        runtime_sound_outputs[index].data = block + 0x32;
+        runtime_sound_headers[index] = runtime_sound_outputs[index].header;
+    }
+    runtime_sound_output_format = runtime_sound_outputs[0].format;
+    if(format == nullptr)
+    {
+        runtime_wave_mixer_initialize_api.cleanup_format_buffer();
+        return 0;
+    }
+    runtime_sound_output_format->wBitsPerSample = format->wBitsPerSample;
+    runtime_sound_output_format->wFormatTag = format->wFormatTag;
+    runtime_sound_output_format->nChannels = format->nChannels;
+    runtime_sound_output_format->nSamplesPerSec = format->nSamplesPerSec;
+    runtime_sound_output_format->nAvgBytesPerSec = runtime_sound_output_format->nChannels * runtime_sound_output_format->wBitsPerSample * runtime_sound_output_format->nSamplesPerSec >> 3;
+    const std::int32_t block_width = static_cast<std::int32_t>(runtime_sound_output_format->nChannels) * static_cast<std::int32_t>(runtime_sound_output_format->wBitsPerSample);
+    runtime_sound_output_format->nBlockAlign = static_cast<WORD>((block_width + (block_width < 0 ? 7 : 0)) >> 3);
+    if(runtime_sound_output_format->wBitsPerSample == 8)
+    {
+        if(runtime_sound_output_format->nChannels == 1)
+        {
+            runtime_sound_mixer = mix_runtime_sound_8bit_mono;
+        }
+        else if(runtime_sound_output_format->nChannels == 2)
+        {
+            runtime_sound_mixer = mix_runtime_sound_8bit_stereo;
+        }
+    }
+    else if(runtime_sound_output_format->wBitsPerSample == 16)
+    {
+        if(runtime_sound_output_format->nChannels == 1)
+        {
+            runtime_sound_mixer = mix_runtime_sound_16bit_mono;
+        }
+        else if(runtime_sound_output_format->nChannels == 2)
+        {
+            runtime_sound_mixer = mix_runtime_sound_16bit_stereo;
+        }
+    }
+    while(runtime_sound_window == nullptr)
+    {
+        if(runtime_sound_window_creation_failed != 0)
+        {
+            runtime_wave_mixer_initialize_api.cleanup_format_buffer();
+            return 0;
+        }
+        runtime_wave_mixer_initialize_api.sleep(0);
+    }
+    if(runtime_wave_mixer_initialize_api.wave_out_open(&runtime_sound_wave_out, WAVE_MAPPER, runtime_sound_output_format, reinterpret_cast<DWORD_PTR>(runtime_wave_out_callback), 0, 0x30000)
+        != MMSYSERR_NOERROR)
+    {
+        runtime_sound_fault = 1;
+        runtime_wave_mixer_initialize_api.cleanup_format_buffer();
+        return 0;
+    }
+    runtime_sound_base_state = 0;
+    while(runtime_sound_output_ready == 0)
+    {
+        runtime_wave_mixer_initialize_api.sleep(0);
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00401000
+void __fastcall initialize_runtime_sound_class(HINSTANCE instance)
+{
+    if(runtime_sound_enabled != 0)
+    {
+        return;
+    }
+    WNDCLASSA window_class{};
+    window_class.lpfnWndProc = runtime_sound_window_procedure;
+    window_class.hInstance = instance;
+    window_class.lpszClassName = "SoundClassName";
+    runtime_sound_instance = instance;
+    if(runtime_sound_class_api.register_class(&window_class) != 0)
+    {
+        runtime_sound_lifecycle_mutex = runtime_sound_class_api.create_mutex(nullptr, FALSE, nullptr);
+        runtime_sound_mutex = runtime_sound_class_api.create_mutex(nullptr, FALSE, nullptr);
+        runtime_sound_enabled = 1;
+    }
+}
+
+// GAG.EXE: 0x004012C0
+std::uint32_t __fastcall runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX *right)
+{
+    if(left == nullptr || right == nullptr)
+    {
+        return 0;
+    }
+    return left->wBitsPerSample == right->wBitsPerSample && left->wFormatTag == right->wFormatTag && left->nChannels == right->nChannels && left->nSamplesPerSec == right->nSamplesPerSec;
+}
+
+// GAG.EXE: 0x00403410
+std::uint32_t __fastcall calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAVEFORMATEX *destination, std::uint16_t *conversion_flags)
+{
+    std::uint16_t flags = 0;
+    if(source == nullptr || destination == nullptr)
+    {
+        return 0;
+    }
+    if(source->wBitsPerSample > 15 && destination->wBitsPerSample < 9)
+    {
+        flags = 0x1000;
+    }
+    if(source->wBitsPerSample < 9 && destination->wBitsPerSample > 15)
+    {
+        flags |= 0x2000;
+    }
+    if(source->nChannels > 1)
+    {
+        if(destination->nChannels < 2)
+        {
+            flags = static_cast<std::uint16_t>((flags & 0xff00) | 1);
+        }
+    }
+    else if(destination->nChannels > 1)
+    {
+        flags |= 0x80;
+    }
+    const std::uint32_t source_rate = source->nSamplesPerSec;
+    const std::uint32_t destination_rate = destination->nSamplesPerSec;
+    std::uint8_t low_flags = static_cast<std::uint8_t>(flags);
+    if(source_rate <= destination_rate)
+    {
+        if(destination_rate > source_rate)
+        {
+            const std::uint32_t ratio = destination_rate / source_rate;
+            if(ratio * source_rate != destination_rate || (ratio != 2 && ratio != 4))
+            {
+                return 0;
+            }
+            if(low_flags == 0)
+            {
+                low_flags = ratio == 2 ? 0x80 : 0x40;
+            }
+            else if(ratio == 2)
+            {
+                low_flags >>= 1;
+            }
+            else
+            {
+                low_flags = static_cast<std::uint8_t>((low_flags >> 2) | (low_flags << 7));
+            }
+            flags = static_cast<std::uint16_t>((flags & 0xff00) | low_flags);
+        }
+        *conversion_flags = flags;
+        return 1;
+    }
+    const std::uint32_t ratio = source_rate / destination_rate;
+    if(ratio * destination_rate != source_rate || (ratio != 2 && ratio != 4))
+    {
+        return 0;
+    }
+    if(low_flags == 0)
+    {
+        low_flags = ratio == 2 ? 1 : 2;
+    }
+    else if(ratio == 2)
+    {
+        low_flags = static_cast<std::uint8_t>(low_flags << 1);
+    }
+    else
+    {
+        low_flags = static_cast<std::uint8_t>((low_flags << 2) | (low_flags >> 7));
+    }
+    flags = static_cast<std::uint16_t>((flags & 0xff00) | low_flags);
+    *conversion_flags = flags;
+    return 1;
+}
+
+// GAG.EXE: 0x00401300
+void cleanup_runtime_sound_format_buffer()
+{
+    if(runtime_sound_format_buffer != nullptr)
+    {
+        runtime_sound_base_state = 0;
+        runtime_sound_format_cleanup_api.heap_free(runtime_sound_format_cleanup_api.get_process_heap(), 0, runtime_sound_format_buffer);
+        runtime_sound_format_buffer = nullptr;
+    }
+}
+
+// Non-original helper: exact pre-dispatch normalization from ConstructRuntimeResourceObject.
+RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t flags)
+{
+    RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y };
+    if((flags & 0x40) == 0)
+    {
+        if((flags & 1) != 0)
+        {
+            plan.scene_identifier = 0;
+            plan.scene_flags = 0x20000;
+            plan.flags |= 0x80;
+        }
+        if((plan.flags & 0x20) != 0 && plan.scene_identifier == 0)
+        {
+            plan.scene_identifier = runtime_resource_construction_plan_api.find_available_scene(0x8000);
+            plan.scene_flags |= 0x40;
+        }
+        if((plan.flags & 6) == 0)
+        {
+            plan.scene_flags |= 0x8000000;
+        }
+    }
+    else
+    {
+        if(scene_identifier == 0)
+        {
+            plan.scene_identifier = runtime_resource_construction_plan_api.find_available_scene(1);
+        }
+        plan.scene_flags = 0x40;
+    }
+    if((plan.flags & 4) != 0)
+    {
+        plan.scene_identifier = runtime_resource_construction_plan_api.find_available_scene(0x80000);
+        plan.x = 10000;
+        plan.y = 10000;
+    }
+    if((plan.flags & 2) != 0)
+    {
+        plan.flags |= 0x100600;
+        plan.scene_flags |= 0x40;
+        plan.scene_identifier = runtime_resource_construction_plan_api.find_available_scene(0x100000);
+        plan.x = 10000;
+        plan.y = 10000;
+    }
+    return plan;
+}
+
+// GAG.EXE: 0x00428160
+std::uint32_t __fastcall update_runtime_resource_visibility(DisplayTraversalState *state)
+{
+    auto *context = static_cast<RuntimeResourceVisibilityCallbackContext *>(state->callback_context);
+    std::uint32_t visible = (context->resource_flags & 0x80001000) != 0x80001000;
+    if(visible != 0 && (context->resource_flags & 0x2000) != 0)
+    {
+        const auto *rectangle = static_cast<const DisplayRectangle *>(state->data);
+        visible = rectangle->left < rectangle->right && rectangle->top < rectangle->bottom;
+    }
+    std::uint32_t result;
+    if((state->flags & 0x1000000) != 0)
+    {
+        visible |= context->palette_state != (runtime_scene_control_flags & 0x8000);
+        context->palette_state = runtime_scene_control_flags & 0x8000;
+        result = visible == 0;
+    }
+    if((state->flags & 0x2000000) != 0)
+    {
+        visible &= (runtime_scene_control_flags & 0x8000) >> 15;
+        if(visible != 0)
+        {
+            auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<const void *>(state->first_position));
+            auto *destination = static_cast<std::uint8_t *>(reinterpret_cast<void *>(state->current_position));
+            std::uint8_t row_mask = 0xff;
+            std::uint32_t rows = state->value_0c;
+            do
+            {
+                std::uint8_t mask = row_mask;
+                std::uint32_t columns = state->value_08;
+                do
+                {
+                    *destination++ = *source++ & mask;
+                    mask = static_cast<std::uint8_t>(~mask);
+                } while(--columns != 0);
+                row_mask = static_cast<std::uint8_t>(~row_mask);
+            } while(--rows != 0);
+            context->resource_flags |= 0x80000000;
+        }
+        if(visible == 0 && (runtime_scene_control_flags & 0x8000) == 0)
+        {
+            return 1;
+        }
+        return 0;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00425BD0
+void __fastcall request_runtime_resource_destruction(void *identity)
+{
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
+    if(resource == nullptr)
+    {
+        return;
+    }
+    const std::uint32_t flags = resource->type_flags;
+    const std::uint32_t type = flags & 0xff000;
+    if(type == 0x1000)
+    {
+        runtime_resource_control_api.destroy_resource(identity);
+        if((flags & 6) == 0)
+        {
+            --runtime_resource_count;
+        }
+        return;
+    }
+    if(type != 0x2000)
+    {
+        runtime_resource_control_api.destroy_resource(identity);
+        return;
+    }
+    static_cast<RuntimeMediaBackend *>(resource->backend)->media_flags |= 0x10000;
+    runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
+}
+
+// GAG.EXE: 0x00425FB0
+std::uint32_t __fastcall query_runtime_resource_frame_limit(void *identity)
+{
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
+    if(resource == nullptr)
+    {
+        return 0;
+    }
+    const std::uint32_t result = resource->frame_limit;
+    runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
+    return result;
+}
+
+// GAG.EXE: 0x004258C0
+void __fastcall set_runtime_property_value(std::uint32_t value)
+{
+    runtime_property_value = value;
+}
+
+// GAG.EXE: 0x00425F00
+std::uint32_t get_runtime_property_value()
+{
+    return runtime_property_value;
+}
+
+// GAG.EXE: 0x00426080
+std::uint16_t __fastcall query_runtime_resource_frame_number(void *identity)
+{
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
+    std::uint16_t result = 0;
+    if(resource != nullptr)
+    {
+        if((resource->type_flags & 0x3000) == 0x2000 && resource->backend != nullptr)
+        {
+            result = static_cast<RuntimeMediaBackend *>(resource->backend)->frame_number;
+        }
+        runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
+    }
+    return result;
+}
+
+// Non-original helper exposing the original hidden ESI input for deterministic testing.
+void select_runtime_resource_with_loop_register(char *path, std::int32_t loop_animation)
+{
+    runtime_resource_selection_api.enter_critical_section(&runtime_resource_critical_section);
+    if((runtime_scene_control_flags & 0x10000000) != 0)
+    {
+        runtime_resource_selection_api.close_archive(runtime_resource_archive);
+        runtime_resource_archive = nullptr;
+        runtime_scene_control_flags &= 0xefffffff;
+        graphics_host_storage[0x0c] = 0;
+    }
+    runtime_resource_selection_api.leave_critical_section(&runtime_resource_critical_section);
+    if(path != nullptr)
+    {
+        runtime_resource_selection_api.send_message(reinterpret_cast<HWND>(graphics_host_state.unknown_0000), 0x7ffd, 0xa0000000, reinterpret_cast<LPARAM>(path));
+        runtime_resource_selection_api.construct_resource(path, 0, 0, 0, 0, 0, 0, 0x200, loop_animation);
+    }
+}
+
+// GAG.EXE: 0x004244E0
+void __fastcall select_runtime_resource(char *path)
+{
+    std::int32_t loop_animation;
+#if defined(_MSC_VER) && defined(_M_IX86)
+    __asm mov loop_animation, esi
+#elif defined(__GNUC__) && defined(__i386__)
+    __asm__ volatile("movl %%esi, %0" : "=r"(loop_animation));
+#else
+#error GAG requires an x86 compiler capable of reading the original ESI callback input
+#endif
+                                  select_runtime_resource_with_loop_register(path, loop_animation);
+}
+
+// GAG.EXE: 0x00425FF0
+std::uint32_t __fastcall query_runtime_resource_playback_flags(void *identity)
+{
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
+    if(resource == nullptr)
+    {
+        return 0;
+    }
+    std::uint32_t result = 0;
+    const std::uint32_t type = resource->type_flags & 0xff000;
+    if(type == 0x1000 || type == 0x2000)
+    {
+        result = static_cast<RuntimeMediaBackend *>(resource->backend)->media_flags;
+    }
+    else if(type == 0x8000)
+    {
+        result = 0x1000000;
+        auto *slot = runtime_resource_control_api.get_sound_slot(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->backend)));
+        if(slot->playing != 0)
+        {
+            result = 0x1000001;
+        }
+        if(slot->playback_state != 0 || (slot->schedule_state == 0 && slot->playing == 0))
+        {
+            result |= 0x2000;
+        }
+        if(slot->loop_value_1 == 0xffffffff)
+        {
+            result |= 0x400;
+        }
+    }
+    runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
+    return result;
+}
+
+// GAG.EXE: 0x004260B0
+void unload_runtime_game_dll()
+{
+    runtime_game_dll_unload_api.enter_critical_section(&runtime_game_dll_critical_section);
+    if((runtime_scene_control_flags & 0x10) != 0)
+    {
+        runtime_game_dll_unload_api.free_library(runtime_game_dll_module);
+        if((runtime_scene_control_flags & 0x1000) != 0)
+        {
+            runtime_game_dll_unload_api.leave_runtime_state();
+        }
+        runtime_scene_control_flags = (runtime_scene_control_flags & ~0x10u) | 0x20;
+    }
+    runtime_game_dll_unload_api.leave_critical_section(&runtime_game_dll_critical_section);
+}
+
+// GAG.EXE: 0x00426110
+bool __fastcall load_and_initialize_runtime_game_dll(const char *path)
+{
+    bool result = false;
+    runtime_game_dll_load_api.enter_critical_section(&runtime_game_dll_critical_section);
+    if((runtime_scene_control_flags & 0x10) == 0)
+    {
+        result = true;
+        runtime_game_dll_load_api.update_resource_host(path, 0);
+        char full_path[MAX_PATH];
+        runtime_game_dll_load_api.build_resource_path(full_path, path);
+        static constexpr char loading_scene[] = "m_DEF_LOAD";
+        runtime_game_dll_load_api.activate_comment_scene(loading_scene);
+        runtime_game_dll_module = runtime_game_dll_load_api.load_library(full_path);
+        if(runtime_game_dll_module == nullptr)
+        {
+            result = false;
+        }
+        if(result)
+        {
+            runtime_game_dll_initialize = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(1));
+            if(runtime_game_dll_initialize == nullptr)
+            {
+                result = false;
+            }
+            runtime_game_dll_window_procedure = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(2));
+            if(runtime_game_dll_window_procedure == nullptr)
+            {
+                result = false;
+            }
+            runtime_game_dll_execute = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(3));
+            if(runtime_game_dll_execute == nullptr)
+            {
+                result = false;
+            }
+            if(result)
+            {
+                runtime_scene_control_flags = (runtime_scene_control_flags | 0x10) & ~0x20u;
+                reinterpret_cast<RuntimeGameDllInitialize>(runtime_game_dll_initialize)(&runtime_game_host_context, runtime_game_host_callbacks);
+            }
+        }
+        runtime_game_dll_load_api.deactivate_comment_scene(loading_scene);
+        runtime_game_dll_load_api.reset_byte_queue();
+        runtime_game_dll_load_api.reset_pair_queue();
+    }
+    runtime_game_dll_load_api.leave_critical_section(&runtime_game_dll_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x00426210
+std::uint32_t stop_runtime_game_dll()
+{
+    if((runtime_scene_control_flags & 0x10) == 0)
+    {
+        return 0;
+    }
+    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(1);
+    const DWORD start = runtime_game_dll_dispatch_api.time_get_time();
+    while((runtime_scene_control_flags & 0x10) != 0 && runtime_game_dll_dispatch_api.time_get_time() - start < 5000)
+    {
+        runtime_game_dll_dispatch_api.sleep(10);
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00426270
+std::uint32_t pause_runtime_game_dll()
+{
+    if((runtime_scene_control_flags & 0x10) == 0)
+    {
+        return 0;
+    }
+    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(2);
+    return 1;
+}
+
+// GAG.EXE: 0x00426290
+std::uint32_t resume_runtime_game_dll()
+{
+    if((runtime_scene_control_flags & 0x10) == 0)
+    {
+        return 0;
+    }
+    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(4);
+    return 1;
+}
+
+// GAG.EXE: 0x004243F0
+void __fastcall update_runtime_pointer_position(std::int32_t x, std::int32_t y)
+{
+    RuntimeSceneRecord *record = nullptr;
+    RuntimeNamedNode *node = nullptr;
+    if((runtime_scene_control_flags & 0x1000) == 0)
+    {
+        const DWORD thread = runtime_pointer_position_api.get_current_thread_id();
+        for(;;)
+        {
+            bool contended = false;
+            runtime_pointer_position_api.enter_critical_section(&runtime_named_lock_critical_section);
+            node = runtime_pointer_position_api.find_child(runtime_named_lock_parent_identity, current_runtime_scene_identity);
+            if(node != nullptr)
+            {
+                record = static_cast<RuntimeSceneRecord *>(node->identity);
+                if(record->recursion_count == 0 || record->owner_thread == thread)
+                {
+                    ++record->recursion_count;
+                    record->owner_thread = thread;
+                }
+                else
+                {
+                    contended = true;
+                }
+            }
+            runtime_pointer_position_api.leave_critical_section(&runtime_named_lock_critical_section);
+            if(!contended)
+            {
+                break;
+            }
+            runtime_pointer_position_api.sleep(5);
+        }
+        if(node != nullptr)
+        {
+            runtime_pointer_position_api.offset_scene(record->scene_identifier, (x - record->x_offset) - record->x, (y - record->y_offset) - record->y);
+            record->x = x - record->x_offset;
+            record->y = y - record->y_offset;
+        }
+    }
+    runtime_pointer_x = x;
+    runtime_pointer_y = y;
+    if(node != nullptr)
+    {
+        --record->recursion_count;
+    }
+}
+
+// GAG.EXE: 0x004231E0
+LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    const auto translated_lparam = [&]() -> LPARAM
+    {
+        const std::uint16_t x = static_cast<std::uint16_t>(static_cast<std::uint16_t>(LOWORD(lparam)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_0038));
+        const std::uint16_t y = static_cast<std::uint16_t>(static_cast<std::uint16_t>(HIWORD(lparam)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_003c));
+        return static_cast<LPARAM>(MAKELONG(x, y));
+    };
+
+    if((runtime_scene_control_flags & 0x10) != 0 && reinterpret_cast<RuntimeGameDllWindowProcedure>(runtime_game_dll_window_procedure)(window, message, wparam, lparam) == 0x10000)
+    {
+        if(message == 0x30f)
+        {
+            return 1;
+        }
+        if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
+        {
+            runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
+        }
+        return 0;
+    }
+
+    if(message == WM_ERASEBKGND)
+    {
+        return 1;
+    }
+    if(message == WM_PAINT)
+    {
+        RECT rectangle;
+        if(runtime_game_window_api.get_update_rect(window, &rectangle, FALSE) != FALSE)
+        {
+            PAINTSTRUCT paint;
+            runtime_game_window_api.begin_paint(window, &paint);
+            runtime_game_window_api.queue_display_rectangle(reinterpret_cast<DisplayRectangle *>(&rectangle));
+            runtime_game_window_api.end_paint(window, &paint);
+            return 0;
+        }
+    }
+    else if(message == WM_CHAR)
+    {
+        runtime_game_window_api.enqueue_byte(static_cast<std::uint8_t>(wparam));
+    }
+    else if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
+    {
+        if(message == WM_MOUSEMOVE)
+        {
+            runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(lparam)), static_cast<std::uint16_t>(HIWORD(lparam)));
+        }
+        runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
+        runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(lparam));
+        return 0;
+    }
+    else if(message == 0x30f)
+    {
+        runtime_game_window_api.enqueue_message(0x30f);
+        return 1;
+    }
+    else if(message == 0x310)
+    {
+        return 0;
+    }
+    else if(message == 0x311)
+    {
+        if(reinterpret_cast<HWND>(wparam) != window)
+        {
+            runtime_game_window_api.enqueue_message(0x311);
+        }
+        return 0;
+    }
+    else if(message == 0x7ffc)
+    {
+        switch(static_cast<std::uint32_t>(lparam))
+        {
+        case 0:
+        case 1:
+            runtime_game_window_api.clear_runtime_flag();
+            runtime_game_window_api.unload_game_dll();
+            break;
+        case 2:
+            runtime_game_window_api.enter_runtime_state();
+            break;
+        case 3:
+            runtime_game_window_api.leave_runtime_state();
+            break;
+        case 0x10:
+            runtime_game_window_api.set_runtime_flag();
+            break;
+        case 0x20:
+            runtime_game_window_api.clear_runtime_flag();
+            break;
+        case 0x40:
+        {
+            const auto *result = reinterpret_cast<const RuntimeGameResultDescriptor *>(wparam);
+            if(result->size < sizeof(runtime_game_result_data))
+            {
+                runtime_game_result_type = result->type;
+                std::memcpy(runtime_game_result_data, result->data, result->size);
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return 0;
+    }
+    else if(message == 0x7ffe)
+    {
+        if(static_cast<std::uint32_t>(lparam) == 0x80000000)
+        {
+            runtime_game_window_api.send_message(runtime_game_main_window, 0x7ffd, 0xd0000000, 0);
+        }
+        else
+        {
+            runtime_game_window_api.send_message(runtime_game_main_window, 0x7ffe, wparam, lparam);
+        }
+        return 0;
+    }
+    return runtime_game_window_api.default_window_procedure(window, message, wparam, lparam);
+}
+
+// GAG.EXE: 0x00424D80
+std::uint32_t __fastcall destroy_runtime_resource(void *identity)
+{
+    auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_destroy_api.acquire_record(identity));
+    std::uint32_t result = 0;
+    if(record == nullptr)
+    {
+        runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_critical_section);
+        RuntimeGenericResourceNode *generic = runtime_resource_destroy_api.find_generic(identity);
+        if(generic != nullptr)
+        {
+            result = 1;
+            runtime_resource_destroy_api.remove_generic(identity);
+        }
+        runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_critical_section);
+        return result;
+    }
+
+    const std::uint32_t type = record->type_flags & 0xff000;
+    bool release_scene = true;
+    if(type == 0x1000)
+    {
+        result = runtime_resource_destroy_api.destroy_media_backend(record->backend);
+        result &= runtime_resource_destroy_api.release_memory_data(record->data);
+    }
+    else if(type == 0x2000)
+    {
+        result = runtime_resource_destroy_api.destroy_media_backend(record->backend);
+        const std::uint32_t storage = record->backend_flags & 0x03000000;
+        if(storage == 0x01000000)
+        {
+            result &= runtime_resource_destroy_api.release_memory_data(record->data);
+        }
+        else if(storage == 0x02000000)
+        {
+            result &= runtime_resource_destroy_api.release_stream(static_cast<AsyncFileRecord *>(record->data));
+        }
+    }
+    else if(type == 0x8000)
+    {
+        runtime_resource_destroy_api.destroy_sound(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->backend)));
+        result = runtime_resource_destroy_api.release_memory_data(record->data);
+    }
+    else if(type == 0x10000)
+    {
+        result = runtime_resource_destroy_api.destroy_generic_backend(record->backend);
+        result &= runtime_resource_destroy_api.release_memory_data(record->data);
+    }
+    else
+    {
+        release_scene = false;
+    }
+    if(release_scene)
+    {
+        result &= runtime_resource_destroy_api.release_scene(0, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(identity))) == 0;
+    }
+    if(current_runtime_resource == identity)
+    {
+        current_runtime_resource = nullptr;
+    }
+    runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_critical_section);
+    runtime_resource_destroy_api.remove_runtime_child(runtime_named_lock_parent_identity, identity);
+    result &= runtime_resource_destroy_api.heap_free(runtime_resource_destroy_api.get_process_heap(), 0, record);
+    runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x00405000
+void __fastcall remove_runtime_generic_resource(void *identity)
+{
+    if(script_runtime_root == nullptr || script_runtime_root->generic_resources == nullptr)
+    {
+        return;
+    }
+    RuntimeGenericResourceNode *previous = nullptr;
+    RuntimeGenericResourceNode *node = script_runtime_root->generic_resources;
+    while(node->identity != identity)
+    {
+        previous = node;
+        node = node->next;
+        if(node == nullptr)
+        {
+            return;
+        }
+    }
+    if(node->active_references == 0)
+    {
+        script_runtime_root->destroy_generic_resource(7, 0, node);
+        if(previous == nullptr)
+        {
+            script_runtime_root->generic_resources = node->next;
+        }
+        else
+        {
+            previous->next = node->next;
+        }
+        runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, node);
+    }
+}
+
+// GAG.EXE: 0x00407810
+RuntimeNamedNode *__fastcall find_runtime_named_child(void *parent_identity, void *child_identity)
+{
+    for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
+    {
+        if(parent->identity == parent_identity)
+        {
+            for(RuntimeNamedNode *child = parent->children; child != nullptr; child = child->next)
+            {
+                if(child->identity == child_identity)
+                {
+                    return child;
+                }
+                if(parent->child_sentinel == child)
+                {
+                    return nullptr;
+                }
+            }
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00407720
+RuntimeResourceCacheEntry *__fastcall find_runtime_resource_cache_entry(void *parent_identity, const char *name)
+{
+    for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
+    {
+        if(parent->identity == parent_identity)
+        {
+            auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+            auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+            while(entry != nullptr)
+            {
+                if(strings_equal(entry->name, name))
+                {
+                    return entry;
+                }
+                if(entry == sentinel)
+                {
+                    return nullptr;
+                }
+                entry = entry->next;
+            }
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00407D10
+void __fastcall append_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
+{
+    ++parent->status;
+    auto *head = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+    auto *tail = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+    if(head == nullptr)
+    {
+        parent->children = reinterpret_cast<RuntimeNamedNode *>(entry);
+        parent->child_sentinel = reinterpret_cast<RuntimeNamedNode *>(entry);
+        parent->child_cursor = reinterpret_cast<RuntimeNamedNode *>(entry);
+        head = entry;
+        tail = entry;
+    }
+    else
+    {
+        tail->next = entry;
+        head->previous = entry;
+    }
+    entry->next = head;
+    entry->previous = tail;
+    parent->child_sentinel = reinterpret_cast<RuntimeNamedNode *>(entry);
+}
+
+// GAG.EXE: 0x00407D50
+void __fastcall remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
+{
+    if(reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_cursor) == entry)
+    {
+        parent->child_cursor = reinterpret_cast<RuntimeNamedNode *>(entry->next);
+    }
+    if(reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children) == entry)
+    {
+        parent->children = reinterpret_cast<RuntimeNamedNode *>(entry->next);
+    }
+    if(reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel) == entry)
+    {
+        parent->child_sentinel = reinterpret_cast<RuntimeNamedNode *>(entry->previous);
+    }
+    if(entry != entry->previous)
+    {
+        entry->previous->next = entry->next;
+    }
+    if(entry == entry->next)
+    {
+        parent->child_cursor = nullptr;
+        parent->children = nullptr;
+        parent->child_sentinel = nullptr;
+    }
+    else
+    {
+        entry->next->previous = entry->previous;
+    }
+    runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, entry);
+    --parent->status;
+}
+
+// GAG.EXE: 0x00407A20
+std::uint32_t __fastcall remove_runtime_named_child_by_identity(void *parent_identity, void *child_identity)
+{
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && parent->identity != parent_identity)
+    {
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        return 0;
+    }
+    auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+    const auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+    while(entry != nullptr)
+    {
+        if(entry->data == child_identity)
+        {
+            remove_runtime_named_child(parent, entry);
+            return 1;
+        }
+        if(entry == sentinel)
+        {
+            return 0;
+        }
+        entry = entry->next;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00407780
+RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_resource_cache_entry(void *parent_identity, const char *name)
+{
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && parent->identity != parent_identity)
+    {
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeResourceCacheEntry *entry = find_runtime_resource_cache_entry(parent_identity, name);
+    if(entry != nullptr)
+    {
+        return entry;
+    }
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    std::memcpy(entry->name, name, sizeof(entry->name));
+    append_runtime_named_child(parent, entry);
+    return entry;
+}
+
+// GAG.EXE: 0x00407860
+RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_child_by_data(void *parent_identity, void *data)
+{
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && parent->identity != parent_identity)
+    {
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        return nullptr;
+    }
+    auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+    const auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+    while(entry != nullptr)
+    {
+        if(entry->data == data)
+        {
+            return entry;
+        }
+        if(entry == sentinel)
+        {
+            break;
+        }
+        entry = entry->next;
+    }
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    entry->data = data;
+    append_runtime_named_child(parent, entry);
+    return entry;
+}
+
+// GAG.EXE: 0x004078D0
+void __fastcall add_script_object_to_runtime_named_node(const void *node_name, const char *object_name)
+{
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && !fixed_dword_memory_equal(node_name, parent->name, 0x20))
+    {
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        return;
+    }
+
+    ScriptObjectState *object = script_runtime_root->objects;
+    while(object != nullptr && !strings_equal(object_name, object->name))
+    {
+        object = object->next;
+    }
+    if(object == nullptr)
+    {
+        return;
+    }
+
+    auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+    const auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+    while(entry != nullptr)
+    {
+        if(entry->data == object->identity)
+        {
+            return;
+        }
+        if(entry == sentinel)
+        {
+            break;
+        }
+        entry = entry->next;
+    }
+
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    entry->data = object->identity;
+    std::memcpy(entry->name, object->name, sizeof(entry->name));
+    append_runtime_named_child(parent, entry);
+}
+
+// GAG.EXE: 0x00407490
+std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
+{
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+
+    RuntimeNamedNode *previous = nullptr;
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && !fixed_dword_memory_equal(value, parent->name, 0x20))
+    {
+        previous = parent;
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        parent = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeNamedNode)));
+        if(parent == nullptr)
+        {
+            return 0;
+        }
+        std::memcpy(parent->name, value, sizeof(parent->name));
+        parent->identity = parent;
+        if(previous == nullptr)
+        {
+            script_runtime_root->runtime_nodes = parent;
+        }
+        else
+        {
+            previous->next = parent;
+        }
+    }
+
+    for(;;)
+    {
+        std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+        if(result == 0xffffffff)
+        {
+            result = parse_script_scope_code(parser);
+            if(result == 0x0a000000)
+            {
+                result = parse_image_flag(parser);
+                if(result == 0xffffffff)
+                {
+                    return 0;
+                }
+                parent->flags |= result;
+            }
+            else if(result == 0x0f000000)
+            {
+                std::int32_t integer = parse_script_integer_expression(parser);
+                auto *bytes = reinterpret_cast<std::uint8_t *>(parent);
+                if(integer != 0x7fffffff)
+                {
+                    *reinterpret_cast<std::int32_t *>(bytes + 0x30) = integer;
+                }
+                integer = parse_script_integer_expression(parser);
+                if(integer != 0x7fffffff)
+                {
+                    *reinterpret_cast<std::int32_t *>(bytes + 0x34) = integer;
+                }
+                integer = parse_script_integer_expression(parser);
+                parent->unknown_0028 = static_cast<std::uint32_t>(integer);
+                if(integer == 0x7fffffff)
+                {
+                    parent->unknown_0028 = 1;
+                }
+                integer = parse_script_integer_expression(parser);
+                if(integer != 0x7fffffff)
+                {
+                    *reinterpret_cast<std::int32_t *>(bytes + 0x38) = integer;
+                }
+                integer = parse_script_integer_expression(parser);
+                result = static_cast<std::uint32_t>(integer);
+                if(integer != 0x7fffffff)
+                {
+                    *reinterpret_cast<std::int32_t *>(bytes + 0x3c) = integer;
+                }
+            }
+        }
+        else
+        {
+            ScriptObjectState *object = script_runtime_root->objects;
+            while(object != nullptr && !fixed_dword_memory_equal(value, object->name, 0x20))
+            {
+                object = object->next;
+            }
+            if(object != nullptr)
+            {
+                auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+                const auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+                while(entry != nullptr && entry->data != object->identity && entry != sentinel)
+                {
+                    entry = entry->next;
+                }
+                if(entry == nullptr || entry->data != object->identity)
+                {
+                    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+                    entry->data = object->identity;
+                    std::memcpy(entry->name, object->name, sizeof(entry->name));
+                    append_runtime_named_child(parent, entry);
+                }
+            }
+        }
+        if(result == 0xffffffff)
+        {
+            return 0;
+        }
+    }
+}
+
+// GAG.EXE: 0x00407990
+void __fastcall remove_script_object_from_runtime_named_node(const void *node_name, const char *object_name)
+{
+    RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
+    while(parent != nullptr && !fixed_dword_memory_equal(node_name, parent->name, 0x20))
+    {
+        parent = parent->next;
+    }
+    if(parent == nullptr)
+    {
+        return;
+    }
+
+    ScriptObjectState *object = script_runtime_root->objects;
+    while(object != nullptr && !strings_equal(object_name, object->name))
+    {
+        object = object->next;
+    }
+    if(object == nullptr)
+    {
+        return;
+    }
+
+    auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
+    const auto *sentinel = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_sentinel);
+    while(entry != nullptr)
+    {
+        if(entry->data == object->identity)
+        {
+            remove_runtime_named_child(parent, entry);
+            return;
+        }
+        if(entry == sentinel)
+        {
+            return;
+        }
+        entry = entry->next;
+    }
+}
+
+// GAG.EXE: 0x00407C00
+std::uint32_t __fastcall rotate_runtime_named_node_cursor_previous(const void *node_name, std::int32_t count)
+{
+    RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
+    while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
+    {
+        node = node->next;
+    }
+    if(node == nullptr)
+    {
+        return 0;
+    }
+    if(node->status <= node->unknown_0028)
+    {
+        return 1;
+    }
+    while(count != 0)
+    {
+        node->child_cursor = reinterpret_cast<RuntimeNamedNode *>(reinterpret_cast<RuntimeResourceCacheEntry *>(node->child_cursor)->previous);
+        --count;
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00407C60
+std::uint32_t __fastcall rotate_runtime_named_node_cursor_next(const void *node_name, std::int32_t count)
+{
+    RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
+    while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
+    {
+        node = node->next;
+    }
+    if(node == nullptr)
+    {
+        return 0;
+    }
+    if(node->status <= node->unknown_0028)
+    {
+        return 1;
+    }
+    while(count != 0)
+    {
+        node->child_cursor = reinterpret_cast<RuntimeNamedNode *>(reinterpret_cast<RuntimeResourceCacheEntry *>(node->child_cursor)->next);
+        --count;
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00407CC0
+std::uint32_t __fastcall clear_runtime_named_node_children(const void *node_name)
+{
+    RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
+    while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
+    {
+        node = node->next;
+    }
+    if(node == nullptr)
+    {
+        return 0;
+    }
+    while(node->children != nullptr)
+    {
+        remove_runtime_named_child(node, reinterpret_cast<RuntimeResourceCacheEntry *>(node->children));
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x00407DD0
+void __fastcall serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr || script_runtime_root->runtime_nodes == nullptr)
+    {
+        return;
+    }
+    append_script_text_delimiter(buffer, nullptr, '\r');
+    append_script_text_delimiter(buffer, nullptr, '\n');
+    for(RuntimeNamedNode *node = script_runtime_root->runtime_nodes; node != nullptr; node = node->next)
+    {
+        append_script_text_property(buffer, 8, node->name);
+        auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(node->children);
+        do
+        {
+            if(entry == nullptr)
+            {
+                break;
+            }
+            append_script_text_delimiter(buffer, entry->name, ' ');
+            entry = entry->next;
+        } while(entry != reinterpret_cast<RuntimeResourceCacheEntry *>(node->children));
+        append_script_text_scope(buffer, 0x0f000000);
+        const auto *bytes = reinterpret_cast<const std::uint8_t *>(node);
+        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x30), ',');
+        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x34), ',');
+        append_script_text_integer(buffer, node->unknown_0028, ',');
+        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x38), ',');
+        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x3c), ' ');
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x00407EE0
+void purge_disabled_runtime_named_nodes()
+{
+    if(script_runtime_root == nullptr)
+    {
+        return;
+    }
+    RuntimeNamedNode *retained_head = nullptr;
+    RuntimeNamedNode *retained_tail = nullptr;
+    RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
+    while(node != nullptr)
+    {
+        RuntimeNamedNode *next = node->next;
+        if((node->flags & 1) == 0)
+        {
+            auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(node->children);
+            for(std::uint32_t index = 0; index < node->status; ++index)
+            {
+                RuntimeResourceCacheEntry *next_entry = entry->next;
+                runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, entry);
+                entry = next_entry;
+            }
+            runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, node);
+        }
+        else
+        {
+            if(retained_head == nullptr)
+            {
+                retained_head = node;
+            }
+            if(retained_tail != nullptr)
+            {
+                retained_tail->next = node;
+            }
+            node->next = nullptr;
+            retained_tail = node;
+        }
+        node = next;
+    }
+    script_runtime_root->runtime_nodes = retained_head;
+}
+
+// GAG.EXE: 0x00407690
+void *__fastcall get_or_create_runtime_named_node(const char *name)
+{
+    RuntimeNamedNode *last = script_runtime_root->runtime_nodes;
+    for(RuntimeNamedNode *node = last; node != nullptr; node = node->next)
+    {
+        last = node;
+        if(strings_equal(name, node->name))
+        {
+            return node->identity;
+        }
+    }
+    auto *node = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeNamedNode)));
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    std::int32_t index = 0;
+    while(name[index] != '\0')
+    {
+        node->name[index] = name[index];
+        ++index;
+    }
+    node->identity = node;
+    if(last != nullptr)
+    {
+        last->next = node;
+    }
+    else
+    {
+        script_runtime_root->runtime_nodes = node;
+    }
+    return node->identity;
+}
+
+// GAG.EXE: 0x0040A7A0
+bool set_runtime_plans_inactive()
+{
+    bool changed = false;
+    script_runtime_root->flags |= 0x20;
+    if(script_runtime_root->plan_terminal != nullptr)
+    {
+        for(RuntimePlanNode *node = script_runtime_root->plan_nodes; node != nullptr; node = node->next)
+        {
+            if((node->flags & 0x80000000) == 0)
+            {
+                node->flags |= 0x80000000;
+                changed = true;
+            }
+            if(script_runtime_root->plan_terminal == node)
+            {
+                return changed;
+            }
+        }
+    }
+    return changed;
+}
+
+// GAG.EXE: 0x0040A800
+bool clear_runtime_plans_inactive()
+{
+    bool changed = false;
+    script_runtime_root->flags &= ~0x20U;
+    if(script_runtime_root->plan_terminal != nullptr)
+    {
+        for(RuntimePlanNode *node = script_runtime_root->plan_nodes; node != nullptr; node = node->next)
+        {
+            if((node->flags & 0x80000000) != 0)
+            {
+                node->flags &= ~0x80000000U;
+                changed = true;
+            }
+            if(script_runtime_root->plan_terminal == node)
+            {
+                return changed;
+            }
+        }
+    }
+    return changed;
+}
+
+// GAG.EXE: 0x0040CD60
+RuntimeTreeNode *__fastcall find_runtime_tree_node(RuntimeTreeNode *root, void *identity)
+{
+    while(root != nullptr)
+    {
+        if(root->identity == identity)
+        {
+            return root;
+        }
+        RuntimeTreeNode *result = nullptr;
+        if(root->child != nullptr)
+        {
+            result = find_runtime_tree_node(root->child, identity);
+        }
+        if(result != nullptr)
+        {
+            return result;
+        }
+        root = root->next;
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x004065E0
+RuntimeTreeNode *__fastcall find_runtime_tree_node_by_identity(void *identity)
+{
+    return find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+}
+
+// GAG.EXE: 0x004097D0
+void *__fastcall find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            void *result = find_last_runtime_tree_scene_link(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->scene_link_tail;
+}
+
+// GAG.EXE: 0x00409B60
+void *__fastcall find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            void *result = find_last_runtime_tree_secondary_resource_link(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->secondary_resource_link_tail;
+}
+
+// GAG.EXE: 0x0040A500
+void *__fastcall find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            void *result = find_last_runtime_tree_primary_resource_link(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->primary_resource_link_tail;
+}
+
+// GAG.EXE: 0x00406860
+void *__fastcall find_last_runtime_scene_link_by_identity(void *identity)
+{
+    RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+    return root == nullptr ? nullptr : find_last_runtime_tree_scene_link(root);
+}
+
+// GAG.EXE: 0x00406880
+void *__fastcall find_last_runtime_primary_resource_link_by_identity(void *identity)
+{
+    RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+    return root == nullptr ? nullptr : find_last_runtime_tree_primary_resource_link(root);
+}
+
+// GAG.EXE: 0x004068A0
+void *__fastcall find_last_runtime_secondary_resource_link_by_identity(void *identity)
+{
+    RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+    return root == nullptr ? nullptr : find_last_runtime_tree_secondary_resource_link(root);
+}
+
+// GAG.EXE: 0x00426BD0
+void __fastcall destroy_runtime_tree_resources(void *identity)
+{
+    RuntimeTreeNode *root = runtime_tree_destruction_api.resolve_tree(identity);
+    std::uint32_t count = runtime_resource_count;
+    if(root == nullptr)
+    {
+        return;
+    }
+
+    if(root->identity == runtime_pointer_root_identity)
+    {
+        runtime_tree_destruction_api.set_resource_state(current_runtime_resource, 1);
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+        runtime_tree_destruction_api.stop_game_dll();
+        runtime_tree_destruction_api.reset_display_state();
+    }
+    else
+    {
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+    }
+
+    auto *primary_tail = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_tree_destruction_api.find_primary_tail(identity));
+    if(primary_tail != nullptr)
+    {
+        auto *link = static_cast<RuntimeTreePrimaryResourceLink *>(root->primary_resource_link_head);
+        for(;;)
+        {
+            if(link->resource_identity != nullptr)
+            {
+                std::uint32_t flags = runtime_tree_destruction_api.query_scene_flags(link->resource_identity);
+                if(flags != 0)
+                {
+                    if((flags & 0x3000) == 0)
+                    {
+                        runtime_tree_destruction_api.request_resource_destruction(link->resource_identity);
+                    }
+                    else
+                    {
+                        --count;
+                        if((link->flags & 0x01000000) == 0)
+                        {
+                            runtime_tree_destruction_api.destroy_resource_and_scene(link->resource_identity);
+                        }
+                        else
+                        {
+                            runtime_tree_destruction_api.request_resource_destruction(link->resource_identity);
+                        }
+                    }
+                }
+                link->resource_identity = nullptr;
+            }
+            if(link == primary_tail)
+            {
+                break;
+            }
+            link = link->next;
+        }
+    }
+
+    auto *secondary_tail = static_cast<RuntimeTreeSecondaryResourceLink *>(runtime_tree_destruction_api.find_secondary_tail(identity));
+    if(secondary_tail != nullptr)
+    {
+        auto *link = static_cast<RuntimeTreeSecondaryResourceLink *>(root->secondary_resource_link_head);
+        for(;;)
+        {
+            if(link->resource_identity != nullptr)
+            {
+                runtime_tree_destruction_api.request_resource_destruction(link->resource_identity);
+                link->resource_identity = nullptr;
+            }
+            if(link == secondary_tail)
+            {
+                break;
+            }
+            link = link->next;
+        }
+    }
+
+    auto *scene_tail = static_cast<RuntimeTreeSceneLink *>(runtime_tree_destruction_api.find_scene_tail(identity));
+    if(scene_tail != nullptr)
+    {
+        auto *link = static_cast<RuntimeTreeSceneLink *>(root->scene_link_head);
+        for(;;)
+        {
+            if(link->scene_identifier != 0)
+            {
+                runtime_tree_destruction_api.release_scene(link->scene_identifier, 0);
+                link->scene_identifier = 0;
+            }
+            if(link == scene_tail)
+            {
+                break;
+            }
+            link = link->next;
+        }
+    }
+
+    runtime_tree_destruction_api.set_comment_mode(root, 0);
+    runtime_tree_destruction_api.wait_for_resource_count(count);
+}
+
+// GAG.EXE: 0x00425C40
+void __fastcall finalize_runtime_resource_destruction(void *identity)
+{
+    std::int32_t scene_identifier = 0;
+    std::int32_t x;
+    std::int32_t y;
+    std::int32_t width;
+    std::int32_t height;
+    RuntimeLockRecord *record = runtime_resource_scene_destruction_api.acquire_record(identity);
+    if(record != nullptr)
+    {
+        auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+        std::uint32_t type_flags = resource->type_flags;
+        std::uint32_t type = type_flags & 0xff000;
+        if(type == 0x1000)
+        {
+            scene_identifier = resource->scene_identifier;
+            x = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor);
+            y = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor + 2);
+            width = static_cast<std::int32_t>(resource->output_width);
+            height = static_cast<std::int32_t>(resource->output_height);
+            runtime_resource_scene_destruction_api.destroy_resource(identity);
+            if((type_flags & 6) == 0)
+            {
+                --runtime_resource_count;
+            }
+        }
+        else if(type == 0x2000)
+        {
+            scene_identifier = resource->scene_identifier;
+            x = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor);
+            y = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor + 2);
+            width = static_cast<std::int32_t>(resource->output_width);
+            height = static_cast<std::int32_t>(resource->output_height);
+            std::uint32_t target_count = runtime_resource_count - 1;
+            static_cast<RuntimeMediaBackend *>(resource->backend)->media_flags |= 0x10000;
+            runtime_resource_scene_destruction_api.release_record(record);
+            if((type_flags & 2) == 0)
+            {
+                while(target_count < runtime_resource_count)
+                {
+                    runtime_resource_scene_destruction_api.sleep(1);
+                }
+            }
+        }
+        else
+        {
+            runtime_resource_scene_destruction_api.destroy_resource(identity);
+        }
+    }
+    runtime_resource_scene_destruction_api.update_scene_region(scene_identifier, x, y, width, height);
+}
+
+// GAG.EXE: 0x00427900
+void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifier, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
+{
+    DisplayRectangle rectangle{ x, y, x + width, y + height };
+    if(scene_identifier == 0)
+    {
+        scene_identifier = runtime_display_scene_identifier;
+    }
+    DisplaySceneNode *scene = runtime_resource_scene_region_api.lock_scene(scene_identifier);
+    if(scene == nullptr)
+    {
+        return;
+    }
+    RuntimeLockRecord *record = runtime_resource_scene_region_api.acquire_record(reinterpret_cast<void *>(static_cast<std::uintptr_t>(scene->primary_owner)));
+    if(record != nullptr)
+    {
+        auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+        if((resource->type_flags & 0x3000) == 0x1000 && (scene->flags & 0x20) != 0)
+        {
+            rectangle.left -= scene->x + resource->x;
+            rectangle.top -= scene->y + resource->y;
+            rectangle.right -= scene->x + resource->x;
+            rectangle.bottom -= scene->y + resource->y;
+            if(runtime_resource_scene_region_api.begin_scene_update(scene_identifier) == 0)
+            {
+                runtime_resource_scene_region_api.render_backend_region(resource->backend, &rectangle);
+                runtime_resource_scene_region_api.end_scene_update(scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &rectangle);
+            }
+        }
+        else
+        {
+            rectangle.left -= scene->x;
+            rectangle.top -= scene->y;
+            rectangle.right -= scene->x;
+            rectangle.bottom -= scene->y;
+            runtime_resource_scene_region_api.update_root_scene_region(reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(scene_identifier)), &rectangle, 0);
+        }
+        runtime_resource_scene_region_api.release_record(record);
+    }
+    runtime_resource_scene_region_api.unlock_scene(scene_identifier);
+}
+
+// GAG.EXE: 0x00417370
+void __fastcall copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle)
+{
+    auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
+    std::int32_t bitmap_width = format->biWidth;
+    std::int32_t source_stride = (bitmap_width + 3) & ~3;
+    std::int32_t copy_width = rectangle->right - rectangle->left;
+    std::int32_t copy_height = rectangle->bottom - rectangle->top;
+    std::int32_t source_skip = bitmap_width - source_stride + bitmap_width - copy_width;
+    std::int32_t destination_stride = backend->destination_stride;
+    std::int32_t destination_skip = destination_stride - copy_width;
+    std::uint32_t pixel_offset;
+    std::memcpy(&pixel_offset, static_cast<std::uint8_t *>(backend->source_data) + 10, sizeof(pixel_offset));
+    std::uint8_t *source = static_cast<std::uint8_t *>(backend->source_data) + pixel_offset + rectangle->top * source_stride + rectangle->left;
+    std::uint8_t *destination =
+        backend->destination_pixels + (static_cast<std::uint32_t>(backend->destination_y) + rectangle->top) * backend->destination_stride + backend->destination_x + rectangle->left;
+    if(format->biHeight >= 0)
+    {
+        source += source_stride * (format->biHeight - rectangle->top - rectangle->top - copy_height);
+        destination += destination_stride * (copy_height - 1);
+        destination_skip = -(destination_stride + copy_width);
+    }
+    if((backend->media_flags & 0x04000000) == 0)
+    {
+        do
+        {
+            std::int32_t remaining = copy_width;
+            do
+            {
+                *destination++ = backend->palette_remap[*source++];
+                --remaining;
+            } while(remaining != 0);
+            source += source_skip;
+            destination += destination_skip;
+            --copy_height;
+        } while(copy_height != 0);
+    }
+    else
+    {
+        do
+        {
+            std::memcpy(destination, source, copy_width);
+            source += copy_width + source_skip;
+            destination += copy_width + destination_skip;
+            --copy_height;
+        } while(copy_height != 0);
+    }
+}
+
+// GAG.EXE: 0x0042B140
+std::uint32_t __fastcall render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)
+{
+    std::uint32_t result = 0;
+    runtime_bitmap_region_render_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    try
+    {
+        for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
+        {
+            if(backend->identity == identity)
+            {
+                if(backend->type == 0xac)
+                {
+                    auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
+                    std::int32_t height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
+                    if(rectangle->left < 0)
+                    {
+                        rectangle->left = 0;
+                    }
+                    if(rectangle->top < 0)
+                    {
+                        rectangle->top = 0;
+                    }
+                    if(format->biWidth < rectangle->right)
+                    {
+                        rectangle->right = format->biWidth;
+                    }
+                    if(height < rectangle->bottom)
+                    {
+                        rectangle->bottom = height;
+                    }
+                    if(rectangle->left < rectangle->right && rectangle->top < rectangle->bottom)
+                    {
+                        runtime_bitmap_region_render_api.copy_bitmap_region(backend, rectangle);
+                        result = 1;
+                    }
+                }
+                break;
+            }
+        }
+    }
+    catch(...)
+    {
+        runtime_bitmap_region_render_api.release_mutex(runtime_media_backend_mutex);
+        throw;
+    }
+    runtime_bitmap_region_render_api.release_mutex(runtime_media_backend_mutex);
+    return result;
+}
+
+// GAG.EXE: 0x00426D50
+void __fastcall select_runtime_scene_transition(std::uint32_t flags)
+{
+    std::uint32_t available;
+    if((flags & 0x10000000) != 0)
+    {
+        std::uint32_t depth_offset = runtime_game_host_context.bits_per_pixel - 8;
+        available = (depth_offset < 1 ? 2U : 0U) + 0xffd;
+    }
+    else
+    {
+        available = graphics_host_value_3;
+        if(runtime_game_host_context.bits_per_pixel != 8)
+        {
+            available &= 0xfffffffd;
+        }
+    }
+    std::uint32_t selected = available & flags & 0xfff;
+    if(selected == 0 && available != 0 && (flags & 0xfff) != 1 && (flags & 0x10000000) == 0)
+    {
+        selected = 1U << (runtime_scene_transition_selection_api.random() % 3);
+        while((selected & available) == 0)
+        {
+            selected = selected == 4 ? 1 : selected * 2;
+        }
+    }
+    switch(selected)
+    {
+    case 0:
+    case 1:
+        runtime_scene_transition_selection_api.apply_immediate(0, flags);
+        break;
+    case 2:
+        runtime_scene_transition_selection_api.apply_palette(graphics_host_value_1, flags);
+        break;
+    case 4:
+        runtime_scene_transition_selection_api.apply_rectangle(static_cast<std::uint8_t>(graphics_host_value_2), flags);
+        break;
+    }
+}
+
+// GAG.EXE: 0x00426E30
+void __fastcall apply_immediate_runtime_scene_transition(std::uint32_t, std::uint32_t flags)
+{
+    DisplayRectangle rectangle{ 0, 0, 0, 0 };
+    std::uint32_t type = flags & 0xff000;
+    if(type == 0x1000)
+    {
+        if(runtime_immediate_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+        {
+            runtime_immediate_scene_transition_api.set_clip_rectangle(&rectangle);
+            runtime_immediate_scene_transition_api.release_display_lock();
+        }
+        return;
+    }
+    if(type != 0x2000)
+    {
+        return;
+    }
+    rectangle.right = runtime_game_host_context.width;
+    rectangle.bottom = runtime_game_host_context.height;
+    RuntimeLockRecord *record = runtime_immediate_scene_transition_api.acquire_record(current_runtime_resource);
+    if(record == nullptr)
+    {
+        return;
+    }
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+    if((resource->type_flags & 0x3000) == 0)
+    {
+        return;
+    }
+    if(runtime_immediate_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+    {
+        runtime_immediate_scene_transition_api.dispatch_scene_update(&rectangle, 0x200);
+        runtime_immediate_scene_transition_api.sleep(0);
+        runtime_immediate_scene_transition_api.synchronize_region(&rectangle, 1);
+        if((flags & 0x20000000) != 0)
+        {
+            auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
+            runtime_immediate_scene_transition_api.apply_palette(reinterpret_cast<PALETTEENTRY *>(reinterpret_cast<std::uint8_t *>(backend) + 0x1c), 0x10000);
+            runtime_immediate_scene_transition_api.synchronize_region(&rectangle, 1);
+        }
+        runtime_immediate_scene_transition_api.set_clip_rectangle(&rectangle);
+        runtime_immediate_scene_transition_api.release_display_lock();
+    }
+    runtime_immediate_scene_transition_api.release_record(record);
+}
+
+// GAG.EXE: 0x00426F40
+void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::uint32_t flags)
+{
+    std::uint8_t palette_step = static_cast<std::uint8_t>(step);
+    std::uint8_t transition_active = 0;
+    DisplayRectangle rectangle{};
+    PALETTEENTRY temporary_palette[0xec];
+    RuntimeLockRecord *record = runtime_palette_scene_transition_api.acquire_record(current_runtime_resource);
+    if(record == nullptr || (reinterpret_cast<RuntimeResourceObject *>(record)->type_flags & 0x3000) == 0)
+    {
+        runtime_palette_scene_transition_api.apply_immediate(0, flags);
+    }
+    else
+    {
+        auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+        auto *backend_bytes = static_cast<std::uint8_t *>(resource->backend);
+        std::memcpy(runtime_transition_palette, backend_bytes + 0x1c, sizeof(runtime_transition_palette));
+        const std::uint32_t type = flags & 0xff000;
+        if(type == 0x1000)
+        {
+            ++transition_active;
+        }
+        else if(type == 0x2000)
+        {
+            rectangle.right = runtime_game_host_context.width;
+            rectangle.bottom = runtime_game_host_context.height;
+            if(runtime_palette_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+            {
+                ++transition_active;
+                if((flags & 0x20000000) != 0)
+                {
+                    runtime_palette_scene_transition_api.apply_palette(reinterpret_cast<const PALETTEENTRY *>(backend_bytes + 0x1c), 0x10000);
+                    runtime_palette_scene_transition_api.operate_surface(runtime_game_host_context.width >> 1, runtime_game_host_context.height >> 1, 4, 4, 1);
+                }
+                for(std::size_t index = 0; index != 0xec; ++index)
+                {
+                    const PALETTEENTRY source = runtime_transition_palette[index + 1];
+                    temporary_palette[index].peRed = static_cast<BYTE>(source.peRed + 1);
+                    temporary_palette[index].peGreen = static_cast<BYTE>(source.peGreen + 1);
+                    temporary_palette[index].peBlue = static_cast<BYTE>(source.peBlue + 1);
+                    temporary_palette[index].peFlags = 0xff;
+                    runtime_transition_palette[index + 1] = PALETTEENTRY{ 0, 0, 0, 1 };
+                }
+                runtime_palette_scene_transition_api.apply_palette(runtime_transition_palette, 0);
+                runtime_palette_scene_transition_api.set_clip_rectangle(&rectangle);
+                runtime_palette_scene_transition_api.dispatch_scene_update(&rectangle, 0);
+                runtime_palette_scene_transition_api.release_display_lock();
+            }
+        }
+        runtime_palette_scene_transition_api.release_record(record);
+    }
+
+    if(transition_active == 0)
+    {
+        return;
+    }
+    std::uint32_t completed = 0;
+    DWORD deadline = runtime_palette_scene_transition_api.time_get_time();
+    if((runtime_scene_control_flags & 0x40000) != 0)
+    {
+        palette_step = 0xff;
+    }
+    const std::uint32_t type = flags & 0xff000;
+    if(type == 0x2000)
+    {
+        while(completed < 0xec)
+        {
+            DWORD now = runtime_palette_scene_transition_api.time_get_time();
+            if(now < deadline)
+            {
+                runtime_palette_scene_transition_api.sleep(0);
+            }
+            else
+            {
+                deadline = runtime_palette_scene_transition_api.time_get_time() + 2;
+                std::uint8_t passes = palette_step;
+                do
+                {
+                    completed = 0;
+                    for(std::size_t reverse = 0xec; reverse != 0; --reverse)
+                    {
+                        PALETTEENTRY &temporary = temporary_palette[reverse - 1];
+                        PALETTEENTRY &destination = runtime_transition_palette[reverse];
+                        if(temporary.peFlags == 0)
+                        {
+                            ++completed;
+                            continue;
+                        }
+                        auto *temporary_channels = reinterpret_cast<std::uint8_t *>(&temporary);
+                        auto *destination_channels = reinterpret_cast<std::uint8_t *>(&destination);
+                        for(std::size_t channel = 0; channel != 3; ++channel)
+                        {
+                            if(temporary_channels[channel] == 0)
+                            {
+                                ++destination_channels[channel];
+                            }
+                            else
+                            {
+                                ++temporary_channels[channel];
+                            }
+                        }
+                        --temporary.peFlags;
+                    }
+                    --passes;
+                } while(passes != 0);
+                runtime_palette_scene_transition_api.apply_palette(runtime_transition_palette, 0);
+                if((runtime_scene_control_flags & 0x40000) != 0)
+                {
+                    runtime_palette_scene_transition_api.invalidate_framebuffer(0, 0, runtime_game_host_context.width, runtime_game_host_context.height);
+                }
+            }
+        }
+        return;
+    }
+    if(type != 0x1000)
+    {
+        return;
+    }
+    while(completed < 0x2c4)
+    {
+        DWORD now = runtime_palette_scene_transition_api.time_get_time();
+        if(now < deadline)
+        {
+            runtime_palette_scene_transition_api.sleep(0);
+        }
+        else
+        {
+            deadline = runtime_palette_scene_transition_api.time_get_time() + 2;
+            completed = 0;
+            for(std::size_t reverse = 0xec; reverse != 0; --reverse)
+            {
+                auto *channels = reinterpret_cast<std::uint8_t *>(&runtime_transition_palette[reverse]);
+                for(std::size_t channel = 0; channel != 3; ++channel)
+                {
+                    if(channels[channel] > palette_step)
+                    {
+                        channels[channel] = static_cast<std::uint8_t>(channels[channel] - palette_step);
+                    }
+                    else
+                    {
+                        channels[channel] = 0;
+                        ++completed;
+                    }
+                }
+            }
+            runtime_palette_scene_transition_api.apply_palette(runtime_transition_palette, 0);
+            if((runtime_scene_control_flags & 0x40000) != 0)
+            {
+                runtime_palette_scene_transition_api.invalidate_framebuffer(0, 0, runtime_game_host_context.width, runtime_game_host_context.height);
+            }
+        }
+    }
+    if(runtime_palette_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+    {
+        runtime_palette_scene_transition_api.set_clip_rectangle(&rectangle);
+        runtime_palette_scene_transition_api.operate_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
+        runtime_palette_scene_transition_api.release_display_lock();
+    }
+}
+
+// GAG.EXE: 0x004272D0
+void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std::uint32_t flags)
+{
+    RuntimeLockRecord *record = runtime_rectangle_scene_transition_api.acquire_record(current_runtime_resource);
+    if(record == nullptr || (reinterpret_cast<RuntimeResourceObject *>(record)->type_flags & 0x3000) == 0)
+    {
+        runtime_rectangle_scene_transition_api.apply_immediate(0, flags);
+        return;
+    }
+
+    const std::uint32_t width = runtime_game_host_context.width;
+    const std::uint32_t height = runtime_game_host_context.height;
+    std::uint32_t horizontal_step;
+    std::uint32_t vertical_step;
+    if(size == 0xff)
+    {
+        horizontal_step = width;
+        vertical_step = height;
+    }
+    else
+    {
+        horizontal_step = (size & 0xfcU) + 4;
+        vertical_step = (horizontal_step * 15) / 20;
+    }
+
+    const std::uint32_t type = flags & 0xff000;
+    if(type == 0x1000)
+    {
+        DisplayRectangle clip{ 0, 0, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) };
+        if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+        {
+            runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
+            runtime_rectangle_scene_transition_api.release_display_lock();
+        }
+        DWORD deadline = runtime_rectangle_scene_transition_api.time_get_time();
+        while((clip.bottom - clip.top) > static_cast<std::int32_t>(vertical_step * 2) || (clip.right - clip.left) > static_cast<std::int32_t>(horizontal_step * 2))
+        {
+            DWORD now = runtime_rectangle_scene_transition_api.time_get_time();
+            if(now < deadline)
+            {
+                runtime_rectangle_scene_transition_api.sleep(0);
+                continue;
+            }
+            deadline = runtime_rectangle_scene_transition_api.time_get_time() + 2;
+
+            const std::int32_t old_left = clip.left;
+            const std::int32_t old_top = clip.top;
+            const std::int32_t old_right = clip.right;
+            const std::int32_t old_bottom = clip.bottom;
+            const std::int32_t next_right = old_right - static_cast<std::int32_t>(horizontal_step);
+            const std::int32_t next_bottom = old_bottom - static_cast<std::int32_t>(vertical_step);
+            DisplayRectangle strips[4]{
+                { old_left,   old_top,                                            next_right - old_left,                      static_cast<std::int32_t>(vertical_step)                            },
+                { next_right, old_top,                                            static_cast<std::int32_t>(horizontal_step), old_bottom - old_top                                                },
+                { old_left,   next_bottom,                                        next_right - old_left,                      static_cast<std::int32_t>(vertical_step)                            },
+                { old_left,   old_top + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>(horizontal_step), old_bottom - old_top - static_cast<std::int32_t>(vertical_step * 2) },
+            };
+
+            clip.left = std::min(old_left + static_cast<std::int32_t>(horizontal_step), static_cast<std::int32_t>((width >> 1) - horizontal_step));
+            clip.top = std::min(old_top + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>((height >> 1) - vertical_step));
+            clip.right = std::max(next_right, static_cast<std::int32_t>((width >> 1) + horizontal_step));
+            clip.bottom = std::max(next_bottom, static_cast<std::int32_t>((height >> 1) + vertical_step));
+            if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+            {
+                runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
+                for(const DisplayRectangle &strip : strips)
+                {
+                    runtime_rectangle_scene_transition_api.operate_surface(strip.left, strip.top, strip.right, strip.bottom, 2);
+                }
+                runtime_rectangle_scene_transition_api.release_display_lock();
+            }
+        }
+        if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+        {
+            runtime_rectangle_scene_transition_api.synchronize_region(&clip, 2);
+            clip.left = clip.right;
+            clip.top = clip.bottom;
+            runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
+            runtime_rectangle_scene_transition_api.release_display_lock();
+        }
+    }
+    else if(type == 0x2000)
+    {
+        DisplayRectangle clip;
+        if(size == 0xff)
+        {
+            clip = { 0, 0, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) };
+        }
+        else
+        {
+            clip = { static_cast<std::int32_t>((width >> 1) - horizontal_step), static_cast<std::int32_t>((height >> 1) - vertical_step), static_cast<std::int32_t>((width >> 1) + horizontal_step),
+                static_cast<std::int32_t>((height >> 1) + vertical_step) };
+        }
+        if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+        {
+            if((flags & 0x20000000) != 0)
+            {
+                auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+                auto *backend = static_cast<std::uint8_t *>(resource->backend);
+                runtime_rectangle_scene_transition_api.apply_palette(reinterpret_cast<const PALETTEENTRY *>(backend + 0x1c), 0x10000);
+            }
+            runtime_rectangle_scene_transition_api.dispatch_scene_update(&clip, 0);
+            runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
+            runtime_rectangle_scene_transition_api.release_display_lock();
+        }
+        DWORD deadline = runtime_rectangle_scene_transition_api.get_tick_count();
+        while((clip.right - clip.left) < static_cast<std::int32_t>(width) || (clip.bottom - clip.top) < static_cast<std::int32_t>(height))
+        {
+            DWORD now = runtime_rectangle_scene_transition_api.get_tick_count();
+            if(now < deadline)
+            {
+                runtime_rectangle_scene_transition_api.sleep(0);
+                continue;
+            }
+            deadline = runtime_rectangle_scene_transition_api.get_tick_count() + 2;
+            const std::int32_t old_left = clip.left;
+            const std::int32_t old_top = clip.top;
+            const std::int32_t old_right = clip.right;
+            const std::int32_t old_bottom = clip.bottom;
+            clip.left = std::max(old_left - static_cast<std::int32_t>(horizontal_step), 0);
+            clip.top = std::max(old_top - static_cast<std::int32_t>(vertical_step), 0);
+            clip.right = std::min(old_right + static_cast<std::int32_t>(horizontal_step), static_cast<std::int32_t>(width));
+            clip.bottom = std::min(old_bottom + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>(height));
+            DisplayRectangle strips[4]{
+                { clip.left, clip.top,   old_right,  old_top     },
+                { old_right, clip.top,   clip.right, clip.bottom },
+                { clip.left, old_bottom, old_right,  clip.bottom },
+                { clip.left, old_top,    old_left,   old_bottom  },
+            };
+            if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+            {
+                runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
+                for(DisplayRectangle &strip : strips)
+                {
+                    runtime_rectangle_scene_transition_api.dispatch_scene_update(&strip, 0);
+                }
+                runtime_rectangle_scene_transition_api.release_display_lock();
+            }
+        }
+    }
+    runtime_rectangle_scene_transition_api.release_record(record);
+}
+
+// GAG.EXE: 0x00425930
+void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
+{
+    RuntimeLockRecord *record = runtime_resource_state_api.acquire_record(identity);
+    if(record == nullptr)
+    {
+        if(current_runtime_resource == identity && state == 1)
+        {
+            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+        }
+        return;
+    }
+
+    auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
+    std::uint32_t type = resource->type_flags & 0xff000;
+    if(type == 0x1000)
+    {
+        auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
+        bool force_refresh = (state & 0x20000) != 0;
+        if(force_refresh || (backend->media_flags & 0x20) != 0)
+        {
+            backend->media_flags |= 0x20;
+            DisplayRectangle rectangle{ 0, 0, static_cast<std::int32_t>(resource->output_width), static_cast<std::int32_t>(resource->output_height) };
+            runtime_resource_state_api.begin_scene_update(resource->scene_identifier);
+            runtime_resource_state_api.finalize_backend(backend);
+            runtime_resource_state_api.configure_palette(resource);
+            runtime_resource_state_api.end_scene_update(resource->scene_identifier, reinterpret_cast<DisplayRectangleTransform *>(resource->scene_descriptor), &rectangle);
+            if(resource->field_0074 != 0)
+            {
+                runtime_resource_state_api.clear_child_ready(reinterpret_cast<void *>(resource->field_0074));
+            }
+        }
+        if(resource->field_0074 != 0)
+        {
+            runtime_resource_state_api.disable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+        }
+        if(current_runtime_resource == identity)
+        {
+            if(state == 1)
+            {
+                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+            }
+            else if(!force_refresh)
+            {
+                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+            }
+        }
+    }
+    else if(type == 0x2000)
+    {
+        auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
+        std::uint32_t transition_flag = backend->frame_number == 1 ? 0x20000000 : 0;
+        backend->media_flags = (backend->media_flags & (state ^ 0xfffffdfe)) | state;
+        if(current_runtime_resource == identity)
+        {
+            if(state == 0)
+            {
+                runtime_resource_state_api.select_transition(transition_flag | runtime_scene_control_flags | 0x2000);
+            }
+            if(state == 1)
+            {
+                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+            }
+        }
+    }
+    else if(type == 0x8000)
+    {
+        bool force_refresh = (state & 0x20000) != 0;
+        std::uint32_t handle = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->backend));
+        if(force_refresh)
+        {
+            RuntimeSoundSlot *slot = runtime_resource_state_api.get_sound_slot(handle);
+            if(slot != nullptr)
+            {
+                slot->fade_current = slot->fade_block_index;
+                runtime_resource_state_api.queue_sound_data(handle, slot->buffers->data, slot->buffers->size, 1);
+                runtime_resource_state_api.stop_sound(handle, 1);
+            }
+            if(resource->field_0074 != 0)
+            {
+                runtime_resource_state_api.clear_child_ready(reinterpret_cast<void *>(resource->field_0074));
+            }
+        }
+        if((state & 1) != 0)
+        {
+            runtime_resource_state_api.start_sound(handle, 1);
+            if(resource->field_0074 != 0)
+            {
+                runtime_resource_state_api.enable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+            }
+        }
+        if(state == 0)
+        {
+            runtime_resource_state_api.stop_sound(handle, 1);
+            if(resource->field_0074 != 0)
+            {
+                runtime_resource_state_api.disable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+            }
+        }
+        if(current_runtime_resource == identity)
+        {
+            if(state == 1)
+            {
+                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+            }
+            else if(!force_refresh)
+            {
+                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+            }
+        }
+    }
+    else if(current_runtime_resource == identity)
+    {
+        if(state == 1)
+        {
+            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+        }
+        else if((state & 0x20000) == 0)
+        {
+            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+        }
+    }
+    runtime_resource_state_api.release_record(record);
+}
+
+// GAG.EXE: 0x00409370
+std::uint32_t __fastcall parse_runtime_command_definition(ScriptParserState *parser)
+{
+    auto *root_bytes = reinterpret_cast<std::uint8_t *>(script_runtime_root);
+    auto *count = reinterpret_cast<std::uint32_t *>(root_bytes + 0x0a70);
+    auto *definitions = reinterpret_cast<RuntimeCommandDefinition *>(root_bytes + 0x0a74);
+    const std::uint32_t original_count = *count;
+    if(original_count > 0x1f)
+    {
+        return 0;
+    }
+
+    char name[0x20];
+    if(parse_script_value_token(parser, name, sizeof(name)) == 0xffffffff)
+    {
+        return 0;
+    }
+
+    std::uint32_t index = 0;
+    while(index < original_count && !fixed_dword_memory_equal(name, definitions[index].name, sizeof(name)))
+    {
+        ++index;
+    }
+    if(index == original_count)
+    {
+        std::memcpy(definitions[index].name, name, sizeof(name));
+    }
+
+    for(;;)
+    {
+        std::uint32_t code = parse_script_scope_code(parser);
+        if(code == 0x0a000000)
+        {
+            code = parse_image_flag(parser);
+            if(code == 0xffffffff)
+            {
+                break;
+            }
+            definitions[index].flags |= code;
+        }
+        else if(code == 0x0d000000)
+        {
+            code = parse_script_value_token(parser, name, sizeof(name));
+            if(code == 0xffffffff)
+            {
+                break;
+            }
+            for(RuntimeVisualObject *object = script_runtime_root->visual_objects; object != nullptr; object = object->next)
+            {
+                if(fixed_dword_memory_equal(name, object->name, sizeof(name)))
+                {
+                    definitions[index].visual_object = object;
+                    break;
+                }
+            }
+        }
+        if(code == 0xffffffff)
+        {
+            break;
+        }
+    }
+
+    ++*count;
+    return *count;
+}
+
+// GAG.EXE: 0x004094C0
+void __fastcall append_dual_image_flag(ScriptTextBuffer *buffer, std::uint32_t flags)
+{
+    if(buffer != nullptr && flags != 0 && (flags & 0x00200000) != 0)
+    {
+        append_script_text_scope(buffer, 0x0a000000);
+        buffer->length += copy_string(buffer->data + buffer->length, "DUAL");
+        buffer->data[buffer->length++] = ' ';
+    }
+}
+
+// GAG.EXE: 0x00409510
+void __fastcall serialize_runtime_command_definitions(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return;
+    }
+    const auto *root_bytes = reinterpret_cast<const std::uint8_t *>(script_runtime_root);
+    const std::uint32_t count = *reinterpret_cast<const std::uint32_t *>(root_bytes + 0x0a70);
+    const auto *definitions = reinterpret_cast<const RuntimeCommandDefinition *>(root_bytes + 0x0a74);
+    if(count != 0)
+    {
+        append_script_text_delimiter(buffer, nullptr, '\r');
+        append_script_text_delimiter(buffer, nullptr, '\n');
+    }
+    for(std::uint32_t index = 0; index < count; ++index)
+    {
+        append_script_text_property(buffer, 7, definitions[index].name);
+        if(definitions[index].visual_object != nullptr)
+        {
+            append_script_text_scope(buffer, 0x0d000000);
+            append_script_text_delimiter(buffer, definitions[index].visual_object->name, ' ');
+        }
+        append_dual_image_flag(buffer, definitions[index].flags);
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x004095E0
+void clear_runtime_command_definitions()
+{
+    if(script_runtime_root != nullptr)
+    {
+        std::memset(reinterpret_cast<std::uint8_t *>(script_runtime_root) + 0x0a70, 0, 0x504);
+    }
+}
+
+// GAG.EXE: 0x00409600
+std::uint32_t __fastcall parse_runtime_tree_scene_link(ScriptParserState *parser)
+{
+    RuntimeTreeNode *node = parser->owner;
+    char name[0x104];
+    if(parse_script_value_token(parser, name, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    auto *link = static_cast<RuntimeTreeSceneLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeSceneLink)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    std::memcpy(link->name, name, sizeof(link->name));
+    link->identity = link;
+    for(;;)
+    {
+        std::uint32_t code = parse_script_scope_code(parser);
+        if(code == 0x02000000)
+        {
+            const std::int32_t left = parse_script_integer_expression(parser);
+            if(left != 0x7fffffff)
+            {
+                link->x = left;
+            }
+            const std::int32_t top = parse_script_integer_expression(parser);
+            if(top != 0x7fffffff)
+            {
+                link->y = top;
+            }
+            const std::int32_t right = parse_script_integer_expression(parser);
+            if(right != 0x7fffffff)
+            {
+                link->width = right - link->x + 1;
+            }
+            const std::int32_t bottom = parse_script_integer_expression(parser);
+            if(bottom != 0x7fffffff)
+            {
+                link->height = bottom - link->y + 1;
+            }
+            code = static_cast<std::uint32_t>(bottom);
+        }
+        else if(code == 0x00040000)
+        {
+            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            if(code != 0x7fffffff)
+            {
+                link->z = code;
+            }
+        }
+        else if(code == 0x0a000000)
+        {
+            code = parse_image_flag(parser);
+            if(code == 2 || code == 0x20 || code == 0x02000000 || code == 0x04000000)
+            {
+                link->flags |= code;
+            }
+        }
+        else if(code == 0x0b000000)
+        {
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                link->x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                link->y = y;
+            }
+            const std::int32_t width = parse_script_integer_expression(parser);
+            if(width != 0x7fffffff)
+            {
+                link->width = width;
+            }
+            const std::int32_t height = parse_script_integer_expression(parser);
+            if(height != 0x7fffffff)
+            {
+                link->height = height;
+            }
+            code = static_cast<std::uint32_t>(height);
+        }
+        if(code == 0xffffffff)
+        {
+            if(node->scene_link_tail == nullptr)
+            {
+                link->next = node->scene_link_head;
+                node->scene_link_head = link;
+                insert_runtime_tree_scene_link(node, link);
+            }
+            else
+            {
+                link->next = node->scene_link_tail->next;
+                node->scene_link_tail->next = link;
+            }
+            node->scene_link_tail = link;
+            return 0;
+        }
+    }
+}
+
+// GAG.EXE: 0x00409A80
+std::uint32_t __fastcall parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
+{
+    RuntimeTreeNode *node = parser->owner;
+    char name[0x80];
+    if(parse_script_value_token(parser, name, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    auto *link = static_cast<RuntimeTreeSecondaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeSecondaryResourceLink)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    std::memcpy(link->name, name, sizeof(link->name));
+    link->identity = link;
+    std::uint32_t code;
+    do
+    {
+        code = parse_script_scope_code(parser);
+        if(code == 0x01000000)
+        {
+            parse_script_file_value(parser, link->file_name, nullptr);
+        }
+    } while(code != 0xffffffff);
+    if(node->secondary_resource_link_tail == nullptr)
+    {
+        link->next = node->secondary_resource_link_head;
+        node->secondary_resource_link_head = link;
+        insert_runtime_tree_secondary_resource_link(node, link);
+    }
+    else
+    {
+        link->next = node->secondary_resource_link_tail->next;
+        node->secondary_resource_link_tail->next = link;
+    }
+    node->secondary_resource_link_tail = link;
+    if((node->flags & 0x400) != 0)
+    {
+        add_runtime_tree_auxiliary_name(node, link->file_name);
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00409E50
+std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
+{
+    RuntimeTreeNode *node = parser->owner;
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    bool expand_list = false;
+    bool invert_no_palette = false;
+    char list_name[0x80];
+    auto *link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreePrimaryResourceLink)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    std::memcpy(link->identifier, value, sizeof(link->identifier));
+    link->identity = link;
+    link->ratio_x = 1;
+    link->ratio_y = 1;
+    if((script_runtime_root->flags & 0x20) != 0 && node->parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        link->flags |= 0x80000000;
+    }
+    link->image_flags |= script_runtime_root->palette_flags;
+    for(;;)
+    {
+        std::uint32_t code = parse_script_scope_code(parser);
+        if(code == 0x00050000)
+        {
+            if(parse_script_value_token(parser, value, 0x20) != 0xffffffff)
+            {
+                RuntimeTreeSceneLink *scene = find_global_runtime_tree_scene_link_by_name(value);
+                if(scene != nullptr)
+                {
+                    link->source_value = scene->z;
+                }
+            }
+        }
+        else if(code == 0x00060000)
+        {
+            invert_no_palette = true;
+        }
+        else if(code == 0x00100000)
+        {
+            expand_list = true;
+            code = parse_script_value_token(parser, list_name, 0x20);
+        }
+        else if(code == 0x00300000)
+        {
+            const std::int32_t ratio_x = parse_script_integer_expression(parser);
+            if(ratio_x != 0x7fffffff)
+            {
+                link->ratio_x = static_cast<std::uint32_t>(ratio_x);
+            }
+            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            if(code != 0x7fffffff)
+            {
+                link->ratio_y = code;
+            }
+        }
+        else if(code == 0x00900000)
+        {
+            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            if(code != 0x7fffffff)
+            {
+                link->loop_count = code;
+            }
+        }
+        else if(code == 0x00e00000)
+        {
+            parse_script_value_token(parser, value, 0x20);
+            link->secondary_link = find_global_runtime_tree_secondary_resource_link_by_name(value);
+        }
+        else if(code == 0x00f00000)
+        {
+            parse_script_value_token(parser, value, 0x20);
+            link->fixed_name_node = find_runtime_fixed_name_list_node(value);
+        }
+        else if(code == 0x01000000)
+        {
+            if(parse_script_file_value(parser, value, nullptr) != 0xffffffff && !fixed_dword_memory_equal(value, link->file_name, 0x20))
+            {
+                link->previous_resource_identity = link->resource_identity;
+                link->resource_identity = nullptr;
+                std::memcpy(link->file_name, value, sizeof(link->file_name));
+            }
+        }
+        else if(code == 0x0a000000)
+        {
+            code = parse_image_flag(parser);
+            if(code == 0x00200000)
+            {
+                link->ratio_x = 2;
+                link->ratio_y = 2;
+            }
+            else if(code == 0x01000000)
+            {
+                link->flags |= 0x01000000;
+            }
+            else
+            {
+                link->image_flags |= code;
+            }
+        }
+        else if(code == 0x0b000000)
+        {
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                link->x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                link->y = y;
+            }
+            const std::int32_t width = parse_script_integer_expression(parser);
+            if(width != 0x7fffffff)
+            {
+                link->width = static_cast<std::uint32_t>(width);
+            }
+            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            if(code != 0x7fffffff)
+            {
+                link->height = code;
+            }
+        }
+        else if(code == 0x0e000000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code == 0xffffffff)
+            {
+                break;
+            }
+            if(!script_object_container_state_matches_by_name(value))
+            {
+                runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, link);
+                return 0;
+            }
+        }
+        if(code == 0xffffffff)
+        {
+            break;
+        }
+    }
+    if(invert_no_palette)
+    {
+        link->image_flags ^= 0x04000000;
+    }
+    if(!expand_list)
+    {
+        if(node->primary_resource_link_tail == nullptr)
+        {
+            link->next = node->primary_resource_link_head;
+            node->primary_resource_link_head = link;
+            insert_runtime_tree_primary_resource_link(node, link);
+        }
+        else
+        {
+            link->next = node->primary_resource_link_tail->next;
+            node->primary_resource_link_tail->next = link;
+        }
+        node->primary_resource_link_tail = link;
+        if((node->flags & 0x400) != 0)
+        {
+            add_runtime_tree_auxiliary_name(node, link->file_name);
+        }
+        return 0;
+    }
+
+    RuntimeNamedNode *named = script_runtime_root->runtime_nodes;
+    while(named != nullptr && !fixed_dword_memory_equal(list_name, named, 0x20))
+    {
+        named = named->next;
+    }
+    if(named != nullptr)
+    {
+        std::int32_t x = link->x;
+        const std::int32_t y = link->y;
+        auto *child = reinterpret_cast<RuntimeResourceCacheEntry *>(named->child_cursor);
+        const auto *named_bytes = reinterpret_cast<const std::uint8_t *>(named);
+        for(std::uint32_t index = 0; index < named->unknown_0028; ++index)
+        {
+            char generated_name[0x80];
+            append_three_digit_decimal_suffix(link->identifier, index, generated_name);
+            void *resource_object = nullptr;
+            void *primary_identity;
+            std::uint32_t resource_value = 0;
+            if(child == nullptr)
+            {
+                primary_identity = create_or_update_runtime_tree_primary_resource_link(node, generated_name, nullptr, static_cast<std::int32_t>(link->source_value), x, y, link->image_flags);
+                if(primary_identity != nullptr)
+                {
+                    static_cast<RuntimeTreePrimaryResourceLink *>(primary_identity)->flags |= 0x80000000;
+                }
+            }
+            else
+            {
+                resource_object = child->data;
+                auto *resource_bytes = static_cast<std::uint8_t *>(resource_object);
+                resource_value = *reinterpret_cast<std::uint32_t *>(resource_bytes + 0x47c);
+                primary_identity =
+                    create_or_update_runtime_tree_primary_resource_link(node, generated_name, resource_bytes + 0x430, static_cast<std::int32_t>(link->source_value), x, y, link->image_flags);
+            }
+            create_or_update_runtime_tree_link_0084(node, generated_name, x, y, x + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x30),
+                y + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x34), 0, resource_object, primary_identity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(named)),
+                resource_value, *reinterpret_cast<const std::uint32_t *>(named_bytes + 0x3c));
+            if(child != nullptr)
+            {
+                child = child->next;
+                if(child == reinterpret_cast<RuntimeResourceCacheEntry *>(named->child_cursor))
+                {
+                    child = nullptr;
+                }
+            }
+            x += *reinterpret_cast<const std::int32_t *>(named_bytes + 0x38) + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x30);
+        }
+    }
+    runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, link);
+    return 0;
+}
+
+// GAG.EXE: 0x00408DD0
+std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
+{
+    bool invert_no_palette = false;
+    bool parsed_file = false;
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+
+    RuntimeVisualObject *previous = nullptr;
+    RuntimeVisualObject *object = script_runtime_root->visual_objects;
+    while(object != nullptr && !fixed_dword_memory_equal(value, object->name, 0x20))
+    {
+        previous = object;
+        object = object->next;
+    }
+    if(object == nullptr)
+    {
+        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeVisualObject)));
+        if(object == nullptr)
+        {
+            return 0;
+        }
+        if(previous == nullptr)
+        {
+            script_runtime_root->visual_objects = object;
+        }
+        else
+        {
+            previous->next = object;
+        }
+        std::memcpy(object->name, value, sizeof(object->name));
+        object->identity = object;
+    }
+
+    if(object->serialized_file[0] != '\0')
+    {
+        std::memset(object->serialized_file, 0, sizeof(object->serialized_file));
+    }
+    object->palette_flags = script_runtime_root->palette_flags;
+    object->flags |= 0x00100000;
+    for(;;)
+    {
+        std::uint32_t code = parse_script_scope_code(parser);
+        if(code == 0x01000000)
+        {
+            const std::uint32_t file_result = parse_script_file_value(parser, value, object->serialized_file);
+            if(file_result != 0xffffffff)
+            {
+                parsed_file = true;
+                if(!fixed_dword_memory_equal(value, object->file_name, 0x20))
+                {
+                    if(object->scene_identity != nullptr)
+                    {
+                        object->previous_scene_identity = object->scene_identity;
+                    }
+                    object->scene_identity = nullptr;
+                    std::memcpy(object->file_name, value, sizeof(object->file_name));
+                }
+                else
+                {
+                    object->flags &= 0xffefffff;
+                }
+            }
+        }
+        else if(code == 0x00060000)
+        {
+            invert_no_palette = true;
+        }
+        else if(code == 0x0a000000)
+        {
+            code = parse_image_flag(parser);
+            if(code == 1)
+            {
+                for(RuntimeVisualObject *current = script_runtime_root->visual_objects; current != nullptr; current = current->next)
+                {
+                    current->flags &= 0xfffffffe;
+                }
+                object->flags |= 1;
+                *reinterpret_cast<RuntimeVisualObject **>(reinterpret_cast<std::uint8_t *>(parser) + 0x70) = object;
+            }
+            else
+            {
+                object->palette_flags |= code;
+            }
+        }
+        else if(code == 0x0b000000)
+        {
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                object->position_x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                object->position_y = y;
+            }
+            code = static_cast<std::uint32_t>(y);
+        }
+        if(code == 0xffffffff)
+        {
+            break;
+        }
+    }
+    if(invert_no_palette)
+    {
+        object->palette_flags ^= 0x04000000;
+    }
+    if(!parsed_file)
+    {
+        if(object->file_name[0] != '\0')
+        {
+            std::memset(object->file_name, 0, sizeof(object->file_name));
+        }
+        if(object->scene_identity != nullptr)
+        {
+            object->previous_scene_identity = object->scene_identity;
+        }
+        object->scene_identity = nullptr;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00409060
+void *__fastcall create_or_update_runtime_visual_object(const void *name, const void *file_name, std::int32_t position_x, std::int32_t position_y, std::uint32_t flags, std::uint32_t palette_flags)
+{
+    RuntimeVisualObject *previous = nullptr;
+    RuntimeVisualObject *object = script_runtime_root->visual_objects;
+    while(object != nullptr && !fixed_dword_memory_equal(name, object->name, 0x20))
+    {
+        previous = object;
+        object = object->next;
+    }
+    if(object != nullptr)
+    {
+        object->previous_scene_identity = object->scene_identity;
+        object->scene_identity = nullptr;
+    }
+    else
+    {
+        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeVisualObject)));
+        if(object == nullptr)
+        {
+            return nullptr;
+        }
+        if(previous == nullptr)
+        {
+            script_runtime_root->visual_objects = object;
+        }
+        else
+        {
+            previous->next = object;
+        }
+        std::memcpy(object->name, name, sizeof(object->name));
+        object->identity = object;
+    }
+
+    object->flags |= 0x00100000;
+    if(!fixed_dword_memory_equal(file_name, object->file_name, 0x20))
+    {
+        std::memcpy(object->file_name, file_name, sizeof(object->file_name));
+    }
+    else
+    {
+        object->previous_scene_identity = nullptr;
+        object->flags &= 0xffefffff;
+    }
+    object->position_x = position_x;
+    object->position_y = position_y;
+    if((flags & 1) != 0)
+    {
+        for(RuntimeVisualObject *current = script_runtime_root->visual_objects; current != nullptr; current = current->next)
+        {
+            current->flags &= 0xfffffffe;
+        }
+        object->flags |= 1;
+    }
+    object->palette_flags |= palette_flags;
+    return object->identity;
+}
+
+// GAG.EXE: 0x00409210
+void __fastcall serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
+{
+    RuntimeVisualObject *object = script_runtime_root->visual_objects;
+    if(object == nullptr)
+    {
+        return;
+    }
+    append_script_text_delimiter(buffer, nullptr, '\r');
+    append_script_text_delimiter(buffer, nullptr, '\n');
+    for(; object != nullptr; object = object->next)
+    {
+        append_script_text_property(buffer, 4, object->name);
+        if(object->serialized_file[0] != '\0')
+        {
+            append_script_text_scoped_tokens(buffer, 0x01000000, object->serialized_file);
+            if(object->position_x != 0 || object->position_y != 0)
+            {
+                append_script_text_scope(buffer, 0x0b000000);
+                append_script_text_integer(buffer, object->position_x, ',');
+                append_script_text_integer(buffer, object->position_y, ' ');
+            }
+        }
+        serialize_image_flag_overrides(buffer, (object->flags & 1) | object->palette_flags);
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x00408B80
+void __fastcall serialize_script_object_states(ScriptTextBuffer *buffer)
+{
+    if(script_runtime_root == nullptr || script_runtime_root->objects == nullptr)
+    {
+        return;
+    }
+    append_script_text_delimiter(buffer, nullptr, '\r');
+    append_script_text_delimiter(buffer, nullptr, '\n');
+    for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
+    {
+        append_script_text_property(buffer, 1, object->name);
+        std::uint32_t field_mask = 1;
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(object->integer_values[index] != 0)
+            {
+                append_script_text_delimiter(buffer, object->field_names[index], ':');
+                append_script_text_integer(buffer, object->integer_values[index], ' ');
+            }
+            if(object->string_values[index][0] != '\0')
+            {
+                append_script_text_delimiter(buffer, object->field_names[index], ':');
+                append_script_text_delimiter(buffer, object->string_values[index], ' ');
+            }
+            append_script_text_delimiter(buffer, object->field_names[index], ':');
+            append_script_text_delimiter(buffer, (object->active_field_mask & field_mask) != 0 ? "ON" : "OFF", ' ');
+            field_mask *= 2;
+        }
+        if(object->mouse_visual_name[0] != '\0')
+        {
+            append_script_text_scope(buffer, 0x0d000000);
+            append_script_text_delimiter(buffer, object->mouse_visual_name, ' ');
+        }
+        if(object->alternate_mouse_visual_name[0] != '\0')
+        {
+            append_script_text_scope(buffer, 0x20000000);
+            append_script_text_delimiter(buffer, object->alternate_mouse_visual_name, ' ');
+        }
+        serialize_image_flag_overrides(buffer, object->image_flags);
+        append_natural_mouse_image_flag(buffer, object->flags_042c);
+        field_mask = 1;
+        for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+        {
+            if((object->command_mask & field_mask) != 0)
+            {
+                append_script_text_scope(buffer, 0x0c000000);
+                append_script_text_delimiter(buffer, script_runtime_root->command_definitions[index].name, ' ');
+            }
+            field_mask *= 2;
+        }
+        end_script_text_statement(buffer);
+    }
+}
+
+// GAG.EXE: 0x00409330
+RuntimeVisualObject *__fastcall find_runtime_visual_object(const char *name)
+{
+    for(RuntimeVisualObject *object = script_runtime_root->visual_objects; object != nullptr; object = object->next)
+    {
+        if(strings_equal(name, object->name))
+        {
+            return object;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040C3D0
+void __fastcall enqueue_runtime_event_record(const std::uint32_t *record)
+{
+    if(script_runtime_root != nullptr && record != nullptr)
+    {
+        std::memcpy(script_runtime_root->event_records[script_runtime_root->transient_index_2], record, 0x40);
+        ++script_runtime_root->transient_index_2;
+        if(script_runtime_root->transient_index_2 > 0x1f)
+        {
+            script_runtime_root->transient_index_2 = 0;
+        }
+        if(script_runtime_root->transient_index_2 == script_runtime_root->transient_index_1)
+        {
+            ++script_runtime_root->transient_index_1;
+            if(script_runtime_root->transient_index_1 > 0x1f)
+            {
+                script_runtime_root->transient_index_1 = 0;
+            }
+        }
+    }
+}
+
+// GAG.EXE: 0x0040C390
+void acknowledge_current_runtime_event_record()
+{
+    if(script_runtime_root != nullptr && script_runtime_root->transient_index_2 != script_runtime_root->transient_index_1)
+    {
+        std::uint32_t &flags = script_runtime_root->event_records[script_runtime_root->transient_index_1][14];
+        if((flags & 0x20000) != 0)
+        {
+            read_runtime_event_record(nullptr, 1);
+        }
+        else
+        {
+            flags |= 0x20000;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040C440
+std::uint32_t __fastcall read_runtime_event_record(std::uint32_t *record, std::int32_t advance)
+{
+    if(record != nullptr)
+    {
+        record[14] = 0;
+    }
+    if(script_runtime_root == nullptr || script_runtime_root->transient_index_2 == script_runtime_root->transient_index_1)
+    {
+        return 0;
+    }
+    if(record != nullptr)
+    {
+        std::memcpy(record, script_runtime_root->event_records[script_runtime_root->transient_index_1], 0x40);
+    }
+    if(advance != 0)
+    {
+        ++script_runtime_root->transient_index_1;
+        if(script_runtime_root->transient_index_1 > 0x1f)
+        {
+            script_runtime_root->transient_index_1 = 0;
+        }
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x004237F0
+std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region)
+{
+    region->current_scene_bit = 0;
+    if(region->scene_mask == 0)
+    {
+        return -1;
+    }
+    region->current_scene_bit = region->first_scene_bit != 0 ? region->first_scene_bit : 1;
+    std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->active_field_mask : 0;
+    for(std::int32_t attempts = 0; attempts < 32; ++attempts)
+    {
+        std::uint32_t bit = region->current_scene_bit;
+        if((bit & region->scene_mask) != 0)
+        {
+            std::int32_t index = 0;
+            for(std::uint32_t shifted = bit; shifted != 1; shifted >>= 1)
+            {
+                ++index;
+            }
+            if((runtime_scene_slots[index].flags & 0x20) == 0 || (bit & state_mask) != 0)
+            {
+                return index;
+            }
+        }
+        region->current_scene_bit = bit == 0x80000000 ? 1 : bit * 2;
+    }
+    region->current_scene_bit = 0;
+    return -1;
+}
+
+// GAG.EXE: 0x00423BC0
+std::uint32_t handle_runtime_left_button_up()
+{
+    if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
+    {
+        return 0;
+    }
+    runtime_pointer_event_record[11] = 0x10000000;
+    if((runtime_scene_control_flags & 0x30000) == 0x10000)
+    {
+        RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
+        if(region != nullptr && region->scene_mask != 0)
+        {
+            std::int32_t scene_index;
+            if(region->current_scene_bit == 0)
+            {
+                scene_index = select_pointer_region_scene(region);
+            }
+            else
+            {
+                scene_index = 0;
+                for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+                {
+                    ++scene_index;
+                }
+            }
+            if(scene_index != -1 && (runtime_scene_slots[scene_index].flags & 0x20) == 0)
+            {
+                runtime_pointer_state_mask = region->current_scene_bit;
+                runtime_pointer_event_record[11] |= 1;
+                if(region->state_object != nullptr)
+                {
+                    runtime_pointer_event_state_object = region->state_object;
+                    runtime_pointer_event_record[11] = (runtime_pointer_event_record[11] & ~1u) | 5;
+                }
+                runtime_pointer_event_record[11] |= 8;
+                runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+            }
+        }
+    }
+    enqueue_runtime_pointer_event();
+    return 0;
+}
+
+// GAG.EXE: 0x004238B0
+std::uint32_t handle_runtime_left_button_down()
+{
+    if((runtime_scene_control_flags & 0x100000) == 0)
+    {
+        return 0;
+    }
+    if(destroy_runtime_comment_trees() != 0)
+    {
+        return 1;
+    }
+    if((runtime_scene_control_flags & 0x80) != 0)
+    {
+        return 0;
+    }
+    bool set_flag_2 = false;
+    bool set_flag_4 = false;
+    const std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+    if(mode != 0x30000)
+    {
+        const char empty_name[0x20]{};
+        if(has_runtime_pointer_tree_flag_1000() == 0 && find_runtime_tree_descendant_identity_by_name(runtime_pointer_root_identity, empty_name) == nullptr)
+        {
+            if((runtime_scene_control_flags & 0x4000) == 0)
+            {
+                set_flag_2 = true;
+            }
+        }
+        else
+        {
+            set_flag_4 = true;
+        }
+    }
+    if(mode == 0x10000)
+    {
+        RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
+        if(region != nullptr)
+        {
+            const std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
+            const std::uint32_t original_bit = region->current_scene_bit;
+            const std::uint32_t eligible_mask = region->scene_mask | state_mask;
+            if(eligible_mask != 0 && original_bit != 0)
+            {
+                std::uint32_t attempts = 0;
+                std::int32_t scene_index = 0;
+                do
+                {
+                    do
+                    {
+                        region->current_scene_bit = region->current_scene_bit == 0x80000000 ? 1 : region->current_scene_bit * 2;
+                        ++attempts;
+                    } while(attempts < 32 && (eligible_mask & region->current_scene_bit) == 0);
+                    scene_index = 0;
+                    for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+                    {
+                        ++scene_index;
+                    }
+                } while(attempts < 32 && (region->current_scene_bit & state_mask) == 0 && (runtime_scene_slots[scene_index].flags & 0x20) != 0);
+                if(attempts < 33)
+                {
+                    const bool is_view = strings_equal(runtime_scene_slots[scene_index].name, "IView");
+                    if(is_view)
+                    {
+                        set_flag_2 = false;
+                        set_flag_4 = false;
+                    }
+                    const bool is_hide = strings_equal(runtime_scene_slots[scene_index].name, "Hide");
+                    if(is_hide)
+                    {
+                        set_flag_2 = false;
+                        set_flag_4 = true;
+                    }
+                    if(is_view || is_hide)
+                    {
+                        runtime_pointer_state_mask = region->current_scene_bit;
+                        runtime_pointer_event_record[11] = region->state_object == nullptr ? 1 : 5;
+                        if(region->state_object != nullptr)
+                        {
+                            runtime_pointer_event_state_object = region->state_object;
+                        }
+                        runtime_pointer_event_record[11] |= 8;
+                        runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+                        enqueue_runtime_pointer_event();
+                    }
+                    else
+                    {
+                        if(region->current_scene_bit != original_bit)
+                        {
+                            set_flag_2 = false;
+                            set_flag_4 = false;
+                        }
+                        RuntimeVisualObject *visual = runtime_scene_slots[scene_index].visual_object;
+                        if(visual != nullptr && current_runtime_scene_identity != visual->scene_identity)
+                        {
+                            switch_runtime_scene(visual->scene_identity);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else if(mode == 0x30000)
+    {
+        set_flag_2 = false;
+        set_flag_4 = false;
+        active_runtime_pointer_region = nullptr;
+        runtime_scene_control_flags &= 0xfffc7fffU;
+        update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+        ScriptObjectState *object = find_script_object_by_identity(runtime_pointer_state_owner);
+        if(object != nullptr && (object->flags_042c & 0x10000) == 0 && object->visual_object != nullptr)
+        {
+            request_runtime_resource_destruction(object->visual_object->scene_identity);
+            remove_runtime_visual_object(object->visual_object);
+            object->visual_object = nullptr;
+        }
+    }
+    if(set_flag_4)
+    {
+        set_script_runtime_flags(4, 1);
+    }
+    if(set_flag_2)
+    {
+        set_script_runtime_flags(2, 1);
+    }
+    return 0;
+}
+
+// Non-original helper exposing the original hidden EDI input for deterministic testing.
+std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t loop_animation)
+{
+    if((runtime_scene_control_flags & 0x100000) == 0)
+    {
+        return 0;
+    }
+    if(destroy_runtime_comment_trees() != 0)
+    {
+        return 1;
+    }
+    if((runtime_scene_control_flags & 0x80) != 0)
+    {
+        return 0;
+    }
+    runtime_pointer_event_record[11] &= 0xefffffff;
+    const std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+    if(mode == 0x10000)
+    {
+        RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
+        if(region == nullptr || region->scene_mask == 0)
+        {
+            return 0;
+        }
+        std::int32_t scene_index;
+        if(region->current_scene_bit == 0)
+        {
+            scene_index = select_pointer_region_scene(region);
+        }
+        else
+        {
+            scene_index = 0;
+            for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+            {
+                ++scene_index;
+            }
+        }
+        if(scene_index == -1)
+        {
+            return 0;
+        }
+        const std::uint32_t slot_flags = *reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(&runtime_scene_slots[scene_index]) + 4);
+        if((slot_flags & 0x200000) == 0)
+        {
+            runtime_pointer_state_mask = region->current_scene_bit;
+            runtime_pointer_event_record[11] = 1;
+            if(region->state_object != nullptr)
+            {
+                runtime_pointer_event_record[11] = 5;
+                runtime_pointer_event_state_object = region->state_object;
+            }
+            runtime_pointer_event_record[11] |= 8;
+            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+            enqueue_runtime_pointer_event();
+            return 0;
+        }
+        if((slot_flags & 0x200000) != 0x200000)
+        {
+            return 0;
+        }
+        ScriptObjectState *object = region->state_object;
+        if(object != nullptr && (region->current_scene_bit & object->command_mask) != 0)
+        {
+            runtime_scene_control_flags |= 0x28000;
+            runtime_pointer_state_mask = region->current_scene_bit;
+            RuntimeVisualObject *visual = object->visual_object;
+            runtime_pointer_state_owner = object;
+            if(visual == nullptr && (object->flags_042c & 0x10000) == 0)
+            {
+                visual = static_cast<RuntimeVisualObject *>(create_or_update_runtime_visual_object(object, object->mouse_visual_name, 0, 0, 0, object->image_flags));
+                visual->flags &= 0xffefffff;
+                visual->scene_identity = runtime_resource_selection_api.construct_resource(visual->file_name, 0, 0, 0, 0, 0, 0, visual->palette_flags | 2, loop_animation);
+                object->visual_object = visual;
+            }
+            if(current_runtime_scene_identity != visual->scene_identity)
+            {
+                switch_runtime_scene(visual->scene_identity);
+            }
+            const char empty_name[0x20]{};
+            void *descendant = find_runtime_tree_descendant_identity_by_name(runtime_pointer_root_identity, empty_name);
+            if(descendant != nullptr)
+            {
+                destroy_runtime_tree_resources(descendant);
+                deactivate_runtime_tree_and_visuals(descendant, nullptr);
+                return 1;
+            }
+        }
+    }
+    else if(mode == 0x30000)
+    {
+        runtime_pointer_event_record[11] = 3;
+        RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
+        if(region != nullptr)
+        {
+            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+            runtime_pointer_event_record[11] |= 8;
+            if(region->state_object != nullptr && runtime_pointer_state_owner != region->state_object)
+            {
+                runtime_pointer_event_state_object = region->state_object;
+                runtime_pointer_event_record[11] |= 4;
+            }
+        }
+        enqueue_runtime_pointer_event();
+        active_runtime_pointer_region = nullptr;
+        runtime_scene_control_flags &= 0xfffc7fffU;
+        update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+        ScriptObjectState *object = find_script_object_by_identity(runtime_pointer_state_owner);
+        if(object != nullptr && (object->flags_042c & 0x10000) == 0 && object->visual_object != nullptr)
+        {
+            request_runtime_resource_destruction(object->visual_object->scene_identity);
+            remove_runtime_visual_object(object->visual_object);
+            object->visual_object = nullptr;
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00423CA0
+std::uint32_t handle_runtime_right_button_down()
+{
+    std::int32_t loop_animation;
+#if defined(_MSC_VER) && defined(_M_IX86)
+    __asm mov loop_animation, edi
+#elif defined(__GNUC__) && defined(__i386__)
+    __asm__ volatile("movl %%edi, %0" : "=r"(loop_animation));
+#else
+#error GAG requires an x86 compiler capable of reading the original EDI input
+#endif
+        return handle_runtime_right_button_down_with_loop_register(loop_animation);
+}
+
+// GAG.EXE: 0x00423FA0
+std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int32_t y)
+{
+    if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
+    {
+        return 0;
+    }
+    RuntimeTreeNode *root = find_runtime_tree_node_by_identity(runtime_pointer_root_identity);
+    if(root == nullptr)
+    {
+        return 0;
+    }
+    RuntimePointerRegion *selected = nullptr;
+    for(RuntimePointerRegion *region = runtime_pointer_regions; region != nullptr; region = region->next)
+    {
+        if(region->left <= x && x <= region->right && region->top <= y && y <= region->bottom && (selected == nullptr || selected->priority < region->priority))
+        {
+            selected = region;
+        }
+    }
+    if(selected != nullptr)
+    {
+        if(active_runtime_pointer_region == selected)
+        {
+            return 0;
+        }
+        runtime_pointer_event_record[11] = 0;
+        std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+        if(mode == 0 || mode == 0x10000)
+        {
+            runtime_pointer_event_record[11] = 8;
+            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selected));
+            enqueue_runtime_pointer_event();
+            runtime_scene_control_flags = runtime_scene_control_flags & 0xffff7fffU | 0x10000;
+            std::int32_t scene_index = select_pointer_region_scene(selected);
+            if(scene_index != -1)
+            {
+                RuntimeVisualObject *visual = runtime_scene_slots[scene_index].visual_object;
+                if(visual == nullptr)
+                {
+                    scene_index = -1;
+                }
+                else if(current_runtime_scene_identity != visual->scene_identity)
+                {
+                    switch_runtime_scene(visual->scene_identity);
+                }
+                if(scene_index != -1)
+                {
+                    active_runtime_pointer_region = selected;
+                    return 0;
+                }
+            }
+            RuntimeVisualObject *visual = selected->visual_override != nullptr ? selected->visual_override : root->default_visual;
+            if(visual == nullptr)
+            {
+                switch_runtime_scene(nullptr);
+                active_runtime_pointer_region = selected;
+                return 0;
+            }
+            if(current_runtime_scene_identity != visual->scene_identity)
+            {
+                switch_runtime_scene(visual->scene_identity);
+            }
+        }
+        else if(mode != 0x30000)
+        {
+            active_runtime_pointer_region = selected;
+            return 0;
+        }
+        else
+        {
+            std::uint32_t mask = selected->scene_mask;
+            if(selected->state_object != nullptr)
+            {
+                mask |= selected->state_object->active_field_mask;
+            }
+            runtime_pointer_event_record[11] = 8;
+            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selected));
+            enqueue_runtime_pointer_event();
+            if(selected->state_object != runtime_pointer_state_owner)
+            {
+                if((runtime_pointer_state_mask & mask) != 0)
+                {
+                    runtime_scene_control_flags &= ~0x8000U;
+                    active_runtime_pointer_region = selected;
+                    return 0;
+                }
+                runtime_scene_control_flags |= 0x8000;
+                active_runtime_pointer_region = selected;
+                return 0;
+            }
+            runtime_scene_control_flags |= 0x8000;
+        }
+        active_runtime_pointer_region = selected;
+        return 0;
+    }
+    active_runtime_pointer_region = nullptr;
+    if((runtime_scene_control_flags & 0x20000) == 0)
+    {
+        runtime_pointer_event_record[11] = 0;
+        runtime_scene_control_flags &= 0xfffc7fffU;
+        if(root->default_visual == nullptr)
+        {
+            switch_runtime_scene(nullptr);
+            return 0;
+        }
+        if(current_runtime_scene_identity != root->default_visual->scene_identity)
+        {
+            switch_runtime_scene(root->default_visual->scene_identity);
+        }
+    }
+    else
+    {
+        runtime_scene_control_flags |= 0x8000;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x004236C0
+std::uint32_t refresh_runtime_pointer_region()
+{
+    active_runtime_pointer_region = nullptr;
+    return runtime_pointer_refresh_api.update_region(runtime_scene_x, runtime_scene_y);
+}
+
+// GAG.EXE: 0x004237B0
+std::uint32_t has_runtime_pointer_tree_flag_1000()
+{
+    RuntimeTreeNode *node = begin_runtime_tree_enumeration(runtime_pointer_root_identity);
+    while(node != nullptr)
+    {
+        if((node->flags & 0x1000) != 0)
+        {
+            return 1;
+        }
+        node = get_next_runtime_tree_node(reinterpret_cast<RuntimeTreeNode *>(runtime_pointer_root_identity));
+    }
+    return 0;
+}
+
+void set_runtime_pointer_refresh_api_for_testing(const RuntimePointerRefreshApi &api)
+{
+    runtime_pointer_refresh_api = api;
+}
+
+// GAG.EXE: 0x004235E0
+std::int32_t __fastcall activate_default_comment_scene(const char *name)
+{
+    if((runtime_scene_control_flags & 0x20008) != 0 || (runtime_scene_control_flags & 0x100000) == 0 || current_runtime_scene_identity == nullptr)
+    {
+        return 0;
+    }
+    RuntimeVisualObject *object = find_runtime_visual_object(name);
+    if(object == nullptr)
+    {
+        return -1;
+    }
+    if(saved_default_comment_scene_identity != object->scene_identity || (runtime_scene_control_flags & 0x80) == 0)
+    {
+        saved_default_comment_scene_identity = object->scene_identity;
+        switch_runtime_scene(object->scene_identity);
+    }
+    runtime_scene_control_flags |= 0x80;
+    return 1;
+}
+
+// GAG.EXE: 0x004236E0
+void __fastcall activate_runtime_tree_node_comment(RuntimeTreeNode *node)
+{
+    if(node->parent != nullptr && (runtime_scene_control_flags & 8) == 0 && activate_default_comment_scene("m_DEF_COMMENT") > 0)
+    {
+        runtime_scene_control_flags |= 8;
+    }
+}
+
+// GAG.EXE: 0x00423660
+void __fastcall deactivate_default_comment_scene(const char *name)
+{
+    if((runtime_scene_control_flags & 0x100080) == 0x100080)
+    {
+        RuntimeVisualObject *object = find_runtime_visual_object(name);
+        if(object != nullptr && object->scene_identity == saved_default_comment_scene_identity)
+        {
+            runtime_scene_control_flags &= ~0x80U;
+            saved_default_comment_scene_identity = nullptr;
+            active_runtime_pointer_region = nullptr;
+            update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+        }
+    }
+}
+
+// GAG.EXE: 0x00423710
+void __fastcall deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
+{
+    if(node->parent != nullptr && (runtime_scene_control_flags & 8) != 0)
+    {
+        runtime_scene_control_flags &= ~8U;
+        deactivate_default_comment_scene("m_DEF_COMMENT");
+    }
+}
+
+// GAG.EXE: 0x00426320
+void __fastcall set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled)
+{
+    RuntimeTreeNode *node = root;
+    while(node != nullptr)
+    {
+        std::uint32_t old_flags = node->flags;
+        if(enabled == 0)
+        {
+            node->flags = old_flags & ~0x8000U;
+            if((old_flags & 0x800) != 0)
+            {
+                deactivate_runtime_tree_node_comment(node);
+            }
+        }
+        else
+        {
+            node->flags = old_flags | 0x8000;
+            if((old_flags & 0x800) != 0)
+            {
+                activate_runtime_tree_node_comment(node);
+            }
+        }
+        node = node == root ? begin_runtime_tree_enumeration(root) : get_next_runtime_tree_node(root);
+    }
+}
+
+// GAG.EXE: 0x00406770
+RuntimeTreeNode *__fastcall begin_runtime_tree_enumeration(void *identity)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *root = identity == nullptr ? script_runtime_root->runtime_tree : find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    root->iterator_current = nullptr;
+    root->iterator_ascending = 0;
+    RuntimeTreeNode *child = root->child;
+    if(child == nullptr)
+    {
+        return nullptr;
+    }
+    if(child->child != nullptr)
+    {
+        root->iterator_current = child->child;
+        return get_next_runtime_tree_node(root);
+    }
+    root->iterator_current = child->next;
+    return child;
+}
+
+// GAG.EXE: 0x004067F0
+RuntimeTreeNode *__fastcall get_next_runtime_tree_node(RuntimeTreeNode *root)
+{
+    while(true)
+    {
+        if(script_runtime_root == nullptr || root == nullptr)
+        {
+            return nullptr;
+        }
+        RuntimeTreeNode *current = find_runtime_tree_node(root, root->iterator_current);
+        if(current == nullptr)
+        {
+            return nullptr;
+        }
+        if(current->child == nullptr || root->iterator_ascending != 0)
+        {
+            root->iterator_ascending = 0;
+            root->iterator_current = current->next;
+            if(current->next != nullptr)
+            {
+                return current;
+            }
+            RuntimeTreeNode *parent = current->parent;
+            if(parent == root || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+            {
+                return current;
+            }
+            root->iterator_current = parent;
+            root->iterator_ascending = 1;
+            return current;
+        }
+        root->iterator_current = current->child;
+    }
+}
+
+// GAG.EXE: 0x00423740
+int destroy_runtime_comment_trees()
+{
+    int destroyed = 0;
+    RuntimeTreeNode *node = runtime_comment_tree_cleanup_api.begin_enumeration(runtime_pointer_root_identity);
+    if(node != nullptr)
+    {
+        do
+        {
+            if((node->flags & 0x800) != 0)
+            {
+                destroyed = 1;
+                runtime_comment_tree_cleanup_api.destroy_resources(node);
+                runtime_comment_tree_cleanup_api.deactivate_node(node, nullptr);
+            }
+            node = runtime_comment_tree_cleanup_api.next_node(static_cast<RuntimeTreeNode *>(runtime_pointer_root_identity));
+        } while(node != nullptr);
+        if(destroyed != 0)
+        {
+            runtime_comment_tree_cleanup_api.finalize_destroyed_nodes();
+            runtime_comment_tree_cleanup_api.rebuild_runtime_plans();
+        }
+    }
+    return destroyed;
+}
+
+// GAG.EXE: 0x00426600
+std::uint32_t __fastcall deactivate_runtime_tree_and_visuals(void *identity, void *second)
+{
+    std::uint32_t result = 0;
+    RuntimeTreeNode *node = runtime_tree_deactivate_api.resolve_identity(identity);
+    if(node != nullptr)
+    {
+        runtime_tree_deactivate_api.send_message(runtime_display_context.window, 0x7ffd, 0x30000000, reinterpret_cast<LPARAM>(node));
+        ScriptObjectState *object = script_runtime_root->objects;
+        if(node->parent == nullptr)
+        {
+            while(object != nullptr)
+            {
+                if((object->flags_042c & 0x10000) == 0 && object->visual_object != nullptr)
+                {
+                    runtime_tree_deactivate_api.request_resource_destruction(object->visual_object->scene_identity);
+                    runtime_tree_deactivate_api.remove_visual_object(object->visual_object);
+                    object->visual_object = nullptr;
+                }
+                object = object->next;
+            }
+        }
+        if((node->flags & 0x1000) != 0 || node->name[0] == 0)
+        {
+            runtime_tree_deactivate_api.set_script_flags(2, 0);
+            runtime_tree_deactivate_api.set_script_flags(4, 0);
+        }
+        if((node->flags & 0x800) != 0)
+        {
+            runtime_tree_deactivate_api.deactivate_comment(node);
+        }
+        result = runtime_tree_deactivate_api.destroy_tree(identity, second);
+        runtime_tree_deactivate_api.send_message(runtime_display_context.window, 0x7ffd, 0xe0000000, 0);
+    }
+    return result;
+}
+
+void set_runtime_comment_tree_cleanup_api_for_testing(const RuntimeCommentTreeCleanupApi &api)
+{
+    runtime_comment_tree_cleanup_api = api;
+}
+
+void set_runtime_tree_deactivate_api_for_testing(const RuntimeTreeDeactivateApi &api)
+{
+    runtime_tree_deactivate_api = api;
+}
+
+// GAG.EXE: 0x00406640
+void *__fastcall find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *node = start_identity == nullptr ? script_runtime_root->runtime_tree : find_runtime_tree_node(script_runtime_root->runtime_tree, start_identity);
+    while(node != nullptr)
+    {
+        if(node->child != nullptr)
+        {
+            void *identity = find_runtime_tree_identity_by_name_recursive(node->child, name);
+            if(identity != nullptr)
+            {
+                return identity;
+            }
+        }
+        if(fixed_dword_memory_equal(node, name, 0x20))
+        {
+            return node->identity;
+        }
+        node = node->next;
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x004066C0
+void *__fastcall find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *root = root_identity == nullptr ? script_runtime_root->runtime_tree : find_runtime_tree_node(script_runtime_root->runtime_tree, root_identity);
+    if(root != nullptr)
+    {
+        for(RuntimeTreeNode *child = root->child; child != nullptr; child = child->next)
+        {
+            void *identity = find_runtime_tree_identity_by_name_recursive(child, name);
+            if(identity != nullptr)
+            {
+                return identity;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00406720
+void *__fastcall find_runtime_tree_root_identity_by_name(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(RuntimeTreeNode *node = script_runtime_root->runtime_tree; node != nullptr; node = node->next)
+    {
+        if(fixed_dword_memory_equal(node, name, 0x20))
+        {
+            return node->identity;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00425FA0
+void __fastcall release_runtime_lock_record(RuntimeLockRecord *record)
+{
+    if(record != nullptr && record->recursion_count != 0)
+    {
+        --record->recursion_count;
+    }
+}
+
+// GAG.EXE: 0x00425F10
+RuntimeLockRecord *__fastcall acquire_runtime_lock_record(void *child_identity)
+{
+    DWORD thread_id = runtime_named_lock_api.get_current_thread_id();
+    while(true)
+    {
+        RuntimeLockRecord *record = nullptr;
+        bool contended = false;
+        runtime_named_lock_api.enter_critical_section(&runtime_named_lock_critical_section);
+        RuntimeNamedNode *node = find_runtime_named_child(runtime_named_lock_parent_identity, child_identity);
+        if(node != nullptr)
+        {
+            record = static_cast<RuntimeLockRecord *>(node->identity);
+            if(record->recursion_count == 0)
+            {
+                record->recursion_count = 1;
+                record->owner_thread = thread_id;
+            }
+            else if(record->owner_thread == thread_id)
+            {
+                ++record->recursion_count;
+            }
+            else
+            {
+                contended = true;
+            }
+        }
+        runtime_named_lock_api.leave_critical_section(&runtime_named_lock_critical_section);
+        if(!contended)
+        {
+            return record;
+        }
+        runtime_named_lock_api.sleep(5);
+    }
+}
+
+// GAG.EXE: 0x004242C0
+void __fastcall switch_runtime_scene(void *identity)
+{
+    if((graphics_host_flags & 0x1000) != 0)
+    {
+        deferred_runtime_scene_identity = identity;
+        return;
+    }
+    void *selected_identity = nullptr;
+    auto *previous = reinterpret_cast<RuntimeSceneRecord *>(runtime_scene_switch_api.acquire(current_runtime_scene_identity));
+    if(previous != nullptr)
+    {
+        auto *context_flags = reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(previous->context) + 0x95c);
+        *context_flags |= 1;
+        runtime_scene_switch_api.offset_scene(previous->scene_identifier, 10000 - previous->x, 10000 - previous->y);
+        previous->x = 10000;
+        previous->y = 10000;
+    }
+    auto *selected = reinterpret_cast<RuntimeSceneRecord *>(runtime_scene_switch_api.acquire(identity));
+    if(selected != nullptr)
+    {
+        std::uint32_t mode = selected->flags & 0xff000;
+        if(mode == 0x1000 || mode == 0x2000)
+        {
+            if(mode == 0x2000)
+            {
+                auto *context_flags = reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(selected->context) + 0x95c);
+                *context_flags &= 0xfffffdfe;
+            }
+            std::int32_t new_x = runtime_scene_x - selected->x_offset;
+            std::int32_t new_y = runtime_scene_y - selected->y_offset;
+            runtime_scene_switch_api.offset_scene(selected->scene_identifier, new_x - selected->x, new_y - selected->y);
+            selected->x = new_x;
+            selected->y = new_y;
+            selected_identity = identity;
+        }
+    }
+    current_runtime_scene_identity = selected_identity;
+    if(selected != nullptr)
+    {
+        runtime_scene_switch_api.release(reinterpret_cast<RuntimeLockRecord *>(selected));
+    }
+    if(previous != nullptr)
+    {
+        runtime_scene_switch_api.release(reinterpret_cast<RuntimeLockRecord *>(previous));
+    }
+}
+
+// GAG.EXE: 0x004262B0
+void reset_runtime_display_state()
+{
+    runtime_display_reset_api.switch_scene(nullptr);
+    graphics_host_flags &= 0xff7c3e43;
+    runtime_display_reset_api.set_script_flags(2, 0);
+    runtime_display_reset_api.set_script_flags(4, 0);
+    runtime_display_reset_api.reset_transient_indices();
+    runtime_display_reset_api.reset_byte_queue();
+    runtime_display_reset_api.reset_pair_queue();
+    runtime_display_reset_api.release_scene(0, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(&runtime_display_context)));
+    runtime_display_reset_value_1 = 0;
+    runtime_display_reset_byte = 0;
+    runtime_display_reset_value_2 = 0;
+    std::memset(runtime_display_scene_state, 0, sizeof(runtime_display_scene_state));
+    current_runtime_scene_identity = nullptr;
+}
+
+// GAG.EXE: 0x00420130
+std::uint32_t shutdown_runtime_display()
+{
+    std::uint32_t result = 0;
+    if((graphics_host_flags & 0x600) == 0x600)
+    {
+        auto *media_objects = static_cast<RuntimeNamedNode *>(runtime_display_shutdown_api.get_named_node("MMediaObjectsList"));
+        auto *open_memory_files = static_cast<RuntimeNamedNode *>(runtime_display_shutdown_api.get_named_node("OpenMemoryFilesList"));
+        if(open_memory_files->status == 0 && media_objects->status == 0)
+        {
+            graphics_host_flags |= 1;
+            runtime_display_shutdown_api.wait_for_single_object(runtime_display_thread, INFINITE);
+            result = runtime_display_shutdown_api.close_handle(runtime_display_thread);
+        }
+        std::uint32_t cleaned = 0;
+        if(result != 0)
+        {
+            cleaned = runtime_display_shutdown_api.release_scene(runtime_display_scene_identifier, 0) == 0;
+            cleaned &= runtime_display_shutdown_api.shutdown_host() == 0;
+            runtime_display_shutdown_api.teardown_surface();
+        }
+        result = 0;
+        if(cleaned != 0)
+        {
+            std::memset(runtime_display_backend_state, 0, sizeof(runtime_display_backend_state));
+            std::memset(runtime_display_pixel_format_state, 0, sizeof(runtime_display_pixel_format_state));
+            runtime_display_scene_identifier = 0;
+            runtime_display_host = nullptr;
+            runtime_display_thread = nullptr;
+            graphics_host_flags &= 0xfffff9ff;
+            return cleaned;
+        }
+    }
+    else if((graphics_host_flags & 0x400) == 0)
+    {
+        result = 1;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x004258D0
+void __fastcall set_runtime_resource_loop_count(void *identity, std::uint32_t count)
+{
+    auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_loop_api.acquire_record(identity));
+    if(record == nullptr)
+    {
+        return;
+    }
+    if((record->type_flags & 0xff000) == 0x8000)
+    {
+        runtime_resource_loop_api.set_sound_loop(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->backend)), count);
+    }
+    else
+    {
+        auto *backend = static_cast<RuntimeMediaBackend *>(record->backend);
+        backend->media_flags |= 0x400;
+        record->frame_limit = count - 1;
+        record->frames_remaining = count - 1;
+    }
+    runtime_resource_loop_api.release_record(reinterpret_cast<RuntimeLockRecord *>(record));
+}
+
+void set_runtime_resource_loop_api_for_testing(const RuntimeResourceLoopApi &api)
+{
+    runtime_resource_loop_api = api;
+}
+
+// GAG.EXE: 0x00425FD0
+std::uint32_t __fastcall query_runtime_scene_flags(void *identity)
+{
+    RuntimeLockRecord *record = acquire_runtime_lock_record(identity);
+    if(record == nullptr)
+    {
+        return 0;
+    }
+    std::uint32_t flags = reinterpret_cast<RuntimeSceneRecord *>(record)->flags;
+    release_runtime_lock_record(record);
+    return flags;
+}
+
+// GAG.EXE: 0x00426D20
+void __fastcall wait_for_runtime_resource_count(std::uint32_t count)
+{
+    while(runtime_resource_count != count)
+    {
+        runtime_resource_wait_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x00425EB0
+void __fastcall update_runtime_scene_position(void *identity, std::int32_t x, std::int32_t y)
+{
+    auto *record = reinterpret_cast<RuntimeSceneRecord *>(acquire_runtime_lock_record(identity));
+    if(record != nullptr)
+    {
+        record->previous_x = record->x;
+        record->previous_y = record->y;
+        record->x = x;
+        record->y = y;
+        runtime_scene_switch_api.offset_scene(record->scene_identifier, x - record->previous_x, y - record->previous_y);
+        release_runtime_lock_record(reinterpret_cast<RuntimeLockRecord *>(record));
+    }
+}
+
+// GAG.EXE: 0x004246B0
+void __fastcall build_runtime_resource_path(char *destination, const char *source)
+{
+    char directory[0x80];
+    char file_name[0x80];
+    copy_directory_from_path(directory, source);
+    copy_file_name_from_path(file_name, source);
+    copy_string(destination, directory[0] != '\0' ? directory : runtime_resource_directory);
+    append_string(destination, file_name);
+}
+
+// GAG.EXE: 0x00424570
+void __fastcall update_runtime_resource_host(const char *path, std::int32_t reset)
+{
+    char drive_prefix[32];
+    char directory[260];
+    directory[0] = '\0';
+    runtime_resource_host_api.enter_critical_section(&runtime_resource_critical_section);
+    if(runtime_resource_host != nullptr)
+    {
+        if(reset != 0)
+        {
+            bool destroy_host = true;
+            if(path != nullptr)
+            {
+                copy_directory_from_path(directory, path);
+                if(directory[0] == '\0' || strings_equal(directory, runtime_resource_directory))
+                {
+                    destroy_host = false;
+                }
+            }
+            if(destroy_host)
+            {
+                runtime_resource_host_api.destroy_host(runtime_resource_host);
+                runtime_resource_host = nullptr;
+            }
+            if((runtime_scene_control_flags & 0x10000000) != 0)
+            {
+                runtime_resource_host_api.close_archive(runtime_resource_archive);
+                runtime_scene_control_flags &= ~0x10000000U;
+                runtime_resource_archive = nullptr;
+                runtime_resource_archive_state = 0;
+            }
+        }
+    }
+    if(runtime_resource_host == nullptr && path != nullptr)
+    {
+        copy_directory_from_path(directory, path);
+        if(directory[0] != '\0')
+        {
+            copy_string(runtime_resource_directory, directory);
+        }
+        const char *root = extract_runtime_drive_prefix(drive_prefix, runtime_resource_directory) == 1 ? drive_prefix : nullptr;
+        runtime_resource_host = runtime_resource_host_api.create_host(root, 0x100000, runtime_resource_host_mode);
+    }
+    else
+    {
+        runtime_resource_host_api.set_host_mode(runtime_resource_host, runtime_resource_host_mode);
+    }
+    runtime_resource_host_api.leave_critical_section(&runtime_resource_critical_section);
+}
+
+// GAG.EXE: 0x00424710
+std::uint32_t __fastcall detect_runtime_resource_type(const char *path)
+{
+    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    static constexpr std::uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
+    static constexpr std::uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
+    std::uint32_t type = 0;
+    LRESULT retry;
+    do
+    {
+        retry = 0;
+        runtime_resource_type_api.enter_critical_section(&runtime_resource_critical_section);
+        RuntimeResourceCacheEntry *entry = runtime_resource_type_api.find_cache_entry(runtime_resource_cache_parent_identity, path);
+        if(entry != nullptr)
+        {
+            type = entry->flags_and_references >> 16;
+        }
+        else if((runtime_scene_control_flags & 0x10000000) == 0)
+        {
+            runtime_resource_type_api.update_host(path, 0);
+            char full_path[128];
+            build_runtime_resource_path(full_path, path);
+            HANDLE file = runtime_resource_type_api.open_file(full_path);
+            if(file == nullptr)
+            {
+                retry = runtime_resource_type_api.send_message(runtime_resource_notification_window, 0x7ffd, 0x03000000, reinterpret_cast<LPARAM>(full_path));
+            }
+            else
+            {
+                std::uint8_t header[16];
+                DWORD bytes_read = 0;
+                runtime_resource_type_api.read_file(file, header, sizeof(header), &bytes_read, nullptr);
+                runtime_resource_type_api.close_handle(file);
+                if(bytes_read == sizeof(header))
+                {
+                    std::int16_t animation_marker;
+                    std::memcpy(&animation_marker, header + 4, sizeof(animation_marker));
+                    if(animation_marker == static_cast<std::int16_t>(0xaf12))
+                    {
+                        type = 3;
+                    }
+                    std::uint16_t bitmap_marker;
+                    std::memcpy(&bitmap_marker, header, sizeof(bitmap_marker));
+                    if(bitmap_marker == 0x4d42)
+                    {
+                        type = 1;
+                    }
+                    if(fixed_dword_memory_equal(header, configuration_signature, sizeof(configuration_signature)))
+                    {
+                        type = 4;
+                    }
+                    if(fixed_dword_memory_equal(header + 8, wave_signature, sizeof(wave_signature)))
+                    {
+                        type = 2;
+                    }
+                    if(fixed_dword_memory_equal(header, cdf_signature, sizeof(cdf_signature)))
+                    {
+                        type = 5;
+                    }
+                }
+            }
+        }
+        else if((runtime_scene_control_flags & 0x10000000) == 0x10000000)
+        {
+            type = runtime_resource_type_api.get_archive_flags(runtime_resource_archive, path) & ~0x10U;
+        }
+        runtime_resource_type_api.leave_critical_section(&runtime_resource_critical_section);
+    } while(retry != 0);
+    return type;
+}
+
+// GAG.EXE: 0x00428720
+void *__fastcall open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
+{
+    if(archive == nullptr)
+    {
+        return nullptr;
+    }
+    for(std::uint32_t index = 0; index < archive->entry_count; ++index)
+    {
+        CdfEntry *entry = archive->entries[index];
+        if(runtime_cdf_stream_api.compare_names(entry->name, name) == 0)
+        {
+            if(archive->alternate_stream != 0)
+            {
+                return runtime_cdf_stream_api.duplicate_record(static_cast<AsyncFileRecord *>(archive->second_handle), entry->file_offset, entry->file_offset + entry->uncompressed_size, 0);
+            }
+            HANDLE file = runtime_cdf_stream_api.create_file(archive->path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            runtime_cdf_stream_api.set_file_pointer(file, entry->file_offset, nullptr, FILE_BEGIN);
+            return file;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00424870
+void __fastcall load_runtime_resource(const char *path, void **data, std::uint32_t *size, std::int32_t *storage, std::uint32_t flags)
+{
+    static constexpr char loading_scene[] = "m_DEF_LOAD";
+    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    static constexpr std::uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
+    static constexpr std::uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
+    std::uint32_t resource_size = 0;
+    void *resource_data = nullptr;
+    std::int32_t resource_storage = 0;
+    while(true)
+    {
+        LRESULT retry = 0;
+        char name[128];
+        char full_path[128];
+        copy_file_name_from_path(name, path);
+        runtime_resource_load_api.enter_critical_section(&runtime_resource_critical_section);
+        RuntimeResourceCacheEntry *entry = runtime_resource_load_api.find_cache_entry(runtime_resource_cache_parent_identity, name);
+        if(entry != nullptr)
+        {
+            resource_size = entry->size;
+            resource_data = entry->data;
+            resource_storage = 0x01000000;
+            ++entry->flags_and_references;
+        }
+        else if((runtime_scene_control_flags & 0x10000000) == 0)
+        {
+            build_runtime_resource_path(full_path, path);
+            AsyncFileRecord *record = runtime_resource_load_api.open_async_record(runtime_resource_host, full_path, 0, 0, 0);
+            if(record == nullptr)
+            {
+                retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0x03000000, reinterpret_cast<LPARAM>(full_path));
+            }
+            else
+            {
+                resource_size = runtime_resource_load_api.get_async_size(record);
+                if(resource_size < 0x100000 || (flags & 0x20000000) != 0)
+                {
+                    runtime_resource_load_api.activate_loading_scene(loading_scene);
+                    resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, 0, resource_size);
+                    if(resource_data != nullptr)
+                    {
+                        std::uint32_t resource_type = 0;
+                        if(runtime_resource_load_api.read_async_record(record, resource_data, resource_size, &resource_type, 0) == 0)
+                        {
+                            resource_size = 0;
+                            void *failed_data = resource_data;
+                            resource_data = nullptr;
+                            runtime_resource_load_api.heap_free(runtime_resource_heap, 0, failed_data);
+                            retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0xc0000000, reinterpret_cast<LPARAM>(full_path));
+                        }
+                        else
+                        {
+                            resource_storage = 0x01000000;
+                        }
+                        if(resource_data != nullptr)
+                        {
+                            RuntimeResourceCacheEntry *new_entry = nullptr;
+                            runtime_resource_load_api.deactivate_loading_scene(loading_scene);
+                            runtime_resource_load_api.reset_byte_queue();
+                            runtime_resource_load_api.reset_pair_queue();
+                            new_entry = runtime_resource_load_api.get_or_create_cache_entry(runtime_resource_cache_parent_identity, name);
+                            if(new_entry != nullptr)
+                            {
+                                new_entry->size = resource_size;
+                                new_entry->data = resource_data;
+                                const auto *bytes = static_cast<const std::uint8_t *>(resource_data);
+                                std::int16_t animation_marker;
+                                std::memcpy(&animation_marker, bytes + 4, sizeof(animation_marker));
+                                if(animation_marker == static_cast<std::int16_t>(0xaf12))
+                                {
+                                    resource_type = 3;
+                                }
+                                std::uint16_t bitmap_marker;
+                                std::memcpy(&bitmap_marker, bytes, sizeof(bitmap_marker));
+                                if(bitmap_marker == 0x4d42)
+                                {
+                                    resource_type = 1;
+                                }
+                                if(fixed_dword_memory_equal(bytes, configuration_signature, sizeof(configuration_signature)))
+                                {
+                                    resource_type = 4;
+                                }
+                                if(fixed_dword_memory_equal(bytes + 8, wave_signature, sizeof(wave_signature)))
+                                {
+                                    resource_type = 2;
+                                }
+                                if(fixed_dword_memory_equal(bytes, cdf_signature, sizeof(cdf_signature)))
+                                {
+                                    resource_type = 5;
+                                }
+                                new_entry->flags_and_references = (resource_type << 16) | 1;
+                            }
+                            goto resource_loaded;
+                        }
+                    }
+                    runtime_resource_load_api.deactivate_loading_scene(loading_scene);
+                    runtime_resource_load_api.reset_byte_queue();
+                    runtime_resource_load_api.reset_pair_queue();
+                }
+                else
+                {
+                    resource_storage = 0x02000000;
+                    resource_data = record;
+                }
+            }
+        }
+        else if((runtime_scene_control_flags & 0x10000000) == 0x10000000)
+        {
+            const std::uint8_t selector = runtime_resource_load_api.get_archive_flags(runtime_resource_archive, path);
+            if((selector & 0x10) == 0 && (flags & 0x20000000) == 0)
+            {
+                resource_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
+                if(resource_size != 0)
+                {
+                    resource_data = runtime_resource_load_api.open_archive_stream(runtime_resource_archive, path);
+                    resource_storage = 0x02000000;
+                }
+            }
+            else
+            {
+                runtime_resource_load_api.activate_loading_scene(loading_scene);
+                resource_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
+                if(resource_size != 0)
+                {
+                    resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, 0, resource_size);
+                    if(resource_data == nullptr)
+                    {
+                        resource_size = 0;
+                    }
+                    else if(runtime_resource_load_api.read_archive_entry(runtime_resource_archive, selector, path, resource_data) == 0)
+                    {
+                        resource_size = 0;
+                        runtime_resource_load_api.heap_free(runtime_resource_heap, 0, resource_data);
+                        retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0xc0000000, reinterpret_cast<LPARAM>(path));
+                        resource_data = nullptr;
+                    }
+                    else
+                    {
+                        resource_storage = 0x01000000;
+                    }
+                }
+                runtime_resource_load_api.deactivate_loading_scene(loading_scene);
+                runtime_resource_load_api.reset_byte_queue();
+                runtime_resource_load_api.reset_pair_queue();
+                if(resource_data != nullptr)
+                {
+                    RuntimeResourceCacheEntry *new_entry = runtime_resource_load_api.get_or_create_cache_entry(runtime_resource_cache_parent_identity, name);
+                    if(new_entry != nullptr)
+                    {
+                        new_entry->size = resource_size;
+                        new_entry->data = resource_data;
+                        new_entry->flags_and_references = (static_cast<std::uint32_t>(selector & ~0x10U) << 16) | 1;
+                    }
+                }
+            }
+        }
+resource_loaded:
+        if(retry == 0 && resource_data != nullptr && resource_storage == 0x02000000)
+        {
+            if(runtime_resource_streamed_count == 0)
+            {
+                runtime_resource_load_api.set_script_flags(0x10, 1);
+            }
+            ++runtime_resource_streamed_count;
+        }
+        runtime_resource_load_api.leave_critical_section(&runtime_resource_critical_section);
+        if(retry == 0)
+        {
+            *data = resource_data;
+            *storage = resource_storage;
+            *size = resource_size;
+            return;
+        }
+        runtime_resource_load_api.sleep(5);
+    }
+}
+
+// GAG.EXE: 0x00424C50
+BOOL __fastcall release_runtime_memory_resource(const char *name)
+{
+    BOOL result = FALSE;
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    RuntimeResourceCacheEntry *entry = runtime_resource_release_api.find_cache_entry(runtime_resource_cache_parent_identity, name);
+    if(entry != nullptr)
+    {
+        --entry->flags_and_references;
+        if((entry->flags_and_references & 0xffff) == 0)
+        {
+            result = runtime_resource_release_api.heap_free(runtime_resource_heap, 0, entry->data);
+            runtime_resource_release_api.remove_cache_entry(runtime_resource_cache_parent_identity, entry->data);
+        }
+    }
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x00424CC0
+BOOL __fastcall release_runtime_memory_resource_by_data(void *data)
+{
+    BOOL result = FALSE;
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(runtime_resource_release_api.find_child(runtime_resource_cache_parent_identity, data));
+    if(entry != nullptr)
+    {
+        --entry->flags_and_references;
+        if((entry->flags_and_references & 0xffff) == 0)
+        {
+            result = runtime_resource_release_api.heap_free(runtime_resource_heap, 0, entry->data);
+            runtime_resource_release_api.remove_cache_entry(runtime_resource_cache_parent_identity, entry->data);
+        }
+    }
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x00424D30
+std::uint32_t __fastcall release_runtime_streamed_resource(AsyncFileRecord *record)
+{
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    std::uint32_t result = runtime_resource_release_api.close_async_record(record);
+    if(result != 0 && runtime_resource_streamed_count != 0)
+    {
+        --runtime_resource_streamed_count;
+        if(runtime_resource_streamed_count == 0)
+        {
+            runtime_resource_release_api.set_script_flags(0x10, 0);
+        }
+    }
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    return result;
+}
+
+// GAG.EXE: 0x00414DD0
+std::uint32_t __fastcall extract_runtime_drive_prefix(char *destination, const char *source)
+{
+    std::uint32_t index = 0;
+    do
+    {
+        char value = source[index];
+        if(value == '\0' || value == ':' || value == '\\')
+        {
+            break;
+        }
+        destination[index] = value;
+        ++index;
+    } while(index < 0x0c);
+    if(source[index] == ':')
+    {
+        destination[index] = ':';
+        destination[index + 1] = source[index + 1];
+        destination[index + 2] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00417990
+std::uint32_t __fastcall measure_archive_read_speed(const char *archive_path, std::uint32_t bytes_to_measure)
+{
+    std::uint8_t buffer[0x8000];
+    std::uint32_t speed = 0;
+    std::uint32_t bytes_read;
+    char drive_prefix[4];
+
+    archive_read_speed_api.initialize_async();
+    const char *root = archive_read_speed_api.extract_drive_prefix(drive_prefix, archive_path) == 1 ? drive_prefix : nullptr;
+    AsyncFileHost *host = archive_read_speed_api.create_host(root, 0x10000, -1);
+    if(host != nullptr)
+    {
+        AsyncFileRecord *record = archive_read_speed_api.open_record(host, archive_path, 0, 0, 0);
+        if(record != nullptr)
+        {
+            const std::uint32_t size = archive_read_speed_api.get_size(record);
+            std::uint32_t measured_bytes = size - 0x8000;
+            if(size < bytes_to_measure)
+            {
+                bytes_to_measure = measured_bytes;
+            }
+            if(bytes_to_measure != 0)
+            {
+                measured_bytes = bytes_to_measure;
+            }
+
+            archive_read_speed_api.read_record(record, buffer, 0x8000, &bytes_read, 0);
+            const DWORD start = archive_read_speed_api.get_time();
+            for(std::uint32_t remaining = measured_bytes; static_cast<std::int32_t>(remaining) > 0;)
+            {
+                std::uint32_t chunk = remaining;
+                if(static_cast<std::int32_t>(remaining) > 0x7fff)
+                {
+                    chunk = 0x8000;
+                }
+                remaining -= chunk;
+                archive_read_speed_api.read_record(record, buffer, chunk, &bytes_read, 0);
+            }
+            const DWORD finish = archive_read_speed_api.get_time();
+            if(start < finish)
+            {
+                speed = measured_bytes / (finish - start);
+            }
+            archive_read_speed_api.close_record(record);
+        }
+        archive_read_speed_api.destroy_host(host);
+    }
+    return speed;
+}
+
+void set_archive_read_speed_api_for_testing(const ArchiveReadSpeedApi &api)
+{
+    archive_read_speed_api = api;
+}
+
+// GAG.EXE: 0x0042B6B0
+HANDLE __fastcall open_runtime_resource_file(const char *path)
+{
+    OSVERSIONINFOA version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    runtime_resource_file_open_api.get_version(&version);
+    DWORD flags = 0x08000000 + (version.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS ? 0x20000000 : 0);
+    HANDLE file = runtime_resource_file_open_api.create_file(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, flags, nullptr);
+    return file == INVALID_HANDLE_VALUE ? nullptr : file;
+}
+
+// GAG.EXE: 0x004148B0
+void __fastcall advance_async_host_read(AsyncFileHost *host, std::uint32_t bytes)
+{
+    const std::uint32_t sector_size = host->bytes_per_sector;
+    const std::uint32_t aligned = (static_cast<std::uint32_t>(static_cast<std::uint8_t *>(host->secondary_cursor) - static_cast<std::uint8_t *>(host->buffer)) % sector_size + bytes);
+    host->available_bytes += aligned - aligned % sector_size;
+    host->secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor) + bytes;
+    host->current_offset += bytes;
+    if(static_cast<std::uint8_t *>(host->buffer) + host->buffer_size <= host->secondary_cursor)
+    {
+        host->secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor) - host->buffer_size;
+    }
+}
+
+// GAG.EXE: 0x00414900
+void __fastcall advance_async_host_write(AsyncFileHost *host, std::uint32_t bytes)
+{
+    host->buffered_bytes += bytes;
+    host->file_offset += bytes;
+    host->write_cursor = static_cast<std::uint8_t *>(host->write_cursor) + bytes;
+    host->available_bytes -= bytes;
+    if(static_cast<std::uint8_t *>(host->buffer) + host->buffer_size <= host->write_cursor)
+    {
+        host->write_cursor = host->buffer;
+    }
+}
+
+// GAG.EXE: 0x00414A50
+void __fastcall invalidate_shared_async_records(AsyncFileRecord *record)
+{
+    HANDLE file = record->file;
+    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    AsyncFileHost *host = record->host;
+    async_file_lock_api.enter_critical_section(&host->secondary_lock);
+    for(AsyncFileRecord *sibling = host->files; sibling != nullptr; sibling = sibling->next)
+    {
+        if(sibling != record && sibling->file == file)
+        {
+            sibling->flags &= ~0x20U;
+            if(host->active_file == sibling)
+            {
+                async_file_lock_api.enter_critical_section(&host->primary_lock);
+                host->active_file = nullptr;
+                async_file_lock_api.leave_critical_section(&host->primary_lock);
+            }
+        }
+    }
+    async_file_lock_api.leave_critical_section(&host->secondary_lock);
+    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+}
+
+// GAG.EXE: 0x00414930
+void __fastcall position_async_host(AsyncFileHost *host, std::uint32_t offset)
+{
+    AsyncFileRecord *record = host->active_file;
+    if((record->flags & 0x20) == 0)
+    {
+        const std::uint32_t sector_size = host->bytes_per_sector;
+        host->file_offset = offset / sector_size * sector_size;
+        host->write_cursor = host->buffer;
+        host->secondary_cursor = static_cast<std::uint8_t *>(host->buffer) + offset % sector_size;
+        host->buffer_start_cursor = host->secondary_cursor;
+        host->buffered_bytes = 0;
+        host->available_bytes = host->buffer_size;
+        async_file_lock_api.sleep(0);
+        async_file_host_api.set_file_pointer(host->file, host->file_offset, nullptr, FILE_BEGIN);
+    }
+    else
+    {
+        if((record->flags & 2) != 0)
+        {
+            async_file_host_api.set_file_pointer(record->file, record->next_offset, nullptr, FILE_BEGIN);
+            invalidate_shared_async_records(record);
+        }
+        const std::uint32_t previous_offset = record->previous_offset;
+        std::uint32_t copied_bytes = record->next_offset - previous_offset;
+        const std::uint32_t skipped_prefix = previous_offset < record->start_offset ? record->start_offset - previous_offset : 0;
+        const std::uint32_t consumed_bytes = copied_bytes - record->buffered_bytes;
+        auto *buffer = static_cast<std::uint8_t *>(host->buffer);
+        host->file_offset = record->next_offset;
+        host->secondary_cursor = buffer + consumed_bytes;
+        host->buffer_start_cursor = buffer + skipped_prefix;
+        host->buffered_bytes = copied_bytes;
+        host->write_cursor = buffer + copied_bytes;
+        host->available_bytes = host->buffer_size - copied_bytes + consumed_bytes / host->bytes_per_sector * host->bytes_per_sector;
+        std::memcpy(buffer, record->buffer, copied_bytes);
+        record->flags &= ~0x20U;
+    }
+    host->flags &= ~0x30U;
+}
+
+// GAG.EXE: 0x00414AE0
+void __fastcall seek_async_host(AsyncFileHost *host, std::uint32_t offset)
+{
+    const std::uint32_t current_offset = host->current_offset;
+    if(offset == current_offset)
+    {
+        return;
+    }
+    if(current_offset < offset && offset - current_offset < host->buffer_size >> 2)
+    {
+        advance_async_host_read(host, offset - current_offset);
+        host->current_offset = offset;
+        return;
+    }
+    async_file_lock_api.enter_critical_section(&host->primary_lock);
+    if((host->flags & 0x20) == 0)
+    {
+        if((host->flags & 0x10) != 0 && 0 < static_cast<std::int32_t>(host->file_offset - offset))
+        {
+            std::uint32_t bytes_to_advance = host->start_offset % host->bytes_per_sector + (offset - host->start_offset);
+            auto *read_cursor = static_cast<std::uint8_t *>(host->read_cursor);
+            auto *secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor);
+            if(secondary_cursor <= read_cursor)
+            {
+                bytes_to_advance += static_cast<std::uint32_t>(read_cursor - secondary_cursor);
+            }
+            else
+            {
+                bytes_to_advance += host->buffer_size - static_cast<std::uint32_t>(secondary_cursor - read_cursor);
+            }
+            advance_async_host_read(host, bytes_to_advance);
+        }
+        else
+        {
+            position_async_host(host, offset);
+        }
+    }
+    else
+    {
+        auto *cursor = static_cast<std::uint8_t *>(host->buffer_start_cursor) + (offset - host->start_offset);
+        auto *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
+        host->secondary_cursor = cursor;
+        if(buffer_end < cursor)
+        {
+            host->secondary_cursor = reinterpret_cast<void *>(reinterpret_cast<std::uintptr_t>(cursor) - reinterpret_cast<std::uintptr_t>(buffer_end));
+        }
+    }
+    async_file_lock_api.leave_critical_section(&host->primary_lock);
+    host->current_offset = offset;
+    host->flags &= ~0x10U;
+}
+
+// GAG.EXE: 0x00414BB0
+std::uint32_t __fastcall copy_async_host_bytes(AsyncFileHost *host, void *destination, std::uint32_t bytes, std::uint32_t *total_bytes)
+{
+    if(host->file_size < host->current_offset + bytes)
+    {
+        bytes = host->file_size - host->current_offset;
+    }
+    auto *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
+    const std::uint32_t sector_size = host->bytes_per_sector;
+    *total_bytes += bytes;
+    if(bytes == 0)
+    {
+        return 0;
+    }
+    if((host->flags & 0x20) == 0)
+    {
+        std::uint32_t used_bytes = host->buffer_size - host->available_bytes;
+        while(used_bytes <= bytes + sector_size * 2)
+        {
+            async_file_lock_api.sleep(0);
+            used_bytes = host->buffer_size - host->available_bytes;
+        }
+    }
+    auto *source = static_cast<std::uint8_t *>(host->secondary_cursor);
+    auto *output = static_cast<std::uint8_t *>(destination);
+    if(buffer_end < source + bytes)
+    {
+        const std::uint32_t tail_bytes = static_cast<std::uint32_t>(buffer_end - source);
+        std::memcpy(output, source, tail_bytes);
+        advance_async_host_read(host, tail_bytes);
+        bytes -= tail_bytes;
+        output += tail_bytes;
+    }
+    std::memcpy(output, host->secondary_cursor, bytes);
+    advance_async_host_read(host, bytes);
+    return 1;
+}
+
+// GAG.EXE: 0x00414CB0
+void __fastcall activate_async_file_record(AsyncFileRecord *record)
+{
+    AsyncFileHost *host = record->host;
+    if(host->active_file == record)
+    {
+        return;
+    }
+    async_file_lock_api.enter_critical_section(&host->primary_lock);
+    const std::uint32_t read_chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
+    host->active_file = record;
+    host->file = record->file;
+    host->file_size = record->file_size;
+    host->remaining_size = record->remaining_size;
+    host->start_offset = record->start_offset;
+    host->end_offset = record->end_offset;
+    host->current_offset = record->current_offset;
+    position_async_host(host, host->current_offset);
+    std::uint32_t initial_read_size = 0;
+    const std::uint32_t flags = record->flags;
+    if((flags & 1) != 0)
+    {
+        if((flags & 0x10) != 0)
+        {
+            const std::uint32_t limit = host->remaining_size < host->buffer_size ? host->remaining_size : host->buffer_size;
+            initial_read_size = (limit / host->bytes_per_sector >> 2) * host->bytes_per_sector;
+        }
+        record->flags = flags & ~1U;
+    }
+    if(initial_read_size != 0)
+    {
+        std::uint32_t remaining = initial_read_size;
+        auto *output = static_cast<std::uint8_t *>(host->write_cursor);
+        do
+        {
+            std::uint32_t bytes_to_read = remaining;
+            if(read_chunk_size <= remaining)
+            {
+                bytes_to_read = read_chunk_size;
+            }
+            remaining -= bytes_to_read;
+            DWORD bytes_read = 0;
+            async_file_host_api.read_file(host->file, output, bytes_to_read, &bytes_read, nullptr);
+            async_file_lock_api.sleep(0);
+            output += bytes_to_read;
+        } while(remaining != 0);
+        advance_async_host_write(host, initial_read_size);
+    }
+    async_file_lock_api.leave_critical_section(&host->primary_lock);
+}
+
+// GAG.EXE: 0x00415AE0
+void __fastcall handle_async_host_short_read(AsyncFileHost *host)
+{
+    const std::uint32_t sector_size = host->bytes_per_sector;
+    const std::uint32_t value = host->end_offset - reinterpret_cast<std::uintptr_t>(host->buffer_start_cursor) % sector_size - host->file_offset + host->buffered_bytes;
+    host->buffered_bytes = value;
+    if(host->remaining_size <= host->buffer_size && host->remaining_size <= value)
+    {
+        const std::uint32_t flags = host->flags;
+        host->flags = flags | 0x20;
+        host->flags = (flags & ~0x10U) | 0x20;
+        return;
+    }
+    host->flags |= 0x10;
+    host->buffered_bytes = 0;
+    host->buffer_start_cursor = static_cast<std::uint8_t *>(host->write_cursor) + host->start_offset % sector_size;
+    host->read_cursor = host->write_cursor;
+    host->file_offset = host->start_offset / sector_size * sector_size;
+    async_file_lock_api.sleep(0);
+    async_file_host_api.set_file_pointer(host->file, host->file_offset, nullptr, FILE_BEGIN);
+}
+
+// GAG.EXE: 0x00415B70
+DWORD WINAPI run_async_file_worker(LPVOID parameter)
+{
+    AsyncFileHost *host = static_cast<AsyncFileHost *>(parameter);
+    std::uint8_t *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
+    const std::uint32_t sector_size = host->bytes_per_sector;
+    const std::uint32_t maximum_read = 0xc000 / sector_size * sector_size;
+    const std::uint32_t minimum_available = 0x4000 / sector_size * sector_size;
+    bool restart_timing = true;
+    std::uint32_t delay = minimum_available;
+    std::uint32_t target_time = 0;
+    std::uint32_t rate = 0;
+    std::uint32_t flags = host->flags;
+    while(true)
+    {
+        if((flags & 1) != 0)
+        {
+            return 0;
+        }
+        if(host->active_file == nullptr)
+        {
+            async_file_lock_api.sleep(10);
+            restart_timing = true;
+        }
+        else if((host->flags & 0x20) == 0)
+        {
+            if(restart_timing)
+            {
+                delay = 0;
+                rate = host->mode - (host->mode >> 2);
+                target_time = async_file_host_api.time_get_time();
+                restart_timing = false;
+            }
+            std::uint32_t next_target = target_time;
+            async_file_lock_api.enter_critical_section(&host->primary_lock);
+            if(host->active_file == nullptr || host->available_bytes < minimum_available)
+            {
+                async_file_lock_api.leave_critical_section(&host->primary_lock);
+                async_file_lock_api.sleep(0);
+            }
+            else
+            {
+                std::uint32_t bytes_to_read = maximum_read;
+                if(host->available_bytes <= maximum_read)
+                {
+                    bytes_to_read = host->available_bytes;
+                }
+                next_target = bytes_to_read / rate + target_time;
+                if(buffer_end < static_cast<std::uint8_t *>(host->write_cursor) + bytes_to_read)
+                {
+                    const std::uint32_t tail_bytes = static_cast<std::uint32_t>(buffer_end - static_cast<std::uint8_t *>(host->write_cursor));
+                    DWORD bytes_read = 0;
+                    async_file_lock_api.sleep(0);
+                    async_file_host_api.read_file(host->file, host->write_cursor, tail_bytes, &bytes_read, nullptr);
+                    advance_async_host_write(host, bytes_read);
+                    if(tail_bytes <= bytes_read && host->file_offset < host->end_offset)
+                    {
+                        bytes_to_read -= tail_bytes;
+                        async_file_lock_api.sleep(0);
+                        async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
+                        advance_async_host_write(host, bytes_read);
+                        if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
+                        {
+                            handle_async_host_short_read(host);
+                        }
+                    }
+                    else
+                    {
+                        handle_async_host_short_read(host);
+                    }
+                }
+                else
+                {
+                    DWORD bytes_read = 0;
+                    async_file_lock_api.sleep(0);
+                    async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
+                    advance_async_host_write(host, bytes_read);
+                    if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
+                    {
+                        handle_async_host_short_read(host);
+                    }
+                }
+                async_file_lock_api.leave_critical_section(&host->primary_lock);
+            }
+            const DWORD now = async_file_host_api.time_get_time();
+            const std::uint32_t requested_rate = host->mode;
+            if(rate != requested_rate)
+            {
+                std::int32_t adjustment = static_cast<std::int32_t>(requested_rate - rate) >> 1;
+                if(adjustment == 0)
+                {
+                    adjustment = 1;
+                }
+                rate += adjustment;
+                if(static_cast<std::int32_t>(requested_rate) < static_cast<std::int32_t>(rate))
+                {
+                    rate = requested_rate;
+                }
+            }
+            delay = delay - now + next_target;
+            target_time = now;
+            if(0 < static_cast<std::int32_t>(delay))
+            {
+                async_file_lock_api.sleep(delay);
+                target_time = delay + now;
+                delay = 0;
+            }
+        }
+        else
+        {
+            async_file_lock_api.sleep(10);
+            restart_timing = true;
+        }
+        flags = host->flags;
+    }
+}
+
+// GAG.EXE: 0x00414EC0
+AsyncFileHost *__fastcall create_async_file_host(const char *root, std::uint32_t requested_bytes, std::int32_t mode)
+{
+    if(!async_file_enabled)
+    {
+        return nullptr;
+    }
+    HANDLE heap = async_file_host_api.get_process_heap();
+    AsyncFileHost *host = static_cast<AsyncFileHost *>(async_file_host_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(AsyncFileHost)));
+    if(host == nullptr)
+    {
+        return nullptr;
+    }
+    DWORD cluster_count = 0;
+    if(!async_file_host_api.get_disk_free_space(root, &host->sectors_per_cluster, &host->bytes_per_sector, &cluster_count, &cluster_count))
+    {
+        async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, host);
+        return nullptr;
+    }
+    async_file_host_api.initialize_critical_section(&host->primary_lock);
+    async_file_host_api.initialize_critical_section(&host->secondary_lock);
+    host->buffer_size = requested_bytes / 0xffff * 0xffff / host->bytes_per_sector * host->bytes_per_sector;
+    host->available_bytes = host->buffer_size;
+    host->buffer = async_file_host_api.virtual_alloc(nullptr, host->buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if(host->buffer == nullptr)
+    {
+        async_file_host_api.delete_critical_section(&host->primary_lock);
+        async_file_host_api.delete_critical_section(&host->secondary_lock);
+        async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, host);
+        return nullptr;
+    }
+    host->self = host;
+    host->write_cursor = host->buffer;
+    host->secondary_cursor = host->buffer;
+    host->mode = mode == 0 ? -1 : mode;
+    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    host->next = async_file_hosts;
+    async_file_hosts = host;
+    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    DWORD thread_id = 0;
+    host->thread = async_file_host_api.create_thread(nullptr, 0, run_async_file_worker, host, 0, &thread_id);
+    return host;
+}
+
+// GAG.EXE: 0x00415040
+AsyncFileHost *__fastcall acquire_async_file_host(AsyncFileHost *identity)
+{
+    if(!async_file_enabled)
+    {
+        return nullptr;
+    }
+    while(true)
+    {
+        std::uint32_t busy = 0;
+        AsyncFileHost *result = nullptr;
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
+        {
+            if(host->self == identity)
+            {
+                busy = host->flags & 0x10000;
+                if(busy == 0)
+                {
+                    host->flags |= 0x10000;
+                    result = host;
+                }
+                break;
+            }
+        }
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        if(busy == 0)
+        {
+            return result;
+        }
+        async_file_lock_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x004150D0
+void __fastcall release_async_file_host(AsyncFileHost *identity)
+{
+    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
+    {
+        if(host->self == identity)
+        {
+            host->flags &= ~0x10000U;
+            break;
+        }
+    }
+    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+}
+
+// GAG.EXE: 0x00415120
+std::uint32_t __fastcall destroy_async_file_host(AsyncFileHost *identity)
+{
+    if(!async_file_enabled)
+    {
+        return 0;
+    }
+    AsyncFileHost *host = acquire_async_file_host(identity);
+    if(host == nullptr)
+    {
+        return 0;
+    }
+    while(host->files != nullptr)
+    {
+        close_async_file_record(host->files);
+    }
+    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    AsyncFileHost *previous = nullptr;
+    AsyncFileHost *current = async_file_hosts;
+    while(current != nullptr && current->self != identity)
+    {
+        previous = current;
+        current = current->next;
+    }
+    if(previous == nullptr)
+    {
+        async_file_hosts = current->next;
+    }
+    else
+    {
+        previous->next = current->next;
+    }
+    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    current->flags |= 1;
+    async_file_host_api.wait_for_single_object(current->thread, INFINITE);
+    async_file_host_api.delete_critical_section(&current->primary_lock);
+    async_file_host_api.delete_critical_section(&current->secondary_lock);
+    async_file_open_api.close_handle(current->thread);
+    async_file_open_api.virtual_free(current->buffer, 0, MEM_RELEASE);
+    async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, current);
+    return 1;
+}
+
+// GAG.EXE: 0x00414E40
+std::uint32_t shutdown_async_file_subsystem()
+{
+    if(!async_file_enabled)
+    {
+        return 0;
+    }
+    while(true)
+    {
+        while(async_file_hosts != nullptr)
+        {
+            async_file_shutdown_api.destroy_host(async_file_hosts);
+        }
+        async_file_shutdown_api.enter_critical_section(&async_file_global_lock);
+        if(async_file_hosts == nullptr)
+        {
+            break;
+        }
+        async_file_shutdown_api.leave_critical_section(&async_file_global_lock);
+    }
+    async_file_shutdown_api.delete_critical_section(&async_file_global_lock);
+    async_file_enabled = false;
+    async_file_hosts = nullptr;
+    return 1;
+}
+
+void set_async_file_shutdown_api_for_testing(const AsyncFileShutdownApi &api)
+{
+    async_file_shutdown_api = api;
+}
+
+// GAG.EXE: 0x004155C0
+AsyncFileRecord *__fastcall acquire_async_file_record(AsyncFileRecord *identity)
+{
+    if(!async_file_enabled)
+    {
+        return nullptr;
+    }
+    while(true)
+    {
+        std::uint32_t busy = 0;
+        AsyncFileRecord *result = nullptr;
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
+        {
+            for(AsyncFileRecord *record = host->files; record != nullptr; record = record->next)
+            {
+                if(record->self == identity)
+                {
+                    std::uint32_t flags = record->flags;
+                    busy = flags & 0x10000;
+                    if(busy == 0)
+                    {
+                        record->flags = flags | 0x10000;
+                        result = record;
+                        if((flags & 2) != 0)
+                        {
+                            for(AsyncFileRecord *shared = host->files; shared != nullptr; shared = shared->next)
+                            {
+                                if(shared->file == record->file)
+                                {
+                                    shared->flags |= 0x10000;
+                                }
+                            }
+                        }
+                    }
+                    host = nullptr;
+                    break;
+                }
+            }
+            if(host == nullptr)
+            {
+                break;
+            }
+        }
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        if(busy == 0)
+        {
+            return result;
+        }
+        async_file_lock_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x00415690
+void __fastcall release_async_file_record(AsyncFileRecord *identity)
+{
+    if(async_file_enabled)
+    {
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
+        {
+            for(AsyncFileRecord *record = host->files; record != nullptr; record = record->next)
+            {
+                if(record->self == identity)
+                {
+                    std::uint32_t flags = record->flags;
+                    if((flags & 0x10000) != 0)
+                    {
+                        record->flags = flags & ~0x10000U;
+                        if((flags & 2) != 0)
+                        {
+                            for(AsyncFileRecord *shared = host->files; shared != nullptr; shared = shared->next)
+                            {
+                                if(shared->file == record->file)
+                                {
+                                    shared->flags &= ~0x10000U;
+                                }
+                            }
+                        }
+                    }
+                    host = nullptr;
+                    break;
+                }
+            }
+            if(host == nullptr)
+            {
+                break;
+            }
+        }
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    }
+}
+
+// GAG.EXE: 0x00415210
+void __fastcall set_async_file_host_mode(AsyncFileHost *identity, std::int32_t mode)
+{
+    AsyncFileHost *host = acquire_async_file_host(identity);
+    if(host != nullptr)
+    {
+        if(mode != 0)
+        {
+            host->mode = mode;
+        }
+        release_async_file_host(identity);
+    }
+}
+
+// GAG.EXE: 0x00415AC0
+std::uint32_t __fastcall get_async_file_size(AsyncFileRecord *identity)
+{
+    AsyncFileRecord *record = acquire_async_file_record(identity);
+    if(record == nullptr)
+    {
+        return 0;
+    }
+    std::uint32_t size = record->file_size;
+    release_async_file_record(identity);
+    return size;
+}
+
+// GAG.EXE: 0x00415AA0
+std::uint32_t __fastcall get_async_file_position(AsyncFileRecord *identity)
+{
+    AsyncFileRecord *record = acquire_async_file_record(identity);
+    if(record == nullptr)
+    {
+        return 0;
+    }
+    const std::uint32_t position = record->current_offset;
+    release_async_file_record(identity);
+    return position;
+}
+
+// GAG.EXE: 0x00415A20
+std::uint32_t __fastcall set_async_file_position(AsyncFileRecord *identity, std::uint32_t position)
+{
+    AsyncFileRecord *record = acquire_async_file_record(identity);
+    if(record == nullptr)
+    {
+        return 0;
+    }
+    std::uint32_t result = 0;
+    if(record->start_offset <= position && position <= record->end_offset)
+    {
+        if((record->flags & 0x20) != 0)
+        {
+            if(position < record->previous_offset || record->next_offset < position)
+            {
+                record->flags &= ~0x20u;
+            }
+            else
+            {
+                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer) + (position - record->previous_offset);
+                record->buffered_bytes = record->next_offset - position;
+            }
+        }
+        record->current_offset = position;
+        if((record->flags & 2) != 0)
+        {
+            invalidate_shared_async_records(record);
+        }
+        result = 1;
+    }
+    release_async_file_record(identity);
+    return result;
+}
+
+// GAG.EXE: 0x00415230
+AsyncFileRecord *__fastcall open_async_file_record(AsyncFileHost *host_identity, const char *path, std::uint32_t start_offset, std::uint32_t end_offset, std::uint32_t flags)
+{
+    AsyncFileHost *host = acquire_async_file_host(host_identity);
+    if(host == nullptr)
+    {
+        return nullptr;
+    }
+    AsyncFileRecord *record = nullptr;
+    HANDLE file = async_file_open_api.create_file(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0x20000000, nullptr);
+    bool valid = file != INVALID_HANDLE_VALUE;
+    if(valid)
+    {
+        HANDLE heap = async_file_open_api.get_process_heap();
+        record = static_cast<AsyncFileRecord *>(async_file_open_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(AsyncFileRecord)));
+        if(record == nullptr)
+        {
+            valid = false;
+            async_file_open_api.close_handle(file);
+        }
+        if(valid)
+        {
+            record->buffer = async_file_open_api.virtual_alloc(nullptr, 0x8000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            if(record->buffer == nullptr)
+            {
+                HANDLE cleanup_heap = async_file_open_api.get_process_heap();
+                AsyncFileRecord *failed_record = record;
+                record = nullptr;
+                valid = false;
+                async_file_open_api.heap_free(cleanup_heap, 0, failed_record);
+                async_file_open_api.close_handle(file);
+            }
+        }
+    }
+    if(valid)
+    {
+        record->self = record;
+        record->flags = flags | 1;
+        record->file = file;
+        record->file_size = async_file_open_api.get_file_size(file, nullptr);
+        record->start_offset = start_offset;
+        if(end_offset == 0)
+        {
+            end_offset = record->file_size;
+        }
+        record->end_offset = end_offset;
+        record->remaining_size = end_offset - start_offset;
+        record->current_offset = start_offset;
+        record->host = host;
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        record->next = host->files;
+        host->files = record;
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    }
+    release_async_file_host(host_identity);
+    return record;
+}
+
+// GAG.EXE: 0x00415360
+AsyncFileRecord *__fastcall duplicate_async_file_record(AsyncFileRecord *identity, std::uint32_t start_offset, std::uint32_t end_offset, std::uint32_t flags)
+{
+    AsyncFileRecord *source = acquire_async_file_record(identity);
+    if(source == nullptr)
+    {
+        return nullptr;
+    }
+    AsyncFileHost *host = source->host;
+    AsyncFileRecord *record = static_cast<AsyncFileRecord *>(async_file_open_api.heap_alloc(async_file_open_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(AsyncFileRecord)));
+    if(record != nullptr)
+    {
+        record->self = record;
+        record->flags = flags | 3;
+        source->flags |= 2;
+        record->file = source->file;
+        record->buffer = source->buffer;
+        record->file_size = source->file_size;
+        record->start_offset = start_offset;
+        if(end_offset == 0)
+        {
+            end_offset = record->file_size;
+        }
+        record->end_offset = end_offset;
+        record->remaining_size = end_offset - start_offset;
+        record->current_offset = start_offset;
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        record->next = host->files;
+        host->files = record;
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        record->host = host;
+    }
+    release_async_file_record(identity);
+    return record;
+}
+
+// GAG.EXE: 0x00415420
+std::uint32_t __fastcall close_async_file_record(AsyncFileRecord *identity)
+{
+    if(!async_file_enabled)
+    {
+        return 0;
+    }
+    std::uint32_t result = 0;
+    while(true)
+    {
+        std::uint32_t busy = 0;
+        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        bool finished = false;
+        for(AsyncFileHost *host = async_file_hosts; host != nullptr && !finished; host = host->next)
+        {
+            AsyncFileRecord *previous = nullptr;
+            for(AsyncFileRecord *record = host->files; record != nullptr; record = record->next)
+            {
+                if(record->self == identity)
+                {
+                    busy = record->flags & 0x10000;
+                    if(busy == 0)
+                    {
+                        ++result;
+                        if(previous == nullptr)
+                        {
+                            host->files = record->next;
+                        }
+                        else
+                        {
+                            previous->next = record->next;
+                        }
+                        async_file_lock_api.enter_critical_section(&host->secondary_lock);
+                        if(host->active_file == record)
+                        {
+                            async_file_lock_api.enter_critical_section(&host->primary_lock);
+                            host->active_file = nullptr;
+                            async_file_lock_api.leave_critical_section(&host->primary_lock);
+                        }
+                        async_file_lock_api.leave_critical_section(&host->secondary_lock);
+                        std::int32_t shared_count = 0;
+                        AsyncFileRecord *single_shared = nullptr;
+                        if((record->flags & 2) != 0)
+                        {
+                            for(AsyncFileRecord *shared = host->files; shared != nullptr; shared = shared->next)
+                            {
+                                if(shared->file == record->file)
+                                {
+                                    ++shared_count;
+                                    single_shared = shared;
+                                }
+                            }
+                            if(shared_count == 1)
+                            {
+                                single_shared->flags &= ~2U;
+                            }
+                        }
+                        if(shared_count == 0)
+                        {
+                            BOOL closed = async_file_open_api.close_handle(record->file);
+                            BOOL freed_buffer = async_file_open_api.virtual_free(record->buffer, 0, MEM_RELEASE);
+                            HANDLE heap = async_file_open_api.get_process_heap();
+                            BOOL freed_record = async_file_open_api.heap_free(heap, 0, record);
+                            result = result & static_cast<std::uint32_t>(closed) & static_cast<std::uint32_t>(freed_buffer) & static_cast<std::uint32_t>(freed_record);
+                        }
+                    }
+                    finished = true;
+                    break;
+                }
+                previous = record;
+            }
+        }
+        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        if(busy == 0)
+        {
+            return result;
+        }
+        async_file_lock_api.sleep(0);
+    }
+}
+
+// GAG.EXE: 0x0040D030
+void __fastcall copy_file_name_from_path(char *destination, const char *source)
+{
+    int index = 0;
+    while(source[index] != '\0')
+    {
+        ++index;
+    }
+    while(index >= 0 && source[index] != '\\')
+    {
+        --index;
+    }
+    int destination_index = 0;
+    do
+    {
+        ++index;
+        destination[destination_index] = source[index];
+        ++destination_index;
+    } while(source[index] != '\0');
+}
+
+// GAG.EXE: 0x00408380
+// GAG.EXE: 0x00406580
+void __fastcall copy_runtime_tree_command_name(char *destination, std::uint32_t command)
+{
+    const char *source = nullptr;
+    if(command == 0x40000000)
+    {
+        source = "PLOAD";
+    }
+    else if(command == 0x40000001)
+    {
+        source = "LOADNOFADE";
+    }
+    else if(command == 0x50000000)
+    {
+        source = "PRELOAD";
+    }
+    else if(command == 0x50000001)
+    {
+        source = "RELOADNOFADE";
+    }
+    if(source == nullptr)
+    {
+        destination[0] = '\0';
+        return;
+    }
+    copy_string(destination, source);
+}
+
+// GAG.EXE: 0x00408340
+ScriptObjectState *__fastcall create_script_object_state(const void *name)
+{
+    auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectState)));
+    if(object != nullptr)
+    {
+        std::memcpy(object->name, name, sizeof(object->name));
+        object->identity = object;
+    }
+    return object;
+}
+
+// GAG.EXE: 0x00408420
+ScriptObjectState *__fastcall find_script_object_by_identity(void *identity)
+{
+    for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
+    {
+        if(object->identity == identity)
+        {
+            return object;
+        }
+    }
+    for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
+    {
+        for(std::uint32_t index = 0; index < container->slot_count; ++index)
+        {
+            ScriptObjectState *object = container->slots[index].object;
+            if(object != nullptr && object->identity == identity)
+            {
+                return object;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00408480
+std::int32_t __fastcall query_or_create_script_object_field(const char *object_name, const void *field_name, std::uint32_t *value, std::int32_t value_type)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object == nullptr)
+    {
+        *value = 0;
+        return 0x7fffffff;
+    }
+    for(std::uint32_t index = 0; index < object->field_count; ++index)
+    {
+        if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+        {
+            std::uint32_t bit = 1u << index;
+            *value = bit;
+            return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
+        }
+    }
+    std::uint32_t index = object->field_count;
+    if(index >= 32)
+    {
+        *value = 0;
+        return 0x7fffffff;
+    }
+    std::uint32_t bit = 1u << index;
+    if(value_type == 1)
+    {
+        if(*value == 0x03000000)
+        {
+            object->active_field_mask |= bit;
+        }
+        else if(*value == 0x07000000)
+        {
+            object->active_field_mask &= ~bit;
+        }
+    }
+    else if(value_type == 2)
+    {
+        object->integer_values[index] = static_cast<std::int32_t>(*value);
+        if(static_cast<std::int32_t>(*value) < 1)
+        {
+            object->active_field_mask &= ~bit;
+        }
+        else
+        {
+            object->active_field_mask |= bit;
+        }
+    }
+    else if(value_type == 4)
+    {
+        std::memcpy(object->string_values[index], value, 0x20);
+        if(*reinterpret_cast<const char *>(value) == '\0')
+        {
+            object->active_field_mask &= ~bit;
+        }
+        else
+        {
+            object->active_field_mask |= bit;
+        }
+    }
+    else
+    {
+        *value = 0;
+        return 0x7fffffff;
+    }
+    *value = bit;
+    std::memcpy(object->field_names[index], field_name, 0x20);
+    ++object->field_count;
+    return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
+}
+
+// GAG.EXE: 0x004087A0
+std::int32_t __fastcall get_script_object_integer(const char *object_name, const void *field_name)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object != nullptr)
+    {
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+            {
+                return object->integer_values[index];
+            }
+        }
+    }
+    return 0x7fffffff;
+}
+
+// GAG.EXE: 0x00408800
+std::uint32_t __fastcall get_script_object_string(const char *object_name, const void *field_name, void *destination)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object != nullptr)
+    {
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+            {
+                std::memcpy(destination, object->string_values[index], 0x20);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+// GAG.EXE: 0x00408870
+std::int32_t __fastcall add_script_object_integer(const char *object_name, const void *field_name, std::int32_t delta)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object != nullptr)
+    {
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+            {
+                std::int32_t value = object->integer_values[index] + delta;
+                std::uint32_t bit = 1u << index;
+                if(value < 1)
+                {
+                    object->active_field_mask &= ~bit;
+                }
+                else
+                {
+                    object->active_field_mask |= bit;
+                }
+                object->integer_values[index] = value;
+                return value;
+            }
+        }
+    }
+    return 0x7fffffff;
+}
+
+// GAG.EXE: 0x00408900
+bool __fastcall compare_script_object_field(const char *object_name, const void *field_name, const void *value, std::int32_t value_type)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object != nullptr)
+    {
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+            {
+                if(value_type == 1)
+                {
+                    std::uint32_t field_value = (object->active_field_mask & (1u << index)) != 0 ? 0x03000000 : 0x07000000;
+                    return *static_cast<const std::uint32_t *>(value) == field_value;
+                }
+                if(value_type == 2)
+                {
+                    return object->integer_values[index] == *static_cast<const std::int32_t *>(value);
+                }
+                if(value_type == 4)
+                {
+                    return strings_equal(static_cast<const char *>(value), object->string_values[index]);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// GAG.EXE: 0x004089E0
+std::uint32_t __fastcall get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot)
+{
+    std::memset(snapshot, 0, sizeof(*snapshot));
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object != nullptr)
+    {
+        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        {
+            if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+            {
+                copy_string(snapshot->object_name, object_name);
+                copy_string(snapshot->field_name, static_cast<const char *>(field_name));
+                snapshot->active = (object->active_field_mask & (1u << index)) != 0;
+                snapshot->integer_value = object->integer_values[index];
+                copy_string(snapshot->string_value, object->string_values[index]);
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+void set_script_object_memory_api_for_testing(const ScriptObjectMemoryApi &api)
+{
+    script_object_memory_api = api;
+}
+
+void set_script_object_release_api_for_testing(const ScriptObjectReleaseApi &api)
+{
+    script_object_release_api = api;
+}
+
+// GAG.EXE: 0x00406980
+RuntimeTreeNode *get_runtime_tree_root()
+{
+    return script_runtime_root != nullptr ? script_runtime_root->runtime_tree : nullptr;
+}
+
+// GAG.EXE: 0x004069A0
+RuntimeTreeNode *find_runtime_tree_tail()
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *node = script_runtime_root->runtime_tree;
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    while(node->next != nullptr)
+    {
+        node = node->next;
+    }
+    return node;
+}
+
+// GAG.EXE: 0x00406600
+RuntimeTreeNode *__fastcall find_runtime_tree_ancestor_root(void *identity)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    while(node->parent != nullptr && node->parent != reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        node = node->parent;
+    }
+    return node;
+}
+
+// GAG.EXE: 0x00409A40
+RuntimeTreeSceneLink *__fastcall find_global_runtime_tree_scene_link_by_name(const void *name)
+{
+    for(RuntimeTreeSceneLink *link = script_runtime_root->global_scene_links; link != nullptr; link = link->next)
+    {
+        if(fixed_dword_memory_equal(name, link, 0x20))
+        {
+            return link;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00409830
+RuntimeTreeSceneLink *__fastcall find_runtime_tree_scene_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreeSceneLink *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        RuntimeTreeSceneLink *link = static_cast<RuntimeTreeSceneLink *>(find_last_runtime_tree_scene_link(previous));
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->scene_link_tail;
+}
+
+// GAG.EXE: 0x00409880
+void __fastcall insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTreeSceneLink *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->global_scene_link_tail != nullptr)
+            {
+                script_runtime_root->global_scene_link_tail->next = link;
+            }
+            else
+            {
+                script_runtime_root->global_scene_links = link;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->global_scene_link_tail != nullptr)
+            {
+                link->next = script_runtime_root->global_scene_link_tail->next;
+                script_runtime_root->global_scene_link_tail->next = link;
+            }
+            else
+            {
+                link->next = script_runtime_root->global_scene_links;
+                script_runtime_root->global_scene_links = link;
+            }
+            return;
+        }
+        RuntimeTreeSceneLink *previous = find_runtime_tree_scene_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->scene_link_head;
+        parent->scene_link_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x00409920
+void __fastcall remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->scene_link_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreeSceneLink *successor = node->scene_link_tail->next;
+            if(script_runtime_root->global_scene_link_tail != nullptr)
+            {
+                script_runtime_root->global_scene_link_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->global_scene_links = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            RuntimeTreeSceneLink *previous = script_runtime_root->global_scene_links;
+            if(previous == node->scene_link_head)
+            {
+                if(script_runtime_root->global_scene_link_tail == node->scene_link_tail)
+                {
+                    script_runtime_root->global_scene_link_tail = nullptr;
+                }
+                script_runtime_root->global_scene_links = node->scene_link_tail->next;
+                return;
+            }
+            while(previous->next != node->scene_link_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->global_scene_link_tail == node->scene_link_tail)
+            {
+                script_runtime_root->global_scene_link_tail = previous;
+            }
+            previous->next = node->scene_link_tail->next;
+            return;
+        }
+        if(parent->scene_link_head != node->scene_link_head)
+        {
+            RuntimeTreeSceneLink *previous = parent->scene_link_head;
+            while(previous->next != node->scene_link_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->scene_link_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_scene_link(parent) == node->scene_link_tail)
+        {
+            parent->scene_link_head = nullptr;
+        }
+        else
+        {
+            parent->scene_link_head = node->scene_link_tail->next;
+        }
+        parent = parent->parent;
+        if(node->scene_link_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x00409E00
+RuntimeTreeSecondaryResourceLink *__fastcall find_global_runtime_tree_secondary_resource_link_by_name(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(RuntimeTreeSecondaryResourceLink *link = script_runtime_root->global_secondary_resource_links; link != nullptr; link = link->next)
+    {
+        if(fixed_dword_memory_equal(name, link, 0x20))
+        {
+            return link;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00409BC0
+RuntimeTreeSecondaryResourceLink *__fastcall find_runtime_tree_secondary_resource_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreeSecondaryResourceLink *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        RuntimeTreeSecondaryResourceLink *link = static_cast<RuntimeTreeSecondaryResourceLink *>(find_last_runtime_tree_secondary_resource_link(previous));
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->secondary_resource_link_tail;
+}
+
+// GAG.EXE: 0x00409C10
+void __fastcall insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *node, RuntimeTreeSecondaryResourceLink *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->global_secondary_resource_link_tail != nullptr)
+            {
+                script_runtime_root->global_secondary_resource_link_tail->next = link;
+            }
+            else
+            {
+                script_runtime_root->global_secondary_resource_links = link;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->global_secondary_resource_link_tail != nullptr)
+            {
+                link->next = script_runtime_root->global_secondary_resource_link_tail->next;
+                script_runtime_root->global_secondary_resource_link_tail->next = link;
+            }
+            else
+            {
+                link->next = script_runtime_root->global_secondary_resource_links;
+                script_runtime_root->global_secondary_resource_links = link;
+            }
+            return;
+        }
+        RuntimeTreeSecondaryResourceLink *previous = find_runtime_tree_secondary_resource_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->secondary_resource_link_head;
+        parent->secondary_resource_link_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x00409CB0
+void __fastcall remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->secondary_resource_link_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreeSecondaryResourceLink *successor = node->secondary_resource_link_tail->next;
+            if(script_runtime_root->global_secondary_resource_link_tail != nullptr)
+            {
+                script_runtime_root->global_secondary_resource_link_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->global_secondary_resource_links = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            RuntimeTreeSecondaryResourceLink *previous = script_runtime_root->global_secondary_resource_links;
+            if(previous == node->secondary_resource_link_head)
+            {
+                if(script_runtime_root->global_secondary_resource_link_tail == node->secondary_resource_link_tail)
+                {
+                    script_runtime_root->global_secondary_resource_link_tail = nullptr;
+                }
+                script_runtime_root->global_secondary_resource_links = node->secondary_resource_link_tail->next;
+                return;
+            }
+            while(previous->next != node->secondary_resource_link_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->global_secondary_resource_link_tail == node->secondary_resource_link_tail)
+            {
+                script_runtime_root->global_secondary_resource_link_tail = previous;
+            }
+            previous->next = node->secondary_resource_link_tail->next;
+            return;
+        }
+        if(parent->secondary_resource_link_head != node->secondary_resource_link_head)
+        {
+            RuntimeTreeSecondaryResourceLink *previous = parent->secondary_resource_link_head;
+            while(previous->next != node->secondary_resource_link_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->secondary_resource_link_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_secondary_resource_link(parent) == node->secondary_resource_link_tail)
+        {
+            parent->secondary_resource_link_head = nullptr;
+        }
+        else
+        {
+            parent->secondary_resource_link_head = node->secondary_resource_link_tail->next;
+        }
+        parent = parent->parent;
+        if(node->secondary_resource_link_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040A560
+RuntimeTreePrimaryResourceLink *__fastcall find_runtime_tree_primary_resource_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreePrimaryResourceLink *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        auto *link = static_cast<RuntimeTreePrimaryResourceLink *>(find_last_runtime_tree_primary_resource_link(previous));
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->primary_resource_link_tail;
+}
+
+// GAG.EXE: 0x0040A5B0
+void __fastcall insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTreePrimaryResourceLink *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->plan_terminal != nullptr)
+            {
+                script_runtime_root->plan_terminal->next = reinterpret_cast<RuntimePlanNode *>(link);
+            }
+            else
+            {
+                script_runtime_root->plan_nodes = reinterpret_cast<RuntimePlanNode *>(link);
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->plan_terminal != nullptr)
+            {
+                link->next = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_terminal->next);
+                script_runtime_root->plan_terminal->next = reinterpret_cast<RuntimePlanNode *>(link);
+            }
+            else
+            {
+                link->next = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
+                script_runtime_root->plan_nodes = reinterpret_cast<RuntimePlanNode *>(link);
+            }
+            return;
+        }
+        RuntimeTreePrimaryResourceLink *previous = find_runtime_tree_primary_resource_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->primary_resource_link_head;
+        parent->primary_resource_link_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x0040A650
+void __fastcall remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->primary_resource_link_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreePrimaryResourceLink *successor = node->primary_resource_link_tail->next;
+            if(script_runtime_root->plan_terminal != nullptr)
+            {
+                script_runtime_root->plan_terminal->next = reinterpret_cast<RuntimePlanNode *>(successor);
+            }
+            else
+            {
+                script_runtime_root->plan_nodes = reinterpret_cast<RuntimePlanNode *>(successor);
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            auto *previous = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
+            if(previous == node->primary_resource_link_head)
+            {
+                if(reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_terminal) == node->primary_resource_link_tail)
+                {
+                    script_runtime_root->plan_terminal = nullptr;
+                }
+                script_runtime_root->plan_nodes = reinterpret_cast<RuntimePlanNode *>(node->primary_resource_link_tail->next);
+                return;
+            }
+            while(previous->next != node->primary_resource_link_head)
+            {
+                previous = previous->next;
+            }
+            if(reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_terminal) == node->primary_resource_link_tail)
+            {
+                script_runtime_root->plan_terminal = reinterpret_cast<RuntimePlanNode *>(previous);
+            }
+            previous->next = node->primary_resource_link_tail->next;
+            return;
+        }
+        if(parent->primary_resource_link_head != node->primary_resource_link_head)
+        {
+            RuntimeTreePrimaryResourceLink *previous = parent->primary_resource_link_head;
+            while(previous->next != node->primary_resource_link_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->primary_resource_link_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_primary_resource_link(parent) == node->primary_resource_link_tail)
+        {
+            parent->primary_resource_link_head = nullptr;
+        }
+        else
+        {
+            parent->primary_resource_link_head = node->primary_resource_link_tail->next;
+        }
+        parent = parent->parent;
+        if(node->primary_resource_link_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040A860
+void __fastcall update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, std::int32_t x_delta, std::int32_t y_delta, std::uint32_t value_0054)
+{
+    RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
+    if(node == nullptr)
+    {
+        return;
+    }
+    RuntimeTreePrimaryResourceLink *link = node->primary_resource_link_head;
+    while(link != nullptr && link->identity != link_identity)
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        return;
+    }
+    if(name != nullptr && !fixed_dword_memory_equal(link->file_name, name, 0x20))
+    {
+        std::memcpy(link->file_name, name, 0x20);
+        link->previous_resource_identity = link->resource_identity;
+        link->resource_identity = nullptr;
+    }
+    if(x_delta != 0)
+    {
+        link->previous_x = link->x;
+        link->x += x_delta;
+    }
+    if(y_delta != 0)
+    {
+        link->previous_y = link->y;
+        link->y += y_delta;
+    }
+    if(value_0054 != 0)
+    {
+        link->image_flags = value_0054;
+    }
+}
+
+// GAG.EXE: 0x0040A920
+void __fastcall append_three_digit_decimal_suffix(const char *prefix, std::uint32_t value, char *output)
+{
+    std::memset(output, 0, 0x20);
+    std::size_t index = 0;
+    while(prefix[index] != '\0')
+    {
+        output[index] = prefix[index];
+        ++index;
+    }
+    for(std::uint32_t divisor = 100; divisor != 0; divisor /= 10)
+    {
+        std::uint32_t digit = value / divisor;
+        output[index++] = static_cast<char>(digit + '0');
+        value -= divisor * digit;
+    }
+    output[index] = '\0';
+}
+
+// GAG.EXE: 0x0040AAC0
+std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
+{
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    auto *link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink84)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    RuntimeTreeNode *node = parser->owner;
+    std::memcpy(link->name, value, sizeof(link->name));
+    link->identity = link;
+    std::uint32_t code;
+    do
+    {
+        code = parse_script_scope_code(parser);
+        if(code == 0x00b00000)
+        {
+            const std::int32_t parameter = parse_script_integer_expression(parser);
+            if(parameter != 0x7fffffff)
+            {
+                link->parameter = parameter;
+            }
+            code = static_cast<std::uint32_t>(parameter);
+        }
+        else if(code == 0x00800000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                link->primary_resource = find_global_runtime_tree_primary_resource_link_by_name(value);
+            }
+        }
+        else if(code == 0x0b000000 || code == 0x02000000)
+        {
+            const bool rectangle = code == 0x02000000;
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                link->x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                link->y = y;
+            }
+            const std::int32_t width = parse_script_integer_expression(parser);
+            if(width != 0x7fffffff)
+            {
+                link->width = rectangle ? width + link->x : width;
+            }
+            const std::int32_t height = parse_script_integer_expression(parser);
+            if(height != 0x7fffffff)
+            {
+                link->height = rectangle ? height + link->y : height;
+            }
+            code = static_cast<std::uint32_t>(height);
+        }
+        else if(code == 0x0d000000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                for(RuntimeVisualObject *visual = script_runtime_root->visual_objects; visual != nullptr; visual = visual->next)
+                {
+                    if(fixed_dword_memory_equal(value, visual, 0x20))
+                    {
+                        link->mouse_visual = static_cast<RuntimeVisualObject *>(visual->identity);
+                        break;
+                    }
+                }
+            }
+        }
+        else if(code == 0x0c000000 || code == 0x10000000)
+        {
+            const std::uint32_t command_code = code;
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+                {
+                    if(fixed_dword_memory_equal(value, script_runtime_root->command_definitions[index].name, 0x20))
+                    {
+                        const std::uint32_t bit = 1u << (index & 31);
+                        link->command_mask |= bit;
+                        if(command_code == 0x10000000)
+                        {
+                            link->primary_command_bit = bit;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else if(code == 0x0e000000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff && !script_object_container_state_matches_by_name(value))
+            {
+                runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, link);
+                return 0;
+            }
+        }
+        else if(code == 0x30000000)
+        {
+            parse_script_value_token(parser, value, 0x20);
+            link->owner_object = find_script_object_by_name(value);
+        }
+    } while(code != 0xffffffff);
+
+    if(node->link_0084_tail == nullptr)
+    {
+        link->next = node->link_0084_head;
+        node->link_0084_head = link;
+        insert_runtime_tree_link_0084(node, link);
+    }
+    else
+    {
+        link->next = node->link_0084_tail->next;
+        node->link_0084_tail->next = link;
+    }
+    node->link_0084_tail = link;
+    return 0;
+}
+
+// GAG.EXE: 0x0040A3C0
+void *__fastcall create_or_update_runtime_tree_primary_resource_link(void *tree_identity, const void *identifier, const void *file_name, std::int32_t source_value, std::int32_t x_delta,
+    std::int32_t y_delta, std::uint32_t image_flags)
+{
+    RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreePrimaryResourceLink *link = node->primary_resource_link_head;
+    while(link != nullptr && !fixed_dword_memory_equal(identifier, link, 0x20))
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreePrimaryResourceLink)));
+        if(link == nullptr)
+        {
+            return nullptr;
+        }
+        std::memcpy(link->identifier, identifier, sizeof(link->identifier));
+        link->identity = link;
+        if(node->primary_resource_link_tail == nullptr)
+        {
+            link->next = node->primary_resource_link_head;
+            node->primary_resource_link_head = link;
+            insert_runtime_tree_primary_resource_link(node, link);
+        }
+        else
+        {
+            link->next = node->primary_resource_link_tail->next;
+            node->primary_resource_link_tail->next = link;
+        }
+        node->primary_resource_link_tail = link;
+    }
+    if(file_name != nullptr && !fixed_dword_memory_equal(link->file_name, file_name, 0x20))
+    {
+        std::memcpy(link->file_name, file_name, sizeof(link->file_name));
+        link->previous_resource_identity = link->resource_identity;
+        link->resource_identity = nullptr;
+    }
+    if(x_delta != 0x7fffffff)
+    {
+        link->previous_x = link->x;
+        link->x += x_delta;
+    }
+    if(y_delta != 0x7fffffff)
+    {
+        link->previous_y = link->y;
+        link->y += y_delta;
+    }
+    if(source_value != 0x7fffffff)
+    {
+        link->source_value = static_cast<std::uint32_t>(source_value);
+    }
+    if(image_flags != 0)
+    {
+        link->image_flags = image_flags;
+    }
+    return link->identity;
+}
+
+// GAG.EXE: 0x0040AE40
+void *__fastcall create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t value_0050,
+    void *identity_0058, void *identity_005c, std::uint32_t value_0054, std::uint32_t value_0040, std::uint32_t value_004c)
+{
+    RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
+    if(node == nullptr)
+    {
+        return nullptr;
+    }
+    bool existing = false;
+    RuntimeTreeLink84 *link = node->link_0084_head;
+    while(link != nullptr && !fixed_dword_memory_equal(name, link, 0x20))
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink84)));
+        if(link == nullptr)
+        {
+            return nullptr;
+        }
+        std::memcpy(link->name, name, sizeof(link->name));
+        link->value_0054 = value_0054;
+        link->identity = link;
+        if(node->link_0084_tail == nullptr)
+        {
+            link->next = node->link_0084_head;
+            node->link_0084_head = link;
+            insert_runtime_tree_link_0084(node, link);
+        }
+        else
+        {
+            link->next = node->link_0084_tail->next;
+            node->link_0084_tail->next = link;
+        }
+        node->link_0084_tail = link;
+    }
+    else
+    {
+        existing = true;
+    }
+    link->state_003c = 0xffffffff;
+    if(value_004c != 0x7fffffff)
+    {
+        link->value_004c = value_004c;
+    }
+    if(value_0040 != 0)
+    {
+        link->value_0040 = value_0040;
+    }
+    if(value_0050 != 0)
+    {
+        link->value_0050 = value_0050;
+    }
+    if(identity_0058 != nullptr && identity_0058 != link->identity_0058)
+    {
+        link->previous_identity_0058 = link->identity_0058;
+        link->identity_0058 = identity_0058;
+    }
+    if(identity_005c != nullptr && identity_005c != link->identity_005c)
+    {
+        link->previous_identity_005c = link->identity_005c;
+        link->identity_005c = identity_005c;
+    }
+    if(x != 0 || y != 0 || width != 0 || height != 0)
+    {
+        if(existing && link->identity_005c != nullptr)
+        {
+            update_runtime_tree_primary_resource_link(tree_identity, link->identity_005c, nullptr, x - link->x, y - link->y, 0);
+        }
+        link->x = x;
+        link->y = y;
+        link->width = width;
+        link->height = height;
+    }
+    return link->identity;
+}
+
+// GAG.EXE: 0x0040A990
+RuntimeTreePrimaryResourceLink *__fastcall find_global_runtime_tree_primary_resource_link_by_name(const void *name)
+{
+    auto *link = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
+    while(link != nullptr)
+    {
+        if(fixed_dword_memory_equal(name, link, 0x20))
+        {
+            return link;
+        }
+        link = link->next;
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040AFE0
+RuntimeTreeLink84 *__fastcall find_last_runtime_tree_link_0084(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            RuntimeTreeLink84 *result = find_last_runtime_tree_link_0084(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->link_0084_tail;
+}
+
+// GAG.EXE: 0x0040B040
+RuntimeTreeLink84 *__fastcall find_runtime_tree_link_0084_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreeLink84 *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        RuntimeTreeLink84 *link = find_last_runtime_tree_link_0084(previous);
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->link_0084_tail;
+}
+
+// GAG.EXE: 0x0040B090
+void __fastcall insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->global_link_0084_tail != nullptr)
+            {
+                script_runtime_root->global_link_0084_tail->next = link;
+            }
+            else
+            {
+                script_runtime_root->global_link_0084_head = link;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->global_link_0084_tail != nullptr)
+            {
+                link->next = script_runtime_root->global_link_0084_tail->next;
+                script_runtime_root->global_link_0084_tail->next = link;
+            }
+            else
+            {
+                link->next = script_runtime_root->global_link_0084_head;
+                script_runtime_root->global_link_0084_head = link;
+            }
+            return;
+        }
+        RuntimeTreeLink84 *previous = find_runtime_tree_link_0084_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->link_0084_head;
+        parent->link_0084_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x0040B130
+void __fastcall remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->link_0084_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreeLink84 *successor = node->link_0084_tail->next;
+            if(script_runtime_root->global_link_0084_tail != nullptr)
+            {
+                script_runtime_root->global_link_0084_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->global_link_0084_head = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            RuntimeTreeLink84 *previous = script_runtime_root->global_link_0084_head;
+            if(previous == node->link_0084_head)
+            {
+                if(script_runtime_root->global_link_0084_tail == node->link_0084_tail)
+                {
+                    script_runtime_root->global_link_0084_tail = nullptr;
+                }
+                script_runtime_root->global_link_0084_head = node->link_0084_tail->next;
+                return;
+            }
+            while(previous->next != node->link_0084_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->global_link_0084_tail == node->link_0084_tail)
+            {
+                script_runtime_root->global_link_0084_tail = previous;
+            }
+            previous->next = node->link_0084_tail->next;
+            return;
+        }
+        if(parent->link_0084_head != node->link_0084_head)
+        {
+            RuntimeTreeLink84 *previous = parent->link_0084_head;
+            while(previous->next != node->link_0084_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->link_0084_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_link_0084(parent) == node->link_0084_tail)
+        {
+            parent->link_0084_head = nullptr;
+        }
+        else
+        {
+            parent->link_0084_head = node->link_0084_tail->next;
+        }
+        parent = parent->parent;
+        if(node->link_0084_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040B280
+void __fastcall update_runtime_tree_link_0084(void *tree_identity, void *link_identity, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t value_0050,
+    void *identity_0058, void *identity_005c, std::uint32_t value_0054, std::uint32_t value_0040, std::uint32_t value_004c)
+{
+    RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
+    if(node == nullptr)
+    {
+        return;
+    }
+    RuntimeTreeLink84 *link = node->link_0084_head;
+    while(link != nullptr && link->identity != link_identity)
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        return;
+    }
+    if(value_004c != 0x7fffffff)
+    {
+        link->value_004c = value_004c;
+    }
+    if(value_0040 != 0)
+    {
+        link->value_0040 = value_0040;
+    }
+    if(value_0050 != 0)
+    {
+        link->value_0050 = value_0050;
+    }
+    if(identity_0058 != nullptr && identity_0058 != link->identity_0058)
+    {
+        link->previous_identity_0058 = link->identity_0058;
+        link->identity_0058 = identity_0058;
+    }
+    if(identity_005c != nullptr && identity_005c != link->identity_005c)
+    {
+        link->previous_identity_005c = link->identity_005c;
+        link->identity_005c = identity_005c;
+    }
+    if(value_0054 != 0)
+    {
+        link->value_0054 = value_0054;
+    }
+    if(x != 0 || y != 0 || width != 0 || height != 0)
+    {
+        if(link->identity_005c != nullptr)
+        {
+            update_runtime_tree_primary_resource_link(tree_identity, link->identity_005c, nullptr, x - link->x, y - link->y, 0);
+        }
+        link->x = x;
+        link->y = y;
+        link->width = width;
+        link->height = height;
+    }
+}
+
+// GAG.EXE: 0x0040B380
+RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_name(const void *name)
+{
+    for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
+    {
+        if(fixed_dword_memory_equal(name, link, 0x20))
+        {
+            return link;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040B3C0
+RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_identity(void *identity)
+{
+    for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
+    {
+        if(link->identity == identity)
+        {
+            return link;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040B3E0
+std::uint32_t __fastcall parse_runtime_tree_link_008c(ScriptParserState *parser)
+{
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    auto *link = static_cast<RuntimeTreeLink8C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink8C)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    RuntimeTreeNode *node = parser->owner;
+    std::memcpy(link->name, value, sizeof(link->name));
+    link->identity = link;
+    std::uint32_t code;
+    do
+    {
+        code = parse_script_scope_code(parser);
+        if(code == 0x00500000)
+        {
+            const std::int32_t first = parse_script_integer_expression(parser);
+            if(first != 0x7fffffff)
+            {
+                link->line_first = first;
+            }
+            const std::int32_t second = parse_script_integer_expression(parser);
+            if(second != 0x7fffffff)
+            {
+                link->line_second = second;
+            }
+            link->flags |= 1;
+            code = static_cast<std::uint32_t>(second);
+        }
+        else if(code == 0x00400000)
+        {
+            link->flags |= 2;
+        }
+        else if(code == 0x00600000)
+        {
+            const std::int32_t time = parse_script_integer_expression(parser);
+            if(time != 0x7fffffff)
+            {
+                link->time = time;
+            }
+            code = static_cast<std::uint32_t>(time);
+        }
+        else if(code == 0x02000000)
+        {
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                link->x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                link->y = y;
+            }
+            const std::int32_t width = parse_script_integer_expression(parser);
+            if(width != 0x7fffffff)
+            {
+                link->width = width;
+            }
+            const std::int32_t height = parse_script_integer_expression(parser);
+            if(height != 0x7fffffff)
+            {
+                link->height = height;
+            }
+            code = static_cast<std::uint32_t>(height);
+        }
+    } while(code != 0xffffffff);
+
+    if(node->link_008c_tail == nullptr)
+    {
+        link->next = node->link_008c_head;
+        node->link_008c_head = link;
+        insert_runtime_tree_link_008c(node, link);
+    }
+    else
+    {
+        link->next = node->link_008c_tail->next;
+        node->link_008c_tail->next = link;
+    }
+    node->link_008c_tail = link;
+    return 0;
+}
+
+// GAG.EXE: 0x0040B850
+std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
+{
+    char value[0x80];
+    if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+    auto *link = static_cast<RuntimeTreeLink7C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink7C)));
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    RuntimeTreeNode *node = parser->owner;
+    std::memcpy(link->name, value, sizeof(link->name));
+    link->identity = link;
+    std::memcpy(&link->parser, parser, sizeof(link->parser));
+    link->parser.start_offset = parser->cursor;
+    link->parser.cursor = parser->cursor;
+    if((node->flags & 0x200) != 0)
+    {
+        link->owner_flags |= 0x10000000;
+    }
+
+    std::uint32_t code;
+    do
+    {
+        code = parse_script_scope_code(parser);
+        if(code == 0x00020000)
+        {
+            link->flags |= 0x00100000;
+        }
+        else if(code == 0x00030000)
+        {
+            link->flags |= 0x00200000;
+        }
+        else if(code == 0x00a00000)
+        {
+            const std::int32_t minimum = parse_script_integer_expression(parser);
+            if(minimum != 0x7fffffff)
+            {
+                link->random_minimum = minimum;
+            }
+            const std::int32_t maximum = parse_script_integer_expression(parser);
+            if(maximum != 0x7fffffff)
+            {
+                link->random_maximum = maximum;
+            }
+            link->flags |= 0x80;
+            code = static_cast<std::uint32_t>(maximum);
+        }
+        else if(code == 0x00800000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                link->primary_resource = find_global_runtime_tree_primary_resource_link_by_name(value);
+                if(link->primary_resource != nullptr)
+                {
+                    link->flags |= 0x40;
+                }
+            }
+        }
+        else if(code == 0x00d00000)
+        {
+            link->flags |= 0x200;
+        }
+        else if(code == 0x00c00000)
+        {
+            link->flags |= 0x10000000;
+        }
+        else if(code == 0x05000000 || code == 0x06000000)
+        {
+            const bool source = code == 0x05000000;
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
+                {
+                    if(fixed_dword_memory_equal(value, object, 0x20))
+                    {
+                        if(source)
+                        {
+                            link->source_object = object;
+                            link->flags |= 2;
+                        }
+                        else
+                        {
+                            link->destination_object = object;
+                            link->flags |= 4;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else if(code == 0x02000000)
+        {
+            const std::int32_t x = parse_script_integer_expression(parser);
+            if(x != 0x7fffffff)
+            {
+                link->x = x;
+            }
+            const std::int32_t y = parse_script_integer_expression(parser);
+            if(y != 0x7fffffff)
+            {
+                link->y = y;
+            }
+            const std::int32_t width = parse_script_integer_expression(parser);
+            if(width != 0x7fffffff)
+            {
+                link->width = width;
+            }
+            const std::int32_t height = parse_script_integer_expression(parser);
+            if(height != 0x7fffffff)
+            {
+                link->height = height;
+            }
+            link->flags |= 0x20;
+            code = static_cast<std::uint32_t>(height);
+        }
+        else if(code == 0x0c000000)
+        {
+            code = parse_script_value_token(parser, value, 0x20);
+            if(code != 0xffffffff)
+            {
+                for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+                {
+                    if(fixed_dword_memory_equal(value, script_runtime_root->command_definitions[index].name, 0x20))
+                    {
+                        link->command_bit = 1u << (index & 31);
+                        link->flags |= 1;
+                        break;
+                    }
+                }
+            }
+        }
+        else if(code == 0x0e000000)
+        {
+            const std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+            if(result != 0xffffffff)
+            {
+                link->condition = find_script_condition_container_by_name(value);
+                if(link->condition != nullptr)
+                {
+                    link->flags |= 0x100;
+                }
+            }
+        }
+        else if(code == 0x0f000000)
+        {
+            const std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+            if(result != 0xffffffff)
+            {
+                link->zone_link = find_global_runtime_tree_link_0084_by_name(value);
+                if(link->zone_link != nullptr)
+                {
+                    link->flags |= 8;
+                }
+            }
+        }
+    } while(code != 0xffffffff);
+
+    if(node->link_007c_tail == nullptr)
+    {
+        link->next = node->link_007c_head;
+        node->link_007c_head = link;
+        insert_runtime_tree_link_007c(node, link);
+    }
+    else
+    {
+        link->next = node->link_007c_tail->next;
+        node->link_007c_tail->next = link;
+    }
+    node->link_007c_tail = link;
+    return 0;
+}
+
+// GAG.EXE: 0x0040BF60
+std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t *state, const std::uint32_t *criteria)
+{
+    std::uint32_t criteria_flags = criteria[14];
+    if(criteria_flags == 0)
+    {
+        return 1;
+    }
+    const std::uint32_t state_flags = state[14];
+    if((criteria_flags & 0x00100000) != 0)
+    {
+        criteria_flags |= state_flags & 0x10000000;
+    }
+    if((criteria_flags & 0x0f) != 0)
+    {
+        if((criteria_flags & state_flags) != (criteria_flags & 0xf000000f))
+        {
+            return 0;
+        }
+        if(((criteria_flags ^ state_flags) & 0xf0000000) != 0)
+        {
+            return 0;
+        }
+    }
+    for(std::uint32_t index = 0; index < 5; ++index)
+    {
+        if((criteria_flags & (1u << index)) != 0 && criteria[index] != state[index])
+        {
+            return 0;
+        }
+    }
+    if((criteria_flags & 0x80) != 0)
+    {
+        const std::int32_t value = select_bounded_random_value(-10000, 10000);
+        if(value < static_cast<std::int32_t>(criteria[11]) || value > static_cast<std::int32_t>(criteria[12]))
+        {
+            return 0;
+        }
+    }
+    if((criteria_flags & 0x100) != 0 && !script_object_container_state_matches_by_identity(reinterpret_cast<void *>(static_cast<std::uintptr_t>(criteria[10]))))
+    {
+        return 0;
+    }
+    if((criteria_flags & 0x40) != 0)
+    {
+        auto *primary = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(static_cast<std::uintptr_t>(criteria[9]));
+        if(primary == nullptr)
+        {
+            return 0;
+        }
+        if((criteria_flags & 0x20) != 0)
+        {
+            if(static_cast<std::int32_t>(criteria[7]) < primary->x || static_cast<std::int32_t>(criteria[8]) < primary->y
+                || primary->x + static_cast<std::int32_t>(primary->width) < static_cast<std::int32_t>(criteria[5])
+                || primary->y + static_cast<std::int32_t>(primary->height) < static_cast<std::int32_t>(criteria[6]))
+            {
+                return 0;
+            }
+        }
+    }
+    if((criteria_flags & 0x00200000) != 0)
+    {
+        for(RuntimeTreeLink7C *candidate = script_runtime_root->global_link_007c_head; candidate != nullptr; candidate = candidate->next)
+        {
+            const auto *candidate_criteria = reinterpret_cast<const std::uint32_t *>(&candidate->command_bit);
+            if(candidate_criteria != criteria && ((candidate->flags ^ state_flags) & 0xf0000fff) == 0)
+            {
+                std::uint32_t state_copy[16];
+                std::memcpy(state_copy, state, sizeof(state_copy));
+                if(match_runtime_tree_link_007c_interaction(state_copy, candidate_criteria) != 0)
+                {
+                    return 0;
+                }
+            }
+        }
+        state[14] = criteria_flags;
+    }
+    if((criteria_flags & 0x200) == 0)
+    {
+        state[14] &= ~criteria_flags | 0x0ffffff0;
+    }
+    return 1;
+}
+
+// GAG.EXE: 0x0040C1E0
+void __fastcall seek_runtime_tree_link_007c_label(void *identity, const char *label)
+{
+    RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
+    while(link != nullptr && link->identity != identity)
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        return;
+    }
+    const std::uint32_t saved_cursor = link->parser.cursor;
+    link->parser.cursor = link->parser.start_offset;
+    std::uint32_t opcode;
+    do
+    {
+        opcode = parse_script_opcode(&link->parser);
+        if(opcode == 0x000a0000)
+        {
+            char value[0x20];
+            opcode = parse_script_value_token(&link->parser, value, sizeof(value));
+            if(opcode == 0xffffffff)
+            {
+                break;
+            }
+            if(strings_equal(value, label))
+            {
+                return;
+            }
+        }
+    } while(opcode != 0xffffffff);
+    link->parser.cursor = saved_cursor;
+}
+
+// GAG.EXE: 0x0040C260
+std::uint32_t __fastcall find_runtime_tree_link_007c_opcode_value(void *identity, std::uint32_t opcode, const char *value, int restore_cursor)
+{
+    RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
+    while(link != nullptr && link->identity != identity)
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        return 0xffffffff;
+    }
+    const std::uint32_t saved_cursor = link->parser.cursor;
+    link->parser.cursor = link->parser.start_offset;
+    std::uint32_t result;
+    do
+    {
+        result = parse_script_opcode(&link->parser);
+        if(result == opcode)
+        {
+            char parsed_value[0x20];
+            result = parse_script_value_token(&link->parser, parsed_value, sizeof(parsed_value));
+            if(result == 0xffffffff)
+            {
+                break;
+            }
+            if(strings_equal(parsed_value, value))
+            {
+                result = link->parser.cursor;
+                if(restore_cursor == 0)
+                {
+                    return result;
+                }
+                break;
+            }
+        }
+    } while(result != 0xffffffff);
+    link->parser.cursor = saved_cursor;
+    return result;
+}
+
+// GAG.EXE: 0x0040C2F0
+std::uint32_t __fastcall scan_runtime_tree_link_007c_control_boundary(void *identity, std::uint32_t requested_boundary)
+{
+    RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
+    while(link != nullptr && link->identity != identity)
+    {
+        link = link->next;
+    }
+    if(link == nullptr)
+    {
+        return 0;
+    }
+    std::int32_t nesting = 0;
+    for(;;)
+    {
+        const std::uint32_t opcode = parse_script_opcode(&link->parser);
+        if(opcode == 0x00006000)
+        {
+            if(nesting == 0)
+            {
+                return opcode;
+            }
+            --nesting;
+        }
+        else if(opcode == 0x00004000 || opcode == 0x00040000 || opcode == 0x00050000)
+        {
+            ++nesting;
+        }
+        else if(opcode == 0x00060000 && requested_boundary == 0x00060000 && nesting == 0)
+        {
+            return opcode;
+        }
+        if(opcode == 0xffffffff)
+        {
+            return opcode;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040C4B0
+void __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link)
+{
+    ScriptRuntimeRoot *root = script_runtime_root;
+    if(root == nullptr || link == nullptr || (link->owner_flags & 0x80000000) != 0)
+    {
+        return;
+    }
+    const std::uint32_t index = root->transient_index_1;
+    const bool empty = root->transient_index_2 == index;
+    if(empty)
+    {
+        root->event_records[index][14] = 0;
+    }
+    if(match_runtime_tree_link_007c_interaction(root->event_records[index], reinterpret_cast<const std::uint32_t *>(&link->command_bit)) != 0)
+    {
+        link->owner_flags |= 0x80000000;
+        if(!empty && (link->flags & 0xf000000f) != 0 && (root->event_records[index][14] & 0xf000000f) == 0)
+        {
+            ++root->transient_index_1;
+            if(root->transient_index_1 == 0x20)
+            {
+                root->transient_index_1 = 0;
+            }
+        }
+    }
+}
+
+// GAG.EXE: 0x0040BCD0
+RuntimeTreeLink7C *__fastcall find_last_runtime_tree_link_007c(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            RuntimeTreeLink7C *result = find_last_runtime_tree_link_007c(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->link_007c_tail;
+}
+
+// GAG.EXE: 0x0040BD30
+RuntimeTreeLink7C *__fastcall find_runtime_tree_link_007c_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreeLink7C *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        RuntimeTreeLink7C *link = find_last_runtime_tree_link_007c(previous);
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->link_007c_tail;
+}
+
+// GAG.EXE: 0x0040BD80
+void __fastcall insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTreeLink7C *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->global_link_007c_tail != nullptr)
+            {
+                script_runtime_root->global_link_007c_tail->next = link;
+            }
+            else
+            {
+                script_runtime_root->global_link_007c_head = link;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->global_link_007c_tail != nullptr)
+            {
+                link->next = script_runtime_root->global_link_007c_tail->next;
+                script_runtime_root->global_link_007c_tail->next = link;
+            }
+            else
+            {
+                link->next = script_runtime_root->global_link_007c_head;
+                script_runtime_root->global_link_007c_head = link;
+            }
+            return;
+        }
+        RuntimeTreeLink7C *previous = find_runtime_tree_link_007c_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->link_007c_head;
+        parent->link_007c_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x0040BE20
+void __fastcall remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->link_007c_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreeLink7C *successor = node->link_007c_tail->next;
+            if(script_runtime_root->global_link_007c_tail != nullptr)
+            {
+                script_runtime_root->global_link_007c_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->global_link_007c_head = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            RuntimeTreeLink7C *previous = script_runtime_root->global_link_007c_head;
+            if(previous == node->link_007c_head)
+            {
+                if(script_runtime_root->global_link_007c_tail == node->link_007c_tail)
+                {
+                    script_runtime_root->global_link_007c_tail = nullptr;
+                }
+                script_runtime_root->global_link_007c_head = node->link_007c_tail->next;
+                return;
+            }
+            while(previous->next != node->link_007c_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->global_link_007c_tail == node->link_007c_tail)
+            {
+                script_runtime_root->global_link_007c_tail = previous;
+            }
+            previous->next = node->link_007c_tail->next;
+            return;
+        }
+        if(parent->link_007c_head != node->link_007c_head)
+        {
+            RuntimeTreeLink7C *previous = parent->link_007c_head;
+            while(previous->next != node->link_007c_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->link_007c_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_link_007c(parent) == node->link_007c_tail)
+        {
+            parent->link_007c_head = nullptr;
+        }
+        else
+        {
+            parent->link_007c_head = node->link_007c_tail->next;
+        }
+        parent = parent->parent;
+        if(node->link_007c_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040C8A0
+ScriptObjectContainer *__fastcall find_last_script_object_container(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            ScriptObjectContainer *result = find_last_script_object_container(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->container_tail;
+}
+
+// GAG.EXE: 0x0040C900
+ScriptObjectContainer *__fastcall find_script_object_container_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<ScriptObjectContainer *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        ScriptObjectContainer *container = find_last_script_object_container(previous);
+        if(container != nullptr)
+        {
+            return container;
+        }
+    }
+    return parent->container_tail;
+}
+
+// GAG.EXE: 0x0040C570
+std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser)
+{
+    char object_name[0x80];
+    char field_name[0x80];
+    std::uint32_t value[32];
+    std::uint32_t value_type;
+    if(parse_script_value_token(parser, object_name, 0x20) == 0xffffffff)
+    {
+        return 0;
+    }
+
+    auto *container = static_cast<ScriptObjectContainer *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectContainer)));
+    if(container == nullptr)
+    {
+        return 0;
+    }
+
+    RuntimeTreeNode *node = parser->owner;
+    std::memcpy(container->name, object_name, sizeof(container->name));
+    container->identity = container;
+    if(node->container_tail == nullptr)
+    {
+        container->next = node->container_head;
+        node->container_head = container;
+        insert_script_object_container(node, container);
+    }
+    else
+    {
+        container->next = node->container_tail->next;
+        node->container_tail->next = container;
+    }
+    node->container_tail = container;
+
+    // The original loads this carried value from the uninitialized field-name
+    // stack buffer before the first entry and retains it for value types 0/3.
+    // Copying its object representation preserves that native stack-byte read
+    // without triggering MSVC's uninitialized-scalar runtime check.
+    std::uint32_t truth_value;
+    std::memcpy(&truth_value, field_name, sizeof(truth_value));
+    while(true)
+    {
+        if(parse_script_value_token(parser, object_name, 0x20) == 0xffffffff)
+        {
+            return 0;
+        }
+        if(parse_script_value_token(parser, field_name, 0x20) == 0xffffffff)
+        {
+            return 0;
+        }
+        parse_script_typed_value(parser, value, &value_type);
+
+        const std::uint32_t parsed_value = value[0];
+        std::uint32_t next_truth_value = truth_value;
+        if(!strings_equal(object_name, "GLOBAL_SYSTEM_STATE"))
+        {
+            if(value_type != 0)
+            {
+                next_truth_value = value[0];
+                if(value_type > 2)
+                {
+                    next_truth_value = truth_value;
+                    if(value_type == 4)
+                    {
+                        next_truth_value = value[0] & 0xff;
+                    }
+                }
+            }
+
+            ScriptObjectState *object = find_script_object_by_name(object_name);
+            if(object == nullptr)
+            {
+                object = create_script_object_state(object_name);
+                container->slots[container->slot_count].object = object;
+                if(object == nullptr)
+                {
+                    truth_value = next_truth_value;
+                    continue;
+                }
+            }
+            ++container->slot_count;
+            query_or_create_script_object_field(object_name, field_name, value, static_cast<std::int32_t>(value_type));
+            if(value[0] == 0)
+            {
+                --container->slot_count;
+            }
+            else
+            {
+                if(next_truth_value != 0x07000000 && static_cast<std::int32_t>(next_truth_value) > 0)
+                {
+                    container->required_mask |= 1u << ((container->slot_count - 1) & 31);
+                }
+                ScriptObjectSlot &slot = container->slots[container->slot_count - 1];
+                slot.active_field_mask = &object->active_field_mask;
+                slot.field_mask = value[0];
+            }
+        }
+        else if(value_type == 1)
+        {
+            const auto append_system_slot = [&](std::uint32_t field_mask)
+            {
+                ++container->slot_count;
+                if(parsed_value != 0x07000000)
+                {
+                    container->required_mask |= 1u << ((container->slot_count - 1) & 31);
+                }
+                ScriptObjectSlot &slot = container->slots[container->slot_count - 1];
+                slot.active_field_mask = &script_runtime_root->flags;
+                slot.field_mask = field_mask;
+            };
+            if(strings_equal(field_name, "DRIVE_BUSY"))
+            {
+                append_system_slot(0x10);
+            }
+            if(strings_equal(field_name, "NOCOMMENT"))
+            {
+                append_system_slot(1);
+            }
+            if(strings_equal(field_name, "INVENTORY_OPEN"))
+            {
+                append_system_slot(2);
+            }
+            if(strings_equal(field_name, "INVENTORY_CLOSE"))
+            {
+                append_system_slot(4);
+            }
+            next_truth_value = parsed_value;
+        }
+        truth_value = next_truth_value;
+    }
+}
+
+// GAG.EXE: 0x0040C950
+void __fastcall insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer *container)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->container_tail != nullptr)
+            {
+                script_runtime_root->container_tail->next = container;
+            }
+            else
+            {
+                script_runtime_root->containers = container;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->container_tail != nullptr)
+            {
+                container->next = script_runtime_root->container_tail->next;
+                script_runtime_root->container_tail->next = container;
+            }
+            else
+            {
+                container->next = script_runtime_root->containers;
+                script_runtime_root->containers = container;
+            }
+            return;
+        }
+        ScriptObjectContainer *previous = find_script_object_container_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            container->next = previous->next;
+            previous->next = container;
+            return;
+        }
+        container->next = parent->container_head;
+        parent->container_head = container;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x0040C9F0
+void __fastcall remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->container_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            ScriptObjectContainer *successor = node->container_tail->next;
+            if(script_runtime_root->container_tail != nullptr)
+            {
+                script_runtime_root->container_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->containers = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            ScriptObjectContainer *previous = script_runtime_root->containers;
+            if(previous == node->container_head)
+            {
+                if(script_runtime_root->container_tail == node->container_tail)
+                {
+                    script_runtime_root->container_tail = nullptr;
+                }
+                script_runtime_root->containers = node->container_tail->next;
+                return;
+            }
+            while(previous->next != node->container_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->container_tail == node->container_tail)
+            {
+                script_runtime_root->container_tail = previous;
+            }
+            previous->next = node->container_tail->next;
+            return;
+        }
+        if(parent->container_head != node->container_head)
+        {
+            ScriptObjectContainer *previous = parent->container_head;
+            while(previous->next != node->container_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->container_tail->next;
+            return;
+        }
+        if(find_last_script_object_container(parent) == node->container_tail)
+        {
+            parent->container_head = nullptr;
+        }
+        else
+        {
+            parent->container_head = node->container_tail->next;
+        }
+        parent = parent->parent;
+        if(node->container_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040CB40
+BOOL __fastcall destroy_script_object_container(ScriptObjectContainer *container)
+{
+    BOOL result = TRUE;
+    for(std::uint32_t index = 0; index < container->slot_count; ++index)
+    {
+        if(container->slots[index].object != nullptr)
+        {
+            result &= script_object_release_api.heap_free(script_runtime_root->heap, 0, container->slots[index].object);
+        }
+    }
+    return result & script_object_release_api.heap_free(script_runtime_root->heap, 0, container);
+}
+
+// Non-original helper shared by the two recovered container-state queries.
+static bool script_object_container_state_matches(ScriptObjectContainer *container)
+{
+    container->current_mask = 0;
+    for(std::uint32_t index = 0; index < container->slot_count; ++index)
+    {
+        if((*container->slots[index].active_field_mask & container->slots[index].field_mask) != 0)
+        {
+            container->current_mask |= 1u << (index & 0x1f);
+        }
+    }
+    return container->required_mask == container->current_mask;
+}
+
+// GAG.EXE: 0x0040CBA0
+bool __fastcall script_object_container_state_matches_by_identity(void *identity)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return false;
+    }
+    for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
+    {
+        if(container->identity == identity)
+        {
+            return script_object_container_state_matches(container);
+        }
+    }
+    return true;
+}
+
+// GAG.EXE: 0x0040CC20
+bool __fastcall script_object_container_state_matches_by_name(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return false;
+    }
+    for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
+    {
+        if(fixed_dword_memory_equal(name, container->name, 0x20))
+        {
+            return script_object_container_state_matches(container);
+        }
+    }
+    return true;
+}
+
+// GAG.EXE: 0x0040CCB0
+ScriptObjectContainer *__fastcall find_script_condition_container_by_name(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
+    {
+        if(fixed_dword_memory_equal(name, container->name, 0x20))
+        {
+            return container;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040B560
+RuntimeTreeLink8C *__fastcall find_last_runtime_tree_link_008c(RuntimeTreeNode *root)
+{
+    if(root == nullptr)
+    {
+        return nullptr;
+    }
+    RuntimeTreeNode *child = root->child;
+    if(child != nullptr)
+    {
+        while(child->next != nullptr)
+        {
+            child = child->next;
+        }
+        while(child != nullptr)
+        {
+            RuntimeTreeLink8C *result = find_last_runtime_tree_link_008c(child);
+            if(result != nullptr)
+            {
+                return result;
+            }
+            child = child->previous;
+        }
+    }
+    return root->link_008c_tail;
+}
+
+// GAG.EXE: 0x0040B5C0
+RuntimeTreeLink8C *__fastcall find_runtime_tree_link_008c_insertion_predecessor(RuntimeTreeNode *node)
+{
+    RuntimeTreeNode *parent = node->parent;
+    if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+    {
+        return reinterpret_cast<RuntimeTreeLink8C *>(-1);
+    }
+    for(RuntimeTreeNode *previous = node->previous; previous != nullptr; previous = previous->previous)
+    {
+        RuntimeTreeLink8C *link = find_last_runtime_tree_link_008c(previous);
+        if(link != nullptr)
+        {
+            return link;
+        }
+    }
+    return parent->link_008c_tail;
+}
+
+// GAG.EXE: 0x0040B610
+void __fastcall insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTreeLink8C *link)
+{
+    while(true)
+    {
+        RuntimeTreeNode *parent = node->parent;
+        if(parent == nullptr)
+        {
+            if(script_runtime_root->global_link_008c_tail != nullptr)
+            {
+                script_runtime_root->global_link_008c_tail->next = link;
+            }
+            else
+            {
+                script_runtime_root->global_link_008c_head = link;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            if(script_runtime_root->global_link_008c_tail != nullptr)
+            {
+                link->next = script_runtime_root->global_link_008c_tail->next;
+                script_runtime_root->global_link_008c_tail->next = link;
+            }
+            else
+            {
+                link->next = script_runtime_root->global_link_008c_head;
+                script_runtime_root->global_link_008c_head = link;
+            }
+            return;
+        }
+        RuntimeTreeLink8C *previous = find_runtime_tree_link_008c_insertion_predecessor(node);
+        if(previous != nullptr)
+        {
+            link->next = previous->next;
+            previous->next = link;
+            return;
+        }
+        link->next = parent->link_008c_head;
+        parent->link_008c_head = link;
+        node = parent;
+    }
+}
+
+// GAG.EXE: 0x0040B6B0
+void __fastcall remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+{
+    if(node->link_008c_tail == nullptr)
+    {
+        return;
+    }
+    while(true)
+    {
+        if(parent == nullptr)
+        {
+            RuntimeTreeLink8C *successor = node->link_008c_tail->next;
+            if(script_runtime_root->global_link_008c_tail != nullptr)
+            {
+                script_runtime_root->global_link_008c_tail->next = successor;
+            }
+            else
+            {
+                script_runtime_root->global_link_008c_head = successor;
+            }
+            return;
+        }
+        if(parent == reinterpret_cast<RuntimeTreeNode *>(-1))
+        {
+            RuntimeTreeLink8C *previous = script_runtime_root->global_link_008c_head;
+            if(previous == node->link_008c_head)
+            {
+                if(script_runtime_root->global_link_008c_tail == node->link_008c_tail)
+                {
+                    script_runtime_root->global_link_008c_tail = nullptr;
+                }
+                script_runtime_root->global_link_008c_head = node->link_008c_tail->next;
+                return;
+            }
+            while(previous->next != node->link_008c_head)
+            {
+                previous = previous->next;
+            }
+            if(script_runtime_root->global_link_008c_tail == node->link_008c_tail)
+            {
+                script_runtime_root->global_link_008c_tail = previous;
+            }
+            previous->next = node->link_008c_tail->next;
+            return;
+        }
+        if(parent->link_008c_head != node->link_008c_head)
+        {
+            RuntimeTreeLink8C *previous = parent->link_008c_head;
+            while(previous->next != node->link_008c_head)
+            {
+                previous = previous->next;
+            }
+            previous->next = node->link_008c_tail->next;
+            return;
+        }
+        if(find_last_runtime_tree_link_008c(parent) == node->link_008c_tail)
+        {
+            parent->link_008c_head = nullptr;
+        }
+        else
+        {
+            parent->link_008c_head = node->link_008c_tail->next;
+        }
+        parent = parent->parent;
+        if(node->link_008c_tail == nullptr)
+        {
+            return;
+        }
+    }
+}
+
+// GAG.EXE: 0x0040B800
+RuntimeTreeLink8C *__fastcall find_global_runtime_tree_link_008c_by_name(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(RuntimeTreeLink8C *link = script_runtime_root->global_link_008c_head; link != nullptr; link = link->next)
+    {
+        if(fixed_dword_memory_equal(name, link, 0x20))
+        {
+            return link;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00407380
+RuntimeFixedNameListNode *__fastcall find_runtime_fixed_name_list_node(const void *name)
+{
+    if(script_runtime_root == nullptr)
+    {
+        return nullptr;
+    }
+    for(RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes; node != nullptr; node = node->next)
+    {
+        if(fixed_dword_memory_equal(name, node->name, 0x20))
+        {
+            return node;
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x0040CDA0
+std::uint32_t __fastcall parse_script_file_value(ScriptParserState *parser, char *value, char *serialized_value)
+{
+    std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+    if(result == 0xffffffff)
+    {
+        return result;
+    }
+
+    const char *language_suffix = reinterpret_cast<const char *>(script_runtime_root) + 0x828;
+    if(*language_suffix != '\0')
+    {
+        bool has_extension = false;
+        for(std::uint32_t index = 0; value[index] != '\0'; ++index)
+        {
+            if(value[index] == '.')
+            {
+                has_extension = true;
+                break;
+            }
+        }
+        if(!has_extension)
+        {
+            append_string(value, language_suffix);
+        }
+    }
+
+    if(serialized_value != nullptr)
+    {
+        append_string(serialized_value, value);
+        const std::uint32_t saved_cursor = parser->cursor;
+        char next_value[0x20];
+        if(parse_script_value_token(parser, next_value, sizeof(next_value)) != 0xffffffff)
+        {
+            append_string(serialized_value, ":");
+            append_string(serialized_value, next_value);
+        }
+        parser->cursor = saved_cursor;
+        append_string(serialized_value, " ");
+    }
+
+    result = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+    const std::uint32_t required_value = *reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(script_runtime_root) + 0x824);
+    if(result != 0x7fffffff && result != required_value)
+    {
+        value[0] = '\0';
+        return 0xffffffff;
+    }
+    return result;
+}
+
+// GAG.EXE: 0x00407240
+std::uint32_t __fastcall create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
+{
+    char name[0x20];
+    if(parse_script_value_token(parser, name, sizeof(name)) == 0)
+    {
+        return 0;
+    }
+
+    RuntimeFixedNameListNode *previous = nullptr;
+    RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes;
+    while(node != nullptr && !fixed_dword_memory_equal(name, node->name, sizeof(name)))
+    {
+        previous = node;
+        node = node->next;
+    }
+
+    const bool created = node == nullptr;
+    if(created)
+    {
+        node = static_cast<RuntimeFixedNameListNode *>(HeapAlloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeFixedNameListNode)));
+        if(node == nullptr)
+        {
+            return 0;
+        }
+        node->identity = node;
+        *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) = 0x04000000;
+        std::memcpy(node->name, name, sizeof(name));
+    }
+
+    for(;;)
+    {
+        std::uint32_t code = parse_script_scope_code(parser);
+        if(code == 0x01000000)
+        {
+            *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x28) = *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24);
+            *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24) = 0;
+            code = parse_script_file_value(parser, node->serialized_value, nullptr);
+        }
+        else if(code == 0x0a000000)
+        {
+            code = parse_image_flag(parser);
+            if(code == 1)
+            {
+                *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) &= 0xfbffffff;
+            }
+            else if(code == 0x04000000)
+            {
+                *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) |= 0x04000000;
+                continue;
+            }
+            node->flags |= code;
+        }
+
+        if(code == 0xffffffff)
+        {
+            if(created)
+            {
+                if(previous == nullptr)
+                {
+                    script_runtime_root->fixed_name_nodes = node;
+                }
+                else
+                {
+                    previous->next = node;
+                }
+            }
+            return 1;
+        }
+    }
+}
+
+// GAG.EXE: 0x00407440
+void destroy_runtime_fixed_name_list_nodes()
+{
+    if(script_runtime_root != nullptr)
+    {
+        RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes;
+        while(node != nullptr)
+        {
+            RuntimeFixedNameListNode *next = node->next;
+            script_object_release_api.heap_free(script_runtime_root->heap, 0, node);
+            node = next;
+        }
+        script_runtime_root->fixed_name_nodes = nullptr;
+    }
+}
+
+// GAG.EXE: 0x00408D80
+void destroy_script_object_states()
+{
+    if(script_runtime_root != nullptr)
+    {
+        ScriptObjectState *object = script_runtime_root->objects;
+        while(object != nullptr)
+        {
+            ScriptObjectState *next = object->next;
+            script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+            object = next;
+        }
+        script_runtime_root->objects = nullptr;
+    }
+}
+
+// GAG.EXE: 0x004091B0
+BOOL __fastcall remove_runtime_visual_object(void *identity)
+{
+    RuntimeVisualObject *previous = nullptr;
+    RuntimeVisualObject *object = script_runtime_root->visual_objects;
+    while(object != nullptr && object->identity != identity)
+    {
+        previous = object;
+        object = object->next;
+    }
+    if(object == nullptr)
+    {
+        return FALSE;
+    }
+    if(previous == nullptr)
+    {
+        script_runtime_root->visual_objects = object->next;
+    }
+    else
+    {
+        previous->next = object->next;
+    }
+    return script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+}
+
+// GAG.EXE: 0x004092E0
+void destroy_runtime_visual_objects()
+{
+    RuntimeVisualObject *object = script_runtime_root->visual_objects;
+    while(object != nullptr)
+    {
+        RuntimeVisualObject *next = object->next;
+        script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+        object = next;
+    }
+    script_runtime_root->visual_objects = nullptr;
+}
+
+ScriptObjectState *__fastcall find_script_object_by_name(const char *name)
+{
+    for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
+    {
+        if(fixed_dword_memory_equal(name, object->name, 0x20))
+        {
+            return object;
+        }
+    }
+    for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
+    {
+        for(std::uint32_t index = 0; index < container->slot_count; ++index)
+        {
+            ScriptObjectState *object = container->slots[index].object;
+            if(object != nullptr && fixed_dword_memory_equal(name, object->name, 0x20))
+            {
+                return object;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// GAG.EXE: 0x00408660
+ScriptObjectState *__fastcall resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type)
+{
+    ScriptObjectState *object = find_script_object_by_name(object_name);
+    if(object == nullptr)
+    {
+        return nullptr;
+    }
+    std::uint32_t index = 0;
+    while(index < object->field_count && !fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
+    {
+        ++index;
+    }
+    if(index >= 32)
+    {
+        return object;
+    }
+    std::uint32_t bit = 1u << index;
+    if(value_type == 1)
+    {
+        std::uint32_t boolean_value = *static_cast<const std::uint32_t *>(value);
+        if(boolean_value == 0x03000000)
+        {
+            object->active_field_mask |= bit;
+        }
+        else if(boolean_value == 0x07000000)
+        {
+            object->active_field_mask &= ~bit;
+        }
+    }
+    else if(value_type == 2)
+    {
+        object->integer_values[index] = *static_cast<const std::int32_t *>(value);
+        if(object->integer_values[index] < 1)
+        {
+            object->active_field_mask &= ~bit;
+        }
+        else
+        {
+            object->active_field_mask |= bit;
+        }
+    }
+    else if(value_type == 4)
+    {
+        std::memcpy(object->string_values[index], value, 0x20);
+        if(*static_cast<const char *>(value) == 0)
+        {
+            object->active_field_mask &= ~bit;
+        }
+        else
+        {
+            object->active_field_mask |= bit;
+        }
+    }
+    if(object->field_count == index)
+    {
+        std::memcpy(object->field_names[index], field_name, 0x20);
+        ++object->field_count;
+    }
+    return object;
+}
+
+void set_script_runtime_root_for_testing(ScriptRuntimeRoot *root)
+{
+    script_runtime_root = root;
+}
+
+void set_script_value_parse_api_for_testing(const ScriptValueParseApi &api)
+{
+    script_value_parse_api = api;
+}
+
+void set_script_typed_value_api_for_testing(const ScriptTypedValueApi &api)
+{
+    script_typed_value_api = api;
+}
+
+void set_script_integer_expression_api_for_testing(const ScriptIntegerExpressionApi &api)
+{
+    script_integer_expression_api = api;
+}
+
+// GAG.EXE: 0x00415720
+std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void *destination, std::uint32_t bytes, std::uint32_t *bytes_read, std::int32_t force_host_buffer)
+{
+    *bytes_read = 0;
+    AsyncFileRecord *record = acquire_async_file_record(identity);
+    if(record == nullptr)
+    {
+        return 0;
+    }
+    AsyncFileHost *host = record->host;
+    std::uint32_t result = 1;
+    if(force_host_buffer != 0 || host->active_file == record)
+    {
+        while(true)
+        {
+            async_file_lock_api.enter_critical_section(&host->secondary_lock);
+            if(force_host_buffer != 0 || host->active_file == record)
+            {
+                break;
+            }
+            async_file_lock_api.leave_critical_section(&host->secondary_lock);
+        }
+        if(host->active_file == record)
+        {
+            seek_async_host(host, record->current_offset);
+        }
+        else
+        {
+            activate_async_file_record(record);
+        }
+        const std::uint32_t chunk_size = (host->buffer_size / host->bytes_per_sector >> 2) * host->bytes_per_sector;
+        auto *output = static_cast<std::uint8_t *>(destination);
+        while(bytes != 0)
+        {
+            std::uint32_t chunk = chunk_size;
+            if(bytes <= chunk_size)
+            {
+                chunk = bytes;
+            }
+            if(copy_async_host_bytes(host, output, chunk, bytes_read) == 0)
+            {
+                result = 0;
+                break;
+            }
+            output += chunk;
+            bytes -= chunk;
+        }
+        record->current_offset = host->current_offset;
+        async_file_lock_api.leave_critical_section(&host->secondary_lock);
+    }
+    else
+    {
+        std::uint32_t copied = 0;
+        const std::uint32_t chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
+        auto *output = static_cast<std::uint8_t *>(destination);
+        while(bytes != 0)
+        {
+            std::uint32_t chunk = record->buffered_bytes;
+            if(chunk != 0 && (record->flags & 0x20) != 0)
+            {
+                if(bytes < chunk)
+                {
+                    chunk = bytes;
+                }
+                std::memcpy(output, record->buffer_cursor, chunk);
+                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer_cursor) + chunk;
+                record->buffered_bytes -= chunk;
+                output += chunk;
+                bytes -= chunk;
+                copied += chunk;
+            }
+            if(bytes == 0)
+            {
+                break;
+            }
+            const DWORD target_time = record->timestamp + chunk_size / host->mode;
+            async_file_lock_api.sleep(0);
+            DWORD file_bytes = 0;
+            if((record->flags & 0x20) == 0)
+            {
+                const std::uint32_t aligned_offset = record->current_offset / host->bytes_per_sector * host->bytes_per_sector;
+                record->next_offset = aligned_offset;
+                record->previous_offset = aligned_offset;
+                async_file_host_api.set_file_pointer(record->file, aligned_offset, nullptr, FILE_BEGIN);
+                if(!async_file_host_api.read_file(record->file, record->buffer, chunk_size, &file_bytes, nullptr))
+                {
+                    result = 0;
+                    break;
+                }
+                if(file_bytes == 0)
+                {
+                    break;
+                }
+                if((record->flags & 2) != 0)
+                {
+                    invalidate_shared_async_records(record);
+                }
+                record->flags |= 0x20;
+                const std::uint32_t prefix = record->current_offset % host->bytes_per_sector;
+                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer) + prefix;
+                record->buffered_bytes = file_bytes - prefix;
+            }
+            else
+            {
+                if(!async_file_host_api.read_file(record->file, record->buffer, chunk_size, &file_bytes, nullptr))
+                {
+                    result = 0;
+                    break;
+                }
+                if(file_bytes == 0)
+                {
+                    break;
+                }
+                record->buffer_cursor = record->buffer;
+                record->buffered_bytes = file_bytes;
+            }
+            record->previous_offset = record->next_offset;
+            record->next_offset += file_bytes;
+            const DWORD now = async_file_host_api.time_get_time();
+            record->timestamp = now;
+            if(now < target_time)
+            {
+                async_file_lock_api.sleep(target_time - now);
+            }
+        }
+        record->current_offset += copied;
+        *bytes_read = copied;
+    }
+    release_async_file_record(identity);
+    return result;
+}
+
+void set_runtime_named_lock_api_for_testing(const RuntimeNamedLockApi &api)
+{
+    runtime_named_lock_api = api;
+}
+
+void set_runtime_named_node_memory_api_for_testing(const RuntimeNamedNodeMemoryApi &api)
+{
+    runtime_named_node_memory_api = api;
+}
+
+void set_runtime_resource_release_api_for_testing(const RuntimeResourceReleaseApi &api)
+{
+    runtime_resource_release_api = api;
+}
+
+void set_runtime_media_backend_api_for_testing(const RuntimeMediaBackendApi &api)
+{
+    runtime_media_backend_api = api;
+}
+
+void set_runtime_media_backend_state_for_testing(HANDLE heap, HANDLE mutex, RuntimeMediaBackend *head, RuntimeMediaBackend *tail)
+{
+    runtime_media_backend_heap = heap;
+    runtime_media_backend_mutex = mutex;
+    runtime_media_backend_head = head;
+    runtime_media_backend_tail = tail;
+}
+
+void set_runtime_bitmap_region_render_api_for_testing(const RuntimeBitmapRegionRenderApi &api)
+{
+    runtime_bitmap_region_render_api = api;
+}
+
+void set_runtime_scene_transition_selection_api_for_testing(const RuntimeSceneTransitionSelectionApi &api)
+{
+    runtime_scene_transition_selection_api = api;
+}
+
+void set_runtime_scene_transition_selection_state_for_testing(std::uint32_t available_transitions, std::uint32_t palette_value, std::uint32_t rectangle_value, std::uint16_t bits_per_pixel)
+{
+    graphics_host_value_3 = available_transitions;
+    graphics_host_value_1 = palette_value;
+    graphics_host_value_2 = rectangle_value;
+    runtime_game_host_context.bits_per_pixel = bits_per_pixel;
+}
+
+void set_runtime_resource_state_api_for_testing(const RuntimeResourceStateApi &api)
+{
+    runtime_resource_state_api = api;
+}
+
+void set_runtime_resource_state_globals_for_testing(void *current_resource, std::uint32_t scene_flags)
+{
+    current_runtime_resource = current_resource;
+    runtime_scene_control_flags = scene_flags;
+}
+
+void set_runtime_immediate_scene_transition_api_for_testing(const RuntimeImmediateSceneTransitionApi &api)
+{
+    runtime_immediate_scene_transition_api = api;
+}
+
+void set_runtime_palette_scene_transition_api_for_testing(const RuntimePaletteSceneTransitionApi &api)
+{
+    runtime_palette_scene_transition_api = api;
+}
+
+void set_runtime_palette_scene_transition_state_for_testing(void *current_resource, std::uint32_t scene_flags, std::uint16_t width, std::uint16_t height)
+{
+    current_runtime_resource = current_resource;
+    runtime_scene_control_flags = scene_flags;
+    runtime_game_host_context.width = width;
+    runtime_game_host_context.height = height;
+}
+
+const PALETTEENTRY *get_runtime_palette_scene_transition_entries_for_testing()
+{
+    return runtime_transition_palette;
+}
+
+void set_runtime_rectangle_scene_transition_api_for_testing(const RuntimeRectangleSceneTransitionApi &api)
+{
+    runtime_rectangle_scene_transition_api = api;
+}
+
+void set_runtime_rectangle_scene_transition_state_for_testing(void *current_resource, std::uint16_t width, std::uint16_t height)
+{
+    current_runtime_resource = current_resource;
+    runtime_game_host_context.width = width;
+    runtime_game_host_context.height = height;
+}
+
+void set_runtime_palette_update_api_for_testing(const RuntimePaletteUpdateApi &api)
+{
+    runtime_palette_update_api = api;
+}
+
+void set_graphics_host_api_for_testing(const GraphicsHostApi &api)
+{
+    graphics_host_api = api;
+}
+
+void reset_graphics_host_state_for_testing(std::uint32_t scene_flags)
+{
+    std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+    std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
+    runtime_scene_control_flags = scene_flags;
+    runtime_target_flags = 0;
+    runtime_resource_heap = nullptr;
+    runtime_pointer_x = 0;
+    runtime_pointer_y = 0;
+}
+
+void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, std::int32_t *pointer_x, std::int32_t *pointer_y, std::uint32_t *target_flags,
+    HANDLE *resource_heap)
+{
+    *context = runtime_game_host_context;
+    std::memcpy(callbacks, runtime_game_host_callbacks, sizeof(runtime_game_host_callbacks));
+    *pointer_x = runtime_pointer_x;
+    *pointer_y = runtime_pointer_y;
+    *target_flags = runtime_target_flags;
+    *resource_heap = runtime_resource_heap;
+}
+
+void set_framebuffer_invalidate_api_for_testing(const FramebufferInvalidateApi &api)
+{
+    framebuffer_invalidate_api = api;
+}
+
+void set_runtime_bootstrap_api_for_testing(const RuntimeBootstrapApi &api)
+{
+    runtime_bootstrap_api = api;
+}
+
+void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *format, std::int32_t *scene_identifier, HANDLE *thread)
+{
+    *format = *reinterpret_cast<DisplayPixelFormatDescriptor *>(runtime_display_pixel_format_state);
+    *scene_identifier = runtime_display_scene_identifier;
+    *thread = runtime_display_thread;
+}
+
+void set_runtime_resource_selection_api_for_testing(const RuntimeResourceSelectionApi &api)
+{
+    runtime_resource_selection_api = api;
+}
+
+void set_runtime_bitmap_backend_create_api_for_testing(const RuntimeBitmapBackendCreateApi &api)
+{
+    runtime_bitmap_backend_create_api = api;
+}
+
+void set_runtime_animation_backend_create_api_for_testing(const RuntimeAnimationBackendCreateApi &api)
+{
+    runtime_animation_backend_create_api = api;
+}
+
+void set_runtime_media_backend_configure_api_for_testing(const RuntimeMediaBackendConfigureApi &api)
+{
+    runtime_media_backend_configure_api = api;
+}
+
+void set_runtime_animation_backend_configure_api_for_testing(const RuntimeAnimationBackendConfigureApi &api)
+{
+    runtime_animation_backend_configure_api = api;
+}
+
+void set_runtime_resource_palette_configure_api_for_testing(const RuntimeResourcePaletteConfigureApi &api)
+{
+    runtime_resource_palette_configure_api = api;
+}
+
+void set_runtime_resource_palette_bits_per_pixel_for_testing(std::uint32_t bits_per_pixel)
+{
+    runtime_resource_palette_bits_per_pixel = bits_per_pixel;
+}
+
+void set_runtime_media_backend_finalize_api_for_testing(const RuntimeMediaBackendFinalizeApi &api)
+{
+    runtime_media_backend_finalize_api = api;
+}
+
+void set_runtime_animation_failure_api_for_testing(const RuntimeAnimationFailureApi &api)
+{
+    runtime_animation_failure_api = api;
+}
+
+void set_runtime_animation_control_flags_for_testing(std::uint32_t flags)
+{
+    runtime_animation_control_flags = flags;
+}
+
+std::uint32_t get_runtime_animation_control_flags_for_testing()
+{
+    return runtime_animation_control_flags;
+}
+
+void set_runtime_animation_control_api_for_testing(const RuntimeAnimationControlApi &api)
+{
+    runtime_animation_control_api = api;
+}
+
+void set_runtime_animation_frame_acquire_api_for_testing(const RuntimeAnimationFrameAcquireApi &api)
+{
+    runtime_animation_frame_acquire_api = api;
+}
+
+void set_runtime_animation_decode_api_for_testing(const RuntimeAnimationDecodeApi &api)
+{
+    runtime_animation_decode_api = api;
+}
+
+void set_runtime_animation_completion_api_for_testing(const RuntimeAnimationCompletionApi &api)
+{
+    runtime_animation_completion_api = api;
+}
+
+void set_runtime_animation_audio_api_for_testing(const RuntimeAnimationAudioApi &api)
+{
+    runtime_animation_audio_api = api;
+}
+
+void set_runtime_animation_worker_api_for_testing(const RuntimeAnimationWorkerApi &api)
+{
+    runtime_animation_worker_api = api;
+}
+
+void set_runtime_resource_construction_plan_api_for_testing(const RuntimeResourceConstructionPlanApi &api)
+{
+    runtime_resource_construction_plan_api = api;
+}
+
+void set_runtime_animation_present_api_for_testing(const RuntimeAnimationPresentApi &api)
+{
+    runtime_animation_present_api = api;
+}
+
+void set_runtime_generic_backend_api_for_testing(const RuntimeGenericBackendApi &api)
+{
+    runtime_generic_backend_api = api;
+}
+
+void set_runtime_generic_backend_state_for_testing(HANDLE mutex, RuntimeGenericBackend *head)
+{
+    runtime_generic_backend_mutex = mutex;
+    runtime_generic_backend_head = head;
+}
+
+void set_runtime_generic_backend_create_api_for_testing(const RuntimeGenericBackendCreateApi &api)
+{
+    runtime_generic_backend_create_api = api;
+}
+
+void set_runtime_generic_backend_create_state_for_testing(std::uint32_t enabled)
+{
+    runtime_generic_backend_enabled = enabled;
+}
+
+RuntimeGenericBackend *get_runtime_generic_backend_head_for_testing()
+{
+    return runtime_generic_backend_head;
+}
+
+void set_runtime_sound_destroy_api_for_testing(const RuntimeSoundDestroyApi &api)
+{
+    runtime_sound_destroy_api = api;
+}
+
+void set_runtime_sound_destroy_state_for_testing(std::int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, std::uint32_t maximum_handle)
+{
+    runtime_sound_enabled = enabled;
+    runtime_sound_mutex = mutex;
+    runtime_sound_slots = slots;
+    runtime_sound_maximum_handle = maximum_handle;
+}
+
+std::uint32_t get_runtime_sound_maximum_handle_for_testing()
+{
+    return runtime_sound_maximum_handle;
+}
+
+void set_runtime_sound_create_api_for_testing(const RuntimeSoundCreateApi &api)
+{
+    runtime_sound_create_api = api;
+}
+
+void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEFORMATEX *output_format, WAVEHDR *header_1, WAVEHDR *header_2, HWND window, HANDLE thread,
+    DWORD thread_id, std::uint32_t output_ready, std::uint32_t ready, std::uint32_t fault)
+{
+    runtime_sound_lifecycle_mutex = lifecycle_mutex;
+    runtime_sound_wave_out = wave_out;
+    runtime_sound_output_format = output_format;
+    runtime_sound_headers[0] = header_1;
+    runtime_sound_headers[1] = header_2;
+    runtime_sound_window = window;
+    runtime_sound_thread = thread;
+    runtime_sound_thread_id = thread_id;
+    runtime_sound_output_ready = output_ready;
+    runtime_sound_ready = ready;
+    runtime_sound_fault = fault;
+}
+
+void get_runtime_sound_create_state_for_testing(HANDLE *thread, DWORD *thread_id, std::uint32_t *output_initialized, std::uint32_t *ready)
+{
+    *thread = runtime_sound_thread;
+    *thread_id = runtime_sound_thread_id;
+    *output_initialized = runtime_sound_output_initialized;
+    *ready = runtime_sound_ready;
+}
+
+void set_runtime_sound_format_cleanup_api_for_testing(const RuntimeSoundFormatCleanupApi &api)
+{
+    runtime_sound_format_cleanup_api = api;
+}
+
+void set_runtime_sound_format_cleanup_state_for_testing(void *buffer, std::uint32_t base_state)
+{
+    runtime_sound_format_buffer = buffer;
+    runtime_sound_base_state = base_state;
+}
+
+void get_runtime_sound_format_cleanup_state_for_testing(void **buffer, std::uint32_t *base_state)
+{
+    *buffer = runtime_sound_format_buffer;
+    *base_state = runtime_sound_base_state;
+}
+
+void set_runtime_sound_fade_state_for_testing(WAVEFORMATEX *output_format, std::uint32_t mixer_data_size)
+{
+    runtime_sound_output_format = output_format;
+    runtime_sound_mixer_data_size = mixer_data_size;
+}
+
+void set_runtime_wave_out_callback_api_for_testing(const RuntimeWaveOutCallbackApi &api)
+{
+    runtime_wave_out_callback_api = api;
+}
+
+void set_runtime_wave_out_callback_state_for_testing(HWND window, std::uint32_t output_ready)
+{
+    runtime_sound_window = window;
+    runtime_sound_output_ready = output_ready;
+}
+
+std::uint32_t get_runtime_wave_out_callback_state_for_testing()
+{
+    return runtime_sound_output_ready;
+}
+
+void set_runtime_sound_shutdown_api_for_testing(const RuntimeSoundShutdownApi &api)
+{
+    runtime_sound_shutdown_api = api;
+}
+
+void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEHDR *header_1, WAVEHDR *header_2, HANDLE thread, DWORD thread_id, std::uint32_t output_ready,
+    std::uint32_t output_initialized)
+{
+    runtime_sound_lifecycle_mutex = lifecycle_mutex;
+    runtime_sound_wave_out = wave_out;
+    runtime_sound_headers[0] = header_1;
+    runtime_sound_headers[1] = header_2;
+    runtime_sound_thread = thread;
+    runtime_sound_thread_id = thread_id;
+    runtime_sound_output_ready = output_ready;
+    runtime_sound_output_initialized = output_initialized;
+}
+
+void get_runtime_sound_shutdown_state_for_testing(std::int32_t *enabled, HANDLE *thread, DWORD *thread_id, std::uint32_t *output_initialized)
+{
+    *enabled = runtime_sound_enabled;
+    *thread = runtime_sound_thread;
+    *thread_id = runtime_sound_thread_id;
+    *output_initialized = runtime_sound_output_initialized;
+}
+
+void set_runtime_sound_readiness_api_for_testing(const RuntimeSoundReadinessApi &api)
+{
+    runtime_sound_readiness_api = api;
+}
+
+void set_runtime_sound_pause_resume_api_for_testing(const RuntimeSoundPauseResumeApi &api)
+{
+    runtime_sound_pause_resume_api = api;
+}
+
+void set_runtime_sound_pause_resume_state_for_testing(std::uint32_t toggle_state, std::uint32_t mixing_suppressed, std::uint32_t output_initialized, std::uint32_t output_ready, HANDLE thread,
+    DWORD thread_id, HWND window, std::uint32_t fault)
+{
+    runtime_sound_toggle_state = toggle_state;
+    runtime_sound_mixing_suppressed = mixing_suppressed;
+    runtime_sound_output_initialized = output_initialized;
+    runtime_sound_output_ready = output_ready;
+    runtime_sound_thread = thread;
+    runtime_sound_thread_id = thread_id;
+    runtime_sound_window = window;
+    runtime_sound_fault = fault;
+}
+
+void get_runtime_sound_pause_resume_state_for_testing(std::uint32_t *toggle_state, std::uint32_t *mixing_suppressed, std::uint32_t *output_initialized, HANDLE *thread, DWORD *thread_id)
+{
+    *toggle_state = runtime_sound_toggle_state;
+    *mixing_suppressed = runtime_sound_mixing_suppressed;
+    *output_initialized = runtime_sound_output_initialized;
+    *thread = runtime_sound_thread;
+    *thread_id = runtime_sound_thread_id;
+}
+
+void set_runtime_sound_readiness_state_for_testing(std::uint32_t ready)
+{
+    runtime_sound_ready = ready;
+}
+
+std::uint32_t get_runtime_sound_readiness_state_for_testing()
+{
+    return runtime_sound_ready;
+}
+
+void set_runtime_sound_thread_api_for_testing(const RuntimeSoundThreadApi &api)
+{
+    runtime_sound_thread_api = api;
+}
+
+void set_runtime_sound_thread_state_for_testing(HINSTANCE instance, HWND window, std::uint32_t creation_failed)
+{
+    runtime_sound_instance = instance;
+    runtime_sound_window = window;
+    runtime_sound_window_creation_failed = creation_failed;
+}
+
+void get_runtime_sound_thread_state_for_testing(HWND *window, std::uint32_t *creation_failed)
+{
+    *window = runtime_sound_window;
+    *creation_failed = runtime_sound_window_creation_failed;
+}
+
+void set_runtime_sound_class_api_for_testing(const RuntimeSoundClassApi &api)
+{
+    runtime_sound_class_api = api;
+}
+
+void set_runtime_sound_window_api_for_testing(const RuntimeSoundWindowApi &api)
+{
+    runtime_sound_window_api = api;
+}
+
+void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs, WAVEFORMATEX *output_format, std::uint32_t mixer_data_size, std::uint32_t output_initialized,
+    std::uint32_t output_index, void(__fastcall *mixer)(std::uint32_t marker))
+{
+    runtime_sound_outputs = outputs;
+    runtime_sound_output_format = output_format;
+    runtime_sound_mixer_data_size = mixer_data_size;
+    runtime_sound_output_initialized = output_initialized;
+    runtime_sound_output_index = output_index;
+    runtime_sound_mixer = mixer;
+}
+
+void set_runtime_sound_mixing_suppressed_for_testing(std::uint8_t suppressed)
+{
+    runtime_sound_mixing_suppressed = suppressed;
+}
+
+void set_runtime_wave_mixer_initialize_api_for_testing(const RuntimeWaveMixerInitializeApi &api)
+{
+    runtime_wave_mixer_initialize_api = api;
+}
+
+void set_runtime_wave_mixer_initialize_state_for_testing(std::uint32_t fault, std::uint32_t window_creation_failed)
+{
+    runtime_sound_fault = fault;
+    runtime_sound_window_creation_failed = window_creation_failed;
+}
+
+void get_runtime_wave_mixer_initialize_state_for_testing(std::uint32_t *fault, void **buffer, std::uint32_t *mixer_data_size, void(__fastcall **mixer)(std::uint32_t marker))
+{
+    *fault = runtime_sound_fault;
+    *buffer = runtime_sound_format_buffer;
+    *mixer_data_size = runtime_sound_mixer_data_size;
+    *mixer = runtime_sound_mixer;
+}
+
+void get_runtime_sound_window_state_for_testing(std::uint32_t *output_ready, std::uint32_t *output_initialized, std::uint32_t *output_index)
+{
+    *output_ready = runtime_sound_output_ready;
+    *output_initialized = runtime_sound_output_initialized;
+    *output_index = runtime_sound_output_index;
+}
+
+void set_runtime_resource_destroy_api_for_testing(const RuntimeResourceDestroyApi &api)
+{
+    runtime_resource_destroy_api = api;
+}
+
+void set_runtime_resource_control_api_for_testing(const RuntimeResourceControlApi &api)
+{
+    runtime_resource_control_api = api;
+}
+
+void set_runtime_game_dll_unload_api_for_testing(const RuntimeGameDllUnloadApi &api)
+{
+    runtime_game_dll_unload_api = api;
+}
+
+void set_runtime_game_dll_load_api_for_testing(const RuntimeGameDllLoadApi &api)
+{
+    runtime_game_dll_load_api = api;
+}
+
+void set_runtime_game_dll_dispatch_api_for_testing(const RuntimeGameDllDispatchApi &api)
+{
+    runtime_game_dll_dispatch_api = api;
+}
+
+void set_runtime_game_dll_state_for_testing(HMODULE module, std::uint32_t flags)
+{
+    runtime_game_dll_module = module;
+    runtime_scene_control_flags = flags;
+}
+
+void set_runtime_game_dll_execute_for_testing(RuntimeGameDllExecute execute)
+{
+    runtime_game_dll_execute = reinterpret_cast<FARPROC>(execute);
+}
+
+void set_runtime_game_window_api_for_testing(const RuntimeGameWindowApi &api)
+{
+    runtime_game_window_api = api;
+}
+
+void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllWindowProcedure window_procedure, std::uint16_t x_offset, std::uint16_t y_offset)
+{
+    runtime_game_main_window = main_window;
+    runtime_game_dll_window_procedure = reinterpret_cast<FARPROC>(window_procedure);
+    runtime_game_host_context.unknown_0038 = x_offset;
+    runtime_game_host_context.unknown_003c = y_offset;
+}
+
+void get_runtime_game_result_for_testing(std::uint32_t *type, void *data, std::uint32_t size)
+{
+    *type = runtime_game_result_type;
+    std::memcpy(data, runtime_game_result_data, size);
+}
+
+void set_runtime_pointer_position_api_for_testing(const RuntimePointerPositionApi &api)
+{
+    runtime_pointer_position_api = api;
+}
+
+void get_runtime_pointer_position_for_testing(std::int32_t *x, std::int32_t *y)
+{
+    *x = runtime_pointer_x;
+    *y = runtime_pointer_y;
+}
+
+void set_runtime_game_host_state_for_testing(const RuntimeGameHostContext &context, void *const *callbacks)
+{
+    runtime_game_host_context = context;
+    std::memcpy(runtime_game_host_callbacks, callbacks, sizeof(runtime_game_host_callbacks));
+}
+
+void get_runtime_game_dll_state_for_testing(HMODULE *module, FARPROC *initialize, FARPROC *window_procedure, FARPROC *execute)
+{
+    *module = runtime_game_dll_module;
+    *initialize = runtime_game_dll_initialize;
+    *window_procedure = runtime_game_dll_window_procedure;
+    *execute = runtime_game_dll_execute;
+}
+
+void set_runtime_resource_destroy_state_for_testing(void *current_resource)
+{
+    current_runtime_resource = current_resource;
+}
+
+void *get_runtime_resource_destroy_state_for_testing()
+{
+    return current_runtime_resource;
+}
+
+void set_runtime_named_lock_state_for_testing(void *parent_identity)
+{
+    runtime_named_lock_parent_identity = parent_identity;
+}
+
+void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api)
+{
+    runtime_scene_switch_api = api;
+}
+
+void set_runtime_scene_switch_state_for_testing(void *current_identity, std::int32_t x, std::int32_t y)
+{
+    current_runtime_scene_identity = current_identity;
+    runtime_scene_x = x;
+    runtime_scene_y = y;
+}
+
+void *get_current_runtime_scene_identity_for_testing()
+{
+    return current_runtime_scene_identity;
+}
+
+void set_runtime_scene_control_state_for_testing(std::uint32_t flags, void *saved_identity)
+{
+    runtime_scene_control_flags = flags;
+    saved_default_comment_scene_identity = saved_identity;
+}
+
+std::uint32_t get_runtime_scene_control_flags_for_testing()
+{
+    return runtime_scene_control_flags;
+}
+
+void set_runtime_scene_slots_for_testing(const RuntimeSceneSlot *slots)
+{
+    std::memcpy(runtime_scene_slots, slots, sizeof(runtime_scene_slots));
+}
+
+void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, std::uint32_t state_mask, void *state_owner)
+{
+    runtime_pointer_root_identity = root_identity;
+    runtime_pointer_regions = regions;
+    active_runtime_pointer_region = active_region;
+    runtime_pointer_state_mask = state_mask;
+    runtime_pointer_state_owner = state_owner;
+}
+
+RuntimePointerRegion *get_active_runtime_pointer_region_for_testing()
+{
+    return active_runtime_pointer_region;
+}
+
+std::uint32_t get_runtime_pointer_event_flags_for_testing()
+{
+    return runtime_pointer_event_record[11];
+}
+
+void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api)
+{
+    runtime_display_reset_api = api;
+}
+
+void set_runtime_display_reset_state_for_testing(std::uint32_t value_1, std::uint8_t byte_value, std::uint32_t value_2, const std::uint32_t *scene_state)
+{
+    runtime_display_reset_value_1 = value_1;
+    runtime_display_reset_byte = byte_value;
+    runtime_display_reset_value_2 = value_2;
+    std::memcpy(runtime_display_scene_state, scene_state, sizeof(runtime_display_scene_state));
+}
+
+void get_runtime_display_reset_state_for_testing(std::uint32_t *value_1, std::uint8_t *byte_value, std::uint32_t *value_2, std::uint32_t *scene_state)
+{
+    *value_1 = runtime_display_reset_value_1;
+    *byte_value = runtime_display_reset_byte;
+    *value_2 = runtime_display_reset_value_2;
+    std::memcpy(scene_state, runtime_display_scene_state, sizeof(runtime_display_scene_state));
+}
+
+void set_runtime_display_shutdown_api_for_testing(const RuntimeDisplayShutdownApi &api)
+{
+    runtime_display_shutdown_api = api;
+}
+
+void set_runtime_display_shutdown_state_for_testing(HANDLE thread, std::int32_t scene_identifier, void *host, const std::uint32_t *backend_state, const std::uint32_t *pixel_format_state)
+{
+    runtime_display_thread = thread;
+    runtime_display_scene_identifier = scene_identifier;
+    runtime_display_host = host;
+    std::memcpy(runtime_display_backend_state, backend_state, sizeof(runtime_display_backend_state));
+    std::memcpy(runtime_display_pixel_format_state, pixel_format_state, sizeof(runtime_display_pixel_format_state));
+}
+
+void get_runtime_display_shutdown_state_for_testing(HANDLE *thread, std::int32_t *scene_identifier, void **host, std::uint32_t *backend_state, std::uint32_t *pixel_format_state)
+{
+    *thread = runtime_display_thread;
+    *scene_identifier = runtime_display_scene_identifier;
+    *host = runtime_display_host;
+    std::memcpy(backend_state, runtime_display_backend_state, sizeof(runtime_display_backend_state));
+    std::memcpy(pixel_format_state, runtime_display_pixel_format_state, sizeof(runtime_display_pixel_format_state));
+}
+
+void set_runtime_resource_wait_api_for_testing(const RuntimeResourceWaitApi &api)
+{
+    runtime_resource_wait_api = api;
+}
+
+void set_runtime_resource_count_for_testing(std::uint32_t count)
+{
+    runtime_resource_count = count;
+}
+
+void set_runtime_tree_destruction_api_for_testing(const RuntimeTreeDestructionApi &api)
+{
+    runtime_tree_destruction_api = api;
+}
+
+void set_runtime_resource_scene_destruction_api_for_testing(const RuntimeResourceSceneDestructionApi &api)
+{
+    runtime_resource_scene_destruction_api = api;
+}
+
+void set_runtime_resource_scene_region_api_for_testing(const RuntimeResourceSceneRegionApi &api)
+{
+    runtime_resource_scene_region_api = api;
+}
+
+void set_runtime_resource_scene_region_default_for_testing(std::int32_t scene_identifier)
+{
+    runtime_display_scene_identifier = scene_identifier;
+}
+
+void set_runtime_tree_destruction_state_for_testing(void *pointer_root_identity, void *current_resource, std::uint32_t resource_count)
+{
+    runtime_pointer_root_identity = pointer_root_identity;
+    current_runtime_resource = current_resource;
+    runtime_resource_count = resource_count;
+}
+
+std::uint32_t get_runtime_resource_count_for_testing()
+{
+    return runtime_resource_count;
+}
+
+void set_runtime_resource_directory_for_testing(const char *directory)
+{
+    copy_string(runtime_resource_directory, directory);
+}
+
+void set_runtime_resource_file_open_api_for_testing(const RuntimeResourceFileOpenApi &api)
+{
+    runtime_resource_file_open_api = api;
+}
+
+void set_runtime_resource_host_api_for_testing(const RuntimeResourceHostApi &api)
+{
+    runtime_resource_host_api = api;
+}
+
+void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive *archive, std::int32_t mode, std::uint8_t archive_state)
+{
+    runtime_resource_host = host;
+    runtime_resource_archive = archive;
+    runtime_resource_host_mode = mode;
+    runtime_resource_archive_state = archive_state;
+}
+
+void get_runtime_resource_host_state_for_testing(AsyncFileHost **host, CdfArchive **archive, std::int32_t *mode, std::uint8_t *archive_state)
+{
+    *host = runtime_resource_host;
+    *archive = runtime_resource_archive;
+    *mode = runtime_resource_host_mode;
+    *archive_state = runtime_resource_archive_state;
+}
+
+void set_runtime_script_property_api_for_testing(const RuntimeScriptPropertySetApi &api)
+{
+    runtime_script_property_set_api = api;
+}
+
+void set_runtime_script_property_get_api_for_testing(const RuntimeScriptPropertyGetApi &api)
+{
+    runtime_script_property_get_api = api;
+}
+
+void set_runtime_script_property_get_state_for_testing(const char *path, std::int32_t pointer_x, std::int32_t pointer_y)
+{
+    copy_string(reinterpret_cast<char *>(graphics_host_storage + 0xc), path);
+    runtime_pointer_x = pointer_x;
+    runtime_pointer_y = pointer_y;
+}
+
+void reset_runtime_script_property_state_for_testing(std::uint32_t value_1, std::uint32_t value_2, std::uint32_t value_3, std::uint32_t state_1000_count, std::uint32_t state_4_count)
+{
+    graphics_host_value_1 = value_1;
+    graphics_host_value_2 = value_2;
+    graphics_host_value_3 = value_3;
+    runtime_state_1000_count = state_1000_count;
+    runtime_state_4_count = state_4_count;
+}
+
+void get_runtime_script_property_state_for_testing(std::uint32_t *value_1, std::uint32_t *value_2, std::uint32_t *value_3, std::uint32_t *state_1000_count, std::uint32_t *state_4_count,
+    std::uint32_t *scene_flags, std::int32_t *host_mode)
+{
+    *value_1 = graphics_host_value_1;
+    *value_2 = graphics_host_value_2;
+    *value_3 = graphics_host_value_3;
+    *state_1000_count = runtime_state_1000_count;
+    *state_4_count = runtime_state_4_count;
+    *scene_flags = runtime_scene_control_flags;
+    *host_mode = runtime_resource_host_mode;
+}
+
+void set_runtime_resource_type_api_for_testing(const RuntimeResourceTypeApi &api)
+{
+    runtime_resource_type_api = api;
+}
+
+void set_runtime_resource_type_state_for_testing(void *cache_parent_identity, HWND notification_window)
+{
+    runtime_resource_cache_parent_identity = cache_parent_identity;
+    runtime_resource_notification_window = notification_window;
+}
+
+void set_runtime_cdf_stream_api_for_testing(const RuntimeCdfStreamApi &api)
+{
+    runtime_cdf_stream_api = api;
+}
+
+void set_runtime_resource_load_api_for_testing(const RuntimeResourceLoadApi &api)
+{
+    runtime_resource_load_api = api;
+}
+
+void set_runtime_resource_load_state_for_testing(HANDLE heap, std::uint32_t streamed_count)
+{
+    runtime_resource_heap = heap;
+    runtime_resource_streamed_count = streamed_count;
+}
+
+std::uint32_t get_runtime_resource_streamed_count_for_testing()
+{
+    return runtime_resource_streamed_count;
+}
+
+void set_async_file_lock_api_for_testing(const AsyncFileLockApi &api)
+{
+    async_file_lock_api = api;
+}
+
+void set_async_file_state_for_testing(bool enabled, AsyncFileHost *hosts)
+{
+    async_file_enabled = enabled;
+    async_file_hosts = hosts;
+}
+
+void set_async_file_open_api_for_testing(const AsyncFileOpenApi &api)
+{
+    async_file_open_api = api;
+}
+
+void set_async_file_host_api_for_testing(const AsyncFileHostApi &api)
+{
+    async_file_host_api = api;
+}
+
+// GAG.EXE: 0x0040CFD0
+int __fastcall append_string(char *destination, const char *source)
+{
+    int length = 0;
+    while(destination[length] != '\0')
+    {
+        ++length;
+    }
+    return length + copy_string(destination + length, source);
+}
+
+namespace
+{
+
+// GAG.EXE: 0x0040CF90
+bool __fastcall strings_equal(const char *left, const char *right)
+{
+    for(;;)
+    {
+        if(*left != *right)
+        {
+            return false;
+        }
+        if(*left == '\0')
+        {
+            return true;
+        }
+        ++left;
+        ++right;
+    }
+}
+
+// GAG.EXE: 0x0040CFF0
+void __fastcall copy_directory_from_path(char *destination, const char *source)
+{
+    int index = 0;
+    while(source[index] != '\0')
+    {
+        ++index;
+    }
+    while(index >= 0 && source[index] != '\\')
+    {
+        --index;
+    }
+    destination[index + 1] = '\0';
+    while(index >= 0)
+    {
+        destination[index] = source[index];
+        --index;
+    }
+}
+
+} // namespace
+
+// GAG.EXE: 0x0041EDF0
+std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *state, const RegistryApi &api)
+{
+    std::uint32_t result;
+    if(state->archive_context != nullptr)
+    {
+        copy_directory_from_path(state->installation_path, state->executable_directory);
+        result = 2;
+    }
+    else
+    {
+        result = 0x10000;
+        HKEY key;
+        if(api.open_key(HKEY_LOCAL_MACHINE, registry_key, 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+        {
+            result = 0x20000;
+            DWORD data_size = sizeof(state->installed_version);
+            DWORD type;
+            if(api.query_value(key, version_value, nullptr, &type, reinterpret_cast<LPBYTE>(state->installed_version), &data_size) == ERROR_SUCCESS && type == REG_SZ)
+            {
+                result = 0x40000;
+                if(strings_equal(expected_version, state->installed_version))
+                {
+                    data_size = sizeof(state->installation_path);
+                    if(api.query_value(key, path_value, nullptr, &type, reinterpret_cast<LPBYTE>(state->installation_path), &data_size) == ERROR_SUCCESS && type == REG_SZ)
+                    {
+                        result = 2;
+                        int length = 0;
+                        while(state->installation_path[length] != '\0')
+                        {
+                            ++length;
+                        }
+                        if(length > 0 && length < 0x103 && state->installation_path[length - 1] != '\\')
+                        {
+                            state->installation_path[length] = '\\';
+                            state->installation_path[length + 1] = '\0';
+                        }
+                    }
+
+                    data_size = sizeof(std::uint32_t);
+                    std::uint32_t settings;
+                    if(api.query_value(key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD)
+                    {
+                        state->flags |= settings & 0x02001020;
+                    }
+                }
+            }
+            api.close_key(key);
+        }
+    }
+
+    state->flags |= (~state->flags & 0x20) << 2;
+    return result;
+}
+
+RegistryApi make_win32_registry_api()
+{
+    return { RegOpenKeyExA, RegQueryValueExA, RegCloseKey };
+}
+
+// Non-original test state accessors.
+void set_compressor_input_state_for_testing(const void *input, std::uint32_t input_size, std::uint32_t input_position)
+{
+    compressor_input = static_cast<const std::uint8_t *>(input);
+    compressor_input_size = input_size;
+    compressor_input_position = input_position;
+}
+
+std::uint32_t get_compressor_input_position_for_testing()
+{
+    return compressor_input_position;
+}
+
+} // namespace gag
