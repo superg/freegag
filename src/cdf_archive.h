@@ -104,6 +104,10 @@ struct CdfCompressedWriteApi
     std::uint32_t(__fastcall *compress)(const void *source, std::uint32_t source_size, void *destination, std::uint32_t destination_capacity);
 };
 
+// Non-original adapters for GAG.EXE's delegated compression-library boundaries.
+int __fastcall zlib_cdf_decompressor(const void *source, std::uint32_t source_size, void *destination);
+std::uint32_t __fastcall zlib_cdf_compressor(const void *source, std::uint32_t source_size, void *destination, std::uint32_t destination_capacity);
+
 struct CdfWriterFinalizeApi
 {
     std::uint32_t(__fastcall *write_index)(CdfArchive *archive);

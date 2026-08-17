@@ -7087,7 +7087,11 @@ LRESULT WINAPI send_layout_message(HWND window, UINT message, WPARAM wparam, LPA
 LSTATUS WINAPI open_settings_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM access, PHKEY result)
 {
     require(key == HKEY_LOCAL_MACHINE && std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(options == 0 && access == KEY_SET_VALUE);
+#else
     require(options == 0 && access == KEY_ALL_ACCESS);
+#endif
     *result = reinterpret_cast<HKEY>(40);
     return ERROR_SUCCESS;
 }
@@ -7200,7 +7204,11 @@ LSTATUS WINAPI open_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_
 {
     require(key == HKEY_LOCAL_MACHINE);
     require(std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(options == 0 && desired_access == KEY_QUERY_VALUE);
+#else
     require(options == 0 && desired_access == KEY_ALL_ACCESS);
+#endif
     if(!registry_open_succeeds)
     {
         return ERROR_FILE_NOT_FOUND;
@@ -7672,6 +7680,22 @@ void test_application_initialization()
     initialization_installed_version = "Version.cfg";
     require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("ignored"), 7) == &initialization_state);
     require(initialization_state.width == 640 && initialization_state.height == 480 && (initialization_state.flags & 2) != 0);
+    const char *expected_messages[] = { "GAG", "File", "Options", "View", "Load Game", "Save Game", "New Game", "Resume Game", "Credits", "Exit", "Comments", "Mute Sound", "Full Screen", "Window",
+        "Application initialization error !", "Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!",
+        "Internal application error...\n\nMake sure your CD disk is inserted into the drive\nis clean enough and not scratched!", "Registry problem...\n\nYou should run 'Setup' to install the game!",
+        "Registry problem...\n\nInvalid registry information\nTry to run 'Setup' to reinstall the game!",
+        "Registry problem...\n\nPrevious or demo version detected\nYou should run 'Setup' to reinstall the game!", "CD drive speed is not high enough for this application!\nRun anyway?",
+        "This application requires minimum 256-color display mode...", "This application requires 256-color or HI-color display mode..." };
+    for(std::size_t index = 0; index < std::size(expected_messages); ++index)
+    {
+        const char *slot = initialization_state.message_table + index * 0x104;
+        const std::size_t length = std::strlen(expected_messages[index]);
+        require(std::strcmp(slot, expected_messages[index]) == 0);
+        for(std::size_t padding = length + 1; padding < 0x104; ++padding)
+        {
+            require(slot[padding] == '\0');
+        }
+    }
     require(initialization_state.window == reinterpret_cast<HWND>(0x103) && initialization_state.capture_window == reinterpret_cast<HWND>(0x104));
     require(initialization_state.game_context == &initialization_graphics_result);
     require(initialization_state.content_left == 180 && initialization_state.content_top == 134 && initialization_state.content_right == 820 && initialization_state.content_bottom == 614);
@@ -12140,8 +12164,45 @@ void test_custom_control_window_procedure()
     require(custom_window_bitmap_argument == reinterpret_cast<BITMAPINFO *>(custom_window_resource_data + 0xe));
 }
 
+void test_zlib_cdf_adapters()
+{
+    const std::uint8_t stored[] = { 0, 0, 'G', 'A', 'G' };
+    std::uint8_t output[128]{};
+    require(gag::zlib_cdf_decompressor(stored, sizeof(stored), output) == 3);
+    require(std::memcmp(output, "GAG", 3) == 0);
+
+    const std::uint8_t unsupported[] = { 9, 0 };
+    require(gag::zlib_cdf_decompressor(unsupported, sizeof(unsupported), output) == -2);
+    require(gag::zlib_cdf_decompressor(unsupported, 1, output) == -1);
+    const std::uint8_t malformed[] = { 8, 0, 0xff };
+    require(gag::zlib_cdf_decompressor(malformed, sizeof(malformed), output) == -1);
+
+    static constexpr char source[] = "The quick brown fox jumps over the lazy dog.";
+    std::uint8_t compressed[128]{};
+    const std::uint32_t compressed_size = gag::zlib_cdf_compressor(source, sizeof(source), compressed, sizeof(compressed));
+    require(compressed_size > 2);
+    require(compressed[0] == 8 && compressed[1] == 0);
+    std::memset(output, 0, sizeof(output));
+    require(gag::zlib_cdf_decompressor(compressed, compressed_size, output) == sizeof(source));
+    require(std::memcmp(output, source, sizeof(source)) == 0);
+
+    require(gag::zlib_cdf_compressor(source, sizeof(source), compressed, 1) == 0);
+    require(gag::zlib_cdf_compressor(source, sizeof(source), compressed, 2) == 0);
+    const std::uint32_t empty_size = gag::zlib_cdf_compressor(source, 0, compressed, sizeof(compressed));
+    require(empty_size > 2);
+    require(gag::zlib_cdf_decompressor(compressed, empty_size, output) == 0);
+
+    gag::CdfArchive *archive = gag::open_cdf_archive(FREEGAG_ORIGINAL_GAG01_CDF, 0);
+    require(archive != nullptr);
+    require(archive->entry_count == 1088);
+    require(archive->entries[0] != nullptr);
+    require(archive->entries[0]->name[0] != '\0');
+    require(gag::close_cdf_archive(archive) == 1);
+}
+
 int main()
 {
+    test_zlib_cdf_adapters();
     test_script_object_parser_branches();
     test_runtime_tree_parser_source_section_branches();
     test_runtime_tree_parser_sentinel_and_class_branches();

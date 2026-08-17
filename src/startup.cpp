@@ -2271,8 +2271,14 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
 // GAG.EXE: 0x0041F4E0
 void __fastcall initialize_application_state_no_op(ApplicationState *) {}
 
-// Exact initialized image of the executable's writable message-slot block at 0x0043F178..0x004408D3: "GAG" followed by zero-filled 0x104-byte slots.
-char application_message_table[0x175c] = "GAG";
+// Exact initialized strings in the executable's writable 23-slot message block at 0x0043F178..0x004408D3. Each slot is 0x104 bytes and its unused tail is zero-filled.
+char application_message_table[23][0x104] = { "GAG", "File", "Options", "View", "Load Game", "Save Game", "New Game", "Resume Game", "Credits", "Exit", "Comments", "Mute Sound", "Full Screen",
+    "Window", "Application initialization error !", "Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!",
+    "Internal application error...\n\nMake sure your CD disk is inserted into the drive\nis clean enough and not scratched!", "Registry problem...\n\nYou should run 'Setup' to install the game!",
+    "Registry problem...\n\nInvalid registry information\nTry to run 'Setup' to reinstall the game!",
+    "Registry problem...\n\nPrevious or demo version detected\nYou should run 'Setup' to reinstall the game!", "CD drive speed is not high enough for this application!\nRun anyway?",
+    "This application requires minimum 256-color display mode...", "This application requires 256-color or HI-color display mode..." };
+static_assert(sizeof(application_message_table) == 0x175c);
 
 // GAG.EXE: 0x0041F4F0
 ApplicationState *__fastcall initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR, int show_command)
@@ -2285,7 +2291,7 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
     }
 
     state->instance = instance;
-    state->message_table = application_message_table;
+    state->message_table = application_message_table[0];
     application_initialization_api.initialize_state(state);
     if(!application_initialization_api.register_window_classes(state))
     {
@@ -3160,7 +3166,13 @@ void __fastcall save_runtime_settings(ApplicationState *state)
     {
         std::uint32_t settings = state->flags & 0x02001020;
         HKEY key;
-        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility behavior: saving requires value-write access, not full control of the HKLM key.
+        constexpr REGSAM registry_access = KEY_SET_VALUE;
+#else
+        constexpr REGSAM registry_access = KEY_ALL_ACCESS;
+#endif
+        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, registry_access, &key) == ERROR_SUCCESS)
         {
             settings_registry_api.set_value(key, "set", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&settings), sizeof(settings));
             settings_registry_api.close_key(key);
@@ -27502,7 +27514,13 @@ std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *s
     {
         result = 0x10000;
         HKEY key;
-        if(api.open_key(HKEY_LOCAL_MACHINE, registry_key, 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility behavior: loading requires value-query access, not full control of the HKLM key.
+        constexpr REGSAM registry_access = KEY_QUERY_VALUE;
+#else
+        constexpr REGSAM registry_access = KEY_ALL_ACCESS;
+#endif
+        if(api.open_key(HKEY_LOCAL_MACHINE, registry_key, 0, registry_access, &key) == ERROR_SUCCESS)
         {
             result = 0x20000;
             DWORD data_size = sizeof(state->installed_version);

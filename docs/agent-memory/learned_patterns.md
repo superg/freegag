@@ -1,5 +1,22 @@
 # Learned patterns
 
+# 2026-08-17 - Validate delegated codecs through production bindings and original containers
+
+- Keep library replacements behind the recovered callback ABI, test their framing and failure contracts directly, and also open an original container through the default production binding. Synthetic injected callbacks alone cannot prove that the executable target is wired to a functioning codec.
+
+# 2026-08-17 - Injected callback tests do not validate production library bindings
+
+- A function can pass complete branch tests while its production callback remains a failure stub. For every delegated compression or runtime-library boundary, add at least one test through the default production binding using original executable data; otherwise ignored callback return values can publish successfully allocated but zero-filled state.
+
+# 2026-08-17 - Keep compatibility behavior compile-time isolated from recovered behavior
+
+- Modern-Windows fixes must be explicit conditional branches that retain the original path when disabled. Test both compiled variants independently, label compatibility branches non-original in source, and leave Ghidra's representation describing only the executable's original behavior.
+- Registry access should request the narrow operation-specific right: `KEY_QUERY_VALUE` for the recovered read path and `KEY_SET_VALUE` for the settings write path. A Windows 95-era `KEY_ALL_ACCESS` request can fail for a normal user on modern HKLM even when all values exist.
+
+# 2026-08-17 - Inspect every fixed-stride data slot before classifying a block
+
+- A zero-filled tail in the first fixed-size string slot does not imply that the following slots are empty or dynamically populated. For a table referenced through base-plus-offset arithmetic, read each stride directly from the executable and verify both payload and padding before reproducing its initialized image.
+
 # 2026-08-17 - Keep original copyrighted PE payloads opt-in and outside source
 
 - Recovered numeric resource identifiers and templates can remain represented by an optional local bundle without placing original binary payloads in version control. Keep that bundle in an ignored evidence/data directory, make the RC input an explicit CMake cache path, and enable byte-parity tests only when the bundle is supplied.

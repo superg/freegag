@@ -1,9 +1,76 @@
 #include "cdf_archive.h"
 #include <cstring>
+#include <limits>
+#include <zlib.h>
 #include "startup.h"
 
 namespace gag
 {
+
+// Non-original library adapter. GAG.EXE delegates this operation to its bundled inflate implementation rooted at 0x0040F8D0.
+int __fastcall zlib_cdf_decompressor(const void *source, std::uint32_t source_size, void *destination)
+{
+    if(source == nullptr || destination == nullptr || source_size < 2)
+    {
+        return -1;
+    }
+
+    const auto *input = static_cast<const Bytef *>(source);
+    if(input[0] == 0)
+    {
+        const std::uint32_t stored_size = source_size - 2;
+        std::memcpy(destination, input + 2, stored_size);
+        return static_cast<int>(stored_size);
+    }
+    if(input[0] != Z_DEFLATED)
+    {
+        return -2;
+    }
+
+    z_stream stream{};
+    stream.next_in = const_cast<Bytef *>(input + 2);
+    stream.avail_in = source_size - 2;
+    stream.next_out = static_cast<Bytef *>(destination);
+    stream.avail_out = std::numeric_limits<uInt>::max();
+    if(inflateInit2(&stream, -MAX_WBITS) != Z_OK)
+    {
+        return -1;
+    }
+
+    const int inflate_result = inflate(&stream, Z_FINISH);
+    const int result = inflate_result == Z_STREAM_END && stream.total_out <= static_cast<uLong>(std::numeric_limits<int>::max()) ? static_cast<int>(stream.total_out) : -1;
+    inflateEnd(&stream);
+    return result;
+}
+
+// Non-original library adapter. GAG.EXE delegates this operation to its bundled GNU gzip implementation at 0x00418E90.
+std::uint32_t __fastcall zlib_cdf_compressor(const void *source, std::uint32_t source_size, void *destination, std::uint32_t destination_capacity)
+{
+    if((source == nullptr && source_size != 0) || destination == nullptr || destination_capacity < 2)
+    {
+        return 0;
+    }
+
+    auto *output = static_cast<Bytef *>(destination);
+    output[0] = Z_DEFLATED;
+    output[1] = 0;
+
+    z_stream stream{};
+    stream.next_in = static_cast<Bytef *>(const_cast<void *>(source));
+    stream.avail_in = source_size;
+    stream.next_out = output + 2;
+    stream.avail_out = destination_capacity - 2;
+    if(deflateInit2(&stream, 9, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+    {
+        return 0;
+    }
+
+    const int deflate_result = deflate(&stream, Z_FINISH);
+    const std::uint32_t result = deflate_result == Z_STREAM_END ? static_cast<std::uint32_t>(stream.total_out) + 2 : 0;
+    deflateEnd(&stream);
+    return result;
+}
+
 namespace
 {
 
@@ -30,13 +97,7 @@ BOOL __fastcall close_async_cdf_stream(HANDLE stream)
 
 CdfLifecycleApi cdf_lifecycle_api{ CloseHandle, close_async_cdf_stream, GetProcessHeap, HeapFree };
 
-// Non-original library boundary. GAG.EXE delegates this operation to its bundled inflate implementation rooted at 0x0040F8D0.
-int __fastcall unavailable_bundled_cdf_decompressor(const void *, std::uint32_t, void *)
-{
-    return -2;
-}
-
-CdfCompressionApi cdf_compression_api{ GetProcessHeap, HeapAlloc, HeapFree, unavailable_bundled_cdf_decompressor };
+CdfCompressionApi cdf_compression_api{ GetProcessHeap, HeapAlloc, HeapFree, zlib_cdf_decompressor };
 
 std::uint32_t __fastcall get_async_cdf_stream_size(HANDLE stream)
 {
@@ -53,13 +114,7 @@ HANDLE __fastcall open_async_cdf_stream(std::uint32_t host, const char *path)
 CdfOpenApi cdf_open_api{ CreateFileA, open_async_cdf_stream };
 CdfWriteApi cdf_write_api{ GetProcessHeap, SetFilePointer, WriteFile };
 
-// Non-original library boundary. GAG.EXE delegates this operation to its bundled GNU gzip implementation at 0x00418E90.
-std::uint32_t __fastcall unavailable_bundled_gzip_compressor(const void *, std::uint32_t, void *, std::uint32_t)
-{
-    return 0;
-}
-
-CdfCompressedWriteApi cdf_compressed_write_api{ GetProcessHeap, HeapAlloc, HeapFree, SetFilePointer, WriteFile, unavailable_bundled_gzip_compressor };
+CdfCompressedWriteApi cdf_compressed_write_api{ GetProcessHeap, HeapAlloc, HeapFree, SetFilePointer, WriteFile, zlib_cdf_compressor };
 CdfWriterFinalizeApi cdf_writer_finalize_api{ write_compressed_cdf_index, SetFilePointer, WriteFile, GetProcessHeap, CloseHandle, HeapFree };
 
 CdfEntryWriteApi cdf_entry_write_api{ classify_runtime_media_data, SetFilePointer, write_uncompressed_cdf_entry, write_compressed_cdf_entry };
