@@ -2026,6 +2026,10 @@ do not replace prior entries without correcting a demonstrated error.
 
 - Diagnostic probes and experimental compatibility changes are temporary evidence-gathering tools. Once the root cause is proven, review all changes made during that investigation and remove every unrelated or superseded attempt. Retain only the smallest root-cause fix, its necessary compatibility annotation, and focused tests; verify the cleaned result rather than reporting success from the diagnostic build.
 
+# Script rectangle keywords can use different coordinate conventions
+
+- Do not assume similarly shaped `/RECT` and `/POS` commands store the same four quantities. In `ParseRuntimeTreeLink84` (`0x0040AAC0`), `/RECT` stores absolute left/top/right/bottom edges, while `/POS` stores x/y/width/height and converts the extents to right/bottom. Confirm each command branch from raw stores and arithmetic; reversing them can create impossible hit-test ranges while broad fallback regions conceal the parser error.
+
 # Preserve selector arguments used for identity lookup
 
 - A tree constructor may search the global tree using an explicit parent-selector argument even when it also has direct access to the global root. In `CreateRuntimeTreeNode` (`0x00405410`), EDX is preserved across the first lookup and selects whether the new node is a root or child. Substituting the global root pointer silently forces null-parent loads to become children and prevents later root-publication logic from selecting them. Verify register provenance at the lookup call and test the observed selector identity directly.

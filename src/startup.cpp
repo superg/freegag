@@ -67,8 +67,8 @@ RuntimeTreeParserReleaseApi runtime_tree_parser_release_api{ HeapFree, remove_ru
 RuntimePendingTreeSwitchApi runtime_pending_tree_switch_api{ destroy_runtime_tree_resources, activate_runtime_tree_with_notifications, reset_runtime_tree_parser_contexts,
     rebuild_runtime_tree_resources, update_runtime_pointer_region };
 
-RuntimePairDispatchApi runtime_pair_dispatch_api{ dequeue_runtime_pair, update_runtime_pointer_region, handle_runtime_left_button_down, handle_runtime_left_button_up,
-    handle_runtime_right_button_down };
+RuntimePairDispatchApi runtime_pair_dispatch_api{ dequeue_runtime_pair, update_runtime_pointer_region, handle_runtime_right_button_down, handle_runtime_left_button_up,
+    handle_runtime_left_button_down };
 ScriptUtilityApi script_utility_api{ VirtualAlloc, GetTickCount, std::srand, std::rand };
 bool script_random_seeded;
 
@@ -2391,16 +2391,10 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: make the original Window mode a centered window whose client area matches the game framebuffer.
+        // Non-original modern-Windows compatibility: size the original Window mode for the game framebuffer and let Windows choose its initial position.
         state->desktop_window_rect.right = width;
         state->desktop_window_rect.bottom = height;
         application_initialization_api.adjust_window_rect(&state->desktop_window_rect, modern_windows_windowed_style, TRUE);
-        const std::int32_t outer_width = state->desktop_window_rect.right - state->desktop_window_rect.left;
-        const std::int32_t outer_height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
-        state->desktop_window_rect.left = (application_initialization_api.get_system_metrics(SM_CXSCREEN) - outer_width) / 2;
-        state->desktop_window_rect.top = (application_initialization_api.get_system_metrics(SM_CYSCREEN) - outer_height) / 2;
-        state->desktop_window_rect.right = state->desktop_window_rect.left + outer_width;
-        state->desktop_window_rect.bottom = state->desktop_window_rect.top + outer_height;
         state->window_top_adjustment = 0;
     }
     else
@@ -2421,8 +2415,17 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
         window_style = modern_windows_windowed_style;
     }
 #endif
-    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, state->desktop_window_rect.left, state->desktop_window_rect.top,
-        state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
+    int window_x = state->desktop_window_rect.left;
+    int window_y = state->desktop_window_rect.top;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        window_x = CW_USEDEFAULT;
+        window_y = CW_USEDEFAULT;
+    }
+#endif
+    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, window_x, window_y, state->desktop_window_rect.right - state->desktop_window_rect.left,
+        state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
     if(state->window == nullptr)
     {
         return nullptr;
@@ -4282,6 +4285,11 @@ void set_runtime_plan_mode_sync_api_for_testing(const RuntimePlanModeSyncApi &ap
 void set_runtime_pair_dispatch_api_for_testing(const RuntimePairDispatchApi &api)
 {
     runtime_pair_dispatch_api = api;
+}
+
+RuntimePairDispatchApi get_runtime_pair_dispatch_api_for_testing()
+{
+    return runtime_pair_dispatch_api;
 }
 
 // GAG.EXE: 0x004208E0
@@ -18442,18 +18450,12 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     else if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
     {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
         if(message == WM_MOUSEMOVE)
         {
             runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(lparam)), static_cast<std::uint16_t>(HIWORD(lparam)));
         }
         runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
         runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(lparam));
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
         return 0;
     }
     else if(message == 0x30f)
@@ -21213,7 +21215,6 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
     {
         runtime_pointer_root_identity = identity;
     }
-
     for(RuntimeTreeSceneLink *link = root->scene_link_head; link != nullptr; link = link->next)
     {
         if(link->scene_identifier == 0)
@@ -21472,8 +21473,6 @@ void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerRe
 // GAG.EXE: 0x00423BC0
 std::uint32_t handle_runtime_left_button_up()
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
     {
         return 0;
@@ -21512,16 +21511,12 @@ std::uint32_t handle_runtime_left_button_up()
         }
     }
     enqueue_runtime_pointer_event();
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
     return 0;
 }
 
 // GAG.EXE: 0x004238B0
 std::uint32_t handle_runtime_left_button_down()
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
     if((runtime_scene_control_flags & 0x100000) == 0)
     {
         return 0;
@@ -21643,8 +21638,6 @@ std::uint32_t handle_runtime_left_button_down()
     {
         set_script_runtime_flags(2, 1);
     }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-#endif
     return 0;
 }
 
@@ -24881,7 +24874,7 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
         }
         else if(code == 0x0b000000 || code == 0x02000000)
         {
-            const bool rectangle = code == 0x02000000;
+            const bool position = code == 0x0b000000;
             const std::int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
@@ -24895,12 +24888,12 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
             const std::int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
-                link->width = rectangle ? width + link->x : width;
+                link->width = position ? width + link->x : width;
             }
             const std::int32_t height = parse_script_integer_expression(parser);
             if(height != 0x7fffffff)
             {
-                link->height = rectangle ? height + link->y : height;
+                link->height = position ? height + link->y : height;
             }
             code = static_cast<std::uint32_t>(height);
         }
@@ -25853,7 +25846,8 @@ std::uint32_t __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link
     {
         root->event_records[index][14] = 0;
     }
-    if(match_runtime_tree_link_007c_interaction(root->event_records[index], reinterpret_cast<const std::uint32_t *>(&link->command_bit)) != 0)
+    const std::uint32_t matched = match_runtime_tree_link_007c_interaction(root->event_records[index], reinterpret_cast<const std::uint32_t *>(&link->command_bit));
+    if(matched != 0)
     {
         link->owner_flags |= 0x80000000;
         if(!empty && (link->flags & 0xf000000f) != 0 && (root->event_records[index][14] & 0xf000000f) == 0)

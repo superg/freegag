@@ -7623,7 +7623,7 @@ HWND WINAPI initialization_create_window(DWORD extended_style, LPCSTR class_name
     if((initialization_initial_flags & 0x80) != 0)
     {
         require(style == 0x02ca0000);
-        require(x == 188 && y == 117 && width == 648 && height == 534 && instance == reinterpret_cast<HINSTANCE>(0x102) && parameter == &initialization_state);
+        require(x == CW_USEDEFAULT && y == CW_USEDEFAULT && width == 648 && height == 534 && instance == reinterpret_cast<HINSTANCE>(0x102) && parameter == &initialization_state);
     }
     else
 #endif
@@ -7783,8 +7783,8 @@ void test_application_initialization()
     initialization_copy_count = 0;
     initialization_initial_flags = 0x80;
     require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), nullptr, 7) == &initialization_state);
-    require(initialization_state.desktop_window_rect.left == 188 && initialization_state.desktop_window_rect.top == 117);
-    require(initialization_state.desktop_window_rect.right == 836 && initialization_state.desktop_window_rect.bottom == 651);
+    require(initialization_state.desktop_window_rect.left == -4 && initialization_state.desktop_window_rect.top == -50);
+    require(initialization_state.desktop_window_rect.right == 644 && initialization_state.desktop_window_rect.bottom == 484);
     require(initialization_state.window_top_adjustment == 0);
     require(initialization_state.content_left == 0 && initialization_state.content_top == 0 && initialization_state.content_right == 640 && initialization_state.content_bottom == 480);
 #endif
@@ -18004,6 +18004,10 @@ int main()
 
     gag::RuntimePairDispatchApi runtime_pair_dispatch_api{ dequeue_test_runtime_dispatch_pair, move_test_runtime_dispatch_pointer, dispatch_test_runtime_left_down, dispatch_test_runtime_left_up,
         dispatch_test_runtime_right_down };
+    const gag::RuntimePairDispatchApi production_pair_dispatch_api = gag::get_runtime_pair_dispatch_api_for_testing();
+    require(production_pair_dispatch_api.left_button_down == gag::handle_runtime_right_button_down);
+    require(production_pair_dispatch_api.left_button_up == gag::handle_runtime_left_button_up);
+    require(production_pair_dispatch_api.right_button_down == gag::handle_runtime_left_button_down);
     gag::set_runtime_pair_dispatch_api_for_testing(runtime_pair_dispatch_api);
     runtime_plan_state.flags = 0;
     gag::set_runtime_external_command_state_for_testing(runtime_plan_state);
@@ -19310,8 +19314,8 @@ int main()
     require(gag::parse_runtime_tree_link_0084(&link84_parser) == 0);
     gag::RuntimeTreeLink84 *parsed_link84 = parsed_link84_owner.link_0084_head;
     require(parsed_link84 != nullptr && parsed_link84_owner.link_0084_tail == parsed_link84 && parsed_link84->identity == parsed_link84 && std::memcmp(parsed_link84->name, "LINK", 5) == 0
-            && parsed_link84->parameter == 77 && parsed_link84->primary_resource == expanded_primary_0 && parsed_link84->x == 1 && parsed_link84->y == 2 && parsed_link84->width == 4
-            && parsed_link84->height == 6 && parsed_link84->mouse_visual == &parsed_link84_visual && parsed_link84->command_mask == 5 && parsed_link84->primary_command_bit == 4
+            && parsed_link84->parameter == 77 && parsed_link84->primary_resource == expanded_primary_0 && parsed_link84->x == 1 && parsed_link84->y == 2 && parsed_link84->width == 3
+            && parsed_link84->height == 4 && parsed_link84->mouse_visual == &parsed_link84_visual && parsed_link84->command_mask == 5 && parsed_link84->primary_command_bit == 4
             && parsed_link84->owner_object == &parsed_link84_object && serialization_root.global_link_0084_head == parsed_link84);
     const char positioned_link84_text[]{ "SECOND /POS: 10 11 12 13" };
     link84_parser.text = positioned_link84_text;
@@ -19320,7 +19324,7 @@ int main()
     require(gag::parse_runtime_tree_link_0084(&link84_parser) == 0);
     gag::RuntimeTreeLink84 *positioned_link84 = parsed_link84->next;
     require(positioned_link84 != nullptr && positioned_link84->next == nullptr && parsed_link84_owner.link_0084_tail == positioned_link84 && positioned_link84->x == 10 && positioned_link84->y == 11
-            && positioned_link84->width == 12 && positioned_link84->height == 13 && serialization_root.global_link_0084_tail == nullptr);
+            && positioned_link84->width == 22 && positioned_link84->height == 24 && serialization_root.global_link_0084_tail == nullptr);
     HeapFree(serialization_root.heap, 0, positioned_link84);
     HeapFree(serialization_root.heap, 0, parsed_link84);
     serialization_root.visual_objects = saved_link84_visual_objects;

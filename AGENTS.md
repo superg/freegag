@@ -37,6 +37,10 @@ from `GAG.EXE`.
   `cmake --build build --config Debug` for routine development and verification;
   build Release only when the user requests it or release-specific behavior must
   be checked.
+- Use the existing root `build/` directory for all routine Win32 Debug
+  configuration, builds, and acceptance checks. Do not create alternate build
+  directories such as `build-acceptance/` or `build-zlib-acceptance/` unless the
+  user explicitly requests an isolated build tree.
 - Never change or overwrite binaries under `data/orig/`; treat them as immutable
   reverse-engineering evidence.
 - Preserve the DLL's 32-bit register ABI explicitly. Do not replace

@@ -4671,6 +4671,7 @@ std::uint32_t process_runtime_pair_message();
 
 void set_runtime_plan_mode_sync_api_for_testing(const RuntimePlanModeSyncApi &api);
 void set_runtime_pair_dispatch_api_for_testing(const RuntimePairDispatchApi &api);
+RuntimePairDispatchApi get_runtime_pair_dispatch_api_for_testing();
 
 struct RuntimeInputSessionRecord
 {
