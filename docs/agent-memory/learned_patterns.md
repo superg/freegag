@@ -1,9 +1,58 @@
 # Learned patterns
 
-## 2026-08-16 - Right-button command slots use a packed scene-slot DWORD and inherited EDI
+# 2026-08-16 - Convert absolute stores to offsets from the correct embedded base
+
+- Nearby low offsets can be dangerously plausible. `0x00480124/0x00480128` looked like root `+4/+8` when viewed without the real base, but the embedded root begins at `0x0047F910`, making them `+0x814/+0x818`. Always subtract the confirmed absolute base before translating a store into a structure field.
+- Validate initializer stores with cross-view tests: the property callbacks must land at root `+0x814/+0x818`, while root `+4/+8` remain zero flag words after initialization.
+- Adjacent same-typed root pointers require independent preservation tests. Runtime tree head `+0xF78` and named-node head `+0xF84` are both pointer fields, so an incorrect write compiles cleanly; seed both and verify which one changes during root unlink.
+
+# 2026-08-16 - Bulk reset ranges must be mapped against the complete owning allocation
+
+- A standalone-looking `REP STOSD` target may begin in unnamed padding and cross later typed arrays. Convert its absolute start/end to offsets from the proven allocation base before modeling it.
+- `ResetRuntimeSession` clears graphics-host `+0x11D8..+0x1924`; this crosses the scene-slot array at `+0x1444` and intentionally stops eight bytes into its final slot. Boundary tests should verify both the final cleared byte and the first preserved byte.
+- Named records can overlap at both ends: pointer-event body DWORDs 14/15 at allocation `+0x9B4/+0x9B8` are also the embedded script root's flags and palette flags. Prefer the semantic field names in source while retaining a cross-view test that proves the shared addresses.
+- Test a bulk operation through the production embedded view, not only through an independently allocated fixture. `ClearRuntimeCommandDefinitions` is locally a root `+0xA70` clear but physically a graphics-host `+0x1420..+0x1924` clear, so only an embedded-root fixture exposes its scene-slot overlap.
+- Equal-stride arrays can be deliberately phase-shifted. Command definitions begin 0x20 bytes before scene slots with the same 0x28-byte stride, making definition N visual/flags the slot N prefix and definition N+1 name the slot N name. Verify writes through both views before assigning independent storage.
+- Compatible list specializations can share the same root field. Graphics-host `+0x1944` is both the pointer-region head and the embedded script root's link-84 head; model the specialized pointer view as a reference to the semantic root field and prove bidirectional writes.
+
+# 2026-08-16 - Backend ABI blocks may overlap named high-level fields
+
+- Runtime graphics uses a ten-DWORD backend block beginning at `g_RuntimeDisplayContext +0x458`. Its first eight DWORDs are also the command-target buffer; the final two DWORDs overlap width/height and the display-surface pointer. Preserve the physical overlay because shutdown zeros all ten DWORDs in one loop.
+- The runtime scene host (`+0x214`), pixel format (`+0x228`), root scene (`+0x248`), surface (`+0x47C`), callback positions (`+0x480..+0x488`), palette entries (`+0x48C`), and script thread (`+0x8FC`) are all fields of the shared context. Bootstrap and shutdown test helpers must expose views of that storage instead of parallel variables.
+
+# 2026-08-16 - Bulk clears can intentionally cross semantic record boundaries
+
+- `ResetRuntimeDisplayState` clears 21 DWORDs beginning at `g_RuntimeDisplayContext +0x95C`. This spans current/loading/tree/script fields and the full pointer-event record at `+0x970`; separate source arrays silently break the original clearing behavior.
+- Treat an original `REP STOSD` range as one physical storage range even when later routines give subranges different semantic structures. Preserve aliasing first, then expose typed views at the confirmed offsets.
+- Whole-state test setters must initialize every field relevant to the subsequent operation. Once previously detached scene X/Y values were correctly embedded at `+0x93C/+0x940`, assigning a zeroed `RuntimeCommandLoopState` correctly cleared them and exposed a stale-fixture dependency.
+
+# 2026-08-16 - One original global may have several subsystem views
+
+- A whole-block `REP STOSD` is decisive allocation-base evidence: `InitializeGraphicsHost` clears 0x75f DWORDs beginning at `0x0047EF60`, so `g_RuntimeDisplayContext` starts at allocation offset zero. `RuntimeGameHostContext` is a distinct subview at `+0x458`, callbacks at `+0x498`, and `ScriptRuntimeRoot` at `+0x9b0`. Model confirmed subviews over one backing allocation, but do not infer that equal field-relative offsets in different subviews alias; here the parent window at base `+0` and child window at subview `+0` are distinct.
+- When correcting a global allocation base, audit semantically duplicated source globals even if tests already pass. In GAG, scene-control flags and graphics-host flags were one DWORD at allocation `+0x930`, while pointer coordinates were the scene X/Y DWORDs at `+0x93c/+0x940`; keeping detached copies hid cross-subsystem state propagation.
+- Prefer direct structure-member access for embedded fixed-size arrays after proving an allocation alias. MSVC reference-to-array behavior complicated observation of GAG's result buffer; using `runtime_display_context.game_result_data` directly preserves the confirmed `+0x538` address and makes size/cross-view tests unambiguous.
+- Do not treat a field's earlier semantic label as stronger evidence than its absolute xrefs. GAG state `+0x960` had been called a loading-scene Boolean, but references at absolute `0x0047F8C0` prove it is the current runtime-resource pointer; Boolean gates merely test that pointer for non-null.
+- Reconcile a recovered allocation by enumerating every named/xrefed Ghidra data symbol across its complete address range. This exposed GAG arrays far beyond the small command-state prefix, including scene slots at `+0x1444`, pointer-list storage at `+0x1944`, and a palette whose exact end confirms the allocation boundary.
+- Globals referenced as standalone symbols by early recovery can later prove to be fields of a larger object. In this case runtime flags at `+0x930` and command-pending state at `+0x928` must alias the corresponding `RuntimeCommandLoopState` fields. Re-audit every standalone source global whose Ghidra address falls inside a newly confirmed aggregate.
+- When a wrapper reads an embedded window directly in the executable, a test seam should obtain the current value at the call site. Capturing a null/default window in a production API table disconnects later initialization from the wrapper.
+
+# 2026-08-16 - Runtime queues and their locks are embedded in the main state object
+
+- The queue counters, ring storage, indices, and five critical sections at `RuntimeCommandLoopState +0x6b0..+0x8f7` are one contiguous state region. Do not represent queue storage as separate globals or production locking as injectable no-op hooks once these offsets are confirmed.
+- `InitializeGraphicsHost` and `ShutdownGraphicsHost` initialize/delete the five embedded critical sections in address order. Their roles are byte queue (`+0x880`), pair queue (`+0x898`), message queue (`+0x8b0`), synchronized resource/dialog operations (`+0x8c8`), and path/resource-record operations (`+0x8e0`). Palette presentation uses a different display-host critical section.
+- CDF alternate handles are `AsyncFileRecord *` values opened from the caller-supplied async host. Bind seek/read/size/close to that recovered subsystem; do not invent a parallel stream abstraction. Compression callbacks remain explicit library boundaries until the corresponding bundled inflate/gzip implementation is linked.
+
+## 2026-08-16 - Pointer rebuilds synchronize named-list slots before resource lifecycles
+
+- `0x00407A80` starts at a runtime named node's circular cursor but iterates its configured count at `+0x28`, not its current child count at `+0x40`. Once the cursor wraps, remaining matching link-84 slots are disabled by clearing command mask `+0x40` and setting primary flag `0x80000000`.
+- A populated slot publishes the child script object and its command mask. Ordinary objects use mouse name `+0x430`; natural-mouse objects use their visual's file at visual `+0x28`. If a natural-mouse object has no visual, the original forwards uninitialized local pointer bytes; preserve that representation without a checked uninitialized scalar read.
+- `0x00426700` treats `(QueryRuntimeSceneFlags(identity) & 0x3000) != 0` as resource-counted. Retiring or disabling one decrements the local target count, while constructing one increments it. Primary flag `0x01000000` changes counted teardown from immediate finalization to requested destruction; non-counted resources always use requested destruction.
+- `RuntimePointerRegion` is the full 0x68-byte link-84 overlay: primary resource `+0x5c`, previous owner `+0x60`, and previous primary identity `+0x64`. Rebuild clears only previous owner `+0x60` during region traversal.
+
+## 2026-08-16 - Right-button command slots use a packed scene-slot DWORD
 
 - `0x00423CA0` tests the DWORD at scene-slot `+0x04` against `0x00200000`; with the confirmed layout this bit is byte flag `0x20` at `+0x06`. Clear slots emit the ordinary pointer event, while set slots enter the state-object command-mask path.
-- The lazy mouse-visual call to `ConstructRuntimeResourceObject` explicitly pushes only six stack arguments. That constructor returns with `RET 0x18` but reads one deeper stack DWORD; here it is the handler's saved incoming EDI. Preserve it as a hidden environmental input rather than adding it to the handler's formal prototype.
+- The lazy mouse-visual call to `ConstructRuntimeResourceObject` pushes the constructor's complete six stack arguments. Its final pushed value is the resource flag word; saved EDI is not an additional constructor argument.
 - Right-button mode `0x30000` starts with event flags 3, adds 8 when a region resolves, and adds 4 plus the state-object pointer only when that object differs from the current pointer-state owner, producing exact flags 3, 11, or 15.
 
 ## 2026-08-16 - Auxiliary names are resolved before list admission
@@ -1267,9 +1316,9 @@ do not replace prior entries without correcting a demonstrated error.
 - Returned state views may overlap later ABI structures rather than being standalone allocations. For graphics host `0x0041FA00`, the game-DLL context begins at state `+0x458`; therefore its bpp field at context `+8` is the same storage the application reads at result `+0x460`. Model the shared backing storage explicitly.
 - When a typed Ghidra decompile and assembly disagree on a structure field, use the instruction displacement. Runtime bootstrap 0x0041FEA0 reads scene-node +0x1c three times; the existing structure identifies that as callback_first_position, while the decompiler incorrectly rendered the later +0x278 callback field.
 
-## 2026-08-16 — Saved registers can be hidden callee arguments
+## 2026-08-16 — Count fastcall stack arguments from raw offsets and RET cleanup
 
-- In optimized x86 code, a prologue push may simultaneously preserve a register and supply a deeper argument to a later call. `SelectRuntimeResource` pushes incoming ESI, overwrites ESI with its path, then explicitly pushes only six of `ConstructRuntimeResourceObject`'s seven stack arguments; the saved incoming ESI is therefore the final `loop_animation` argument. Count stack depth from the call site before dismissing a decompiler `unaff_*` value.
+- `ConstructRuntimeResourceObject` has ECX/EDX plus six stack arguments and `RET 0x18`. Saved caller registers beneath those arguments are not constructor inputs. In the animation branch, raw offsets after the four callee pushes map `[ESP+0x268/+0x26c/+0x270]` to formal width, height, and scale-or-loop.
 - Callback signatures installed into binary-owned tables must include ignored register parameters. The script setter is property in ECX, ignored context in EDX, and value on the stack; omitting context changes the ABI even though the implementation never reads it.
 
 ## 2026-08-16 — Reverse tree scans require the previous-sibling field
@@ -1637,6 +1686,24 @@ do not replace prior entries without correcting a demonstrated error.
 - `0x00406A70` extracts parenthesized creation text once before probing the second token and a second time only for the explicit-resource form. Preserve both cursor side effects.
 - `0x00406C00` consumes scope codes to exhaustion. Scope `0x00200000` selects the `0xffffffff` parent sentinel, except an owner already carrying that sentinel rejects the command immediately.
 - `0x00405080` saves a resource node's next pointer before calling the single-node remover. This permits traversal to continue even when the remover retains a node because its active-reference count is nonzero.
+
+# 2026-08-16 - Script object parsing compares complete fixed-width names
+
+- `0x00407FA0` compares object, field, and command names as complete 0x20-byte blocks. Test fixtures must therefore use zero-padded fixed-width storage; MSVC Debug `strcpy_s` may fill unused destination bytes and is not a faithful fixture constructor for these comparisons.
+- The parser first attempts an integer expression, then an image flag, and only then a string token after restoring the cursor. ON/OFF are stored as active-mask changes, while ordinary signed-positive integers both store a value and activate the field.
+- Natural-mouse flag `0x10000` changes finalization: both mouse names resolve to visual-object pointers. Without it, `/INVERT_NOPAL` conditionally toggles image bit `0x04000000` instead.
+
+# 2026-08-16 - Pending tree switching routes identity through ECX
+
+- `0x004210A0` passes null/null as the two stack arguments to tree activation. On success it passes the activated node in ECX to both parser-context reset and `0x004268B0`; on activation failure it passes the original node in ECX to `0x004268B0`.
+- `0x004268B0` uses its incoming identity for resolution and root publication. Each resource constructor call supplies the complete formal argument list from the corresponding record; inherited EDI is not forwarded as a constructor argument.
+- Fixed-name nodes are 0x58-byte runtime records, not only serialized strings: file text occupies `+0x28..+0x47`, followed by resource flags, current resource identity, previous resource identity, and next pointer at `+0x48/+0x4c/+0x50/+0x54`.
+
+# 2026-08-16 - Backend-child attachment retains a destroyed return identity
+
+- `0x00425D50` acquires resource records in main, secondary, fixed order but releases them in secondary, fixed, main order. Missing linked identities are inherited from main resource offsets `+0x68` and `+0x64` before the subordinate acquisitions.
+- Once child creation succeeds, a missing display lock or failed 16x16 scene creation destroys the child without clearing the return register. The caller receives the original child pointer even though its backing child was destroyed.
+- Successful attachment publishes secondary/fixed identities back to main `+0x68/+0x64`, sets main type flag `0x01000000`, and stores the child at `+0x74`. When the main resource cannot be acquired, the secondary identity becomes the display-scene owner and no back-publication occurs.
 # 2026-08-16 - Runtime-tree publication uses parent state as a three-way routing mode
 
 - `0x00406190` does not simply append every node. A normal non-null parent produces no publication; parent `0xffffffff` updates each global tail only when the corresponding local tail is non-null; parent zero publishes each local head through the existing global tail selector or establishes the global head when no selector exists.
@@ -1653,3 +1720,132 @@ do not replace prior entries without correcting a demonstrated error.
 - A selected bit present in the state object's command mask bypasses scene-slot flag `0x20`; otherwise flagged slots are skipped. The scene-slot command name is a confirmed 32-byte string at `RuntimeSceneSlot +0x08`.
 - Slot name `IView` suppresses both pending script flags and emits a pointer event. `Hide` suppresses flag 2, forces flag 4, and emits the same event family. Any ordinary rotation away from the original bit suppresses both initially derived script flags.
 - The apparent `0x004238BE` function was the tail of `0x004238B0`: it depended on inherited ZF, had no callers, and disappeared cleanly when the false function boundary was deleted.
+# 2026-08-16 - Decompiler stack names can shift across a large fastcall frame
+
+- In `0x00424EC0`, the decompiler temporarily labeled formal stack values as an extra `in_stack_0000001c`. Raw prologue arithmetic and `RET 0x18` disprove an extra argument: width, height, scale-or-loop, and flags are all formal inputs.
+- For animation resources, width and height select X/Y scaling (or receive half-size defaults under flag 2). Nonzero scale-or-loop adds flag `0x400` and sets frame-limit fields. Prefer raw stack offsets and call-site pushes over decompiler variable names when they conflict.
+
+# 2026-08-16 - Private window messages reuse LPARAM with command-specific layouts
+
+- `0x0041D560` message `0x7FFD` uses WPARAM as a private command selector. Boolean state-query commands interpret LPARAM as two consecutive 0x20-byte names, whereas lifecycle commands such as credits completion and current-state activation interpret the same LPARAM as the separate activity/flags record.
+- A value left in EDX at a fastcall call site is not evidence of a second argument. `BeginScriptTextDocument` (`0x0040D0F0`) and `EndScriptTextDocument` (`0x0040D140`) overwrite EDX with embedded `[CFG]`/`[END]` pointers before their first string operation; raw callee assembly proves both are one-argument ECX-only functions despite the earlier decompiler rendering.
+- Model these as distinct structures and cast only after selecting the command. A single decompiler-inferred LPARAM type can make valid `+0x20` field-name accesses appear to overlap unrelated lifecycle fields.
+
+# 2026-08-16 - Preserve reversed-looking timeout branches
+
+- `0x004263A0` checks each named-node status and exits immediately when the current tick is below `start + 5000`; it sleeps and retries only when the current tick is already at or beyond that threshold. Raw `CMP`/`JC` flow and focused boundary tests confirm this counterintuitive direction.
+- Do not normalize a suspicious timeout into conventional “wait until deadline” behavior. Preserve the unsigned branch exactly and test values on both sides of the threshold.
+
+# 2026-08-16 - Runtime text input applies case rules only to signed-positive bytes above `@`
+
+- `0x00420E10` uses signed `JL` after comparing the dequeued byte with `0x40`. Consequently bytes `0x80..0xff` bypass ASCII case conversion even when text modes `0x10` or `0x20` are active.
+- Its caret checks are strict unsigned comparisons: equality at `tick + 250` selects the pre-threshold branch, and equality at `tick + 500` does not reset the base tick. Preserve both boundaries in tests.
+
+# 2026-08-16 - Re-type contiguous globals before accepting subsystem boundaries
+
+- The addresses `0x0047F59C..0x0047F60C` initially looked like an independent input-session record/object subsystem, but they are `RuntimeCommandLoopState +0x63c..+0x6ac`. Once those state fields were defined, `0x00420790` and `0x004208E0` re-decompiled into text-scene initialization and text-buffer copying.
+- When several adjacent globals fall inside a subsequently confirmed large state object, re-decompile every already-recovered function that references them. Passing tests around an injected abstraction do not prove that the abstraction corresponds to the binary.
+# 2026-08-16 - Audit consumed EAX even when a recovered helper looks procedural
+
+- `0x0040C4B0` was initially modeled as `void`, but its caller at `0x00421530` tests EAX immediately. Raw assembly proves deliberate status propagation: zero for null root/link and a failed criteria match, one for an already-active link and a successful new activation.
+- A callee whose primary side effect is mutation may still have a meaningful implicit return. When any caller consumes EAX, audit every exit path and preserve that return in both source and Ghidra before reconstructing the caller.
+# 2026-08-16 - Compare the Ghidra address set against source annotations
+
+- An exact comparison between Ghidra function entry addresses and `// GAG.EXE: 0xXXXXXXXX` annotations quickly separates genuine source gaps from bundled compression/CRT routines and analyzer fragments. After the current audit, `0x00421530` is the only recognized non-library game entry missing from `src/`.
+- `0x00429EC0` was a false split of `0x00429EB0`: no callers or references, inherited flags/registers, the predecessor's stack frame, and one shared epilogue. Deleting both boundaries and recreating the predecessor caused Ghidra to recover the complete 761-byte body; restore its prototype afterward because function recreation clears it.
+# 2026-08-16 - Preserve opcode retry as an explicit disposition
+
+- `0x00421530` has shared labels that distinguish an opcode completing normally from pausing on the same opcode. Backend-child opcode `0x100`, for example, pauses after successful creation and while child flag `0x200` remains set, but completes after parse/create failure or when the wait flag clears.
+- A factored dispatcher must return an explicit pause disposition so the outer executor can restore the pre-opcode cursor. Treating every recognized opcode as ordinary completion would skip asynchronous retry behavior.
+# 2026-08-16 - Script timed waits complete at deadline equality
+
+- Opcode `0x000F0000` stores `script_clock + duration`, sets link owner flag `0x40000000`, and pauses immediately. Subsequent visits pause only while the unsigned script clock is strictly below the deadline; equality clears the flag and completes.
+- Opcode `0x00000200` deliberately parses the same second 0x20-byte name buffer twice before initializing text input. Preserve both parser advances even though the first value is overwritten.
+# 2026-08-16 - Resource-wait opcode polarity is intentionally asymmetric
+
+- For `0xA0000000`, a missing primary resource pauses only when a runtime tree with that name exists. For `0xF0000000`, a missing primary resource pauses only when no such tree exists.
+- GAME `0x0000C000` is a two-pass opcode: successful DLL initialization pauses without advancing; the later pass under state flag `0x20` consumes the command again, applies the captured type/data to a named field, and clears the full result block.
+# 2026-08-16 - Conditional opcode families share one cursor-mutating scanner
+
+- `SWVALUE` (`0x4000`), `SWRAND` (`0x40000`), and `SWLOCK` (`0x50000`) enter the same scanner. SWVALUE first retains two fixed-width names; the other two enter with the existing stack buffers and rely on nested RAND/COND records.
+- RAND uses an inclusive signed comparison `minimum <= value <= maximum`. Failed VALUE/RAND/COND branches call the link-7C boundary scanner for `0x60000`; `CSEND` (`0x6000`) or EOF completes the conditional block with the parser left at its resulting cursor.
+# 2026-08-16 - GOTO commits a new cursor; waits restore the old cursor
+
+- Link-7C `GOTO` (`0xB0000`) seeks from the embedded parser start and then publishes the sought cursor as the saved cursor. It cannot share the ordinary completion or pause disposition: pause restores the cursor from before the opcode, while GOTO must commit its mutation.
+- Tree-load opcodes `0x7000`, `0x8000`, and `0x60000000` share parsing but select parent `0xffffffff`, the current resolved tree, and the link parser owner respectively. A missing second token copies the first token to the tree name and replaces the resource name with the embedded parser resource's fixed name.
+
+# 2026-08-16 - Movement commands keep retry state on the moved record
+
+- MOVZ `0xE0000000` stores its deadline and retry bits on link-84 at `+0x3c/+0x28`; MOVI `0x90000` stores them on the primary resource at `+0x50/+0x28`. Bit one means the timed move has started and bit two blocks further path steps; termination clears both bits.
+- Absolute MOVZ preserves the existing rectangle extent while replacing its origin. Timed MOVZ passes the resolved tree identity and link identity, whereas the absolute form passes the resolved tree/link records as observed in the original call sites.
+- COPY `0x9000` resolves a non-primary source scene using the destination-name buffer, not the newly parsed source-name buffer. Preserve this apparent bug: it also controls the `BACKGND` source fallback.
+
+# 2026-08-16 - The script executor has five distinct opcode exit dispositions
+
+- `0x00421530` advances immediately after ordinary completion, restores the pre-opcode cursor for asynchronous retry, preserves the sought cursor for GOTO, resets to the parser start and clears link flag `0x80000000` when a link finishes, and jumps to the outer clock-update path after a tree/session restart.
+- The outer scheduler services children, messages, text, pair messages, and the nested command loop before testing active flag `0x00100000`. Inside each link it adds external-command processing before pair/command processing and stops scanning links when any of those three reports work.
+- Raw assembly initializes the prior-tick slot at `0x0042154F`, but the SWRAND input slot is not written until `0x0042319B`. A Debug reconstruction must not silently trigger MSVC RTC failure when passing the first value; any guard is a labeled portability shim because the original first value is indeterminate.
+
+# 2026-08-16 - Tree-switch opcodes share parsing but not retirement behavior
+
+- Opcodes `0x40000000..1` and `0x50000000..1` share target parsing and activation. A nonzero low opcode byte overrides parsed flags; any nonzero parsed flag also adds `0x10000000`. Only the `0x50000000` family deactivates the old tree when activation resolves a different tree.
+- Exit opcodes `0xB0000000` and `0x70000000` reverse the resource/tree output buffers passed to the target parser. Root exits can finish the current link, publish a prior root directly, or force rebuild depending on the prior root's `0x200` flag and the opcode family; nested exits may continue the same script only when the parser owner's tree identity can be found again.
+
+# 2026-08-16 - CDF compressed writers use the gzip wrapper's EAX result
+
+- Raw callers at `0x00429070` and `0x00429B50` immediately retain EAX after calling `0x00418E90`; the gzip wrapper therefore returns the compressed byte count despite its former decompiler-inferred `void` prototype. Audit consumed return registers before accepting library-boundary prototypes.
+- The compressed CDF format starts with `ceil(uncompressed_size / 0x8000) + 1` cumulative DWORD offsets. Each source step is exactly 0x8000 even for the final short block. The index writer adds compressed sizes to `CdfArchive +0x118`; the entry writer does not and uniquely passes flag 1 to both `HeapFree` calls.
+
+# 2026-08-16 - Root-head tests must guard adjacent fields
+
+- For tightly packed runtime-root list heads, testing only the resulting list is insufficient: a wrong neighboring offset can still produce plausible behavior while corrupting another subsystem. Seed the immediately adjacent head with a sentinel and verify it survives every head replacement or clear.
+- The confirmed head sequence includes generic resources `+0xF74`, runtime tree `+0xF78`, objects `+0xF7C`, visuals `+0xF80`, named nodes `+0xF84`, fixed names `+0xF88`, and plan nodes `+0xF8C`.
+
+# 2026-08-16 - Tree link families share routing shape but not record stride
+
+- Runtime-tree publication and removal route seven list families through parallel head/tail slots, but their next pointers differ: scene links use `+0x40`, secondary-resource links use `+0x48`, while primary, link-84, link-8C, link-7C, and container records use `+0x24`.
+- A null parent routes through the currently selected global tail without repairing that tail. Parent `0xffffffff` searches the global list and repairs the tail when the removed inclusive range contained it. Ordinary parents propagate head removal through ancestors or splice an interior range.
+
+# 2026-08-16 - Owned runtime-tree ranges are inclusive, not null-terminated ownership
+
+- `0x00405E50` saves each record's next pointer before releasing it, then stops when the released record equals the node's recorded tail. A non-null `tail->next` belongs to a later range and must not be released.
+- Tests for these ranges should use at least head, tail, and successor records. Singleton tests cannot distinguish inclusive tail ownership from accidental traversal to null.
+
+# 2026-08-16 - Parser-context release leaves a deliberate dangling owner head
+
+- `0x004052F0` walks from owner `+0x6C` but never clears that field. This is safe only because the owning tree node is being destroyed immediately afterward; do not modernize it into a head-clearing loop.
+- Resource removal occurs before context free whenever the post-decrement active-reference count is zero, including when it was already zero on entry. Preserve and test that ordering.
+
+# 2026-08-16 - Section misses and parser-allocation failures have different resource ownership
+
+- `0x00405380` does not release the already-loaded resource when the requested section is absent. It releases the original resource identity only after a valid section was found but parser-context creation failed.
+- `0x00405D00` restores the parser cursor on every unsuccessful jump, including a matched target with missing names or failed tree creation; only successful creation commits the caller-supplied cursor.
+
+# 2026-08-16 - Large parser dispatchers can be accepted in evidence-bounded tranches
+
+- A production-default injected call table can make a large dispatcher observable while preserving its original callee arguments, return behavior, and ordering. Keep the seam limited to direct callees; do not abstract control flow or state mutation owned by the dispatcher itself.
+- Record exactly which opcode/property families the harness covers in both the recovery ledger and Ghidra. Untested special families remain unresolved even when they share the same top-level function address.
+
+# 2026-08-16 - Decompiled switch breaks may conceal a shared continue label
+
+- In `0x004056C0`, several decompiler cases appeared to terminate parsing, but raw branch targets converged on the shared cursor-refresh/dispatch label. Verify every apparent `break` against its machine-code destination before translating a large switch.
+- Callback operation codes carried in registers must be read from raw assembly at each shared-call predecessor. Structurally similar branches in this dispatcher deliberately use different codes (`4/1/2`, `0x50`, and `0x60`).
+
+# 2026-08-16 - Object-field parsing reuses the prospective insertion index
+
+- `0x00407FA0` searches existing field names and uses `field_count` itself as the prospective new index. It mutates the value/mask at that index first, then appends the 0x20-byte name and increments the count only when the search ended at the old count.
+- String fallback saves the cursor before probing an image flag and restores it only when that probe returns zero. A failed subsequent string token skips insertion but continues the object parser; tests must observe both cursor restoration and the unchanged field count.
+
+# 2026-08-16 - Typed-value fallback preserves asymmetric cursor and sentinel behavior
+
+- `0x00408AA0` restores the saved parser cursor before probing the image parser and again before probing the final string parser, but it does not restore the cursor after final string failure.
+- The image parser is tested only for zero. Consequently `0xffffffff`, despite being a common failure sentinel elsewhere, is accepted here as a type-1 image value; reproduce the caller's branch rather than normalizing callee result conventions.
+
+# 2026-08-16 - Parser callee results may double as outer-loop control
+
+- In `0x00408DD0`, the scope code normally controls repetition, but the image-flag result and second POS integer overwrite the same register tested at the loop tail. A `0xffffffff` result can therefore mutate palette or Y-position state and then terminate parsing.
+- When translating decompiled parser loops, track the physical loop-test register through every branch. A tidy source loop that always retests the original scope token can silently change valid sentinel behavior.
+
+## Function-accounting baseline
+
+- Derive reconstruction statistics from the current Ghidra internal-function address set intersected with unique `// GAG.EXE: 0xXXXXXXXX` annotations. Keep import thunks separate, and positively classify bundled libraries and CRT/compiler runtime bodies before calculating the game-function denominator. “Represented in source” is address coverage; it must not be presented as completed fidelity re-verification.

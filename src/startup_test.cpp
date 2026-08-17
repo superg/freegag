@@ -65,7 +65,6 @@ DWORD runtime_bootstrap_thread_id;
 int resource_selection_event_count;
 int resource_selection_events[5];
 char *resource_selection_path;
-std::int32_t resource_selection_loop;
 int script_property_event_count;
 int script_property_events[8];
 void *script_property_value;
@@ -237,6 +236,21 @@ int cdf_finalize_events[10];
 int cdf_finalize_event_count;
 int cdf_finalize_write_index;
 void *cdf_finalize_archive;
+DWORD cdf_compressed_position;
+DWORD cdf_compressed_seek_offsets[8];
+DWORD cdf_compressed_seek_methods[8];
+int cdf_compressed_seek_count;
+DWORD cdf_compressed_write_sizes[8];
+std::uint32_t cdf_compressed_tables[8][4];
+int cdf_compressed_write_count;
+int cdf_compressed_short_write;
+const void *cdf_compressed_sources[4];
+std::uint32_t cdf_compressed_source_sizes[4];
+int cdf_compress_count;
+DWORD cdf_compressed_free_flags[2];
+int cdf_compressed_free_count;
+int cdf_compressed_allocation_count;
+int cdf_compressed_failed_allocation;
 int cdf_entry_write_events[4];
 int cdf_entry_write_event_count;
 std::uint32_t cdf_entry_write_result;
@@ -310,6 +324,7 @@ int layout_send_count;
 int runtime_state_transition_count;
 std::uint32_t runtime_state_transition_value;
 std::uint32_t state_activation_status;
+void *state_activation_query_identity;
 std::uint32_t state_activation_script_state;
 int state_activation_outside_count;
 int save_state_prepare_count;
@@ -354,7 +369,24 @@ int runtime_comment_deactivate_count;
 int runtime_comment_finalize_count;
 int runtime_comment_rebuild_count;
 void *runtime_comment_expected_root;
+int runtime_session_reset_events[64];
+int runtime_session_reset_event_count;
+gag::RuntimeTreeNode *runtime_session_reset_trees[3];
+int runtime_session_reset_tree_index;
+void *runtime_session_reset_requested[4];
+int runtime_session_reset_requested_count;
+gag::RuntimeNamedNode runtime_session_reset_media_node;
+gag::RuntimeNamedNode runtime_session_reset_memory_node;
+DWORD runtime_session_reset_times[8];
+int runtime_session_reset_time_index;
+int runtime_session_reset_sleep_count;
+gag::CdfArchive *runtime_session_reset_archive;
+gag::AsyncFileHost *runtime_session_reset_async_host;
+int runtime_session_reset_archive_close_count;
+int runtime_session_reset_async_destroy_count;
+std::int32_t runtime_session_reset_surface[5];
 gag::RuntimeTreeNode *runtime_tree_switch_activated;
+void *runtime_tree_switch_destroyed;
 int runtime_tree_switch_event_count;
 int runtime_tree_switch_events[6];
 const void *runtime_tree_switch_first;
@@ -370,6 +402,8 @@ void *runtime_tree_activation_parent_selector;
 int runtime_generic_load_dispatch_count;
 std::uint32_t runtime_generic_load_operation;
 char runtime_generic_load_input_name[0x100];
+int runtime_serialization_operation_count;
+std::uint32_t runtime_serialization_operations[6];
 void *runtime_generic_load_output_data;
 void *runtime_generic_load_output_metadata;
 int runtime_generic_load_allocate_count;
@@ -415,6 +449,9 @@ int runtime_tree_parser_release_free_count;
 int runtime_tree_parser_release_remove_count;
 void *runtime_tree_parser_release_removed[3];
 void *runtime_tree_parser_release_freed[3];
+int runtime_tree_parser_release_events[6];
+void *runtime_tree_parser_release_event_values[6];
+int runtime_tree_parser_release_event_count;
 gag::ScriptParserState *runtime_tree_reset_parsers[4];
 std::uint32_t runtime_tree_reset_properties[4][4];
 int runtime_tree_reset_property_counts[4];
@@ -453,18 +490,24 @@ int runtime_byte_enter_count;
 int runtime_byte_leave_count;
 int input_session_events[16];
 int input_session_event_count;
-gag::RuntimeInputContext input_session_context;
-bool input_session_has_context;
-int input_session_prepare_result;
-bool input_session_has_descriptor;
-int input_session_activate_result;
-std::uint8_t input_session_descriptor[0x280];
-void *input_session_local_state;
+gag::RuntimeLockRecord input_session_record;
+gag::DisplaySceneNode input_session_scene;
+bool input_session_has_record;
+bool input_session_initialize_result;
+bool input_session_has_scene;
+std::uint32_t input_session_begin_result;
 int command_loop_events[32];
 int command_loop_event_count;
 int command_loop_process_count;
 int command_loop_scenario;
 gag::RuntimeCommandLoopState *command_loop_state;
+int script_executor_event_count;
+int script_executor_events[64];
+int script_executor_mode;
+int script_executor_sleep_count;
+gag::RuntimeCommandLoopState *script_executor_state;
+gag::RuntimeTreeNode *script_executor_tree;
+gag::RuntimeScriptOpcodeDisposition script_executor_disposition;
 HWND command_loop_windows[4];
 UINT command_loop_messages[4];
 WPARAM command_loop_wparams[4];
@@ -996,8 +1039,9 @@ std::uint32_t __fastcall deactivate_test_runtime_comment_node(void *identity, vo
     return 99;
 }
 
-void finalize_test_destroyed_runtime_nodes()
+void __fastcall finalize_test_destroyed_runtime_nodes(void *identity)
 {
+    require(identity == runtime_comment_expected_root);
     ++runtime_comment_finalize_count;
 }
 
@@ -1006,19 +1050,140 @@ void rebuild_test_runtime_comment_plans()
     ++runtime_comment_rebuild_count;
 }
 
-void __fastcall destroy_test_pending_tree_resources(void *)
+std::uint32_t reset_test_runtime_game_dll()
 {
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 1;
+    return 0;
+}
+
+gag::RuntimeTreeNode *get_test_runtime_session_tree_root()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 2;
+    return runtime_session_reset_trees[runtime_session_reset_tree_index];
+}
+
+void __fastcall destroy_test_runtime_session_tree_resources(void *identity)
+{
+    require(identity == runtime_session_reset_trees[runtime_session_reset_tree_index]);
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 3;
+}
+
+std::uint32_t __fastcall deactivate_test_runtime_session_tree(void *identity, void *replacement)
+{
+    require(identity == runtime_session_reset_trees[runtime_session_reset_tree_index] && replacement == nullptr);
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 4;
+    ++runtime_session_reset_tree_index;
+    return 0;
+}
+
+void reset_test_runtime_display_state()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 5;
+}
+
+void __fastcall request_test_runtime_session_resource_destruction(void *identity)
+{
+    runtime_session_reset_requested[runtime_session_reset_requested_count++] = identity;
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 6;
+}
+
+void destroy_test_runtime_fixed_nodes()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 7;
+}
+
+void purge_test_runtime_named_nodes()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 8;
+}
+
+void destroy_test_runtime_object_states()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 9;
+}
+
+void destroy_test_runtime_visual_objects()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 10;
+}
+
+void clear_test_runtime_command_definitions()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 11;
+}
+
+void remove_test_runtime_generic_resources()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 12;
+}
+
+std::uint32_t __fastcall close_test_runtime_session_archive(gag::CdfArchive *archive)
+{
+    runtime_session_reset_archive = archive;
+    ++runtime_session_reset_archive_close_count;
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 13;
+    return 0;
+}
+
+std::uint32_t __fastcall destroy_test_runtime_session_async_host(gag::AsyncFileHost *host)
+{
+    runtime_session_reset_async_host = host;
+    ++runtime_session_reset_async_destroy_count;
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 14;
+    return 0;
+}
+
+void __fastcall operate_test_runtime_session_surface(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, std::int32_t mode)
+{
+    runtime_session_reset_surface[0] = x;
+    runtime_session_reset_surface[1] = y;
+    runtime_session_reset_surface[2] = width;
+    runtime_session_reset_surface[3] = height;
+    runtime_session_reset_surface[4] = mode;
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 15;
+}
+
+gag::RuntimeNamedNode *__fastcall get_test_runtime_session_named_node(const char *name)
+{
+    if(std::strcmp(name, "MMediaObjectsList") == 0)
+    {
+        runtime_session_reset_events[runtime_session_reset_event_count++] = 16;
+        return &runtime_session_reset_media_node;
+    }
+    require(std::strcmp(name, "OpenMemoryFilesList") == 0);
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 17;
+    return &runtime_session_reset_memory_node;
+}
+
+DWORD WINAPI get_test_runtime_session_time()
+{
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 18;
+    return runtime_session_reset_times[runtime_session_reset_time_index++];
+}
+
+void WINAPI sleep_test_runtime_session(DWORD milliseconds)
+{
+    require(milliseconds == 10);
+    ++runtime_session_reset_sleep_count;
+    runtime_session_reset_media_node.status = 0;
+    runtime_session_reset_memory_node.status = 0;
+    runtime_session_reset_events[runtime_session_reset_event_count++] = 19;
+}
+
+void __fastcall destroy_test_pending_tree_resources(void *identity)
+{
+    runtime_tree_switch_destroyed = identity;
     runtime_tree_switch_events[runtime_tree_switch_event_count++] = 1;
 }
 
 gag::RuntimeTreeNode *__fastcall activate_test_pending_tree(const char *first, const char *second, void *third, void *fourth)
 {
-    require(first != nullptr && second != nullptr && first != second && third == fourth);
+    require(first != nullptr && second != nullptr && first != second && third == nullptr && fourth == nullptr);
     runtime_tree_switch_first = first;
     runtime_tree_switch_second = second;
     runtime_tree_switch_events[runtime_tree_switch_event_count++] = 2;
     auto &state = const_cast<gag::RuntimeCommandLoopState &>(gag::get_runtime_external_command_state_for_testing());
-    state.unknown_90c = 0x1200;
+    state.accumulated_tree_flags = 0x1200;
     return runtime_tree_switch_activated;
 }
 
@@ -1074,6 +1239,39 @@ void __fastcall dispatch_test_runtime_generic_load(std::uint32_t operation, void
     std::strcpy(runtime_generic_load_input_name, static_cast<const char *>(*resource_data));
     *resource_data = runtime_generic_load_output_data;
     *resource_metadata = runtime_generic_load_output_metadata;
+}
+
+void __fastcall dispatch_test_runtime_serialization(std::uint32_t operation, void **resource_data, void **resource_metadata)
+{
+    require(resource_data == nullptr);
+    runtime_serialization_operations[runtime_serialization_operation_count++] = operation;
+    if(operation == 5)
+    {
+        std::strcpy(reinterpret_cast<char *>(resource_metadata), "SOURCE.CFG");
+        return;
+    }
+    std::uint32_t value = 0;
+    switch(operation)
+    {
+    case 8:
+        value = 11;
+        break;
+    case 12:
+        value = 22;
+        break;
+    case 4:
+        value = 33;
+        break;
+    case 1:
+        value = 44;
+        break;
+    case 2:
+        value = 55;
+        break;
+    default:
+        require(false);
+    }
+    *reinterpret_cast<std::uint32_t *>(resource_metadata) = value;
 }
 
 LPVOID WINAPI allocate_test_runtime_generic_load(HANDLE heap, DWORD flags, SIZE_T size)
@@ -1221,12 +1419,16 @@ gag::RuntimeTreeNode *__fastcall create_test_runtime_tree_jump_node(gag::Runtime
 BOOL WINAPI free_test_runtime_tree_parser_context(HANDLE, DWORD flags, LPVOID memory)
 {
     require(flags == 0);
+    runtime_tree_parser_release_events[runtime_tree_parser_release_event_count] = 2;
+    runtime_tree_parser_release_event_values[runtime_tree_parser_release_event_count++] = memory;
     runtime_tree_parser_release_freed[runtime_tree_parser_release_free_count++] = memory;
     return TRUE;
 }
 
 void __fastcall remove_test_runtime_tree_parser_resource(void *identity)
 {
+    runtime_tree_parser_release_events[runtime_tree_parser_release_event_count] = 1;
+    runtime_tree_parser_release_event_values[runtime_tree_parser_release_event_count++] = identity;
     runtime_tree_parser_release_removed[runtime_tree_parser_release_remove_count++] = identity;
 }
 
@@ -1378,13 +1580,15 @@ void __fastcall update_test_runtime_tree_destroy_links(gag::RuntimeTreeNode *nod
     record_runtime_tree_destroy_event(115, replacement);
 }
 
-void finalize_test_current_tree()
+void __fastcall finalize_test_current_tree(void *identity)
 {
+    require(identity == runtime_tree_switch_activated);
     runtime_tree_switch_events[runtime_tree_switch_event_count++] = 3;
 }
 
-void rebuild_test_after_tree_switch()
+void __fastcall rebuild_test_after_tree_switch(void *identity)
 {
+    require(identity == (runtime_tree_switch_activated == nullptr ? runtime_tree_switch_destroyed : runtime_tree_switch_activated));
     runtime_tree_switch_events[runtime_tree_switch_event_count++] = 4;
 }
 
@@ -1442,81 +1646,88 @@ void leave_runtime_byte_lock()
     ++runtime_byte_leave_count;
 }
 
-DWORD WINAPI get_input_session_time()
+void reset_input_session_bytes()
 {
     input_session_events[input_session_event_count++] = 1;
+}
+
+DWORD WINAPI get_input_session_time()
+{
+    input_session_events[input_session_event_count++] = 2;
     return 1234;
 }
 
-gag::RuntimeInputContext *__fastcall find_input_session_context(void *selector)
+gag::RuntimeLockRecord *__fastcall acquire_input_session_record(void *selector)
 {
     require(selector == reinterpret_cast<void *>(3));
-    input_session_events[input_session_event_count++] = 2;
-    return input_session_has_context ? &input_session_context : nullptr;
-}
-
-int __fastcall prepare_input_session(gag::RuntimeInputSessionRecord *record, void *first, void *second, void *context_value, void *fourth, void *fifth, void *session_state)
-{
-    require(reinterpret_cast<std::uint8_t *>(record)[0] == 0x2d && reinterpret_cast<std::uint8_t *>(record)[1] == 0);
-    require(first == reinterpret_cast<void *>(1) && second == reinterpret_cast<void *>(2) && fourth == reinterpret_cast<void *>(4) && fifth == reinterpret_cast<void *>(5));
-    require(context_value == (input_session_has_context ? input_session_context.context_value : nullptr) && session_state != nullptr);
     input_session_events[input_session_event_count++] = 3;
-    return input_session_prepare_result;
+    return input_session_has_record ? &input_session_record : nullptr;
 }
 
-void *__fastcall allocate_input_session_resource(std::uint32_t mask)
+std::uint32_t __fastcall initialize_input_session_text(const char *text, std::uint32_t first, std::uint32_t second, void *font_identity, std::uint32_t fourth, std::uint32_t fifth,
+    gag::RuntimeStandaloneTextState *state)
 {
-    require(mask == 0x80000);
+    require(text[0] == '-' && text[1] == '\0' && first == 1 && second == 2 && fourth == 4 && fifth == 5);
+    require(font_identity == (input_session_has_record ? input_session_record.identity_context : nullptr));
     input_session_events[input_session_event_count++] = 4;
-    return reinterpret_cast<void *>(20);
+    state->bounds[2] = 31;
+    state->bounds[3] = 17;
+    return input_session_initialize_result ? 1 : 0;
 }
 
-void *__fastcall acquire_input_session_resource(void *context)
+std::uint32_t __fastcall find_input_session_scene_index(std::uint32_t flags)
 {
-    require(context == ((input_session_context.flags & 0x04000000) != 0 ? reinterpret_cast<void *>(11) : input_session_context.resource_context));
+    require(flags == 0x80000);
     input_session_events[input_session_event_count++] = 5;
-    return input_session_has_descriptor ? input_session_descriptor : nullptr;
+    return 7;
 }
 
-void *__fastcall create_input_session_object(void *resource, void *first, void *second, void *value_1, void *value_2, std::uint32_t flags, void *graphics_state, void *local_state, void *descriptor)
+gag::DisplaySceneNode *__fastcall lock_input_session_scene(std::int32_t identifier)
 {
-    require(resource == reinterpret_cast<void *>(20) && first == reinterpret_cast<void *>(1) && second == reinterpret_cast<void *>(2));
-    require(value_1 == reinterpret_cast<void *>(12) && value_2 == reinterpret_cast<void *>(13) && flags == 0x20000 && graphics_state == reinterpret_cast<void *>(14));
-    require(local_state != nullptr && descriptor == input_session_descriptor + 0x27c);
-    input_session_local_state = local_state;
+    require(identifier == ((input_session_record.flags & 0x04000000) != 0 ? 11 : input_session_record.scene_identifier));
     input_session_events[input_session_event_count++] = 6;
-    return reinterpret_cast<void *>(21);
+    return input_session_has_scene ? &input_session_scene : nullptr;
 }
 
-int __fastcall activate_input_session_object(void *object)
+gag::DisplaySceneNode *__fastcall acquire_input_session_scene(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+    gag::DisplaySceneDescriptor *, const gag::DisplayPixelFormatDescriptor *format)
 {
-    require(object == reinterpret_cast<void *>(21));
+    require(index == 7 && x == 1 && y == 2 && width == 31 && height == 17 && flags == 0x20000);
+    require(owner == static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(gag::get_runtime_command_loop_state_for_testing())));
+    require(format == reinterpret_cast<const gag::DisplayPixelFormatDescriptor *>(&input_session_scene.rectangle_callback_state));
     input_session_events[input_session_event_count++] = 7;
-    return input_session_activate_result;
+    return reinterpret_cast<gag::DisplaySceneNode *>(21);
 }
 
-void __fastcall cleanup_input_session_state(void *session_state, void *local_state)
+std::uint32_t __fastcall begin_input_session_update(std::int32_t identifier)
 {
-    require(session_state != nullptr && local_state == input_session_local_state);
+    require(identifier == 21);
     input_session_events[input_session_event_count++] = 8;
+    return input_session_begin_result;
 }
 
-void __fastcall configure_input_session_object(void *object, void *local_state, void *configuration)
+void __fastcall draw_input_session_text(gag::RuntimeStandaloneTextState *, gag::DisplaySceneDescriptor *)
 {
-    require(object == reinterpret_cast<void *>(21) && local_state == input_session_local_state && configuration == reinterpret_cast<void *>(15));
     input_session_events[input_session_event_count++] = 9;
 }
 
-void __fastcall release_input_session_resource(void *context)
+std::uint32_t __fastcall end_input_session_update(std::int32_t identifier, const gag::DisplayRectangleTransform *, const gag::DisplayRectangle *rectangle)
 {
-    require(context == ((input_session_context.flags & 0x04000000) != 0 ? reinterpret_cast<void *>(11) : input_session_context.resource_context));
+    require(identifier == 21 && rectangle->right == 31 && rectangle->bottom == 17);
     input_session_events[input_session_event_count++] = 10;
+    return 0;
 }
 
-void __fastcall release_input_session_context(gag::RuntimeInputContext *context)
+void __fastcall unlock_input_session_scene(std::int32_t identifier)
 {
-    require(context == &input_session_context);
+    require(identifier == ((input_session_record.flags & 0x04000000) != 0 ? 11 : input_session_record.scene_identifier));
     input_session_events[input_session_event_count++] = 11;
+}
+
+void __fastcall release_input_session_record(gag::RuntimeLockRecord *record)
+{
+    require(record == &input_session_record);
+    input_session_events[input_session_event_count++] = 12;
 }
 
 void command_loop_begin_first()
@@ -1595,6 +1806,134 @@ void command_loop_cancel_third()
 void command_loop_complete_first()
 {
     command_loop_events[command_loop_event_count++] = 18;
+}
+
+DWORD WINAPI set_batch_test_script_executor(DWORD limit)
+{
+    require(limit == 1);
+    script_executor_events[script_executor_event_count++] = 1;
+    return 0;
+}
+
+DWORD WINAPI get_tick_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 2;
+    return 100;
+}
+
+DWORD WINAPI get_time_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 8;
+    return script_executor_sleep_count == 0 ? 110 : 120;
+}
+
+void WINAPI sleep_test_script_executor(DWORD milliseconds)
+{
+    require(milliseconds == 10);
+    script_executor_events[script_executor_event_count++] = 9;
+    ++script_executor_sleep_count;
+    if(script_executor_mode == 1 && script_executor_sleep_count == 1)
+    {
+        script_executor_state->flags |= 0x100000;
+    }
+    else
+    {
+        script_executor_state->flags |= 1;
+    }
+}
+
+void __fastcall process_children_test_script_executor(std::uint32_t maximum_end_position)
+{
+    require(maximum_end_position == script_executor_state->script_clock);
+    script_executor_events[script_executor_event_count++] = 3;
+}
+
+void __fastcall process_message_test_script_executor(gag::RuntimeCommandLoopState *state_value)
+{
+    require(state_value == script_executor_state);
+    script_executor_events[script_executor_event_count++] = 4;
+}
+
+void __fastcall process_text_test_script_executor(gag::RuntimeCommandLoopState *state_value)
+{
+    require(state_value == script_executor_state);
+    script_executor_events[script_executor_event_count++] = 5;
+}
+
+std::uint32_t process_pair_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 6;
+    return 0;
+}
+
+int __fastcall run_loop_test_script_executor(gag::RuntimeCommandLoopState *state_value)
+{
+    require(state_value == script_executor_state);
+    script_executor_events[script_executor_event_count++] = 7;
+    return 0;
+}
+
+gag::RuntimeTreeNode *__fastcall resolve_tree_test_script_executor(void *identity)
+{
+    require(identity == script_executor_state->runtime_tree_identity);
+    script_executor_events[script_executor_event_count++] = 10;
+    return script_executor_mode >= 2 ? script_executor_tree : nullptr;
+}
+
+bool synchronize_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 11;
+    return false;
+}
+
+bool process_switch_test_script_executor(gag::RuntimeTreeNode *tree)
+{
+    require(tree == script_executor_tree);
+    script_executor_events[script_executor_event_count++] = 12;
+    return script_executor_mode == 3;
+}
+
+void acknowledge_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 13;
+}
+
+std::uint32_t run_external_test_script_executor()
+{
+    script_executor_events[script_executor_event_count++] = 14;
+    return 0;
+}
+
+std::uint32_t __fastcall activate_link_test_script_executor(gag::RuntimeTreeLink7C *)
+{
+    script_executor_events[script_executor_event_count++] = 15;
+    return 1;
+}
+
+std::uint32_t __fastcall parse_opcode_test_script_executor(gag::ScriptParserState *parser)
+{
+    script_executor_events[script_executor_event_count++] = 16;
+    parser->cursor += 4;
+    return 0x12345678;
+}
+
+gag::RuntimeScriptOpcodeDisposition dispatch_test_script_executor(gag::RuntimeCommandLoopState *state_value, gag::RuntimeTreeNode *tree, gag::RuntimeTreeLink7C *link, std::uint32_t opcode,
+    std::int32_t, std::uint32_t saved_cursor)
+{
+    require(state_value == script_executor_state && tree == script_executor_tree && opcode == 0x12345678 && saved_cursor + 4 == link->parser.cursor);
+    script_executor_events[script_executor_event_count++] = 17;
+    if(script_executor_disposition == gag::RuntimeScriptOpcodeDisposition::commit_cursor)
+    {
+        link->parser.cursor += 7;
+    }
+    return script_executor_disposition;
+}
+
+std::int32_t __fastcall select_random_test_script_executor(std::int32_t minimum, std::int32_t maximum)
+{
+    require(minimum == -10000 && maximum == 10000);
+    script_executor_events[script_executor_event_count++] = 18;
+    return 77;
 }
 
 LRESULT WINAPI send_external_command(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -2419,10 +2758,10 @@ void __fastcall set_root_test_graphics_host(gag::ScriptRuntimeRoot *root)
     graphics_host_events[graphics_host_event_count++] = 14;
 }
 
-void *__fastcall get_node_test_graphics_host(const char *name)
+gag::RuntimeNamedNode *__fastcall get_node_test_graphics_host(const char *name)
 {
     graphics_host_events[graphics_host_event_count++] = std::strcmp(name, "OpenMemoryFilesList") == 0 ? 15 : 17;
-    return reinterpret_cast<void *>(std::strcmp(name, "OpenMemoryFilesList") == 0 ? 531 : 532);
+    return reinterpret_cast<gag::RuntimeNamedNode *>(std::strcmp(name, "OpenMemoryFilesList") == 0 ? 531 : 532);
 }
 
 void __fastcall enable_node_test_graphics_host(void *identity, int enabled)
@@ -2610,10 +2949,9 @@ LRESULT WINAPI send_test_resource_selection(HWND window, UINT message, WPARAM wp
 }
 
 void *__fastcall construct_test_resource_selection(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-    std::uint32_t flags, std::int32_t loop_animation)
+    std::uint32_t flags)
 {
     require(path == resource_selection_path && scene_identifier == 0 && x == 0 && y == 0 && width == 0 && height == 0 && scale_or_loop == 0 && flags == 0x200);
-    resource_selection_loop = loop_animation;
     resource_selection_events[resource_selection_event_count++] = 5;
     return reinterpret_cast<void *>(702);
 }
@@ -5116,7 +5454,7 @@ std::uint32_t __fastcall release_test_runtime_scene(std::int32_t identifier, std
     return 0;
 }
 
-void *__fastcall get_test_runtime_shutdown_node(const char *name)
+gag::RuntimeNamedNode *__fastcall get_test_runtime_shutdown_node(const char *name)
 {
     if(std::strcmp(name, "MMediaObjectsList") == 0)
     {
@@ -5650,8 +5988,9 @@ void __fastcall transition_runtime_state(std::uint32_t value)
     runtime_state_transition_value = value;
 }
 
-std::uint32_t query_state_activation_status()
+std::uint32_t __fastcall query_state_activation_status(void *identity)
 {
+    state_activation_query_identity = identity;
     return state_activation_status;
 }
 
@@ -5745,6 +6084,11 @@ LRESULT WINAPI send_synchronized_state_message(HWND window, UINT message, WPARAM
     require(window == reinterpret_cast<HWND>(80) && message == 0x7ffd && wparam == 0xc0000000 && lparam == 0);
     ++synchronized_send_count;
     return 0;
+}
+
+HWND get_synchronized_state_message_window()
+{
+    return reinterpret_cast<HWND>(80);
 }
 
 BOOL WINAPI get_screenshot_file_name(LPOPENFILENAMEA file_name)
@@ -5847,6 +6191,58 @@ BOOL WINAPI write_cdf_file(HANDLE file, LPCVOID buffer, DWORD size, LPDWORD byte
     }
     ++cdf_write_count;
     return TRUE;
+}
+
+LPVOID WINAPI allocate_compressed_cdf(HANDLE heap, DWORD flags, SIZE_T size)
+{
+    require(heap == GetProcessHeap() && flags == HEAP_ZERO_MEMORY);
+    ++cdf_compressed_allocation_count;
+    if(cdf_compressed_allocation_count == cdf_compressed_failed_allocation)
+    {
+        return nullptr;
+    }
+    return HeapAlloc(heap, flags, size);
+}
+
+BOOL WINAPI free_compressed_cdf(HANDLE heap, DWORD flags, LPVOID memory)
+{
+    cdf_compressed_free_flags[cdf_compressed_free_count++] = flags;
+    return HeapFree(heap, 0, memory);
+}
+
+DWORD WINAPI seek_compressed_cdf(HANDLE, LONG distance, PLONG high, DWORD method)
+{
+    require(high == nullptr);
+    cdf_compressed_seek_offsets[cdf_compressed_seek_count] = static_cast<DWORD>(distance);
+    cdf_compressed_seek_methods[cdf_compressed_seek_count++] = method;
+    const DWORD previous = cdf_compressed_position;
+    if(method == FILE_BEGIN)
+    {
+        cdf_compressed_position = static_cast<DWORD>(distance);
+    }
+    return method == FILE_CURRENT ? cdf_compressed_position : previous;
+}
+
+BOOL WINAPI write_compressed_cdf(HANDLE, LPCVOID buffer, DWORD size, LPDWORD bytes_written, LPOVERLAPPED overlapped)
+{
+    require(overlapped == nullptr);
+    cdf_compressed_write_sizes[cdf_compressed_write_count] = size;
+    if(size <= 16)
+    {
+        std::memcpy(cdf_compressed_tables[cdf_compressed_write_count], buffer, size);
+    }
+    *bytes_written = cdf_compressed_write_count == cdf_compressed_short_write ? size - 1 : size;
+    cdf_compressed_position += *bytes_written;
+    ++cdf_compressed_write_count;
+    return TRUE;
+}
+
+std::uint32_t __fastcall compress_test_cdf(const void *source, std::uint32_t size, void *destination, std::uint32_t capacity)
+{
+    require(destination != nullptr && capacity == 0x10000);
+    cdf_compressed_sources[cdf_compress_count] = source;
+    cdf_compressed_source_sizes[cdf_compress_count++] = size;
+    return size / 0x1000 + 3;
 }
 
 std::uint32_t __fastcall finalize_test_cdf_index(gag::CdfArchive *archive)
@@ -6086,7 +6482,7 @@ HANDLE WINAPI create_cdf_file(LPCSTR path, DWORD access, DWORD share, LPSECURITY
     return reinterpret_cast<HANDLE>(4);
 }
 
-HANDLE __fastcall open_cdf_alternate(const char *)
+HANDLE __fastcall open_cdf_alternate(std::uint32_t, const char *)
 {
     return nullptr;
 }
@@ -6367,6 +6763,125 @@ LRESULT WINAPI send_test_message(HWND window, UINT message, WPARAM, LPARAM)
     procedure_last_target = window;
     procedure_last_message = message;
     return 73;
+}
+
+UINT main_procedure_last_message;
+WPARAM main_procedure_last_wparam;
+LPARAM main_procedure_last_lparam;
+HWND main_procedure_last_window;
+int main_procedure_post_count;
+int main_procedure_quit_count;
+int main_procedure_reply_count;
+int main_procedure_destroy_count;
+
+BOOL WINAPI post_main_procedure_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    main_procedure_last_window = window;
+    main_procedure_last_message = message;
+    main_procedure_last_wparam = wparam;
+    main_procedure_last_lparam = lparam;
+    ++main_procedure_post_count;
+    return TRUE;
+}
+
+void WINAPI post_main_procedure_quit(int exit_code)
+{
+    require(exit_code == 0);
+    ++main_procedure_quit_count;
+}
+
+BOOL WINAPI reply_main_procedure(LRESULT result)
+{
+    require(result == 1);
+    ++main_procedure_reply_count;
+    return TRUE;
+}
+
+LRESULT WINAPI send_main_procedure_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    main_procedure_last_window = window;
+    main_procedure_last_message = message;
+    main_procedure_last_wparam = wparam;
+    main_procedure_last_lparam = lparam;
+    return 0x4567;
+}
+
+LRESULT WINAPI default_main_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    main_procedure_last_window = window;
+    main_procedure_last_message = message;
+    main_procedure_last_wparam = wparam;
+    main_procedure_last_lparam = lparam;
+    return 0x1234;
+}
+
+BOOL WINAPI destroy_main_procedure_window(HWND window)
+{
+    main_procedure_last_window = window;
+    ++main_procedure_destroy_count;
+    return TRUE;
+}
+
+std::uint32_t get_main_procedure_script_state()
+{
+    return 0x87654321;
+}
+
+int main_procedure_resolve_count;
+std::uint32_t main_procedure_resolved_value;
+int main_procedure_capture_count;
+int main_procedure_free_count;
+void *main_procedure_freed_memory;
+
+gag::ScriptObjectState *__fastcall resolve_main_procedure_state(const char *object_name, const char *field_name, const void *value, int value_type)
+{
+    require(std::strcmp(object_name, "OBJECT") == 0 && std::strcmp(field_name, "FIELD") == 0 && value_type == 1);
+    main_procedure_resolved_value = *static_cast<const std::uint32_t *>(value);
+    ++main_procedure_resolve_count;
+    return nullptr;
+}
+
+void *__fastcall capture_main_procedure_bitmap(void *game_context, std::uint32_t *size, int half_resolution)
+{
+    require(game_context != nullptr && size == nullptr && half_resolution == 1);
+    ++main_procedure_capture_count;
+    return reinterpret_cast<void *>(0x55667788);
+}
+
+void __fastcall free_main_procedure_memory(void *memory)
+{
+    main_procedure_freed_memory = memory;
+    ++main_procedure_free_count;
+}
+
+int main_procedure_operation_events[16];
+int main_procedure_operation_count;
+
+void main_procedure_hook_1()
+{
+    main_procedure_operation_events[main_procedure_operation_count++] = 1;
+}
+
+void __fastcall set_main_procedure_lock(gag::ApplicationState *)
+{
+    main_procedure_operation_events[main_procedure_operation_count++] = 2;
+}
+
+void __fastcall clear_main_procedure_active(gag::ApplicationState *)
+{
+    main_procedure_operation_events[main_procedure_operation_count++] = 3;
+}
+
+int __fastcall validate_main_procedure_startup(gag::ApplicationState *, const char *requested_archive, std::uint32_t stages)
+{
+    require(requested_archive == state.executable_directory || stages == 4);
+    main_procedure_operation_events[main_procedure_operation_count++] = 4;
+    return 1;
+}
+
+void set_main_procedure_runtime_flag_40()
+{
+    main_procedure_operation_events[main_procedure_operation_count++] = 5;
 }
 
 void __fastcall update_test_cursor_state(gag::ApplicationState *application, int active)
@@ -6855,12 +7370,12 @@ void reset()
     runtime_byte_enter_count = 0;
     runtime_byte_leave_count = 0;
     input_session_event_count = 0;
-    input_session_context = {};
-    input_session_has_context = true;
-    input_session_prepare_result = 0;
-    input_session_has_descriptor = false;
-    input_session_activate_result = 1;
-    input_session_local_state = nullptr;
+    input_session_record = {};
+    input_session_scene = {};
+    input_session_has_record = true;
+    input_session_initialize_result = false;
+    input_session_has_scene = false;
+    input_session_begin_result = 1;
     command_loop_event_count = 0;
     command_loop_process_count = 0;
     command_loop_scenario = 0;
@@ -7782,6 +8297,24 @@ std::int32_t __fastcall parse_test_script_integer_expression(gag::ScriptParserSt
     return gag::parse_script_integer_literal(parser);
 }
 
+std::uint32_t typed_test_image_cursor;
+std::uint32_t typed_test_value_cursor;
+
+std::uint32_t __fastcall parse_test_missing_typed_image(gag::ScriptParserState *parser)
+{
+    typed_test_image_cursor = parser->cursor;
+    parser->cursor = 7;
+    return 0;
+}
+
+std::uint32_t __fastcall parse_test_missing_typed_value(gag::ScriptParserState *parser, char *, std::uint32_t capacity)
+{
+    require(capacity == 0x20);
+    typed_test_value_cursor = parser->cursor;
+    parser->cursor = 9;
+    return 0xffffffff;
+}
+
 std::int32_t __fastcall select_test_integer_expression_random(std::int32_t minimum, std::int32_t maximum)
 {
     integer_expression_random_minimum = minimum;
@@ -7944,7 +8477,7 @@ void test_runtime_tree_basic_commands()
     gag::RuntimeNamedNodeMemoryApi memory_api{ allocate_display_scene_memory, free_display_scene_memory };
     gag::set_runtime_named_node_memory_api_for_testing(memory_api);
     root.heap = reinterpret_cast<HANDLE>(72);
-    root.destroy_generic_resource = destroy_test_runtime_generic_resource;
+    root.set_property = destroy_test_runtime_generic_resource;
     gag::RuntimeGenericResourceNode remove_first{};
     gag::RuntimeGenericResourceNode remove_second{};
     remove_first.identity = &remove_first;
@@ -8032,6 +8565,36 @@ void test_script_object_serialization()
 
     gag::ScriptRuntimeRoot root{};
     gag::set_script_runtime_root_for_testing(&root);
+    root.heap = GetProcessHeap();
+    root.palette_flags = 0x20;
+    root.command_definition_count = 1;
+    std::memcpy(root.command_definitions[0].name, "CMD", 4);
+    gag::set_script_object_memory_api_for_testing({ HeapAlloc });
+    gag::ScriptParserState object_parser = make_script_parser("PARSED NUM:: 7 ENABLED:: ON /COMM: CMD /MOUSE: MOUSE /AMOUSE: ALT /F: NOPAL /INVERT_NOPAL");
+    require(gag::parse_script_object_state(&object_parser) == 2);
+    gag::ScriptObjectState *parsed_object = root.objects;
+    require(parsed_object != nullptr && std::strcmp(parsed_object->name, "PARSED") == 0 && parsed_object->integer_values[0] == 7);
+    require((parsed_object->active_field_mask & 3) == 3 && parsed_object->command_mask == 1 && std::strcmp(parsed_object->mouse_visual_name, "MOUSE") == 0
+            && std::strcmp(parsed_object->alternate_mouse_visual_name, "ALT") == 0 && parsed_object->image_flags == 0x20);
+    HeapFree(root.heap, 0, parsed_object);
+    root.objects = nullptr;
+
+    char dispatch_text[]{ "object=DISPATCH VALUE:: 5;" };
+    gag::RuntimeGenericResourceNode dispatch_resource{};
+    dispatch_resource.resource_data = dispatch_text;
+    dispatch_resource.resource_metadata = reinterpret_cast<void *>(sizeof(dispatch_text) - 1);
+    gag::RuntimeTreeNode dispatch_owner{};
+    gag::RuntimeTreeParserContext dispatch_context{};
+    dispatch_context.owner = &dispatch_owner;
+    dispatch_context.resource = &dispatch_resource;
+    dispatch_context.resource_data = dispatch_resource.resource_data;
+    dispatch_context.resource_metadata = dispatch_resource.resource_metadata;
+    require(gag::dispatch_runtime_tree_parser(&dispatch_context) == &dispatch_owner);
+    require(root.objects != nullptr && std::strcmp(root.objects->name, "DISPATCH") == 0 && root.objects->field_count == 1 && root.objects->integer_values[0] == 5);
+    HeapFree(root.heap, 0, root.objects);
+    root.objects = nullptr;
+    root.palette_flags = 0;
+    root.command_definition_count = 0;
     gag::serialize_script_object_states(&buffer);
     require(buffer.length == 0);
 
@@ -8044,6 +8607,7 @@ void test_script_object_serialization()
     first.integer_values[0] = 7;
     strcpy_s(first.string_values[1], "TXT");
     first.active_field_mask = 1;
+    first.flags_042c = 0x10000;
     strcpy_s(first.mouse_visual_name, "MOUSE");
     strcpy_s(first.alternate_mouse_visual_name, "ALT");
     first.command_mask = 1;
@@ -8055,10 +8619,9 @@ void test_script_object_serialization()
     strcpy_s(root.command_definitions[1].name, "SKIP");
     gag::serialize_script_object_states(&buffer);
     text[buffer.length] = '\0';
-    require(std::strcmp(text, "\r\nobject=OBJ A:7 A:ON B:TXT B:OFF /MOUSE:MOUSE /AMOUSE:ALT /COMM:CMD;\r\nobject=EMPTY;\r\n") == 0);
+    require(std::strcmp(text, "\r\nobject=OBJ A:7 A:ON B:TXT B:OFF /MOUSE:MOUSE /AMOUSE:ALT /F:NATURALMOUSE /COMM:CMD;\r\nobject=EMPTY;\r\n") == 0);
 }
 
-std::int32_t right_button_construct_loop;
 std::uint32_t right_button_construct_flags;
 char *right_button_construct_path;
 
@@ -8072,25 +8635,531 @@ LRESULT WINAPI send_test_right_button_resource(HWND, UINT, WPARAM, LPARAM)
 {
     return 0;
 }
-void *__fastcall construct_test_right_button_resource(char *path, std::uint32_t, std::int32_t, std::int32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t flags,
-    std::int32_t loop_animation)
+void *__fastcall construct_test_right_button_resource(char *path, std::uint32_t, std::int32_t, std::int32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t flags)
 {
     right_button_construct_path = path;
     right_button_construct_flags = flags;
-    right_button_construct_loop = loop_animation;
     return reinterpret_cast<void *>(404);
+}
+
+gag::RuntimeTreeNode *pointer_rebuild_root;
+std::uint32_t pointer_rebuild_sync_count;
+void *pointer_rebuild_sync_owner;
+std::uint32_t pointer_rebuild_finalize_count;
+void *pointer_rebuild_finalized[4];
+std::uint32_t pointer_rebuild_request_count;
+void *pointer_rebuild_requested[8];
+std::uint32_t pointer_rebuild_construct_count;
+std::uint32_t pointer_rebuild_construct_arguments[7];
+char *pointer_rebuild_construct_path;
+std::uint32_t pointer_rebuild_position_count;
+void *pointer_rebuild_position_identity;
+std::int32_t pointer_rebuild_position_x;
+std::int32_t pointer_rebuild_position_y;
+std::uint32_t pointer_rebuild_comment_count;
+std::uint32_t pointer_rebuild_send_count;
+std::uint32_t pointer_rebuild_wait_count;
+std::uint32_t tree_rebuild_construct_count;
+char *tree_rebuild_construct_paths[8];
+std::uint32_t tree_rebuild_construct_flags[8];
+std::uint32_t tree_rebuild_destroy_count;
+void *tree_rebuild_destroyed[4];
+std::uint32_t tree_rebuild_configure_count;
+void *tree_rebuild_configure_arguments[3];
+std::uint32_t tree_rebuild_configure_flags;
+std::uint32_t tree_rebuild_reset_mask;
+std::uint32_t tree_rebuild_state_count;
+void *tree_rebuild_state_identity;
+std::uint32_t tree_rebuild_send_count;
+gag::RuntimeTreeNode *tree_rebuild_sent_root;
+std::uint32_t tree_rebuild_scene_count;
+gag::RuntimeResourceObject attach_resources[3];
+void *attach_identities[3];
+bool attach_available[3];
+gag::RuntimeGenericBackendChild *attach_child_result;
+gag::DisplaySceneNode *attach_locked_scene;
+gag::DisplaySceneNode *attach_created_scene;
+std::uint32_t attach_events[32];
+std::uint32_t attach_event_count;
+std::uint32_t attach_context[2];
+std::uint32_t attach_selection;
+std::uint32_t attach_flags;
+std::int32_t attach_lock_identifier;
+std::int32_t attach_owner;
+
+gag::RuntimeTreeNode *__fastcall resolve_test_pointer_rebuild(void *)
+{
+    return pointer_rebuild_root;
+}
+
+std::uint32_t __fastcall synchronize_test_pointer_rebuild(void *owner, void *, gag::RuntimePointerRegion *)
+{
+    ++pointer_rebuild_sync_count;
+    pointer_rebuild_sync_owner = owner;
+    return 1;
+}
+
+std::uint32_t __fastcall query_test_pointer_rebuild(void *identity)
+{
+    const std::uintptr_t value = reinterpret_cast<std::uintptr_t>(identity);
+    return value == 101 || value == 201 || value == 203 || value == 204 ? 0x3000 : (value == 102 || value == 202 || value == 205 ? 1 : 0);
+}
+
+void __fastcall finalize_test_pointer_rebuild(void *identity)
+{
+    pointer_rebuild_finalized[pointer_rebuild_finalize_count++] = identity;
+}
+
+void __fastcall request_test_pointer_rebuild(void *identity)
+{
+    pointer_rebuild_requested[pointer_rebuild_request_count++] = identity;
+}
+
+void *__fastcall construct_test_pointer_rebuild(char *path, std::uint32_t scene, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t loop, std::uint32_t flags)
+{
+    ++pointer_rebuild_construct_count;
+    pointer_rebuild_construct_path = path;
+    pointer_rebuild_construct_arguments[0] = scene;
+    pointer_rebuild_construct_arguments[1] = x;
+    pointer_rebuild_construct_arguments[2] = y;
+    pointer_rebuild_construct_arguments[3] = width;
+    pointer_rebuild_construct_arguments[4] = height;
+    pointer_rebuild_construct_arguments[5] = loop;
+    pointer_rebuild_construct_arguments[6] = flags;
+    return reinterpret_cast<void *>(201);
+}
+
+void __fastcall update_test_pointer_rebuild_position(void *identity, std::int32_t x, std::int32_t y)
+{
+    ++pointer_rebuild_position_count;
+    pointer_rebuild_position_identity = identity;
+    pointer_rebuild_position_x = x;
+    pointer_rebuild_position_y = y;
+}
+
+void __fastcall comment_test_pointer_rebuild(gag::RuntimeTreeNode *, int enabled)
+{
+    pointer_rebuild_comment_count += enabled;
+}
+
+LRESULT WINAPI send_test_pointer_rebuild(HWND, UINT message, WPARAM wparam, LPARAM)
+{
+    require(message == 0x7ffd && wparam == 0x01000000);
+    ++pointer_rebuild_send_count;
+    return 0;
+}
+
+void __fastcall wait_test_pointer_rebuild(std::uint32_t count)
+{
+    pointer_rebuild_wait_count = count;
+}
+
+gag::DisplaySceneNode *__fastcall acquire_test_tree_rebuild_scene(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags,
+    std::int32_t owner, gag::DisplaySceneDescriptor *descriptor, const gag::DisplayPixelFormatDescriptor *format)
+{
+    require(index == 7 && x == 8 && y == 9 && width == 10 && height == 11 && flags == 0x2000c && owner == 0 && descriptor == nullptr && format == nullptr);
+    ++tree_rebuild_scene_count;
+    return reinterpret_cast<gag::DisplaySceneNode *>(0x700);
+}
+
+void *__fastcall construct_test_tree_rebuild(char *path, std::uint32_t, std::int32_t, std::int32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t flags)
+{
+    const std::uint32_t index = tree_rebuild_construct_count++;
+    tree_rebuild_construct_paths[index] = path;
+    tree_rebuild_construct_flags[index] = flags;
+    return reinterpret_cast<void *>(0x800 + index);
+}
+
+std::uint32_t __fastcall query_test_tree_rebuild(void *identity)
+{
+    return identity == reinterpret_cast<void *>(0xdead) ? 0 : 0x3000;
+}
+
+void __fastcall request_test_tree_rebuild(void *identity)
+{
+    tree_rebuild_destroyed[tree_rebuild_destroy_count++] = identity;
+}
+
+gag::RuntimeGenericBackendChild *__fastcall configure_test_tree_rebuild(void *resource, void *fixed, void *secondary, std::uint32_t value, std::uint32_t flags)
+{
+    tree_rebuild_configure_arguments[0] = resource;
+    tree_rebuild_configure_arguments[1] = fixed;
+    tree_rebuild_configure_arguments[2] = secondary;
+    tree_rebuild_configure_flags = flags;
+    require(value == 0);
+    ++tree_rebuild_configure_count;
+    return nullptr;
+}
+
+void reset_test_tree_rebuild_bytes()
+{
+    tree_rebuild_reset_mask |= 1;
+}
+void reset_test_tree_rebuild_pairs()
+{
+    tree_rebuild_reset_mask |= 2;
+}
+void reset_test_tree_rebuild_transient()
+{
+    tree_rebuild_reset_mask |= 4;
+}
+void __fastcall set_test_tree_rebuild_state(void *identity, std::uint32_t state_value)
+{
+    tree_rebuild_state_identity = identity;
+    require(state_value == 0);
+    ++tree_rebuild_state_count;
+}
+LRESULT WINAPI send_test_tree_rebuild(HWND, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    require(message == 0x7ffd && wparam == 0x40000000);
+    tree_rebuild_sent_root = reinterpret_cast<gag::RuntimeTreeNode *>(lparam);
+    ++tree_rebuild_send_count;
+    return 0;
+}
+
+gag::RuntimeLockRecord *__fastcall acquire_test_attachment_resource(void *identity)
+{
+    for(std::uint32_t index = 0; index < 3; ++index)
+    {
+        if(identity == attach_identities[index])
+        {
+            attach_events[attach_event_count++] = 10 + index;
+            return attach_available[index] ? reinterpret_cast<gag::RuntimeLockRecord *>(&attach_resources[index]) : nullptr;
+        }
+    }
+    attach_events[attach_event_count++] = 19;
+    return nullptr;
+}
+
+void __fastcall release_test_attachment_resource(gag::RuntimeLockRecord *record)
+{
+    for(std::uint32_t index = 0; index < 3; ++index)
+    {
+        if(record == reinterpret_cast<gag::RuntimeLockRecord *>(&attach_resources[index]))
+        {
+            attach_events[attach_event_count++] = 20 + index;
+            return;
+        }
+    }
+    require(false);
+}
+
+std::uint32_t __fastcall find_test_attachment_scene(std::uint32_t candidate)
+{
+    require(candidate == 0x80000);
+    attach_events[attach_event_count++] = 30;
+    return 0x81234;
+}
+
+gag::RuntimeGenericBackendChild *__fastcall create_test_attachment_child(void *backend, void *font, const std::uint32_t *context, std::uintptr_t selection, std::uint32_t flags)
+{
+    require(backend == attach_resources[2].backend && font == attach_resources[1].backend);
+    attach_context[0] = context[0];
+    attach_context[1] = context[1];
+    attach_selection = static_cast<std::uint32_t>(selection);
+    attach_flags = flags;
+    attach_events[attach_event_count++] = 31;
+    return attach_child_result;
+}
+
+gag::DisplaySceneNode *__fastcall lock_test_attachment_scene(std::int32_t identifier)
+{
+    attach_lock_identifier = identifier;
+    attach_events[attach_event_count++] = 32;
+    return attach_locked_scene;
+}
+
+void __fastcall unlock_test_attachment_scene(std::int32_t identifier)
+{
+    require(identifier == attach_lock_identifier);
+    attach_events[attach_event_count++] = 34;
+}
+
+gag::DisplaySceneNode *__fastcall acquire_test_attachment_scene(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+    gag::DisplaySceneDescriptor *descriptor, const gag::DisplayPixelFormatDescriptor *format)
+{
+    require(index == 0x81234 && x == 10000 && y == 10000 && width == 0x10 && height == 0x10 && flags == 0 && descriptor != nullptr);
+    require(format == reinterpret_cast<const gag::DisplayPixelFormatDescriptor *>(&attach_locked_scene->rectangle_callback_state));
+    attach_owner = owner;
+    attach_events[attach_event_count++] = 33;
+    return attach_created_scene;
+}
+
+void *__fastcall destroy_test_attachment_child(void *identity)
+{
+    require(identity == attach_child_result);
+    attach_events[attach_event_count++] = 35;
+    return nullptr;
 }
 
 void test_runtime_left_button_up()
 {
     gag::ScriptRuntimeRoot root{};
     gag::set_script_runtime_root_for_testing(&root);
+    gag::RuntimePointerRegion synchronization_region{};
+    require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), &synchronization_region) == 0);
+    gag::RuntimeNamedNode synchronization_owner{};
+    gag::RuntimeResourceCacheEntry synchronization_child{};
+    gag::ScriptObjectState synchronization_object{};
+    gag::RuntimeTreeNode synchronization_tree{};
+    gag::RuntimeTreeLink84 synchronization_links[2]{};
+    gag::RuntimeTreePrimaryResourceLink synchronization_primary[2]{};
+    synchronization_owner.identity = reinterpret_cast<void *>(501);
+    synchronization_owner.unknown_0028 = 2;
+    synchronization_owner.child_cursor = reinterpret_cast<gag::RuntimeNamedNode *>(&synchronization_child);
+    synchronization_child.data = &synchronization_object;
+    synchronization_child.next = &synchronization_child;
+    synchronization_child.previous = &synchronization_child;
+    strcpy_s(synchronization_object.mouse_visual_name, "MOUSE.FLC");
+    synchronization_object.command_mask = 0x40;
+    synchronization_tree.identity = reinterpret_cast<void *>(502);
+    synchronization_tree.link_0084_head = synchronization_links;
+    synchronization_tree.primary_resource_link_head = synchronization_primary;
+    synchronization_links[0].identity = &synchronization_links[0];
+    synchronization_links[0].next = &synchronization_links[1];
+    synchronization_links[0].value_0054 = 501;
+    synchronization_links[0].identity_005c = &synchronization_primary[0];
+    synchronization_links[1].identity = &synchronization_links[1];
+    synchronization_links[1].value_0054 = 501;
+    synchronization_links[1].value_0040 = 0x80;
+    synchronization_links[1].identity_005c = &synchronization_primary[1];
+    synchronization_primary[0].identity = &synchronization_primary[0];
+    synchronization_primary[0].next = &synchronization_primary[1];
+    synchronization_primary[0].flags = 0x80000000;
+    synchronization_primary[1].identity = &synchronization_primary[1];
+    root.runtime_nodes = &synchronization_owner;
+    root.runtime_tree = &synchronization_tree;
+    root.global_link_0084_head = synchronization_links;
+    require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
+    require(synchronization_links[0].identity_0058 == &synchronization_object && synchronization_links[0].value_0040 == 0x40);
+    require(std::strcmp(synchronization_primary[0].file_name, "MOUSE.FLC") == 0 && (synchronization_primary[0].flags & 0x80000000) == 0);
+    require(synchronization_links[1].value_0040 == 0 && (synchronization_primary[1].flags & 0x80000000) != 0);
+    gag::RuntimeVisualObject synchronization_visual{};
+    strcpy_s(synchronization_visual.file_name, "NATURAL.FLC");
+    synchronization_object.flags_042c = 0x10000;
+    synchronization_object.visual_object = &synchronization_visual;
+    synchronization_owner.unknown_0028 = 1;
+    synchronization_primary[0].flags = 0x80000000;
+    require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
+    require(std::strcmp(synchronization_primary[0].file_name, "NATURAL.FLC") == 0 && (synchronization_primary[0].flags & 0x80000000) == 0);
+
+    gag::RuntimePointerResourceRebuildApi rebuild_api{ resolve_test_pointer_rebuild, synchronize_test_pointer_rebuild, query_test_pointer_rebuild, finalize_test_pointer_rebuild,
+        request_test_pointer_rebuild, construct_test_pointer_rebuild, update_test_pointer_rebuild_position, comment_test_pointer_rebuild, send_test_pointer_rebuild, wait_test_pointer_rebuild };
+    gag::set_runtime_pointer_resource_rebuild_api_for_testing(rebuild_api);
+    pointer_rebuild_root = nullptr;
+    pointer_rebuild_comment_count = 0;
+    gag::rebuild_runtime_pointer_resources_with_loop_register(0x11223344);
+    require(pointer_rebuild_comment_count == 0);
+
+    gag::RuntimeTreePrimaryResourceLink rebuild_links[5]{};
+    for(std::uint32_t index = 0; index < 4; ++index)
+    {
+        rebuild_links[index].next = &rebuild_links[index + 1];
+    }
+    strcpy_s(rebuild_links[0].file_name, "ACTIVE.FLC");
+    rebuild_links[0].previous_resource_identity = reinterpret_cast<void *>(101);
+    rebuild_links[0].source_value = 7;
+    rebuild_links[0].x = 8;
+    rebuild_links[0].y = 9;
+    rebuild_links[0].ratio_x = 10;
+    rebuild_links[0].ratio_y = 11;
+    rebuild_links[0].loop_count = 12;
+    rebuild_links[0].image_flags = 13;
+    rebuild_links[0].previous_x = 1;
+    rebuild_links[1].previous_resource_identity = reinterpret_cast<void *>(102);
+    rebuild_links[1].resource_identity = reinterpret_cast<void *>(202);
+    rebuild_links[2].flags = 0x80000000;
+    rebuild_links[2].resource_identity = reinterpret_cast<void *>(203);
+    rebuild_links[3].flags = 0x81000000;
+    rebuild_links[3].resource_identity = reinterpret_cast<void *>(204);
+    rebuild_links[4].flags = 0x80000000;
+    rebuild_links[4].resource_identity = reinterpret_cast<void *>(205);
+    gag::RuntimePointerRegion rebuild_regions[2]{};
+    rebuild_regions[0].next = &rebuild_regions[1];
+    rebuild_regions[0].owner_identity = reinterpret_cast<void *>(601);
+    rebuild_regions[0].previous_owner_identity = reinterpret_cast<void *>(701);
+    rebuild_regions[1].owner_identity = reinterpret_cast<void *>(601);
+    rebuild_regions[1].previous_owner_identity = reinterpret_cast<void *>(702);
+    root.plan_nodes = reinterpret_cast<gag::RuntimePlanNode *>(rebuild_links);
+    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(502), rebuild_regions, nullptr, 0, nullptr);
+    require(gag::get_runtime_external_command_state_for_testing().runtime_tree_identity == reinterpret_cast<void *>(502)
+            && gag::get_runtime_external_command_state_for_testing().active_pointer_region == nullptr);
+    const auto *shared_host_bytes = reinterpret_cast<const std::uint8_t *>(&gag::get_runtime_external_command_state_for_testing());
+    require(*reinterpret_cast<gag::RuntimePointerRegion *const *>(shared_host_bytes + 0x1944) == rebuild_regions);
+    gag::set_runtime_resource_count_for_testing(10);
+    require(gag::get_runtime_external_command_state_for_testing().resource_count == 10);
+    pointer_rebuild_root = &synchronization_tree;
+    pointer_rebuild_sync_count = 0;
+    pointer_rebuild_finalize_count = 0;
+    pointer_rebuild_request_count = 0;
+    pointer_rebuild_construct_count = 0;
+    pointer_rebuild_position_count = 0;
+    pointer_rebuild_comment_count = 0;
+    pointer_rebuild_send_count = 0;
+    pointer_rebuild_wait_count = 0;
+    gag::rebuild_runtime_pointer_resources_with_loop_register(0x11223344);
+    require(pointer_rebuild_sync_count == 1 && pointer_rebuild_sync_owner == reinterpret_cast<void *>(601));
+    require(rebuild_regions[0].previous_owner_identity == nullptr && rebuild_regions[1].previous_owner_identity == nullptr);
+    require(pointer_rebuild_finalize_count == 2 && pointer_rebuild_finalized[0] == reinterpret_cast<void *>(101) && pointer_rebuild_finalized[1] == reinterpret_cast<void *>(203));
+    require(pointer_rebuild_request_count == 3 && pointer_rebuild_requested[0] == reinterpret_cast<void *>(102) && pointer_rebuild_requested[1] == reinterpret_cast<void *>(204)
+            && pointer_rebuild_requested[2] == reinterpret_cast<void *>(205));
+    require(pointer_rebuild_construct_count == 1 && std::strcmp(pointer_rebuild_construct_path, "ACTIVE.FLC") == 0);
+    require(pointer_rebuild_construct_arguments[0] == 7 && pointer_rebuild_construct_arguments[1] == 8 && pointer_rebuild_construct_arguments[2] == 9 && pointer_rebuild_construct_arguments[3] == 10
+            && pointer_rebuild_construct_arguments[4] == 11 && pointer_rebuild_construct_arguments[5] == 12 && pointer_rebuild_construct_arguments[6] == 13);
+    require(rebuild_links[0].resource_identity == reinterpret_cast<void *>(201) && rebuild_links[0].previous_resource_identity == nullptr && rebuild_links[1].previous_resource_identity == nullptr
+            && rebuild_links[2].resource_identity == nullptr && rebuild_links[3].resource_identity == nullptr && rebuild_links[4].resource_identity == nullptr);
+    require(pointer_rebuild_position_count == 1 && pointer_rebuild_position_identity == reinterpret_cast<void *>(201) && pointer_rebuild_position_x == 8 && pointer_rebuild_position_y == 9
+            && rebuild_links[0].previous_x == 0 && rebuild_links[0].previous_y == 0);
+    require(pointer_rebuild_comment_count == 1 && pointer_rebuild_send_count == 1 && pointer_rebuild_wait_count == 8);
+
+    gag::RuntimeTreeResourceRebuildApi tree_rebuild_api{ resolve_test_pointer_rebuild, acquire_test_tree_rebuild_scene, construct_test_tree_rebuild, synchronize_test_pointer_rebuild,
+        query_test_tree_rebuild, request_test_tree_rebuild, configure_test_tree_rebuild, comment_test_pointer_rebuild, wait_test_pointer_rebuild, reset_test_tree_rebuild_bytes,
+        reset_test_tree_rebuild_pairs, reset_test_tree_rebuild_transient, set_test_tree_rebuild_state, send_test_tree_rebuild };
+    gag::set_runtime_tree_resource_rebuild_api_for_testing(tree_rebuild_api);
+    pointer_rebuild_root = nullptr;
+    tree_rebuild_send_count = 0;
+    gag::rebuild_runtime_tree_resources_with_loop_register(reinterpret_cast<void *>(0x501), 0x12345678);
+    require(tree_rebuild_send_count == 0);
+
+    gag::RuntimeTreeNode tree_rebuild_root{};
+    gag::RuntimeTreeSceneLink tree_rebuild_scene{};
+    tree_rebuild_scene.z = 7;
+    tree_rebuild_scene.x = 8;
+    tree_rebuild_scene.y = 9;
+    tree_rebuild_scene.width = 10;
+    tree_rebuild_scene.height = 11;
+    tree_rebuild_scene.flags = 12;
+    tree_rebuild_root.scene_link_head = &tree_rebuild_scene;
+    gag::RuntimeTreeSecondaryResourceLink tree_rebuild_secondary{};
+    std::memcpy(tree_rebuild_secondary.file_name, "SECONDARY", 10);
+    tree_rebuild_root.secondary_resource_link_head = &tree_rebuild_secondary;
+    gag::RuntimeFixedNameListNode tree_rebuild_fixed{};
+    std::memcpy(tree_rebuild_fixed.serialized_value, "FIXED", 6);
+    tree_rebuild_fixed.resource_flags = 0x20;
+    tree_rebuild_fixed.previous_resource_identity = reinterpret_cast<void *>(0x901);
+    root.fixed_name_nodes = &tree_rebuild_fixed;
+    gag::RuntimeVisualObject tree_rebuild_visual{};
+    std::memcpy(tree_rebuild_visual.file_name, "VISUAL", 7);
+    tree_rebuild_visual.position_x = 13;
+    tree_rebuild_visual.position_y = 14;
+    tree_rebuild_visual.previous_scene_identity = reinterpret_cast<void *>(0x902);
+    tree_rebuild_visual.flags = 0x100000;
+    tree_rebuild_visual.palette_flags = 0x40;
+    root.visual_objects = &tree_rebuild_visual;
+    gag::RuntimeTreePrimaryResourceLink tree_rebuild_primary[2]{};
+    tree_rebuild_primary[0].next = &tree_rebuild_primary[1];
+    std::memcpy(tree_rebuild_primary[0].file_name, "PRIMARY", 8);
+    tree_rebuild_primary[0].image_flags = 0x211;
+    tree_rebuild_primary[0].fixed_name_node = &tree_rebuild_fixed;
+    tree_rebuild_primary[0].secondary_link = &tree_rebuild_secondary;
+    tree_rebuild_primary[1].resource_identity = reinterpret_cast<void *>(0xdead);
+    root.plan_nodes = reinterpret_cast<gag::RuntimePlanNode *>(tree_rebuild_primary);
+    gag::RuntimePointerRegion tree_rebuild_regions[2]{};
+    tree_rebuild_regions[0].next = &tree_rebuild_regions[1];
+    tree_rebuild_regions[0].owner_identity = reinterpret_cast<void *>(0xa01);
+    tree_rebuild_regions[1].owner_identity = reinterpret_cast<void *>(0xa01);
+    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(0x500), tree_rebuild_regions, nullptr, 0, nullptr);
+    gag::set_runtime_resource_count_for_testing(4);
+    gag::set_runtime_resource_state_globals_for_testing(reinterpret_cast<void *>(0xb01), 0);
+    pointer_rebuild_root = &tree_rebuild_root;
+    pointer_rebuild_sync_count = 0;
+    pointer_rebuild_comment_count = 0;
+    pointer_rebuild_wait_count = 0;
+    tree_rebuild_construct_count = 0;
+    tree_rebuild_destroy_count = 0;
+    tree_rebuild_configure_count = 0;
+    tree_rebuild_reset_mask = 0;
+    tree_rebuild_state_count = 0;
+    tree_rebuild_send_count = 0;
+    tree_rebuild_scene_count = 0;
+    gag::rebuild_runtime_tree_resources_with_loop_register(reinterpret_cast<void *>(0x501), 0x12345678);
+    require(tree_rebuild_scene_count == 1 && tree_rebuild_scene.scene_identifier == 0x700);
+    require(pointer_rebuild_sync_count == 1 && pointer_rebuild_sync_owner == reinterpret_cast<void *>(0xa01));
+    require(tree_rebuild_construct_count == 4 && std::strcmp(tree_rebuild_construct_paths[0], "SECONDARY") == 0 && std::strcmp(tree_rebuild_construct_paths[1], "PRIMARY") == 0
+            && std::strcmp(tree_rebuild_construct_paths[2], "FIXED") == 0 && std::strcmp(tree_rebuild_construct_paths[3], "VISUAL") == 0);
+    require(tree_rebuild_construct_flags[0] == 0x10200 && tree_rebuild_construct_flags[1] == 0x211 && tree_rebuild_construct_flags[2] == 0x24 && tree_rebuild_construct_flags[3] == 0x42);
+    require(tree_rebuild_destroy_count == 2 && tree_rebuild_destroyed[0] == reinterpret_cast<void *>(0x901) && tree_rebuild_destroyed[1] == reinterpret_cast<void *>(0x902));
+    require(tree_rebuild_primary[1].flags == 0x80000000 && (tree_rebuild_visual.flags & 0x100000) == 0);
+    require(tree_rebuild_configure_count == 1 && tree_rebuild_configure_arguments[0] == tree_rebuild_primary[0].resource_identity
+            && tree_rebuild_configure_arguments[1] == tree_rebuild_fixed.resource_identity && tree_rebuild_configure_arguments[2] == tree_rebuild_secondary.resource_identity
+            && tree_rebuild_configure_flags == 0x300);
+    require(pointer_rebuild_comment_count == 1 && pointer_rebuild_wait_count == 5 && tree_rebuild_reset_mask == 7 && tree_rebuild_state_count == 1
+            && tree_rebuild_state_identity == reinterpret_cast<void *>(0xb01));
+    require(tree_rebuild_send_count == 1 && tree_rebuild_sent_root == &tree_rebuild_root && (gag::get_runtime_external_command_state_for_testing().flags & 0x100000) != 0);
+    root.fixed_name_nodes = nullptr;
+    root.visual_objects = nullptr;
+    root.plan_nodes = nullptr;
+
+    gag::RuntimeGenericChildAttachmentApi attachment_api{ acquire_test_attachment_resource, release_test_attachment_resource, find_test_attachment_scene, create_test_attachment_child,
+        lock_test_attachment_scene, unlock_test_attachment_scene, acquire_test_attachment_scene, destroy_test_attachment_child };
+    gag::set_runtime_generic_child_attachment_api_for_testing(attachment_api);
+    attach_identities[0] = reinterpret_cast<void *>(0xc01);
+    attach_identities[1] = reinterpret_cast<void *>(0xc02);
+    attach_identities[2] = reinterpret_cast<void *>(0xc03);
+    attach_resources[1].backend = reinterpret_cast<void *>(0xd02);
+    attach_resources[1].scene_identifier = 77;
+    attach_resources[2].backend = reinterpret_cast<void *>(0xd03);
+    gag::RuntimeGenericBackendChild attachment_child{};
+    gag::DisplaySceneNode attachment_locked{};
+    gag::DisplaySceneNode attachment_created{};
+    attach_available[0] = true;
+    attach_available[1] = true;
+    attach_available[2] = true;
+    attach_child_result = &attachment_child;
+    attach_locked_scene = &attachment_locked;
+    attach_created_scene = &attachment_created;
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], attach_identities[1], attach_identities[2], 41, 42) == &attachment_child);
+    require(attach_event_count == 11 && attach_events[0] == 10 && attach_events[1] == 12 && attach_events[2] == 11 && attach_events[3] == 30 && attach_events[4] == 31 && attach_events[5] == 32
+            && attach_events[6] == 33 && attach_events[7] == 34 && attach_events[8] == 22 && attach_events[9] == 21 && attach_events[10] == 20);
+    require(attach_context[0] == static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(attach_identities[0])) && attach_context[1] == 0x81234 && attach_selection == 41 && attach_flags == 42);
+    require(attach_lock_identifier == 77 && attach_owner == static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(attach_identities[0])));
+    require(attach_resources[0].fixed_resource_identity == attach_identities[1] && attach_resources[0].secondary_resource_identity == attach_identities[2]
+            && (attach_resources[0].type_flags & 0x01000000) != 0 && attach_resources[0].generic_backend_child == &attachment_child);
+
+    std::memset(&attach_resources[0], 0, sizeof(attach_resources[0]));
+    attach_resources[0].fixed_resource_identity = attach_identities[1];
+    attach_resources[0].secondary_resource_identity = attach_identities[2];
+    attach_available[2] = false;
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], nullptr, nullptr, 1, 2) == nullptr);
+    require(attach_event_count == 5 && attach_events[0] == 10 && attach_events[1] == 12 && attach_events[2] == 11 && attach_events[3] == 21 && attach_events[4] == 20);
+    attach_available[2] = true;
+
+    attach_child_result = nullptr;
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], attach_identities[1], attach_identities[2], 1, 2) == nullptr);
+    require(attach_event_count == 8 && attach_events[3] == 30 && attach_events[4] == 31 && attach_events[5] == 22 && attach_events[6] == 21 && attach_events[7] == 20);
+    attach_child_result = &attachment_child;
+
+    attach_locked_scene = nullptr;
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], attach_identities[1], attach_identities[2], 1, 2) == &attachment_child);
+    require(attach_events[5] == 32 && attach_events[6] == 35 && attach_events[7] == 22);
+    attach_locked_scene = &attachment_locked;
+    attach_created_scene = nullptr;
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], attach_identities[1], attach_identities[2], 1, 2) == &attachment_child);
+    require(attach_events[5] == 32 && attach_events[6] == 33 && attach_events[7] == 35 && attach_events[8] == 34);
+    attach_created_scene = &attachment_created;
+
+    attach_available[0] = false;
+    attach_resources[1].backend_flags = 0x04000000;
+    gag::set_runtime_generic_child_attachment_scene_for_testing(88);
+    attach_event_count = 0;
+    require(gag::attach_runtime_generic_backend_child(attach_identities[0], attach_identities[1], attach_identities[2], 1, 2) == &attachment_child);
+    require(attach_context[0] == static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(attach_identities[2]))
+            && attach_owner == static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(attach_identities[2])) && attach_lock_identifier == 88 && attach_event_count == 10 && attach_events[8] == 22
+            && attach_events[9] == 21);
+    attach_available[0] = true;
+
     gag::RuntimePointerRegion region{};
     *reinterpret_cast<void **>(reinterpret_cast<std::uint8_t *>(&region) + 0x20) = &region;
     root.global_link_0084_head = reinterpret_cast<gag::RuntimeTreeLink84 *>(&region);
     gag::set_runtime_pointer_region_state_for_testing(nullptr, nullptr, &region, 0, nullptr);
     gag::RuntimeSceneSlot slots[32]{};
     gag::set_runtime_scene_slots_for_testing(slots);
+    require(std::memcmp(reinterpret_cast<const std::uint8_t *>(&gag::get_runtime_external_command_state_for_testing()) + 0x1444, slots, sizeof(slots)) == 0);
 
     gag::set_runtime_scene_control_state_for_testing(0, nullptr);
     require(gag::handle_runtime_left_button_up() == 0 && root.transient_index_2 == 0);
@@ -8242,12 +9311,11 @@ void test_runtime_left_button_up()
     right_state.image_flags = 0x40;
     right_button_construct_path = nullptr;
     right_button_construct_flags = 0;
-    right_button_construct_loop = 0;
     gag::set_runtime_scene_switch_state_for_testing(reinterpret_cast<void *>(404), 0, 0);
     gag::set_runtime_scene_control_state_for_testing(0x110000, nullptr);
     require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0);
     require(right_state.visual_object != nullptr && right_state.visual_object->scene_identity == reinterpret_cast<void *>(404));
-    require(std::strcmp(right_button_construct_path, "CURSOR.FLC") == 0 && right_button_construct_flags == 0x42 && right_button_construct_loop == 0x12345678);
+    require(std::strcmp(right_button_construct_path, "CURSOR.FLC") == 0 && right_button_construct_flags == 0x42);
     require((right_state.visual_object->flags & 0x100000) == 0);
 
     root.transient_index_1 = 0;
@@ -8272,7 +9340,7 @@ void test_runtime_left_button_up()
 void test_script_image_flags()
 {
     gag::set_script_value_parse_api_for_testing({ evaluate_test_script_parameter });
-    gag::set_script_typed_value_api_for_testing({ parse_test_script_integer_expression });
+    gag::set_script_typed_value_api_for_testing({ parse_test_script_integer_expression, gag::parse_image_flag, gag::parse_script_value_token });
     gag::set_script_integer_expression_api_for_testing({ evaluate_test_script_parameter, select_test_integer_expression_random, find_test_integer_expression_link_0084,
         find_test_integer_expression_primary_link, get_test_integer_expression_object, query_test_integer_expression_runtime });
     struct Mapping
@@ -8381,6 +9449,12 @@ void test_script_image_flags()
     gag::ScriptParserState unknown_typed_value = make_script_parser("UNKNOWN");
     gag::parse_script_typed_value(&unknown_typed_value, &typed_value, &typed_value_type);
     require(typed_value == 0xffffffff && typed_value_type == 1);
+    gag::ScriptParserState missing_typed_value = make_script_parser("");
+    typed_value_type = 0;
+    gag::set_script_typed_value_api_for_testing({ parse_test_script_integer_expression, parse_test_missing_typed_image, parse_test_missing_typed_value });
+    gag::parse_script_typed_value(&missing_typed_value, &typed_value, &typed_value_type);
+    require(typed_value_type == 0x7fffffff && typed_test_image_cursor == 0 && typed_test_value_cursor == 0 && missing_typed_value.cursor == 9);
+    gag::set_script_typed_value_api_for_testing({ parse_test_script_integer_expression, gag::parse_image_flag, gag::parse_script_value_token });
     script_parameter_result = 1;
     script_parameter_value = 0;
     script_parameter_expected_type = 0;
@@ -8491,7 +9565,7 @@ void test_script_image_flags()
     gag::ScriptParserState missing_phase_name = make_script_parser("PHASE");
     require(gag::parse_script_integer_expression(&missing_phase_name) == 0x7fffffff && missing_phase_name.cursor == 0);
 
-    gag::set_script_typed_value_api_for_testing({ gag::parse_script_integer_expression });
+    gag::set_script_typed_value_api_for_testing({ gag::parse_script_integer_expression, gag::parse_image_flag, gag::parse_script_value_token });
     gag::ScriptParserState integrated_typed_value = make_script_parser("42");
     gag::parse_script_typed_value(&integrated_typed_value, &typed_value, &typed_value_type);
     require(typed_value == 42 && typed_value_type == 2);
@@ -9410,10 +10484,1338 @@ void test_runtime_sound_pause_resume()
     sound_pause_resume_event_count = 0;
     require(gag::resume_runtime_sound_output() == 0 && sound_pause_resume_event_count == 2 && sound_pause_resume_events[0] == 1 && sound_pause_resume_events[1] == 6);
 }
+
+std::uint32_t construction_type;
+void *construction_data;
+std::uint32_t construction_data_size;
+std::int32_t construction_storage;
+gag::RuntimeMediaBackend construction_bitmap;
+gag::RuntimeAnimationBackend construction_animation;
+gag::RuntimeSoundSlot construction_sound_slot;
+gag::RuntimeGenericBackend construction_generic;
+void *construction_generic_resource;
+void *construction_tree;
+gag::CdfArchive *construction_archive;
+bool construction_scene_success;
+bool construction_allocation_success;
+bool construction_bitmap_success;
+bool construction_animation_success;
+bool construction_sound_success;
+bool construction_generic_success;
+std::uint32_t construction_destroy_media_count;
+std::uint32_t construction_destroy_sound_count;
+std::uint32_t construction_destroy_generic_count;
+std::uint32_t construction_release_memory_count;
+std::uint32_t construction_release_stream_count;
+std::uint32_t construction_register_count;
+std::uint32_t construction_activate_count;
+std::uint32_t construction_rebuild_count;
+std::uint32_t construction_configure_count;
+std::uint32_t construction_finalize_count;
+std::uint32_t construction_palette_count;
+std::uint32_t construction_begin_count;
+std::uint32_t construction_end_count;
+std::uint32_t construction_callback_count;
+std::uint32_t construction_stop_sound_count;
+std::uint32_t construction_wait_count;
+std::uint32_t construction_sound_loop;
+void *construction_queued_data;
+std::uint32_t construction_queued_size;
+char construction_built_path[260];
+
+HANDLE WINAPI get_heap_test_construction()
+{
+    return GetProcessHeap();
+}
+
+LPVOID WINAPI allocate_test_construction(HANDLE heap, DWORD flags, SIZE_T bytes)
+{
+    return construction_allocation_success ? HeapAlloc(heap, flags, bytes) : nullptr;
+}
+
+BOOL WINAPI free_test_construction(HANDLE heap, DWORD flags, LPVOID memory)
+{
+    return HeapFree(heap, flags, memory);
+}
+
+void WINAPI enter_test_construction(LPCRITICAL_SECTION) {}
+void WINAPI leave_test_construction(LPCRITICAL_SECTION) {}
+
+std::uint32_t __fastcall detect_test_construction(const char *)
+{
+    return construction_type;
+}
+
+void __fastcall update_host_test_construction(const char *, std::int32_t) {}
+
+void __fastcall load_test_construction(const char *, void **data, std::uint32_t *size, std::int32_t *storage, std::uint32_t)
+{
+    *data = construction_data;
+    *size = construction_data_size;
+    *storage = construction_storage;
+}
+
+gag::RuntimeMediaBackend *__fastcall create_bitmap_test_construction(std::uint32_t, std::uint32_t, void *)
+{
+    return construction_bitmap_success ? &construction_bitmap : nullptr;
+}
+
+gag::RuntimeAnimationBackend *__fastcall create_animation_test_construction(std::uint32_t, void *, std::uint32_t, std::uint32_t)
+{
+    return construction_animation_success ? &construction_animation : nullptr;
+}
+
+std::uint32_t __fastcall create_sound_test_construction(WAVEFORMATEX *)
+{
+    return construction_sound_success ? 7 : 0;
+}
+
+gag::RuntimeSoundSlot *__fastcall get_sound_slot_test_construction(std::uint32_t handle)
+{
+    require(handle == 7);
+    return &construction_sound_slot;
+}
+
+std::uint32_t __fastcall start_sound_test_construction(std::uint32_t, std::int32_t)
+{
+    return 1;
+}
+
+std::uint32_t __fastcall queue_sound_test_construction(std::uint32_t, void *data, std::uint32_t size, std::int32_t)
+{
+    construction_queued_data = data;
+    construction_queued_size = size;
+    return 1;
+}
+
+void __fastcall set_sound_loop_test_construction(std::uint32_t, std::uint32_t value)
+{
+    construction_sound_loop = value;
+}
+
+std::uint32_t __fastcall stop_sound_test_construction(std::uint32_t, std::int32_t)
+{
+    ++construction_stop_sound_count;
+    return 1;
+}
+
+gag::RuntimeGenericBackend *__fastcall create_generic_test_construction(std::uint32_t, std::uint32_t)
+{
+    return construction_generic_success ? &construction_generic : nullptr;
+}
+
+gag::RuntimeGenericResourceNode *__fastcall find_generic_test_construction(const char *)
+{
+    return static_cast<gag::RuntimeGenericResourceNode *>(construction_generic_resource);
+}
+
+gag::RuntimeTreeNode *__fastcall activate_tree_test_construction(const char *, const char *, void *, void *)
+{
+    ++construction_activate_count;
+    return static_cast<gag::RuntimeTreeNode *>(construction_tree);
+}
+
+void __fastcall rebuild_tree_test_construction(void *identity)
+{
+    require(identity == construction_tree);
+    ++construction_rebuild_count;
+}
+
+gag::DisplaySceneNode *__fastcall acquire_scene_test_construction(std::uint32_t, std::int32_t, std::int32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t,
+    gag::DisplaySceneDescriptor *descriptor, const gag::DisplayPixelFormatDescriptor *)
+{
+    descriptor->pixels = 0x12345678;
+    return construction_scene_success ? reinterpret_cast<gag::DisplaySceneNode *>(0x77) : nullptr;
+}
+
+std::uint32_t __fastcall configure_bitmap_test_construction(void *, const std::uint32_t *, const std::uint32_t *, void *, std::uint32_t)
+{
+    ++construction_configure_count;
+    return 1;
+}
+
+std::uint32_t __fastcall configure_animation_test_construction(void *, const std::uint32_t *, const std::uint32_t *, const void *, std::uint32_t,
+    std::int32_t(__fastcall *)(gag::RuntimeMediaBackend *))
+{
+    ++construction_configure_count;
+    return 1;
+}
+
+std::uint32_t __fastcall begin_scene_test_construction(std::int32_t)
+{
+    ++construction_begin_count;
+    return 1;
+}
+
+void __fastcall finalize_test_construction(void *)
+{
+    ++construction_finalize_count;
+}
+
+void __fastcall palette_test_construction(gag::RuntimeResourceObject *)
+{
+    ++construction_palette_count;
+}
+
+std::uint32_t __fastcall end_scene_test_construction(std::int32_t, const gag::DisplayRectangleTransform *, const gag::DisplayRectangle *)
+{
+    ++construction_end_count;
+    return 1;
+}
+
+void __fastcall wait_test_construction(std::uint32_t count)
+{
+    construction_wait_count = count;
+}
+
+std::uint32_t __fastcall destroy_media_test_construction(void *)
+{
+    ++construction_destroy_media_count;
+    return 1;
+}
+
+void __fastcall destroy_sound_test_construction(std::uint32_t)
+{
+    ++construction_destroy_sound_count;
+}
+
+std::uint32_t __fastcall destroy_generic_test_construction(void *)
+{
+    ++construction_destroy_generic_count;
+    return 1;
+}
+
+BOOL __fastcall release_memory_test_construction(const char *)
+{
+    ++construction_release_memory_count;
+    return TRUE;
+}
+
+std::uint32_t __fastcall release_stream_test_construction(gag::AsyncFileRecord *)
+{
+    ++construction_release_stream_count;
+    return 1;
+}
+
+void __fastcall build_path_test_construction(char *destination, const char *)
+{
+    strcpy_s(destination, 260, "built.cdf");
+    strcpy_s(construction_built_path, destination);
+}
+
+gag::CdfArchive *__fastcall open_archive_test_construction(const char *path, int)
+{
+    require(std::strcmp(path, "built.cdf") == 0);
+    return construction_archive;
+}
+
+gag::RuntimeResourceCacheEntry *__fastcall register_test_construction(void *, void *)
+{
+    ++construction_register_count;
+    return reinterpret_cast<gag::RuntimeResourceCacheEntry *>(1);
+}
+
+std::uint32_t __fastcall add_callback_test_construction(std::int32_t, int(__fastcall *)(gag::DisplayTraversalState *), const void *, std::uint32_t, std::uint32_t)
+{
+    ++construction_callback_count;
+    return 1;
+}
+
+void reset_test_construction()
+{
+    construction_allocation_success = true;
+    construction_scene_success = true;
+    construction_bitmap_success = true;
+    construction_animation_success = true;
+    construction_sound_success = true;
+    construction_generic_success = true;
+    construction_destroy_media_count = 0;
+    construction_destroy_sound_count = 0;
+    construction_destroy_generic_count = 0;
+    construction_release_memory_count = 0;
+    construction_release_stream_count = 0;
+    construction_register_count = 0;
+    construction_activate_count = 0;
+    construction_rebuild_count = 0;
+    construction_configure_count = 0;
+    construction_finalize_count = 0;
+    construction_palette_count = 0;
+    construction_begin_count = 0;
+    construction_end_count = 0;
+    construction_callback_count = 0;
+    construction_stop_sound_count = 0;
+    construction_wait_count = 0;
+    construction_sound_loop = 0;
+    construction_queued_data = nullptr;
+    construction_queued_size = 0;
+    construction_bitmap = {};
+    construction_animation = {};
+    construction_sound_slot = {};
+    construction_generic = {};
+}
+
+void test_runtime_resource_construction()
+{
+    gag::RuntimeResourceConstructionApi api{ get_heap_test_construction, allocate_test_construction, free_test_construction, enter_test_construction, leave_test_construction, detect_test_construction,
+        update_host_test_construction, load_test_construction, create_bitmap_test_construction, create_animation_test_construction, create_sound_test_construction, get_sound_slot_test_construction,
+        start_sound_test_construction, queue_sound_test_construction, set_sound_loop_test_construction, stop_sound_test_construction, create_generic_test_construction, find_generic_test_construction,
+        activate_tree_test_construction, rebuild_tree_test_construction, acquire_scene_test_construction, configure_bitmap_test_construction, configure_animation_test_construction,
+        begin_scene_test_construction, finalize_test_construction, palette_test_construction, end_scene_test_construction, wait_test_construction, destroy_media_test_construction,
+        destroy_sound_test_construction, destroy_generic_test_construction, release_memory_test_construction, release_stream_test_construction, build_path_test_construction,
+        open_archive_test_construction, register_test_construction, add_callback_test_construction };
+    gag::set_runtime_resource_construction_api_for_testing(api);
+    char path[] = "RESOURCE";
+    std::uint8_t data[0x80]{};
+    construction_data = data;
+    construction_data_size = sizeof(data);
+    construction_storage = 9;
+
+    reset_test_construction();
+    std::int32_t bitmap_format[3]{ 0, 40, -30 };
+    construction_bitmap.format_data = bitmap_format;
+    construction_bitmap.media_flags = 0x01000000;
+    construction_type = 1;
+    auto *bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 5, 6, 7, 8, 9, 10, 0x10, 0));
+    require(bitmap != nullptr && bitmap->type_flags == 0x1010 && bitmap->backend == &construction_bitmap && bitmap->data == data && bitmap->scene_identifier == 0x77 && bitmap->x == 6 && bitmap->y == 7
+            && bitmap->output_width == 40 && bitmap->output_height == 30 && bitmap->requested_width == 8 && bitmap->requested_height == 9 && bitmap->callback_position == 0x12345678
+            && construction_configure_count == 1 && construction_finalize_count == 0 && construction_register_count == 1);
+    HeapFree(GetProcessHeap(), 0, bitmap);
+
+    reset_test_construction();
+    construction_bitmap.format_data = bitmap_format;
+    construction_scene_success = false;
+    construction_type = 1;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 1 && construction_release_memory_count == 1 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_bitmap.format_data = bitmap_format;
+    construction_allocation_success = false;
+    construction_type = 1;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 1 && construction_release_memory_count == 0 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_bitmap.format_data = bitmap_format;
+    construction_type = 1;
+    auto *primary_bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 9, 1, 2, 0, 0, 0, 1, 0));
+    require(primary_bitmap != nullptr && (primary_bitmap->type_flags & 0xff) == 0x81 && construction_begin_count == 1 && construction_finalize_count == 1 && construction_palette_count == 1
+            && construction_end_count == 1 && construction_register_count == 1);
+    HeapFree(GetProcessHeap(), 0, primary_bitmap);
+
+    reset_test_construction();
+    construction_bitmap_success = false;
+    construction_type = 1;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 0 && construction_release_memory_count == 0);
+
+    reset_test_construction();
+    *reinterpret_cast<std::uint32_t *>(data + 0x24) = 1;
+    *reinterpret_cast<std::uint32_t *>(data + 0x28) = 12;
+    construction_type = 2;
+    auto *sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 3, 0x200, 0));
+    require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == data + 0x2c && construction_queued_size == 12
+            && construction_sound_loop == 3 && construction_sound_slot.playback_state == 0xffffffff && construction_register_count == 1);
+    HeapFree(GetProcessHeap(), 0, sound);
+
+    reset_test_construction();
+    construction_allocation_success = false;
+    construction_type = 2;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_sound_count == 1 && construction_release_memory_count == 1);
+
+    reset_test_construction();
+    construction_sound_success = false;
+    construction_type = 2;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_sound_count == 0 && construction_release_memory_count == 1);
+
+    reset_test_construction();
+    construction_type = 2;
+    auto *looping_sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x400, 0));
+    require(looping_sound != nullptr && construction_sound_loop == 0xffffffff && construction_stop_sound_count == 1);
+    HeapFree(GetProcessHeap(), 0, looping_sound);
+
+    reset_test_construction();
+    std::uint8_t animation_format[12]{};
+    *reinterpret_cast<std::uint16_t *>(animation_format + 8) = 20;
+    *reinterpret_cast<std::uint16_t *>(animation_format + 10) = 10;
+    construction_animation.base.format_data = animation_format;
+    construction_animation.base.media_flags = 0x02000000;
+    construction_type = 3;
+    auto *animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 4, 2, 3, 2, 3, 5, 0x10, 1));
+    require(animation != nullptr && animation->type_flags == 0x2010 && animation->backend_flags == 0x02000400 && animation->output_width == 40 && animation->output_height == 30
+            && animation->frame_limit == 4 && animation->frames_remaining == 4 && construction_animation.base.scale_x == 2 && construction_animation.base.scale_y == 3
+            && construction_configure_count == 1 && construction_finalize_count == 0 && construction_register_count == 1);
+    HeapFree(GetProcessHeap(), 0, animation);
+
+    reset_test_construction();
+    construction_animation.base.format_data = animation_format;
+    construction_animation.base.media_flags = 0x02000000;
+    construction_scene_success = false;
+    construction_type = 3;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 1 && construction_release_stream_count == 1 && construction_release_memory_count == 0);
+
+    reset_test_construction();
+    construction_animation.base.format_data = animation_format;
+    construction_type = 3;
+    auto *half_animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x12, 0));
+    require(half_animation != nullptr && half_animation->requested_width == 10 && half_animation->requested_height == 5 && half_animation->output_width == 20 && half_animation->output_height == 10
+            && half_animation->frame_limit == 0xffffffff && construction_animation.base.scale_x == 0 && construction_animation.base.scale_y == 0 && construction_callback_count == 1);
+    HeapFree(GetProcessHeap(), 0, half_animation);
+
+    reset_test_construction();
+    construction_animation.base.format_data = animation_format;
+    construction_animation.base.media_flags = 0x01000000;
+    construction_scene_success = false;
+    construction_type = 3;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 1 && construction_release_memory_count == 1 && construction_release_stream_count == 0);
+
+    reset_test_construction();
+    construction_animation.base.format_data = animation_format;
+    construction_animation.base.media_flags = 0;
+    construction_allocation_success = false;
+    construction_type = 3;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(construction_destroy_media_count == 1 && construction_release_memory_count == 0 && construction_release_stream_count == 0);
+
+    reset_test_construction();
+    construction_type = 4;
+    construction_generic_resource = reinterpret_cast<void *>(0x501);
+    construction_tree = reinterpret_cast<void *>(0x502);
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == construction_generic_resource);
+    require(construction_activate_count == 1 && construction_rebuild_count == 1 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_type = 4;
+    construction_generic_resource = reinterpret_cast<void *>(0x501);
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x200, 0) == construction_generic_resource);
+    require(construction_activate_count == 0 && construction_rebuild_count == 0);
+
+    reset_test_construction();
+    construction_type = 4;
+    construction_generic_resource = nullptr;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_activate_count == 0 && construction_rebuild_count == 0 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_type = 0;
+    auto *generic = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0));
+    require(generic != nullptr && generic->type_flags == 0x10000 && generic->backend == &construction_generic && generic->data == data && construction_register_count == 1);
+    HeapFree(GetProcessHeap(), 0, generic);
+
+    reset_test_construction();
+    construction_generic_success = false;
+    construction_type = 0;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_generic_count == 0 && construction_release_memory_count == 1);
+
+    reset_test_construction();
+    construction_allocation_success = false;
+    construction_type = 0;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_destroy_generic_count == 1 && construction_release_memory_count == 1 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_type = 4;
+    auto *generic_fallthrough = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x10000, 0));
+    require(generic_fallthrough != nullptr && generic_fallthrough->type_flags == 0x10000);
+    HeapFree(GetProcessHeap(), 0, generic_fallthrough);
+
+    reset_test_construction();
+    construction_type = 5;
+    construction_archive = reinterpret_cast<gag::CdfArchive *>(0x601);
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x200, 0) == construction_archive);
+    require(std::strcmp(construction_built_path, "built.cdf") == 0 && construction_activate_count == 0 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_type = 5;
+    construction_archive = reinterpret_cast<gag::CdfArchive *>(0x601);
+    construction_tree = reinterpret_cast<void *>(0x602);
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == construction_tree);
+    require(construction_activate_count == 1 && construction_rebuild_count == 1);
+
+    reset_test_construction();
+    construction_type = 5;
+    construction_archive = nullptr;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(construction_activate_count == 0 && construction_rebuild_count == 0 && construction_register_count == 0);
+
+    reset_test_construction();
+    construction_type = 6;
+    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr && construction_register_count == 0);
+}
+
+std::uint8_t runtime_text_input_value;
+DWORD runtime_text_input_tick;
+std::uint32_t runtime_text_input_initialize_result;
+std::uint32_t runtime_text_input_begin_result;
+int runtime_text_input_events[16];
+int runtime_text_input_event_count;
+std::uint32_t runtime_text_input_acquire_index;
+std::uint32_t runtime_text_input_acquire_width;
+std::uint32_t runtime_text_input_acquire_height;
+std::uint32_t runtime_text_input_acquire_flags;
+std::int32_t runtime_text_input_acquire_owner;
+std::int32_t runtime_text_input_release_identifier;
+std::int32_t runtime_text_input_release_owner;
+std::uint32_t runtime_text_input_initialize_values[4];
+void *runtime_text_input_initialize_font;
+
+std::uint8_t dequeue_test_runtime_text_input()
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 1;
+    return runtime_text_input_value;
+}
+
+DWORD WINAPI time_test_runtime_text_input()
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 2;
+    return runtime_text_input_tick;
+}
+
+std::uint32_t __fastcall initialize_test_runtime_text_input(const char *, std::uint32_t value_0014, std::uint32_t value_0018, void *font_identity, std::uint32_t low_color, std::uint32_t high_color,
+    gag::RuntimeStandaloneTextState *state)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 3;
+    runtime_text_input_initialize_values[0] = value_0014;
+    runtime_text_input_initialize_values[1] = value_0018;
+    runtime_text_input_initialize_values[2] = low_color;
+    runtime_text_input_initialize_values[3] = high_color;
+    runtime_text_input_initialize_font = font_identity;
+    state->bounds[2] = 37;
+    state->bounds[3] = 19;
+    return runtime_text_input_initialize_result;
+}
+
+gag::DisplaySceneNode *__fastcall acquire_test_runtime_text_input(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags,
+    std::int32_t owner, gag::DisplaySceneDescriptor *descriptor, const gag::DisplayPixelFormatDescriptor *format)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 4;
+    require(x == 0 && y == 0 && format == nullptr);
+    runtime_text_input_acquire_index = index;
+    runtime_text_input_acquire_width = width;
+    runtime_text_input_acquire_height = height;
+    runtime_text_input_acquire_flags = flags;
+    runtime_text_input_acquire_owner = owner;
+    std::memset(descriptor, 0, sizeof(*descriptor));
+    return reinterpret_cast<gag::DisplaySceneNode *>(0x3456);
+}
+
+std::uint32_t __fastcall begin_test_runtime_text_input(std::int32_t identifier)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 5;
+    require(identifier == 0x3456);
+    return runtime_text_input_begin_result;
+}
+
+void __fastcall draw_test_runtime_text_input(gag::RuntimeStandaloneTextState *, gag::DisplaySceneDescriptor *)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 6;
+}
+
+std::uint32_t __fastcall end_test_runtime_text_input(std::int32_t identifier, const gag::DisplayRectangleTransform *, const gag::DisplayRectangle *rectangle)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 7;
+    require(identifier == 0x3456 && rectangle->right == 37 && rectangle->bottom == 19);
+    return 0;
+}
+
+std::uint32_t __fastcall release_test_runtime_text_input(std::int32_t identifier, std::int32_t owner)
+{
+    runtime_text_input_events[runtime_text_input_event_count++] = 8;
+    runtime_text_input_release_identifier = identifier;
+    runtime_text_input_release_owner = owner;
+    return 0;
+}
+
+void reset_test_runtime_text_input(gag::RuntimeCommandLoopState *state)
+{
+    std::memset(state, 0, sizeof(*state));
+    state->flags = 0x100;
+    state->input_end = 0x20;
+    state->input_text_state.font_identity = reinterpret_cast<void *>(0x1111);
+    state->input_text_state.value_0014 = 0x22;
+    state->input_text_state.value_0018 = 0x33;
+    state->input_text_state.low_color = 0x44;
+    state->input_text_state.high_color = 0x55;
+    state->input_scene_index = 9;
+    runtime_text_input_value = 0;
+    runtime_text_input_tick = 0;
+    runtime_text_input_initialize_result = 1;
+    runtime_text_input_begin_result = 0;
+    runtime_text_input_event_count = 0;
+}
+
+void test_runtime_text_input()
+{
+    gag::RuntimeTextInputApi api{ dequeue_test_runtime_text_input, time_test_runtime_text_input, initialize_test_runtime_text_input, acquire_test_runtime_text_input, begin_test_runtime_text_input,
+        draw_test_runtime_text_input, end_test_runtime_text_input, release_test_runtime_text_input };
+    gag::set_runtime_text_input_api_for_testing(api);
+    gag::RuntimeCommandLoopState *state = gag::get_runtime_command_loop_state_for_testing();
+
+    std::memset(state, 0, sizeof(*state));
+    gag::process_runtime_text_input(state);
+    require(runtime_text_input_event_count == 0);
+
+    reset_test_runtime_text_input(state);
+    state->input_cursor = 3;
+    state->input_end = 4;
+    state->input_text[3] = 'x';
+    state->input_scene_identifier = 0x2222;
+    gag::process_runtime_text_input(state);
+    require(state->input_text[3] == '\0' && state->input_cursor == 4 && (state->flags & 0x100) == 0 && state->input_scene_identifier == 0);
+    require(runtime_text_input_event_count == 2 && runtime_text_input_events[0] == 1 && runtime_text_input_events[1] == 8 && runtime_text_input_release_identifier == 0x2222
+            && runtime_text_input_release_owner == static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(state)));
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 0x0d;
+    gag::process_runtime_text_input(state);
+    require(state->input_cursor == 1 && (state->flags & 0x100) == 0 && runtime_text_input_event_count == 1);
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 'Q';
+    state->input_text_flags = 0x10;
+    gag::process_runtime_text_input(state);
+    require(std::strcmp(state->input_text, "q") == 0 && state->input_cursor == 1 && runtime_text_input_event_count == 1);
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 'q';
+    state->input_text_flags = 0x20;
+    gag::process_runtime_text_input(state);
+    require(std::strcmp(state->input_text, "Q") == 0);
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 0xc1;
+    state->input_text_flags = 0x10;
+    gag::process_runtime_text_input(state);
+    require(static_cast<std::uint8_t>(state->input_text[0]) == 0xc1);
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 8;
+    state->input_text[0] = 'A';
+    gag::process_runtime_text_input(state);
+    require(state->input_cursor == 0 && state->input_text[0] == 'A' && runtime_text_input_event_count == 1);
+
+    reset_test_runtime_text_input(state);
+    runtime_text_input_value = 8;
+    state->input_cursor = 1;
+    state->input_text[0] = 'A';
+    state->input_text[1] = '\0';
+    gag::process_runtime_text_input(state);
+    require(state->input_cursor == 0 && state->input_text[1] == '\0');
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = 0x2222;
+    state->input_caret_tick = 1000;
+    state->input_text[0] = '-';
+    runtime_text_input_tick = 1250;
+    gag::process_runtime_text_input(state);
+    require(state->input_text[0] == ' ' && state->input_caret_tick == 1000);
+    const int expected_events_1[]{ 1, 2, 3, 4, 5, 6, 7 };
+    require(runtime_text_input_event_count == static_cast<int>(std::size(expected_events_1)) && std::memcmp(runtime_text_input_events, expected_events_1, sizeof(expected_events_1)) == 0);
+    require(runtime_text_input_initialize_values[0] == 0x22 && runtime_text_input_initialize_values[1] == 0x33 && runtime_text_input_initialize_values[2] == 0x44
+            && runtime_text_input_initialize_values[3] == 0x55 && runtime_text_input_initialize_font == reinterpret_cast<void *>(0x1111));
+    require(runtime_text_input_acquire_index == 9 && runtime_text_input_acquire_width == 37 && runtime_text_input_acquire_height == 19 && runtime_text_input_acquire_flags == 0x120000
+            && runtime_text_input_acquire_owner == static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(state)) && state->input_scene_identifier == 0x3456);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = 1;
+    state->input_caret_tick = 1000;
+    runtime_text_input_tick = 1501;
+    gag::process_runtime_text_input(state);
+    require(state->input_text[0] == '-' && state->input_caret_tick == 1501);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = 1;
+    state->input_caret_tick = 1000;
+    runtime_text_input_tick = 1000;
+    gag::process_runtime_text_input(state);
+    require(runtime_text_input_event_count == 2 && runtime_text_input_events[0] == 1 && runtime_text_input_events[1] == 2);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = 1;
+    runtime_text_input_value = 'A';
+    runtime_text_input_initialize_result = 0;
+    gag::process_runtime_text_input(state);
+    require(runtime_text_input_event_count == 3 && runtime_text_input_events[2] == 3);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = 1;
+    runtime_text_input_value = 'A';
+    runtime_text_input_begin_result = 1;
+    gag::process_runtime_text_input(state);
+    const int expected_events_2[]{ 1, 2, 3, 4, 5 };
+    require(runtime_text_input_event_count == static_cast<int>(std::size(expected_events_2)) && std::memcmp(runtime_text_input_events, expected_events_2, sizeof(expected_events_2)) == 0);
+}
+
+std::uint32_t direct_dispatch_properties[32];
+int direct_dispatch_property_count;
+int direct_dispatch_property_index;
+int direct_dispatch_events[64];
+void *direct_dispatch_values[64];
+int direct_dispatch_event_count;
+std::uint32_t direct_dispatch_read_capacities[3];
+char *direct_dispatch_read_outputs[3];
+int direct_dispatch_read_count;
+void *direct_dispatch_resource;
+
+void record_direct_dispatch_event(int event, void *value = nullptr)
+{
+    direct_dispatch_events[direct_dispatch_event_count] = event;
+    direct_dispatch_values[direct_dispatch_event_count++] = value;
+}
+
+std::uint32_t __fastcall parse_test_direct_dispatch_property(gag::ScriptParserState *parser)
+{
+    parser->cursor = static_cast<std::uint32_t>(direct_dispatch_property_index + 1);
+    return direct_dispatch_properties[direct_dispatch_property_index++];
+}
+
+#define DEFINE_DIRECT_DISPATCH_PARSER(name, event)                                                                                                                                                     \
+    std::uint32_t __fastcall name(gag::ScriptParserState *parser)                                                                                                                                      \
+    {                                                                                                                                                                                                  \
+        record_direct_dispatch_event(event, parser);                                                                                                                                                   \
+        return 0;                                                                                                                                                                                      \
+    }
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_object, 1)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_link_84, 2)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_link_7c, 3)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_visual, 4)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_primary, 5)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_container, 6)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_command, 7)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_named, 8)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_link_8c, 9)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_auxiliary, 0x0c)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_fixed, 0x10)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_secondary, 0x30)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_image_flags, 0x50)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_section, 0xd0)
+DEFINE_DIRECT_DISPATCH_PARSER(parse_test_direct_dispatch_scene, 0xf0)
+#undef DEFINE_DIRECT_DISPATCH_PARSER
+
+gag::RuntimeTreeNode *__fastcall create_test_direct_dispatch_conditional(gag::ScriptParserState *parser)
+{
+    record_direct_dispatch_event(10, parser);
+    return nullptr;
+}
+
+bool __fastcall parse_test_direct_dispatch_language(gag::ScriptParserState *parser)
+{
+    record_direct_dispatch_event(0x20, parser);
+    return false;
+}
+
+std::uint32_t __fastcall parse_test_direct_dispatch_value(gag::ScriptParserState *parser, char *value, std::uint32_t capacity)
+{
+    require(capacity == 0x20);
+    value[0] = 'V';
+    value[1] = '\0';
+    record_direct_dispatch_event(0x40, parser);
+    return 1;
+}
+
+void __fastcall set_test_direct_dispatch_resource_position(void *identity, std::uint32_t)
+{
+    require(identity == direct_dispatch_resource);
+    record_direct_dispatch_event(0x100, identity);
+}
+
+std::uint32_t __fastcall read_test_direct_dispatch_resource_token(void *identity, char *output, std::uint32_t capacity, std::uint8_t delimiter)
+{
+    require(identity == direct_dispatch_resource && delimiter == ';' && direct_dispatch_read_count < 3);
+    direct_dispatch_read_capacities[direct_dispatch_read_count] = capacity;
+    direct_dispatch_read_outputs[direct_dispatch_read_count++] = output;
+    output[0] = 'T';
+    output[1] = '\0';
+    record_direct_dispatch_event(0x200, output);
+    return 1;
+}
+
+void __fastcall add_test_direct_dispatch_auxiliary(gag::RuntimeTreeNode *owner, const char *name)
+{
+    require(name != nullptr && std::strcmp(name, "RESOURCE") == 0);
+    record_direct_dispatch_event(0x400, owner);
+}
+
+void __fastcall publish_test_direct_dispatch_links(gag::RuntimeTreeNode *owner)
+{
+    record_direct_dispatch_event(0x401, owner);
+}
+
+void __fastcall set_test_direct_dispatch_root_property(std::uint32_t operation, std::int32_t argument, gag::RuntimeGenericResourceNode *value)
+{
+    require(argument == 0 && value == nullptr && (operation == 0x0d || operation == 0x10));
+    record_direct_dispatch_event(0x300 + static_cast<int>(operation));
+}
+
+std::int32_t special_dispatch_integers[8];
+int special_dispatch_integer_index;
+std::uint32_t special_dispatch_flags[8];
+int special_dispatch_flag_index;
+const char *special_dispatch_class_name;
+
+std::int32_t __fastcall parse_test_special_dispatch_integer(gag::ScriptParserState *)
+{
+    return special_dispatch_integers[special_dispatch_integer_index++];
+}
+
+std::uint32_t __fastcall parse_test_special_dispatch_image_flag(gag::ScriptParserState *)
+{
+    return special_dispatch_flags[special_dispatch_flag_index++];
+}
+
+gag::RuntimeTreeNode *__fastcall create_test_special_dispatch_command(gag::ScriptParserState *)
+{
+    return reinterpret_cast<gag::RuntimeTreeNode *>(direct_dispatch_values[60]);
+}
+
+gag::RuntimeTreeNode *__fastcall find_test_special_dispatch_jump(gag::ScriptParserState *, const char *property_name, std::uint32_t cursor)
+{
+    require((std::strcmp(property_name, "source") == 0 || std::strcmp(property_name, "section") == 0) && cursor == reinterpret_cast<std::uintptr_t>(direct_dispatch_values[61]));
+    return reinterpret_cast<gag::RuntimeTreeNode *>(direct_dispatch_values[62]);
+}
+
+bool __fastcall compare_test_special_dispatch_strings(const char *left, const char *right)
+{
+    return std::strcmp(left, right) == 0;
+}
+
+std::uint32_t __fastcall parse_test_special_dispatch_value(gag::ScriptParserState *, char *value, std::uint32_t capacity)
+{
+    require(capacity == 0x20);
+    const std::size_t length = std::strlen(special_dispatch_class_name);
+    std::memcpy(value, special_dispatch_class_name, length + 1);
+    return static_cast<std::uint32_t>(length);
+}
+
+void __fastcall set_test_special_dispatch_root_property(std::uint32_t operation, std::int32_t argument, gag::RuntimeGenericResourceNode *value)
+{
+    require((operation == 1 || operation == 2 || operation == 4) && argument == 0);
+    record_direct_dispatch_event(0x500 + static_cast<int>(operation), value);
+}
+
+void test_runtime_tree_parser_special_values()
+{
+    gag::RuntimeTreeParserDirectDispatchApi direct_api{ parse_test_direct_dispatch_property, parse_test_direct_dispatch_object, parse_test_direct_dispatch_link_84, parse_test_direct_dispatch_link_7c,
+        parse_test_direct_dispatch_visual, parse_test_direct_dispatch_primary, parse_test_direct_dispatch_container, parse_test_direct_dispatch_command, parse_test_direct_dispatch_named,
+        parse_test_direct_dispatch_link_8c, create_test_direct_dispatch_conditional, parse_test_direct_dispatch_auxiliary, parse_test_direct_dispatch_fixed, parse_test_direct_dispatch_language,
+        parse_test_direct_dispatch_secondary, parse_test_special_dispatch_value, parse_test_direct_dispatch_image_flags, parse_test_direct_dispatch_section, set_test_direct_dispatch_resource_position,
+        read_test_direct_dispatch_resource_token, parse_test_direct_dispatch_scene, add_test_direct_dispatch_auxiliary, publish_test_direct_dispatch_links };
+    gag::RuntimeTreeParserSpecialDispatchApi special_api{ parse_test_special_dispatch_integer, parse_test_special_dispatch_image_flag, create_test_special_dispatch_command,
+        find_test_special_dispatch_jump, compare_test_special_dispatch_strings };
+    gag::set_runtime_tree_parser_direct_dispatch_api_for_testing(direct_api);
+    gag::set_runtime_tree_parser_special_dispatch_api_for_testing(special_api);
+    constexpr std::uint32_t properties[]{ 0x0b, 0x0f, 0x80, 0xa0, 0xc0, 0xffffffff };
+    constexpr std::int32_t integers[]{ 11, 22, 33, 44, 55, 66 };
+    constexpr std::uint32_t flags[]{ 2, 4, 0 };
+    std::memcpy(direct_dispatch_properties, properties, sizeof(properties));
+    std::memcpy(special_dispatch_integers, integers, sizeof(integers));
+    std::memcpy(special_dispatch_flags, flags, sizeof(flags));
+    direct_dispatch_property_count = static_cast<int>(std::size(properties));
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    special_dispatch_integer_index = 0;
+    special_dispatch_flag_index = 0;
+    special_dispatch_class_name = "COMMENT";
+    gag::ScriptRuntimeRoot root{};
+    root.set_property = set_test_special_dispatch_root_property;
+    gag::set_script_runtime_root_for_testing(&root);
+    gag::RuntimeTreeNode owner{};
+    std::memcpy(owner.name, "OWNER", 6);
+    gag::RuntimeGenericResourceNode resource{};
+    gag::RuntimeTreeParserContext context{};
+    context.owner = &owner;
+    context.resource = &resource;
+    std::memcpy(context.name, "OWNER", 6);
+    context.name_pointer = context.name;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    require(special_dispatch_integer_index == static_cast<int>(std::size(integers)) && special_dispatch_flag_index == static_cast<int>(std::size(flags)));
+    require(direct_dispatch_event_count == 6);
+    constexpr int operations[]{ 0x504, 0x501, 0x502, 0x504, 0x504 };
+    constexpr std::uintptr_t values[]{ 11, 22, 33, 44, 66 };
+    for(int index = 0; index < 5; ++index)
+    {
+        require(direct_dispatch_events[index] == operations[index] && reinterpret_cast<std::uintptr_t>(direct_dispatch_values[index]) == values[index]);
+    }
+    require(direct_dispatch_events[5] == 0x401);
+    require(root.parser_integer_0820 == 55);
+    require(owner.flags == 0x800);
+    require(std::strcmp(owner.class_name, "COMMENT") == 0);
+    gag::reset_runtime_tree_parser_special_dispatch_api_for_testing();
+    gag::reset_runtime_tree_parser_direct_dispatch_api_for_testing();
+}
+
+void test_runtime_tree_parser_sentinel_and_class_branches()
+{
+    gag::RuntimeTreeParserDirectDispatchApi direct_api{ parse_test_direct_dispatch_property, parse_test_direct_dispatch_object, parse_test_direct_dispatch_link_84, parse_test_direct_dispatch_link_7c,
+        parse_test_direct_dispatch_visual, parse_test_direct_dispatch_primary, parse_test_direct_dispatch_container, parse_test_direct_dispatch_command, parse_test_direct_dispatch_named,
+        parse_test_direct_dispatch_link_8c, create_test_direct_dispatch_conditional, parse_test_direct_dispatch_auxiliary, parse_test_direct_dispatch_fixed, parse_test_direct_dispatch_language,
+        parse_test_direct_dispatch_secondary, parse_test_special_dispatch_value, parse_test_direct_dispatch_image_flags, parse_test_direct_dispatch_section, set_test_direct_dispatch_resource_position,
+        read_test_direct_dispatch_resource_token, parse_test_direct_dispatch_scene, add_test_direct_dispatch_auxiliary, publish_test_direct_dispatch_links };
+    gag::RuntimeTreeParserSpecialDispatchApi special_api{ parse_test_special_dispatch_integer, parse_test_special_dispatch_image_flag, create_test_special_dispatch_command,
+        find_test_special_dispatch_jump, compare_test_special_dispatch_strings };
+    gag::set_runtime_tree_parser_direct_dispatch_api_for_testing(direct_api);
+    gag::set_runtime_tree_parser_special_dispatch_api_for_testing(special_api);
+    gag::ScriptRuntimeRoot root{};
+    root.set_property = set_test_special_dispatch_root_property;
+    gag::set_script_runtime_root_for_testing(&root);
+    gag::RuntimeGenericResourceNode resource{};
+    gag::RuntimeTreeNode owner{};
+    std::memcpy(owner.name, "OWNER", 6);
+    gag::RuntimeTreeParserContext context{};
+    context.owner = &owner;
+    context.resource = &resource;
+    std::memcpy(context.name, "OTHER", 6);
+    context.name_pointer = context.name;
+    constexpr std::uint32_t sentinel_properties[]{ 0x0f, 0x80, 0xa0, 0xc0, 1, 0xffffffff };
+    constexpr std::int32_t sentinels[]{ 0x7fffffff, 0x7fffffff, 0x7fffffff };
+    std::memcpy(direct_dispatch_properties, sentinel_properties, sizeof(sentinel_properties));
+    std::memcpy(special_dispatch_integers, sentinels, sizeof(sentinels));
+    direct_dispatch_property_count = static_cast<int>(std::size(sentinel_properties));
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    special_dispatch_integer_index = 0;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int sentinel_events[]{ 1, 0x401 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(sentinel_events)) && std::memcmp(direct_dispatch_events, sentinel_events, sizeof(sentinel_events)) == 0);
+    require(special_dispatch_integer_index == 3 && owner.flags == 0);
+
+    constexpr std::uint32_t class_properties[]{ 0xc0, 0xffffffff };
+    std::memcpy(direct_dispatch_properties, class_properties, sizeof(class_properties));
+    direct_dispatch_property_count = static_cast<int>(std::size(class_properties));
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    std::memcpy(context.name, "OWNER", 6);
+    special_dispatch_class_name = "INVENTORY_PACK";
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    require(owner.flags == 0x1000 && std::strcmp(owner.class_name, "INVENTORY_PACK") == 0 && direct_dispatch_event_count == 1 && direct_dispatch_events[0] == 0x401);
+    gag::reset_runtime_tree_parser_special_dispatch_api_for_testing();
+    gag::reset_runtime_tree_parser_direct_dispatch_api_for_testing();
+}
+
+void __fastcall set_test_branch_dispatch_position(void *identity, std::uint32_t cursor)
+{
+    require(identity == direct_dispatch_resource);
+    record_direct_dispatch_event(0x600, reinterpret_cast<void *>(cursor));
+}
+
+std::uint32_t branch_dispatch_read_result;
+const char *branch_dispatch_read_text;
+bool branch_dispatch_clear_source;
+
+std::uint32_t __fastcall read_test_branch_dispatch_token(void *identity, char *output, std::uint32_t capacity, std::uint8_t delimiter)
+{
+    require(identity == direct_dispatch_resource && capacity == 0x104 && delimiter == ';');
+    std::memcpy(output, branch_dispatch_read_text, std::strlen(branch_dispatch_read_text) + 1);
+    record_direct_dispatch_event(0x601, output);
+    return branch_dispatch_read_result;
+}
+
+void __fastcall set_test_branch_dispatch_root_property(std::uint32_t operation, std::int32_t argument, gag::RuntimeGenericResourceNode *value)
+{
+    require(argument == 0);
+    record_direct_dispatch_event(0x700 + static_cast<int>(operation), value);
+    if(operation == 5)
+    {
+        if(branch_dispatch_clear_source)
+        {
+            reinterpret_cast<char *>(value)[0] = '\0';
+        }
+    }
+    else
+    {
+        require((operation == 0x50 || operation == 0x60) && value == nullptr);
+    }
+}
+
+void test_runtime_tree_parser_source_section_branches()
+{
+    gag::RuntimeTreeParserDirectDispatchApi direct_api{ parse_test_direct_dispatch_property, parse_test_direct_dispatch_object, parse_test_direct_dispatch_link_84, parse_test_direct_dispatch_link_7c,
+        parse_test_direct_dispatch_visual, parse_test_direct_dispatch_primary, parse_test_direct_dispatch_container, parse_test_direct_dispatch_command, parse_test_direct_dispatch_named,
+        parse_test_direct_dispatch_link_8c, create_test_direct_dispatch_conditional, parse_test_direct_dispatch_auxiliary, parse_test_direct_dispatch_fixed, parse_test_direct_dispatch_language,
+        parse_test_direct_dispatch_secondary, parse_test_special_dispatch_value, parse_test_direct_dispatch_image_flags, parse_test_direct_dispatch_section, set_test_branch_dispatch_position,
+        read_test_branch_dispatch_token, parse_test_direct_dispatch_scene, add_test_direct_dispatch_auxiliary, publish_test_direct_dispatch_links };
+    gag::RuntimeTreeParserSpecialDispatchApi special_api{ parse_test_special_dispatch_integer, parse_test_special_dispatch_image_flag, create_test_special_dispatch_command,
+        find_test_special_dispatch_jump, compare_test_special_dispatch_strings };
+    gag::set_runtime_tree_parser_direct_dispatch_api_for_testing(direct_api);
+    gag::set_runtime_tree_parser_special_dispatch_api_for_testing(special_api);
+    gag::ScriptRuntimeRoot root{};
+    root.set_property = set_test_branch_dispatch_root_property;
+    gag::set_script_runtime_root_for_testing(&root);
+    gag::RuntimeGenericResourceNode resource{};
+    direct_dispatch_resource = &resource;
+    gag::RuntimeTreeNode owner{};
+    gag::RuntimeTreeParserContext context{};
+    context.owner = &owner;
+    context.resource = &resource;
+    branch_dispatch_read_result = 6;
+    branch_dispatch_read_text = "SOURCE";
+    branch_dispatch_clear_source = true;
+
+    constexpr std::uint32_t source_properties[]{ 0x0d, 0xffffffff };
+    std::memcpy(direct_dispatch_properties, source_properties, sizeof(source_properties));
+    direct_dispatch_property_count = static_cast<int>(std::size(source_properties));
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 77;
+    direct_dispatch_values[61] = reinterpret_cast<void *>(77);
+    direct_dispatch_values[62] = nullptr;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int source_events[]{ 0x600, 0x601, 0x705, 0x750, 0x401 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(source_events)) && std::memcmp(direct_dispatch_events, source_events, sizeof(source_events)) == 0);
+
+    gag::RuntimeTreeNode jump{};
+    owner.flags = 0x200;
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 91;
+    direct_dispatch_values[61] = reinterpret_cast<void *>(91);
+    direct_dispatch_values[62] = &jump;
+    require(gag::dispatch_runtime_tree_parser(&context) == &jump);
+    constexpr int source_jump_events[]{ 0x600, 0x601, 0x705 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(source_jump_events)) && std::memcmp(direct_dispatch_events, source_jump_events, sizeof(source_jump_events)) == 0);
+
+    constexpr std::uint32_t source_continue_properties[]{ 0x0d, 1, 0xffffffff };
+    std::memcpy(direct_dispatch_properties, source_continue_properties, sizeof(source_continue_properties));
+    direct_dispatch_property_count = static_cast<int>(std::size(source_continue_properties));
+    owner.flags = 0;
+    direct_dispatch_values[62] = nullptr;
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 101;
+    branch_dispatch_read_result = 0xffffffff;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int read_failure_events[]{ 0x600, 0x601, 1, 0x401 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(read_failure_events)) && std::memcmp(direct_dispatch_events, read_failure_events, sizeof(read_failure_events)) == 0);
+
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 102;
+    branch_dispatch_read_result = 0;
+    branch_dispatch_read_text = "";
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int empty_source_events[]{ 0x600, 0x601, 0x705, 1, 0x401 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(empty_source_events)) && std::memcmp(direct_dispatch_events, empty_source_events, sizeof(empty_source_events)) == 0);
+
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 103;
+    branch_dispatch_read_result = 6;
+    branch_dispatch_read_text = "SOURCE";
+    branch_dispatch_clear_source = false;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    require(direct_dispatch_event_count == static_cast<int>(std::size(empty_source_events)) && std::memcmp(direct_dispatch_events, empty_source_events, sizeof(empty_source_events)) == 0);
+    branch_dispatch_clear_source = true;
+
+    constexpr std::uint32_t section_properties[]{ 0x0e, 0xffffffff };
+    std::memcpy(direct_dispatch_properties, section_properties, sizeof(section_properties));
+    direct_dispatch_property_count = static_cast<int>(std::size(section_properties));
+    owner.flags = 0;
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 123;
+    owner.flags = 0x200;
+    direct_dispatch_values[60] = nullptr;
+    direct_dispatch_values[61] = reinterpret_cast<void *>(123);
+    direct_dispatch_values[62] = nullptr;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int section_events[]{ 0x760, 0x401 };
+    require(direct_dispatch_event_count == static_cast<int>(std::size(section_events)) && std::memcmp(direct_dispatch_events, section_events, sizeof(section_events)) == 0);
+
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 123;
+    direct_dispatch_values[62] = &jump;
+    require(gag::dispatch_runtime_tree_parser(&context) == &jump);
+    require(direct_dispatch_event_count == 0);
+
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    context.cursor = 123;
+    direct_dispatch_values[60] = &jump;
+    direct_dispatch_values[62] = nullptr;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    require(direct_dispatch_event_count == 1 && direct_dispatch_events[0] == 0x401);
+    gag::reset_runtime_tree_parser_special_dispatch_api_for_testing();
+    gag::reset_runtime_tree_parser_direct_dispatch_api_for_testing();
+}
+
+void test_runtime_tree_parser_direct_dispatch()
+{
+    gag::RuntimeTreeParserDirectDispatchApi api{ parse_test_direct_dispatch_property, parse_test_direct_dispatch_object, parse_test_direct_dispatch_link_84, parse_test_direct_dispatch_link_7c,
+        parse_test_direct_dispatch_visual, parse_test_direct_dispatch_primary, parse_test_direct_dispatch_container, parse_test_direct_dispatch_command, parse_test_direct_dispatch_named,
+        parse_test_direct_dispatch_link_8c, create_test_direct_dispatch_conditional, parse_test_direct_dispatch_auxiliary, parse_test_direct_dispatch_fixed, parse_test_direct_dispatch_language,
+        parse_test_direct_dispatch_secondary, parse_test_direct_dispatch_value, parse_test_direct_dispatch_image_flags, parse_test_direct_dispatch_section, set_test_direct_dispatch_resource_position,
+        read_test_direct_dispatch_resource_token, parse_test_direct_dispatch_scene, add_test_direct_dispatch_auxiliary, publish_test_direct_dispatch_links };
+    gag::set_runtime_tree_parser_direct_dispatch_api_for_testing(api);
+    constexpr std::uint32_t properties[]{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0x0c, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x90, 0xb0, 0xd0, 0xe0, 0xf0, 0x11, 0xffffffff };
+    std::memcpy(direct_dispatch_properties, properties, sizeof(properties));
+    direct_dispatch_property_count = static_cast<int>(std::size(properties));
+    direct_dispatch_property_index = 0;
+    direct_dispatch_event_count = 0;
+    direct_dispatch_read_count = 0;
+    gag::ScriptRuntimeRoot root{};
+    root.set_property = set_test_direct_dispatch_root_property;
+    gag::RuntimeVisualObject visual_first{};
+    gag::RuntimeVisualObject visual_primary{};
+    visual_first.next = &visual_primary;
+    visual_primary.flags = 1;
+    visual_primary.identity = reinterpret_cast<void *>(0x12345678);
+    root.visual_objects = &visual_first;
+    gag::set_script_runtime_root_for_testing(&root);
+    gag::RuntimeTreeNode owner{};
+    owner.flags = 0x6400;
+    gag::RuntimeGenericResourceNode resource{};
+    std::memcpy(resource.name, "RESOURCE", 9);
+    direct_dispatch_resource = &resource;
+    char scratch[0x104]{};
+    gag::RuntimeTreeParserContext context{};
+    context.owner = &owner;
+    context.resource = &resource;
+    context.scratch_text_pointer = scratch;
+    require(gag::dispatch_runtime_tree_parser(&context) == &owner);
+    constexpr int expected_events[]{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0x0c, 0x10, 0x20, 0x30, 0x40, 0x50, 0x100, 0x200, 0x100, 0x200, 0xd0, 0x100, 0x200, 0xf0, 0x30d, 0x310, 0x400, 0x401 };
+    require(direct_dispatch_property_index == direct_dispatch_property_count && direct_dispatch_event_count == static_cast<int>(std::size(expected_events))
+            && std::memcmp(direct_dispatch_events, expected_events, sizeof(expected_events)) == 0);
+    require(owner.flags == 0x6400 && owner.default_visual == reinterpret_cast<gag::RuntimeVisualObject *>(0x12345678));
+    require(root.parser_value_0848[0] == 'V' && std::strcmp(root.parser_text_0868, "T") == 0 && std::strcmp(root.default_auxiliary_names, "T") == 0 && std::strcmp(scratch, "T") == 0);
+    require(direct_dispatch_read_count == 3 && direct_dispatch_read_capacities[0] == 0x80 && direct_dispatch_read_capacities[1] == 0x104 && direct_dispatch_read_capacities[2] == 0x104
+            && direct_dispatch_read_outputs[0] == root.parser_text_0868 && direct_dispatch_read_outputs[1] == root.default_auxiliary_names && direct_dispatch_read_outputs[2] == scratch);
+    gag::reset_runtime_tree_parser_direct_dispatch_api_for_testing();
+}
+
+struct ScriptObjectParseValue
+{
+    std::uint32_t result;
+    const char *text;
+};
+
+ScriptObjectParseValue script_object_parse_values[64];
+int script_object_parse_value_count;
+int script_object_parse_value_index;
+std::uint32_t script_object_parse_scopes[16];
+int script_object_parse_scope_index;
+std::int32_t script_object_parse_integers[32];
+int script_object_parse_integer_index;
+std::uint32_t script_object_parse_image_flags[32];
+int script_object_parse_image_index;
+gag::ScriptObjectState script_object_parse_created;
+bool script_object_parse_create_failure;
+int script_object_parse_create_count;
+int script_object_parse_visual_count;
+
+std::uint32_t __fastcall parse_test_script_object_value(gag::ScriptParserState *parser, char *value, std::uint32_t capacity)
+{
+    require(capacity == 0x20 && script_object_parse_value_index < script_object_parse_value_count);
+    const ScriptObjectParseValue &item = script_object_parse_values[script_object_parse_value_index++];
+    ++parser->cursor;
+    if(item.result != 0xffffffff)
+    {
+        std::memset(value, 0, capacity);
+        if(item.text != nullptr)
+        {
+            std::memcpy(value, item.text, std::min<std::size_t>(std::strlen(item.text), capacity - 1));
+        }
+    }
+    return item.result;
+}
+
+std::uint32_t __fastcall parse_test_script_object_scope(gag::ScriptParserState *)
+{
+    return script_object_parse_scopes[script_object_parse_scope_index++];
+}
+
+std::int32_t __fastcall parse_test_script_object_integer(gag::ScriptParserState *parser)
+{
+    ++parser->cursor;
+    return script_object_parse_integers[script_object_parse_integer_index++];
+}
+
+std::uint32_t __fastcall parse_test_script_object_image(gag::ScriptParserState *parser)
+{
+    ++parser->cursor;
+    return script_object_parse_image_flags[script_object_parse_image_index++];
+}
+
+bool __fastcall compare_test_script_object_fixed(const void *left, const void *right, std::uint32_t bytes)
+{
+    require(bytes == 0x20);
+    return std::memcmp(left, right, bytes) == 0;
+}
+
+gag::RuntimeVisualObject *__fastcall find_test_script_object_visual(const char *name)
+{
+    ++script_object_parse_visual_count;
+    if(std::strcmp(name, "MOUSE") == 0)
+    {
+        return reinterpret_cast<gag::RuntimeVisualObject *>(0x1111);
+    }
+    require(std::strcmp(name, "ALT") == 0);
+    return reinterpret_cast<gag::RuntimeVisualObject *>(0x2222);
+}
+
+gag::ScriptObjectState *__fastcall create_test_script_object(const void *name)
+{
+    ++script_object_parse_create_count;
+    if(script_object_parse_create_failure)
+    {
+        return nullptr;
+    }
+    script_object_parse_created = {};
+    std::memcpy(script_object_parse_created.name, name, 0x20);
+    script_object_parse_created.identity = &script_object_parse_created;
+    return &script_object_parse_created;
+}
+
+void set_test_script_object_values(std::initializer_list<ScriptObjectParseValue> values)
+{
+    script_object_parse_value_count = static_cast<int>(values.size());
+    script_object_parse_value_index = 0;
+    std::copy(values.begin(), values.end(), script_object_parse_values);
+}
+
+void test_script_object_parser_branches()
+{
+    gag::ScriptObjectParseApi api{ parse_test_script_object_value, parse_test_script_object_scope, parse_test_script_object_integer, parse_test_script_object_image, compare_test_script_object_fixed,
+        find_test_script_object_visual, create_test_script_object };
+    gag::set_script_object_parse_api_for_testing(api);
+    gag::ScriptRuntimeRoot root{};
+    gag::set_script_runtime_root_for_testing(&root);
+    gag::ScriptParserState parser{};
+
+    set_test_script_object_values({
+        { 0xffffffff, nullptr }
+    });
+    require(gag::parse_script_object_state(&parser) == 0 && script_object_parse_create_count == 0);
+    set_test_script_object_values({
+        { 1, "OBJ" }
+    });
+    script_object_parse_create_failure = true;
+    require(gag::parse_script_object_state(&parser) == 0);
+    require(script_object_parse_create_count == 1);
+    require(root.objects == nullptr);
+
+    script_object_parse_create_failure = false;
+    script_object_parse_create_count = 0;
+    script_object_parse_visual_count = 0;
+    root.palette_flags = 0x10;
+    root.command_definition_count = 2;
+    std::memcpy(root.command_definitions[0].name, "OTHER", 6);
+    std::memcpy(root.command_definitions[1].name, "CMD", 4);
+    set_test_script_object_values({
+        { 1,          "OBJ"    },
+        { 1,          "INT"    },
+        { 1,          "ZERO"   },
+        { 1,          "ON"     },
+        { 1,          "OFF"    },
+        { 1,          "IMAGE"  },
+        { 1,          "STRING" },
+        { 1,          "TXT"    },
+        { 1,          "BAD"    },
+        { 0xffffffff, nullptr  },
+        { 0xffffffff, nullptr  },
+        { 0xffffffff, nullptr  },
+        { 0xffffffff, nullptr  },
+        { 1,          "CMD"    },
+        { 0xffffffff, nullptr  },
+        { 1,          "MOUSE"  },
+        { 0xffffffff, nullptr  },
+        { 1,          "ALT"    },
+        { 0xffffffff, nullptr  },
+        { 0xffffffff, nullptr  }
+    });
+    const std::int32_t integers[]{ 7, 0, 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff };
+    const std::uint32_t images[]{ 0x03000000, 0x07000000, 0x20, 0, 0, 0x20, 0x10000 };
+    const std::uint32_t scopes[]{ 0x0a000000, 0x0a000000, 0x0c000000, 0x0d000000, 0x20000000, 0x00060000, 0xffffffff };
+    std::memcpy(script_object_parse_integers, integers, sizeof(integers));
+    std::memcpy(script_object_parse_image_flags, images, sizeof(images));
+    std::memcpy(script_object_parse_scopes, scopes, sizeof(scopes));
+    script_object_parse_integer_index = 0;
+    script_object_parse_image_index = 0;
+    script_object_parse_scope_index = 0;
+    parser.cursor = 0;
+    require(gag::parse_script_object_state(&parser) == 6);
+    gag::ScriptObjectState &object = script_object_parse_created;
+    require(root.objects == &object && object.next == nullptr && object.identity == &object && object.field_count == 6);
+    require(object.integer_values[0] == 7 && object.integer_values[1] == 0 && object.integer_values[4] == 0x20);
+    require(std::strcmp(object.string_values[5], "TXT") == 0 && object.active_field_mask == 0x35);
+    require(object.flags_042c == 0x10000 && object.image_flags == 0x30 && object.command_mask == 2);
+    require(std::strcmp(object.mouse_visual_name, "MOUSE") == 0 && std::strcmp(object.alternate_mouse_visual_name, "ALT") == 0);
+    require(object.visual_object == reinterpret_cast<gag::RuntimeVisualObject *>(0x1111) && object.alternate_visual_object == reinterpret_cast<gag::RuntimeVisualObject *>(0x2222)
+            && script_object_parse_visual_count == 2);
+    require(
+        script_object_parse_value_index == script_object_parse_value_count && script_object_parse_integer_index == 7 && script_object_parse_image_index == 7 && script_object_parse_scope_index == 7);
+
+    object.flags_042c = 0;
+    object.image_flags = 0x04000000;
+    root.palette_flags = 0;
+    set_test_script_object_values({
+        { 1,          "OBJ"   },
+        { 0xffffffff, nullptr },
+        { 0xffffffff, nullptr }
+    });
+    script_object_parse_scopes[0] = 0x00060000;
+    script_object_parse_scopes[1] = 0xffffffff;
+    script_object_parse_scope_index = 0;
+    require(gag::parse_script_object_state(&parser) == 6 && object.image_flags == 0);
+
+    object.field_count = 1;
+    std::memset(object.field_names, 0, sizeof(object.field_names));
+    std::memcpy(object.field_names[0], "SAME", 5);
+    object.active_field_mask = 1;
+    set_test_script_object_values({
+        { 1,          "OBJ"   },
+        { 1,          "SAME"  },
+        { 0xffffffff, nullptr }
+    });
+    script_object_parse_integers[0] = -1;
+    script_object_parse_integer_index = 0;
+    script_object_parse_scope_index = 0;
+    script_object_parse_scopes[0] = 0xffffffff;
+    require(gag::parse_script_object_state(&parser) == 1 && object.field_count == 1 && object.integer_values[0] == -1 && object.active_field_mask == 0);
+
+    object.field_count = 32;
+    set_test_script_object_values({
+        { 1,          "OBJ"     },
+        { 1,          "IGNORED" },
+        { 0xffffffff, nullptr   }
+    });
+    script_object_parse_integer_index = 0;
+    script_object_parse_scope_index = 0;
+    require(gag::parse_script_object_state(&parser) == 32 && script_object_parse_integer_index == 0);
+
+    gag::ScriptObjectState prior{};
+    std::memcpy(prior.name, "PRIOR", 6);
+    root.objects = &prior;
+    root.command_definition_count = 0;
+    script_object_parse_create_count = 0;
+    set_test_script_object_values({
+        { 1,          "NEW"             },
+        { 0xffffffff, nullptr           },
+        { 1,          "IGNORED_COMMAND" },
+        { 0xffffffff, nullptr           }
+    });
+    script_object_parse_scopes[0] = 0x0c000000;
+    script_object_parse_scopes[1] = 0xffffffff;
+    script_object_parse_scope_index = 0;
+    require(gag::parse_script_object_state(&parser) == 0 && prior.next == &script_object_parse_created && root.objects == &prior && script_object_parse_create_count == 1
+            && script_object_parse_created.command_mask == 0);
+    gag::reset_script_object_parse_api_for_testing();
+}
 } // namespace
 
 int main()
 {
+    test_script_object_parser_branches();
+    test_runtime_tree_parser_source_section_branches();
+    test_runtime_tree_parser_sentinel_and_class_branches();
+    test_runtime_tree_parser_special_values();
+    test_runtime_tree_parser_direct_dispatch();
+    test_runtime_text_input();
     test_application_initialization();
     test_runtime_backend_initialization();
     test_display_bootstrap();
@@ -9502,6 +11904,77 @@ int main()
     require(cdf_archive.error == 0 && cdf_write_count == 0 && cdf_seek_offset == 0x3456);
     HeapFree(GetProcessHeap(), 0, cdf_write_data);
     cdf_entries[1].uncompressed_size = 7;
+
+    gag::CdfCompressedWriteApi compressed_write_api{ GetProcessHeap, allocate_compressed_cdf, free_compressed_cdf, seek_compressed_cdf, write_compressed_cdf, compress_test_cdf };
+    gag::set_cdf_compressed_write_api_for_testing(compressed_write_api);
+    require(gag::write_compressed_cdf_index(nullptr) == 0);
+    gag::CdfArchive compressed_writer{};
+    compressed_writer.handle = reinterpret_cast<HANDLE>(91);
+    compressed_writer.entry_count = 745;
+    std::uint8_t compressed_index_source[745 * sizeof(gag::CdfEntry)]{};
+    compressed_writer.entries[0] = reinterpret_cast<gag::CdfEntry *>(compressed_index_source);
+    cdf_compressed_position = 0x120;
+    cdf_compressed_seek_count = 0;
+    cdf_compressed_write_count = 0;
+    cdf_compressed_short_write = -1;
+    cdf_compress_count = 0;
+    cdf_compressed_free_count = 0;
+    cdf_compressed_allocation_count = 0;
+    cdf_compressed_failed_allocation = 0;
+    require(gag::write_compressed_cdf_index(&compressed_writer) == 1);
+    require(compressed_writer.error == 0 && compressed_writer.index_size == 26);
+    require(cdf_compress_count == 2 && cdf_compressed_source_sizes[0] == 0x8000 && cdf_compressed_source_sizes[1] == 12);
+    require(cdf_compressed_sources[1] == compressed_index_source + 0x8000);
+    require(cdf_compressed_write_count == 4 && cdf_compressed_write_sizes[0] == 12 && cdf_compressed_write_sizes[1] == 11 && cdf_compressed_write_sizes[2] == 3 && cdf_compressed_write_sizes[3] == 12);
+    require(cdf_compressed_tables[3][0] == 12 && cdf_compressed_tables[3][1] == 23 && cdf_compressed_tables[3][2] == 26);
+    require(cdf_compressed_seek_count == 4 && cdf_compressed_seek_offsets[0] == 0 && cdf_compressed_seek_methods[0] == FILE_CURRENT && cdf_compressed_seek_offsets[1] == 0
+            && cdf_compressed_seek_methods[1] == FILE_CURRENT && cdf_compressed_seek_offsets[2] == 0x120 && cdf_compressed_seek_methods[2] == FILE_BEGIN && cdf_compressed_seek_offsets[3] == 0x13a
+            && cdf_compressed_seek_methods[3] == FILE_BEGIN);
+    require(cdf_compressed_free_count == 2 && cdf_compressed_free_flags[0] == 0 && cdf_compressed_free_flags[1] == 0);
+
+    cdf_compressed_allocation_count = 0;
+    cdf_compressed_failed_allocation = 2;
+    cdf_compressed_free_count = 0;
+    cdf_compressed_write_count = 0;
+    require(gag::write_compressed_cdf_index(&compressed_writer) == 0);
+    require(compressed_writer.error == 0x20000 && cdf_compressed_write_count == 0 && cdf_compressed_free_count == 1 && cdf_compressed_free_flags[0] == 0);
+    cdf_compressed_failed_allocation = 0;
+
+    cdf_compressed_position = 0x200;
+    cdf_compressed_seek_count = 0;
+    cdf_compressed_write_count = 0;
+    cdf_compressed_short_write = 1;
+    cdf_compress_count = 0;
+    cdf_compressed_free_count = 0;
+    cdf_compressed_allocation_count = 0;
+    require(gag::write_compressed_cdf_index(&compressed_writer) == 0);
+    require(compressed_writer.error == 2 && compressed_writer.index_size == 23 && cdf_compress_count == 1 && cdf_compressed_write_count == 2);
+
+    gag::CdfEntry compressed_writer_entry{};
+    compressed_writer_entry.file_offset = 0x400;
+    compressed_writer_entry.uncompressed_size = 0x8001;
+    compressed_writer.write_entry_index = 0;
+    compressed_writer.entries[0] = &compressed_writer_entry;
+    std::uint8_t compressed_writer_source[0x8001]{};
+    cdf_compressed_position = 0;
+    cdf_compressed_seek_count = 0;
+    cdf_compressed_write_count = 0;
+    cdf_compressed_short_write = -1;
+    cdf_compress_count = 0;
+    cdf_compressed_free_count = 0;
+    cdf_compressed_allocation_count = 0;
+    require(gag::write_compressed_cdf_entry(&compressed_writer, compressed_writer_source) == 1);
+    require(compressed_writer.error == 0 && cdf_compress_count == 2 && cdf_compressed_source_sizes[0] == 0x8000 && cdf_compressed_source_sizes[1] == 1);
+    require(cdf_compressed_sources[1] == compressed_writer_source + 0x8000);
+    require(cdf_compressed_tables[3][0] == 12 && cdf_compressed_tables[3][1] == 23 && cdf_compressed_tables[3][2] == 26);
+    require(cdf_compressed_free_count == 2 && cdf_compressed_free_flags[0] == 1 && cdf_compressed_free_flags[1] == 1);
+    cdf_compressed_write_count = 0;
+    cdf_compressed_short_write = -1;
+    cdf_compress_count = 0;
+    cdf_compressed_free_count = 0;
+    cdf_compressed_allocation_count = 0;
+    require(gag::write_compressed_cdf_entry(&compressed_writer, nullptr) == 0);
+    require(compressed_writer.error == 0x20000 && cdf_compressed_write_count == 0 && cdf_compress_count == 0 && cdf_compressed_free_count == 2);
 
     gag::CdfEntryWriteApi cdf_entry_write_api{ classify_test_cdf_entry, tell_test_cdf_writer, write_test_uncompressed_cdf_entry, write_test_compressed_cdf_entry };
     gag::set_cdf_entry_write_api_for_testing(cdf_entry_write_api);
@@ -9764,12 +12237,12 @@ int main()
     gag::clear_script_text_buffer(script_text);
     require(script_text->length == 0);
     gag::clear_script_text_buffer(nullptr);
-    gag::begin_script_text_document(script_text, "HEAD");
-    require(script_text->length == 8 && std::memcmp(script_text->data, "HEAD\r\n\r\n", 8) == 0);
-    gag::end_script_text_document(script_text, "TAIL");
-    require(script_text->length == 14 && std::memcmp(script_text->data, "HEAD\r\n\r\n\r\nTAIL", 14) == 0 && script_text->data[14] == '\0');
-    gag::begin_script_text_document(nullptr, "ignored");
-    gag::end_script_text_document(nullptr, "ignored");
+    gag::begin_script_text_document(script_text);
+    require(script_text->length == 9 && std::memcmp(script_text->data, "[CFG]\r\n\r\n", 9) == 0);
+    gag::end_script_text_document(script_text);
+    require(script_text->length == 16 && std::memcmp(script_text->data, "[CFG]\r\n\r\n\r\n[END]", 16) == 0 && script_text->data[16] == '\0');
+    gag::begin_script_text_document(nullptr);
+    gag::end_script_text_document(nullptr);
     script_text->length = 0;
     gag::append_script_text_delimiter(script_text, "word", ':');
     gag::append_script_text_delimiter(script_text, nullptr, ' ');
@@ -10393,6 +12866,8 @@ int main()
     gag::set_runtime_paths_once("FIRST", "SECOND");
     gag::set_runtime_paths_once("REPLACED", "REPLACED");
     require(std::strcmp(gag::get_first_runtime_path_for_testing(), "FIRST") == 0 && std::strcmp(gag::get_second_runtime_path_for_testing(), "SECOND") == 0);
+    require(std::strcmp(gag::get_runtime_external_command_state_for_testing().first_runtime_path, "FIRST") == 0
+            && std::strcmp(gag::get_runtime_external_command_state_for_testing().second_runtime_path, "SECOND") == 0);
     require(synchronized_enter_count == 1 && synchronized_leave_count == 1 && (gag::get_graphics_host_flags_for_testing() & 0x04000000) != 0);
 
     gag::set_runtime_flag_01000000();
@@ -10458,7 +12933,9 @@ int main()
     generic_resource_2.identity = reinterpret_cast<void *>(202);
     generic_resource_2.active_references = 1;
     script_root.generic_resources = &generic_resource_1;
-    script_root.destroy_generic_resource = destroy_test_runtime_generic_resource;
+    gag::RuntimeTreeNode *const generic_resource_adjacent_runtime_tree = reinterpret_cast<gag::RuntimeTreeNode *>(0x12345678);
+    script_root.runtime_tree = generic_resource_adjacent_runtime_tree;
+    script_root.set_property = destroy_test_runtime_generic_resource;
     runtime_generic_resource_destroy_count = 0;
     display_scene_free_count = 0;
     require(gag::find_runtime_generic_resource(reinterpret_cast<void *>(201)) == &generic_resource_1);
@@ -10471,7 +12948,9 @@ int main()
     require(script_root.generic_resources == &generic_resource_2);
     generic_resource_2.active_references = 0;
     gag::remove_runtime_generic_resource(reinterpret_cast<void *>(202));
-    require(runtime_generic_resource_destroy_count == 2 && script_root.generic_resources == nullptr && display_scene_free_count == 2);
+    require(
+        runtime_generic_resource_destroy_count == 2 && script_root.generic_resources == nullptr && display_scene_free_count == 2 && script_root.runtime_tree == generic_resource_adjacent_runtime_tree);
+    script_root.runtime_tree = nullptr;
     gag::RuntimeMediaBackendApi runtime_media_backend_api{ get_test_runtime_media_backend_thread_id, wait_test_runtime_media_backend, release_test_runtime_media_backend,
         free_test_runtime_media_backend, sleep_test_runtime_media_backend };
     gag::set_runtime_media_backend_api_for_testing(runtime_media_backend_api);
@@ -12517,6 +14996,7 @@ int main()
     reset_resource_destroy_counts();
     resource_destroy_object.type_flags = 0x3000;
     gag::set_runtime_resource_destroy_state_for_testing(reinterpret_cast<void *>(301));
+    require(gag::get_runtime_external_command_state_for_testing().current_runtime_resource == reinterpret_cast<void *>(301));
     require(gag::destroy_runtime_resource(reinterpret_cast<void *>(301)) == 0);
     require(runtime_resource_destroy_scene_count == 0 && runtime_resource_destroy_remove_child_count == 1 && runtime_resource_destroy_heap_count == 1
             && gag::get_runtime_resource_destroy_state_for_testing() == nullptr);
@@ -12739,6 +15219,8 @@ int main()
         leave_state_test_runtime_game_window, set_flag_test_runtime_game_window, default_test_runtime_game_window };
     gag::set_runtime_game_window_api_for_testing(runtime_game_window_api);
     gag::set_runtime_game_window_state_for_testing(reinterpret_cast<HWND>(318), window_test_runtime_game_dll, 10, 20);
+    require(gag::get_runtime_external_command_state_for_testing().window == reinterpret_cast<HWND>(318)
+            && gag::get_runtime_external_command_state_for_testing().game_dll_window_procedure == reinterpret_cast<FARPROC>(window_test_runtime_game_dll));
     auto reset_runtime_game_window = []()
     {
         runtime_game_window_event_count = 0;
@@ -12838,6 +15320,8 @@ int main()
     std::uint8_t runtime_game_result_copy[260]{};
     gag::get_runtime_game_result_for_testing(&runtime_game_result_type, runtime_game_result_copy, 260);
     require(runtime_game_result_type == 0x55667788 && std::memcmp(runtime_game_result_copy, runtime_game_result_source, 259) == 0);
+    require(gag::get_runtime_external_command_state_for_testing().game_result_type == 0x55667788
+            && std::memcmp(gag::get_runtime_external_command_state_for_testing().game_result_data, runtime_game_result_source, 259) == 0);
     runtime_game_result_descriptor.type = 1;
     runtime_game_result_descriptor.size = 260;
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), 0x7ffc, reinterpret_cast<WPARAM>(&runtime_game_result_descriptor), 0x40) == 0);
@@ -13217,9 +15701,13 @@ int main()
     purge_entry_1.next = &purge_entry_2;
     purge_entry_2.next = &purge_entry_1;
     script_root.runtime_nodes = &purge_node_1;
+    gag::RuntimeFixedNameListNode *const purge_adjacent_fixed_names = reinterpret_cast<gag::RuntimeFixedNameListNode *>(0x23456789);
+    script_root.fixed_name_nodes = purge_adjacent_fixed_names;
     display_scene_free_count = 0;
     gag::purge_disabled_runtime_named_nodes();
-    require(script_root.runtime_nodes == &purge_node_1 && purge_node_1.next == &purge_node_3 && purge_node_3.next == nullptr && display_scene_free_count == 3);
+    require(script_root.runtime_nodes == &purge_node_1 && purge_node_1.next == &purge_node_3 && purge_node_3.next == nullptr && display_scene_free_count == 3
+            && script_root.fixed_name_nodes == purge_adjacent_fixed_names);
+    script_root.fixed_name_nodes = nullptr;
     gag::set_script_runtime_root_for_testing(nullptr);
     gag::purge_disabled_runtime_named_nodes();
     gag::set_script_runtime_root_for_testing(&script_root);
@@ -13279,6 +15767,7 @@ int main()
     require(runtime_resource_wait_sleep_count == 1);
     char runtime_resource_path[0x104];
     gag::set_runtime_resource_directory_for_testing("D:\\GAG\\");
+    require(std::strcmp(gag::get_runtime_external_command_state_for_testing().resource_directory, "D:\\GAG\\") == 0);
     gag::build_runtime_resource_path(runtime_resource_path, "C:\\DATA\\IMAGE.BMP");
     require(std::strcmp(runtime_resource_path, "C:\\DATA\\IMAGE.BMP") == 0);
     gag::build_runtime_resource_path(runtime_resource_path, "IMAGE.BMP");
@@ -13319,6 +15808,7 @@ int main()
     gag::get_runtime_resource_host_state_for_testing(&resource_host_state, &resource_archive_state, &resource_host_mode, &resource_archive_byte);
     require(resource_host_state == reinterpret_cast<gag::AsyncFileHost *>(102) && resource_host_mode == 777);
     gag::set_runtime_resource_host_state_for_testing(reinterpret_cast<gag::AsyncFileHost *>(101), &discovery_archive, 777, 9);
+    require(gag::get_runtime_external_command_state_for_testing().resource_archive_state == 9);
     gag::update_runtime_resource_host("IGNORED.DAT", 0);
     require(runtime_resource_host_set_mode_count == 1 && runtime_resource_host_destroy_count == 0 && runtime_resource_host_close_archive_count == 0);
     gag::set_runtime_resource_directory_for_testing("C:\\DATA\\");
@@ -13931,6 +16421,7 @@ int main()
     require(gag::activate_default_comment_scene("m_DEF_COMMENT") == 1 && runtime_switch_offset_count == 0);
     gag::RuntimeTreeNode comment_node{};
     gag::set_runtime_scene_control_state_for_testing(0x100080, reinterpret_cast<void *>(302));
+    require(gag::get_runtime_external_command_state_for_testing().saved_default_comment_scene_identity == reinterpret_cast<void *>(302));
     gag::activate_runtime_tree_node_comment(&comment_node);
     require((gag::get_runtime_scene_control_flags_for_testing() & 8) == 0);
     comment_node.parent = &enumeration_root;
@@ -14095,6 +16586,12 @@ int main()
     std::memset(shutdown_backend_state, 0xff, sizeof(shutdown_backend_state));
     std::memset(shutdown_pixel_format, 0xff, sizeof(shutdown_pixel_format));
     gag::set_runtime_display_shutdown_state_for_testing(reinterpret_cast<HANDLE>(61), 62, reinterpret_cast<void *>(63), shutdown_backend_state, shutdown_pixel_format);
+    const gag::RuntimeCommandLoopState &shared_shutdown_state = gag::get_runtime_external_command_state_for_testing();
+    require(shared_shutdown_state.script_thread == reinterpret_cast<HANDLE>(61));
+    require(shared_shutdown_state.input_alternate_scene_identifier == 62);
+    require(shared_shutdown_state.display_scene_host == reinterpret_cast<void *>(63));
+    require(shared_shutdown_state.display_pixel_format[0] == 0xffffffff);
+    require(*reinterpret_cast<const std::uint32_t *>(shared_shutdown_state.command_target) == 0xffffffff);
     runtime_shutdown_close_result = FALSE;
     runtime_shutdown_event_count = 0;
     require(gag::shutdown_runtime_display() == 0 && runtime_shutdown_event_count == 2 && runtime_shutdown_events[0] == 1 && runtime_shutdown_events[1] == 2);
@@ -14160,6 +16657,23 @@ int main()
     string_value[0] = 0;
     gag::resolve_state_field_reference(script_name, field_name, string_value, 4);
     require(direct_script_object.active_field_mask == 0);
+    integer_value = -4;
+    direct_script_object.active_field_mask = 1;
+    gag::resolve_state_field_reference(script_name, field_name, &integer_value, 2);
+    require(direct_script_object.integer_values[0] == -4 && direct_script_object.active_field_mask == 0);
+    char unsupported_field[0x20]{};
+    strcpy_s(unsupported_field, "UNSUPPORTED");
+    field_value = 0x12345678;
+    require(gag::resolve_state_field_reference(script_name, unsupported_field, &field_value, 3) == &direct_script_object);
+    require(direct_script_object.field_count == 2 && std::memcmp(direct_script_object.field_names[1], unsupported_field, 0x20) == 0 && direct_script_object.active_field_mask == 0);
+    char invalid_boolean_field[0x20]{};
+    strcpy_s(invalid_boolean_field, "INVALID_BOOL");
+    require(gag::resolve_state_field_reference(script_name, invalid_boolean_field, &field_value, 1) == &direct_script_object);
+    require(direct_script_object.field_count == 3 && std::memcmp(direct_script_object.field_names[2], invalid_boolean_field, 0x20) == 0 && direct_script_object.active_field_mask == 0);
+    direct_script_object.field_count = 32;
+    char full_field[0x20]{};
+    strcpy_s(full_field, "FULL");
+    require(gag::resolve_state_field_reference(script_name, full_field, &field_value, 2) == &direct_script_object && direct_script_object.field_count == 32);
     strcpy_s(script_name, "MISSING");
     require(gag::resolve_state_field_reference(script_name, field_name, &field_value, 1) == nullptr);
     gag::ValidationApi validation_api{ find_validation_window, show_validation_message, find_validation_file, close_validation_find, get_validation_module_path, create_validation_context,
@@ -14296,6 +16810,122 @@ int main()
     require((state.flags & 0x4000000) != 0);
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_CLOSE, 0, 0) == 0 && procedure_destroy_count == 1);
 
+    gag::MainWindowProcedureApi main_procedure_api{ get_test_window_long, set_test_window_long, post_main_procedure_message, post_main_procedure_quit, reply_main_procedure,
+        send_main_procedure_message, default_main_procedure, destroy_main_procedure_window, get_main_procedure_script_state, resolve_main_procedure_state, capture_main_procedure_bitmap,
+        free_main_procedure_memory, main_procedure_hook_1, set_main_procedure_lock, clear_main_procedure_active, validate_main_procedure_startup, set_main_procedure_runtime_flag_40 };
+    gag::set_main_window_procedure_api_for_testing(main_procedure_api);
+    main_procedure_post_count = 0;
+    main_procedure_quit_count = 0;
+    main_procedure_reply_count = 0;
+    main_procedure_destroy_count = 0;
+    state = {};
+    procedure_state = &state;
+    HWND main_window = reinterpret_cast<HWND>(41);
+    CREATESTRUCTA main_create{};
+    main_create.lpCreateParams = &state;
+    procedure_state = nullptr;
+    require(gag::gag_main_window_procedure(main_window, WM_CREATE, 0, reinterpret_cast<LPARAM>(&main_create)) == 0 && procedure_state == &state);
+    require(gag::gag_main_window_procedure(main_window, WM_DESTROY, 0, 0) == 0 && main_procedure_quit_count == 1);
+    require(gag::gag_main_window_procedure(main_window, WM_NULL, 7, 8) == 0x1234 && main_procedure_last_message == WM_NULL);
+
+    state.flags = 0x80000000;
+    main_procedure_last_message = 0xffffffff;
+    require(gag::gag_main_window_procedure(main_window, WM_NULL, 0, 0) == 0 && main_procedure_last_message == 0xffffffff);
+    state.flags = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_SYSCOMMAND, SC_SCREENSAVE, 0) == 0);
+
+    std::uint8_t main_game_context[0x9b8]{};
+    *reinterpret_cast<HWND *>(main_game_context + 4) = reinterpret_cast<HWND>(42);
+    state.game_context = main_game_context;
+    require(gag::gag_main_window_procedure(main_window, WM_KEYDOWN, 3, 4) == 0x4567);
+    require(main_procedure_last_window == reinterpret_cast<HWND>(42) && main_procedure_last_message == WM_KEYDOWN && main_procedure_last_wparam == 3 && main_procedure_last_lparam == 4);
+
+    gag::ApplicationStateFieldQuery main_query{};
+    strcpy_s(main_query.object_name, "OBJECT");
+    strcpy_s(main_query.field_name, "FIELD");
+    auto check_main_query = [&](WPARAM command, std::uint32_t flags, std::uint32_t saved_flags, std::uint32_t expected)
+    {
+        state.flags = flags;
+        state.saved_flags = saved_flags;
+        main_procedure_resolve_count = 0;
+        require(gag::gag_main_window_procedure(main_window, 0x7ffd, command, reinterpret_cast<LPARAM>(&main_query)) == 0);
+        require(main_procedure_resolve_count == 1 && main_procedure_resolved_value == expected);
+    };
+    check_main_query(0x3ea, 0, 0, 0x7000000);
+    check_main_query(0x3ea, 0, 0x100000, 0x3000000);
+    check_main_query(0x3eb, 0, 0x800000, 0x3000000);
+    check_main_query(0x3ec, 0, 0, 0x7000000);
+    check_main_query(0x3ed, 0, 0x400000, 0x3000000);
+    check_main_query(0x3fc, 0x1000, 0, 0x3000000);
+    check_main_query(0x406, 0, 0, 0x7000000);
+    check_main_query(0x456, 0x4000, 0, 0x7000000);
+    check_main_query(0x456, 0, 0, 0x3000000);
+    check_main_query(0x3f2, 0x4020, 0, 0x3000000);
+    state.flags = 0x20;
+    main_procedure_resolve_count = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x3f2, reinterpret_cast<LPARAM>(&main_query)) == 0 && main_procedure_resolve_count == 0);
+    check_main_query(0xbd6, 0, 0, 0x7000000);
+    require((state.flags & 0x40000) == 0);
+
+    main_procedure_reply_count = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7d3, 0) == 0);
+    require(main_procedure_reply_count == 1 && main_procedure_last_window == main_window && main_procedure_last_message == WM_COMMAND && main_procedure_last_wparam == 0x8780);
+    state.flags = 0x20;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7da, 0) == 0 && main_procedure_last_wparam == 0x8910);
+
+    state.flags = 0x80000 | 0x100000 | 0x200000;
+    state.saved_flags = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbc2, 0) == 0);
+    require(state.saved_flags == 0x300000);
+    state.saved_memory = nullptr;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbcc, 0) == 0);
+    require((state.flags & 0x80000) == 0 && state.saved_flags == 0);
+
+    state.flags = 0;
+    state.saved_memory = nullptr;
+    state.script_state = 0;
+    main_procedure_capture_count = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbc2, 0) == 0);
+    require(main_procedure_capture_count == 1 && state.saved_memory == reinterpret_cast<void *>(0x55667788) && state.script_state == 0x87654321 && (state.flags & 0x80000) != 0);
+    main_procedure_free_count = 0;
+    main_procedure_freed_memory = nullptr;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbcc, 0) == 0);
+    require(main_procedure_free_count == 1 && main_procedure_freed_memory == reinterpret_cast<void *>(0x55667788) && state.saved_memory == nullptr);
+
+    state.flags = 0;
+    main_procedure_post_count = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xc0000000, 0) == 0);
+    require(state.flags == 0x2000 && main_procedure_post_count == 1 && main_procedure_last_message == WM_CLOSE);
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xd0000000, 0) == 0 && main_procedure_post_count == 1);
+
+    state.flags = 0x80;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8900, 0) == 0 && state.flags == 0x40);
+    state.flags = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8910, 0) == 0 && state.flags == 0xc0);
+
+    state = {};
+    procedure_state = &state;
+    main_procedure_operation_count = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8860, 0) == 0);
+    const int new_game_events[] = { 1, 2, 3, 4, 5 };
+    require(std::strcmp(state.startup_config, "NEWGAME") == 0 && (state.flags & 0x200000) != 0 && main_procedure_operation_count == 5
+            && std::memcmp(main_procedure_operation_events, new_game_events, sizeof(new_game_events)) == 0);
+
+    state = {};
+    strcpy_s(state.installation_path, "D:\\GAG\\");
+    procedure_state = &state;
+    main_procedure_operation_count = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8870, 0) == 0);
+    require(std::strcmp(state.startup_config, "START.CFG") == 0 && std::strcmp(state.installed_version, "D:\\GAG\\CREDITS") == 0 && main_procedure_operation_count == 5
+            && std::memcmp(main_procedure_operation_events, new_game_events, sizeof(new_game_events)) == 0);
+
+    state = {};
+    procedure_state = &state;
+    main_procedure_operation_count = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8880, 0) == 0);
+    const int credits_events[] = { 1, 2, 3, 4 };
+    require(main_procedure_operation_count == 4 && std::memcmp(main_procedure_operation_events, credits_events, sizeof(credits_events)) == 0);
+
     gag::CustomControlGdiApi custom_gdi_api{ get_custom_context, create_custom_context, get_custom_device_caps, get_custom_client_rect, set_custom_system_palette, create_custom_palette,
         select_custom_palette, set_custom_stretch_mode, unrealize_custom_object, realize_custom_palette, stretch_custom_control, select_custom_object, delete_custom_object, release_custom_context,
         delete_custom_context, create_custom_dib, set_custom_palette_entries, set_custom_dib_colors };
@@ -14425,7 +17055,7 @@ int main()
     state.desktop_window_rect = { 0, 0, 0, 0 };
     cursor_y = 20;
     gag::process_state_activation(&state, &reference);
-    require(state_activation_outside_count == 1 && (state.flags & 0x40000000) == 0);
+    require(state_activation_outside_count == 1 && (state.flags & 0x40000000) == 0 && state_activation_query_identity == reinterpret_cast<void *>(1));
     cursor_y = 0;
     state.flags = 0x40000000;
     gag::process_state_activation(&state, &reference);
@@ -14486,8 +17116,12 @@ int main()
     require((state.flags & 0x40000000) == 0 && (gag::get_graphics_host_flags_for_testing() & 0x01000000) == 0);
 
     gag::SynchronizedStateApi synchronized_api{ enter_synchronized_state_lock, leave_synchronized_state_lock, synchronized_operation4, synchronized_operation6, synchronized_operation4,
-        send_synchronized_state_message, reinterpret_cast<HWND>(80) };
+        send_synchronized_state_message, get_synchronized_state_message_window };
     gag::set_synchronized_state_api_for_testing(synchronized_api);
+    synchronized_enter_count = 0;
+    synchronized_leave_count = 0;
+    synchronized_operation_id = 0;
+    synchronized_send_count = 0;
     gag::set_graphics_host_flags_for_testing(0);
     require(!gag::run_synchronized_state_operation_17550(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4)));
     require(synchronized_enter_count == 0 && synchronized_operation_id == 0);
@@ -14683,15 +17317,110 @@ int main()
     require(gag::destroy_runtime_comment_trees() == 1);
     require(
         runtime_comment_node_index == 3 && runtime_comment_destroy_count == 2 && runtime_comment_deactivate_count == 2 && runtime_comment_finalize_count == 1 && runtime_comment_rebuild_count == 1);
+
+    gag::RuntimeSessionResetApi runtime_session_reset_api{ reset_test_runtime_game_dll, get_test_runtime_session_tree_root, destroy_test_runtime_session_tree_resources,
+        deactivate_test_runtime_session_tree, reset_test_runtime_display_state, request_test_runtime_session_resource_destruction, destroy_test_runtime_fixed_nodes, purge_test_runtime_named_nodes,
+        destroy_test_runtime_object_states, destroy_test_runtime_visual_objects, clear_test_runtime_command_definitions, remove_test_runtime_generic_resources, close_test_runtime_session_archive,
+        destroy_test_runtime_session_async_host, operate_test_runtime_session_surface, get_test_runtime_session_named_node, get_test_runtime_session_time, sleep_test_runtime_session };
+    gag::set_runtime_session_reset_api_for_testing(runtime_session_reset_api);
+    gag::ScriptRuntimeRoot runtime_session_root{};
+    gag::RuntimeVisualObject runtime_session_visual_1{};
+    gag::RuntimeVisualObject runtime_session_visual_2{};
+    gag::RuntimeFixedNameListNode runtime_session_fixed_1{};
+    gag::RuntimeFixedNameListNode runtime_session_fixed_2{};
+    runtime_session_visual_1.scene_identity = reinterpret_cast<void *>(301);
+    runtime_session_visual_1.next = &runtime_session_visual_2;
+    runtime_session_fixed_1.resource_identity = reinterpret_cast<void *>(302);
+    runtime_session_fixed_1.next = &runtime_session_fixed_2;
+    runtime_session_root.visual_objects = &runtime_session_visual_1;
+    runtime_session_root.fixed_name_nodes = &runtime_session_fixed_1;
+    gag::set_script_runtime_root_for_testing(&runtime_session_root);
+    gag::RuntimeTreeNode runtime_session_tree_1{};
+    gag::RuntimeTreeNode runtime_session_tree_2{};
+    runtime_session_reset_trees[0] = &runtime_session_tree_1;
+    runtime_session_reset_trees[1] = &runtime_session_tree_2;
+    runtime_session_reset_trees[2] = nullptr;
+    runtime_session_reset_tree_index = 0;
+    runtime_session_reset_requested_count = 0;
+    runtime_session_reset_event_count = 0;
+    runtime_session_reset_time_index = 0;
+    runtime_session_reset_sleep_count = 0;
+    runtime_session_reset_archive_close_count = 0;
+    runtime_session_reset_async_destroy_count = 0;
+    runtime_session_reset_media_node.status = 1;
+    runtime_session_reset_memory_node.status = 1;
+    runtime_session_reset_times[0] = 100;
+    runtime_session_reset_times[1] = 5100;
+    runtime_session_reset_times[2] = 200;
+    gag::RuntimeCommandLoopState runtime_session_state{};
+    runtime_session_state.width = 320;
+    runtime_session_state.height = 200;
+    runtime_session_state.flags = 0x10000400;
+    runtime_session_state.active_archive = reinterpret_cast<gag::CdfArchive *>(401);
+    runtime_session_state.async_file_host = reinterpret_cast<gag::AsyncFileHost *>(402);
+    gag::set_runtime_resource_host_state_for_testing(nullptr, nullptr, 99, 0);
+    gag::set_runtime_external_command_state_for_testing(runtime_session_state);
+    gag::set_embedded_script_runtime_flags_for_testing(0xaaaaaaaa, 0xbbbbbbbb);
+    require(gag::get_runtime_pointer_event_record_for_testing(14) == 0xaaaaaaaa && gag::get_runtime_pointer_event_record_for_testing(15) == 0xbbbbbbbb);
+    gag::RuntimeSceneSlot reset_scene_slots[32];
+    std::memset(reset_scene_slots, 0xff, sizeof(reset_scene_slots));
+    gag::set_runtime_scene_slots_for_testing(reset_scene_slots);
+    gag::set_runtime_session_reset_storage_for_testing(0xffffffff);
+    gag::reset_runtime_session();
+    const gag::RuntimeCommandLoopState &reset_state = gag::get_runtime_external_command_state_for_testing();
+    require(runtime_session_reset_tree_index == 2 && runtime_session_reset_requested_count == 2);
+    require(runtime_session_reset_requested[0] == reinterpret_cast<void *>(301) && runtime_session_reset_requested[1] == reinterpret_cast<void *>(302));
+    require(runtime_session_reset_archive == reinterpret_cast<gag::CdfArchive *>(401) && runtime_session_reset_async_host == reinterpret_cast<gag::AsyncFileHost *>(402));
+    require(runtime_session_reset_surface[0] == 0 && runtime_session_reset_surface[1] == 0 && runtime_session_reset_surface[2] == 320 && runtime_session_reset_surface[3] == 200
+            && runtime_session_reset_surface[4] == 2);
+    require(runtime_session_reset_sleep_count == 1 && runtime_session_reset_time_index == 3);
+    require(reset_state.active_archive == nullptr && reset_state.async_file_host == nullptr && reset_state.flags == 0x600 && reset_state.reset_value_1 == 6 && reset_state.reset_value_2 == 5
+            && reset_state.reset_value_3 == 5);
+    require(gag::get_runtime_pointer_event_record_for_testing(14) == 0 && gag::get_runtime_pointer_event_record_for_testing(15) == 0);
+    require(gag::get_runtime_session_reset_storage_for_testing(0) == 0 && gag::get_runtime_session_reset_storage_for_testing(0x1d2) == 0);
+    const auto *reset_scene_slot_bytes = reinterpret_cast<const std::uint8_t *>(gag::get_runtime_scene_slots_for_testing());
+    require(reset_scene_slot_bytes[0] == 0 && reset_scene_slot_bytes[0x4df] == 0 && reset_scene_slot_bytes[0x4e0] == 0xff && reset_scene_slot_bytes[0x4ff] == 0xff);
+    gag::AsyncFileHost *reset_host;
+    gag::CdfArchive *reset_archive;
+    std::int32_t reset_mode;
+    std::uint8_t reset_archive_state;
+    gag::get_runtime_resource_host_state_for_testing(&reset_host, &reset_archive, &reset_mode, &reset_archive_state);
+    require(reset_mode == 0x6a4);
+    const int expected_runtime_session_reset_events[]{ 1, 2, 3, 4, 2, 3, 4, 2, 5, 6, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 18, 19, 18 };
+    require(runtime_session_reset_event_count == static_cast<int>(std::size(expected_runtime_session_reset_events))
+            && std::memcmp(runtime_session_reset_events, expected_runtime_session_reset_events, sizeof(expected_runtime_session_reset_events)) == 0);
+
+    runtime_session_root.visual_objects = nullptr;
+    runtime_session_root.fixed_name_nodes = nullptr;
+    runtime_session_reset_trees[0] = nullptr;
+    runtime_session_reset_tree_index = 0;
+    runtime_session_reset_event_count = 0;
+    runtime_session_reset_time_index = 0;
+    runtime_session_reset_sleep_count = 0;
+    runtime_session_reset_media_node.status = 1;
+    runtime_session_reset_memory_node.status = 1;
+    runtime_session_reset_times[0] = 100;
+    runtime_session_reset_times[1] = 101;
+    runtime_session_reset_times[2] = 200;
+    runtime_session_reset_times[3] = 201;
+    runtime_session_state = {};
+    runtime_session_state.flags = 0x400;
+    gag::set_runtime_external_command_state_for_testing(runtime_session_state);
+    gag::reset_runtime_session();
+    require(runtime_session_reset_archive_close_count == 1 && runtime_session_reset_async_destroy_count == 2);
+    require(runtime_session_reset_sleep_count == 0 && runtime_session_reset_time_index == 4);
+    require(gag::get_runtime_external_command_state_for_testing().flags == 0x400);
+
     gag::RuntimePendingTreeSwitchApi runtime_tree_switch_api{ destroy_test_pending_tree_resources, activate_test_pending_tree, finalize_test_current_tree, rebuild_test_after_tree_switch,
         update_test_tree_switch_pointer };
     gag::set_runtime_pending_tree_switch_api_for_testing(runtime_tree_switch_api);
     gag::RuntimeTreeNode pending_tree{};
     gag::RuntimeTreeNode activated_tree{};
     pending_tree.identity = &activated_tree;
-    gag::set_runtime_scene_switch_state_for_testing(nullptr, -21, 34);
     runtime_plan_state.flags = 0;
-    runtime_plan_state.unknown_90c = 0xffffffff;
+    runtime_plan_state.accumulated_tree_flags = 0xffffffff;
+    runtime_plan_state.scene_x = -21;
+    runtime_plan_state.scene_y = 34;
     gag::set_runtime_external_command_state_for_testing(runtime_plan_state);
     runtime_tree_switch_event_count = 0;
     require(!gag::process_pending_runtime_tree_switch(&pending_tree) && runtime_tree_switch_event_count == 0);
@@ -14723,7 +17452,7 @@ int main()
     gag::set_script_runtime_root_for_testing(nullptr);
     require(gag::find_or_load_runtime_generic_resource("C:\\GAG\\TREE.CFG") == nullptr);
     gag::ScriptRuntimeRoot generic_load_root{};
-    generic_load_root.dispatch_resource_operation = dispatch_test_runtime_generic_load;
+    generic_load_root.get_property = dispatch_test_runtime_generic_load;
     generic_load_root.heap = reinterpret_cast<HANDLE>(0x1234);
     gag::RuntimeGenericResourceNode generic_load_first{};
     gag::RuntimeGenericResourceNode generic_load_second{};
@@ -14851,6 +17580,7 @@ int main()
     gag::RuntimeTreeNode parser_release_owner{};
     runtime_tree_parser_release_free_count = 0;
     runtime_tree_parser_release_remove_count = 0;
+    runtime_tree_parser_release_event_count = 0;
     gag::release_runtime_tree_parser_contexts(&parser_release_owner);
     require(runtime_tree_parser_release_free_count == 0 && runtime_tree_parser_release_remove_count == 0);
     gag::RuntimeGenericResourceNode parser_release_resource_1{};
@@ -14873,6 +17603,11 @@ int main()
     require(runtime_tree_parser_release_freed[0] == &parser_release_context_1 && runtime_tree_parser_release_freed[1] == &parser_release_context_2
             && runtime_tree_parser_release_freed[2] == &parser_release_context_3);
     require(runtime_tree_parser_release_removed[0] == &parser_release_resource_2 && runtime_tree_parser_release_removed[1] == &parser_release_resource_3);
+    require(runtime_tree_parser_release_event_count == 5 && runtime_tree_parser_release_events[0] == 2 && runtime_tree_parser_release_event_values[0] == &parser_release_context_1
+            && runtime_tree_parser_release_events[1] == 1 && runtime_tree_parser_release_event_values[1] == &parser_release_resource_2 && runtime_tree_parser_release_events[2] == 2
+            && runtime_tree_parser_release_event_values[2] == &parser_release_context_2 && runtime_tree_parser_release_events[3] == 1
+            && runtime_tree_parser_release_event_values[3] == &parser_release_resource_3 && runtime_tree_parser_release_events[4] == 2
+            && runtime_tree_parser_release_event_values[4] == &parser_release_context_3);
     require(parser_release_owner.parser_contexts == &parser_release_context_1);
 
     gag::RuntimeTreeParserResetApi runtime_tree_parser_reset_api{ parse_test_runtime_tree_reset_property, resolve_test_runtime_tree_reset_include, find_test_runtime_tree_reset_node };
@@ -15094,10 +17829,80 @@ int main()
     runtime_tree_destroy_identities[0] = reinterpret_cast<void *>(0x600);
     runtime_tree_destroy_nodes[0] = &destroy_root;
     runtime_tree_destroy_identity_count = 1;
-    generic_load_root.runtime_nodes = reinterpret_cast<gag::RuntimeNamedNode *>(&destroy_root);
+    gag::RuntimeNamedNode preserved_runtime_named_node{};
+    generic_load_root.runtime_tree = &destroy_root;
+    generic_load_root.runtime_nodes = &preserved_runtime_named_node;
     runtime_tree_destroy_event_count = 0;
     require(gag::destroy_runtime_tree_node(reinterpret_cast<void *>(0x600), nullptr) == nullptr);
-    require(generic_load_root.runtime_nodes == reinterpret_cast<gag::RuntimeNamedNode *>(&destroy_root_next) && destroy_root_next.previous == nullptr);
+    require(generic_load_root.runtime_tree == &destroy_root_next && generic_load_root.runtime_nodes == &preserved_runtime_named_node && destroy_root_next.previous == nullptr);
+
+    gag::RuntimeTreeNode destroy_ranges{};
+    destroy_ranges.identity = reinterpret_cast<void *>(0x700);
+    gag::RuntimeTreeSceneLink destroy_scene_first{};
+    gag::RuntimeTreeSceneLink destroy_scene_tail{};
+    gag::RuntimeTreeSceneLink destroy_scene_after{};
+    destroy_scene_first.next = &destroy_scene_tail;
+    destroy_scene_tail.next = &destroy_scene_after;
+    destroy_ranges.scene_link_head = &destroy_scene_first;
+    destroy_ranges.scene_link_tail = &destroy_scene_tail;
+    gag::RuntimeTreeSecondaryResourceLink destroy_secondary_first{};
+    gag::RuntimeTreeSecondaryResourceLink destroy_secondary_tail{};
+    gag::RuntimeTreeSecondaryResourceLink destroy_secondary_after{};
+    destroy_secondary_first.next = &destroy_secondary_tail;
+    destroy_secondary_tail.next = &destroy_secondary_after;
+    destroy_ranges.secondary_resource_link_head = &destroy_secondary_first;
+    destroy_ranges.secondary_resource_link_tail = &destroy_secondary_tail;
+    gag::RuntimeTreePrimaryResourceLink destroy_primary_first{};
+    gag::RuntimeTreePrimaryResourceLink destroy_primary_tail{};
+    gag::RuntimeTreePrimaryResourceLink destroy_primary_after{};
+    destroy_primary_first.next = &destroy_primary_tail;
+    destroy_primary_tail.next = &destroy_primary_after;
+    destroy_ranges.primary_resource_link_head = &destroy_primary_first;
+    destroy_ranges.primary_resource_link_tail = &destroy_primary_tail;
+    gag::RuntimeTreeLink7C destroy_7c_first{};
+    gag::RuntimeTreeLink7C destroy_7c_tail{};
+    gag::RuntimeTreeLink7C destroy_7c_after{};
+    destroy_7c_first.next = &destroy_7c_tail;
+    destroy_7c_tail.next = &destroy_7c_after;
+    destroy_ranges.link_007c_head = &destroy_7c_first;
+    destroy_ranges.link_007c_tail = &destroy_7c_tail;
+    gag::RuntimeTreeLink84 destroy_84_first{};
+    gag::RuntimeTreeLink84 destroy_84_tail{};
+    gag::RuntimeTreeLink84 destroy_84_after{};
+    destroy_84_first.next = &destroy_84_tail;
+    destroy_84_tail.next = &destroy_84_after;
+    destroy_ranges.link_0084_head = &destroy_84_first;
+    destroy_ranges.link_0084_tail = &destroy_84_tail;
+    gag::RuntimeTreeLink8C destroy_8c_first{};
+    gag::RuntimeTreeLink8C destroy_8c_tail{};
+    gag::RuntimeTreeLink8C destroy_8c_after{};
+    destroy_8c_first.next = &destroy_8c_tail;
+    destroy_8c_tail.next = &destroy_8c_after;
+    destroy_ranges.link_008c_head = &destroy_8c_first;
+    destroy_ranges.link_008c_tail = &destroy_8c_tail;
+    gag::ScriptObjectContainer destroy_container_first{};
+    gag::ScriptObjectContainer destroy_container_tail{};
+    gag::ScriptObjectContainer destroy_container_after{};
+    destroy_container_first.next = &destroy_container_tail;
+    destroy_container_tail.next = &destroy_container_after;
+    destroy_ranges.container_head = &destroy_container_first;
+    destroy_ranges.container_tail = &destroy_container_tail;
+    runtime_tree_destroy_identities[0] = destroy_ranges.identity;
+    runtime_tree_destroy_nodes[0] = &destroy_ranges;
+    runtime_tree_destroy_identity_count = 1;
+    runtime_tree_destroy_event_count = 0;
+    generic_load_root.runtime_tree = &destroy_ranges;
+    require(gag::destroy_runtime_tree_node(destroy_ranges.identity, nullptr) == nullptr && generic_load_root.runtime_tree == nullptr);
+    require(runtime_tree_destroy_event_count == 26);
+    require(runtime_tree_destroy_events[0] == 101 && runtime_tree_destroy_values[1] == &destroy_scene_first && runtime_tree_destroy_values[2] == &destroy_scene_tail);
+    require(runtime_tree_destroy_events[3] == 102 && runtime_tree_destroy_values[4] == &destroy_secondary_first && runtime_tree_destroy_values[5] == &destroy_secondary_tail);
+    require(runtime_tree_destroy_events[6] == 103 && runtime_tree_destroy_values[7] == &destroy_primary_first && runtime_tree_destroy_values[8] == &destroy_primary_tail);
+    require(runtime_tree_destroy_events[9] == 104 && runtime_tree_destroy_values[10] == &destroy_7c_first && runtime_tree_destroy_values[11] == &destroy_7c_tail);
+    require(runtime_tree_destroy_events[12] == 105 && runtime_tree_destroy_values[13] == &destroy_84_first && runtime_tree_destroy_values[14] == &destroy_84_tail);
+    require(runtime_tree_destroy_events[15] == 106 && runtime_tree_destroy_values[16] == &destroy_8c_first && runtime_tree_destroy_values[17] == &destroy_8c_tail);
+    require(runtime_tree_destroy_events[18] == 107 && runtime_tree_destroy_values[19] == &destroy_container_first && runtime_tree_destroy_values[20] == &destroy_container_tail);
+    require(runtime_tree_destroy_events[21] == 110 && runtime_tree_destroy_events[22] == 111 && runtime_tree_destroy_events[23] == 114 && runtime_tree_destroy_events[24] == 115
+            && runtime_tree_destroy_values[24] == nullptr && runtime_tree_destroy_events[25] == 108 && runtime_tree_destroy_values[25] == &destroy_ranges);
 
     gag::ScriptRuntimeRoot global_link_root{};
     gag::set_script_runtime_root_for_testing(&global_link_root);
@@ -15195,6 +18000,52 @@ int main()
     require(read_root_pointer(0xfc0) == &global_scene && read_root_pointer(0xfbc) == &global_secondary && read_root_pointer(0xfa8) == &global_primary);
     require(read_root_pointer(0xfac) == &global_7c && read_root_pointer(0xfb0) == &global_84 && read_root_pointer(0xfb8) == &global_8c && read_root_pointer(0xfb4) == &global_container);
     gag::set_script_runtime_root_for_testing(&generic_load_root);
+
+    gag::set_script_utility_api_for_testing(gag::ScriptUtilityApi{ allocate_test_script_text, get_test_script_random_tick, seed_test_script_random, get_test_script_random });
+    gag::set_script_runtime_root_for_testing(nullptr);
+    require(gag::serialize_current_runtime_state() == nullptr);
+    gag::ScriptRuntimeRoot current_serialization_root{};
+    current_serialization_root.get_property = dispatch_test_runtime_serialization;
+    gag::set_script_runtime_root_for_testing(&current_serialization_root);
+    script_text_allocation_failure = true;
+    require(gag::serialize_current_runtime_state() == nullptr && current_serialization_root.serialized_script == nullptr);
+    script_text_allocation_failure = false;
+    std::memset(script_text_allocation, 0xcc, sizeof(script_text_allocation));
+    runtime_serialization_operation_count = 0;
+    gag::ScriptTextBuffer *current_serialization = gag::serialize_current_runtime_state();
+    require(current_serialization == reinterpret_cast<gag::ScriptTextBuffer *>(script_text_allocation));
+    const char expected_current_serialization[]{ "[CFG]\r\n\r\nfont=11;\r\ndrivespeed=22;\r\nfademask=33 PALFADE:44 FRAMEFADE:55;\r\nflags=NOSAVE;\r\nsource=SOURCE.CFG;\r\n\r\n\r\n[END]" };
+    require(current_serialization->length == sizeof(expected_current_serialization) - 1
+            && std::memcmp(current_serialization->data, expected_current_serialization, sizeof(expected_current_serialization) - 1) == 0);
+    const std::uint32_t expected_serialization_operations[]{ 8, 12, 4, 1, 2, 5 };
+    require(runtime_serialization_operation_count == 6 && std::memcmp(runtime_serialization_operations, expected_serialization_operations, sizeof(expected_serialization_operations)) == 0);
+
+    current_serialization_root.flags = 1;
+    current_serialization_root.palette_flags = 0x04000000;
+    current_serialization_root.parser_integer_0820 = 77;
+    std::strcpy(current_serialization_root.language, "ENGLISH");
+    std::strcpy(current_serialization_root.parser_value_0848, "INVENTORY");
+    std::strcpy(current_serialization_root.parser_text_0868, "HANDLER");
+    std::strcpy(current_serialization_root.default_auxiliary_names, "EXTRA");
+    gag::RuntimeTreeNode current_serialization_tree{};
+    gag::RuntimeTreeParserContext current_serialization_context{};
+    gag::RuntimeGenericResourceNode current_serialization_resource{};
+    std::strcpy(current_serialization_tree.name, "TREE");
+    std::strcpy(current_serialization_context.name, "TREE");
+    std::strcpy(current_serialization_resource.name, "RESOURCE");
+    current_serialization_tree.parser_contexts = &current_serialization_context;
+    current_serialization_context.owner = &current_serialization_tree;
+    current_serialization_context.name_pointer = current_serialization_tree.name;
+    current_serialization_context.resource = &current_serialization_resource;
+    current_serialization_root.runtime_tree = &current_serialization_tree;
+    runtime_serialization_operation_count = 0;
+    require(gag::serialize_current_runtime_state() == current_serialization);
+    require(std::strstr(current_serialization->data, "language=ENGLISH;\r\n") != nullptr);
+    require(std::strstr(current_serialization->data, "flags=NOCOMMENT NOSAVE;\r\nflags=PAL_NOADJUST;\r\n") != nullptr);
+    require(std::strstr(current_serialization->data, "volume=77;\r\nexfiles=EXTRA;\r\nexception=HANDLER;\r\ninventory=INVENTORY;\r\n") != nullptr);
+    require(std::strstr(current_serialization->data, "try=;\r\nsection=RESOURCE:TREE;\r\ncatch=HANDLER;\r\n") != nullptr);
+    require(std::strstr(current_serialization->data, "event=e_START /PRELOAD:RESOURCE:TREE;\r\n") != nullptr);
+    gag::set_script_utility_api_for_testing(gag::ScriptUtilityApi{ VirtualAlloc, GetTickCount, std::srand, std::rand });
 
     char runtime_serialization_data[1024]{};
     gag::ScriptTextBuffer runtime_serialization{ 0, sizeof(runtime_serialization_data), runtime_serialization_data };
@@ -15320,12 +18171,57 @@ int main()
     require(visual_serialization.scene_identity == reinterpret_cast<void *>(703) && visual_serialization.position_x == 12 && visual_serialization.position_y == 13
             && visual_serialization.palette_flags == 0x20 && (visual_serialization.flags & 0x00100001) == 1
             && *reinterpret_cast<gag::RuntimeVisualObject **>(reinterpret_cast<std::uint8_t *>(&visual_parser_context) + 0x70) == &visual_serialization);
+
+    visual_serialization.scene_identity = reinterpret_cast<void *>(704);
+    const char visual_changed_file_text[]{ "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV /FILE: CHANGED 7 ;" };
+    visual_parser->text = visual_changed_file_text;
+    visual_parser->text_length = sizeof(visual_changed_file_text) - 1;
+    visual_parser->cursor = 0;
+    require(gag::parse_runtime_visual_object(visual_parser) == 0 && std::strcmp(visual_serialization.file_name, "CHANGED") == 0 && visual_serialization.scene_identity == nullptr
+            && visual_serialization.previous_scene_identity == reinterpret_cast<void *>(704) && (visual_serialization.flags & 0x00100000) != 0 && visual_serialization.serialized_file[0] != '\0');
+
+    const char visual_missing_name_text[]{ "" };
+    visual_parser->text = visual_missing_name_text;
+    visual_parser->text_length = 0;
+    visual_parser->cursor = 0;
+    require(gag::parse_runtime_visual_object(visual_parser) == 0 && serialization_root.visual_objects == &visual_serialization);
+
+    HANDLE saved_visual_failure_heap = serialization_root.heap;
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    const char failed_visual_text[]{ "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" };
+    visual_parser->text = failed_visual_text;
+    visual_parser->text_length = sizeof(failed_visual_text) - 1;
+    visual_parser->cursor = 0;
+    require(gag::parse_runtime_visual_object(visual_parser) == 0 && display_scene_allocation_count == 1 && serialization_root.visual_objects == &visual_serialization
+            && visual_serialization.next == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = saved_visual_failure_heap;
+
+    HANDLE saved_visual_parse_heap = serialization_root.heap;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
+    const char new_visual_text[]{ "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN /FILE: NEWFILE 7 /POS: -2 5 ;" };
+    visual_parser->text = new_visual_text;
+    visual_parser->text_length = sizeof(new_visual_text) - 1;
+    visual_parser->cursor = 0;
+    require(gag::parse_runtime_visual_object(visual_parser) == 0);
+    gag::RuntimeVisualObject *new_visual = visual_serialization.next;
+    require(new_visual != nullptr && new_visual->identity == new_visual && new_visual->next == nullptr && std::strcmp(new_visual->name, "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN") == 0
+            && std::strcmp(new_visual->file_name, "NEWFILE") == 0 && new_visual->position_x == -2 && new_visual->position_y == 5 && new_visual->palette_flags == serialization_root.palette_flags
+            && (new_visual->flags & 0x00100000) != 0);
+    visual_serialization.next = nullptr;
+    HeapFree(serialization_root.heap, 0, new_visual);
+    serialization_root.heap = saved_visual_parse_heap;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+
     const char visual_clear_text[]{ "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" };
     visual_parser->text = visual_clear_text;
     visual_parser->text_length = sizeof(visual_clear_text) - 1;
     visual_parser->cursor = 0;
     require(gag::parse_runtime_visual_object(visual_parser) == 0 && visual_serialization.file_name[0] == '\0' && visual_serialization.scene_identity == nullptr
-            && visual_serialization.previous_scene_identity == reinterpret_cast<void *>(703));
+            && visual_serialization.previous_scene_identity == reinterpret_cast<void *>(704));
     *reinterpret_cast<std::uint32_t *>(serialization_root_bytes + 0x824) = 0;
     std::memcpy(serialization_root_bytes + 0x828, saved_visual_suffix, sizeof(saved_visual_suffix));
     serialization_root.palette_flags = 0;
@@ -15811,24 +18707,24 @@ int main()
     const std::uint32_t saved_interaction_write_index = serialization_root.transient_index_2;
     gag::RuntimeTreeLink7C activation_link{};
     gag::set_script_runtime_root_for_testing(nullptr);
-    gag::activate_runtime_tree_link_007c(&activation_link);
+    require(gag::activate_runtime_tree_link_007c(&activation_link) == 0);
     require(activation_link.owner_flags == 0);
     gag::set_script_runtime_root_for_testing(&serialization_root);
-    gag::activate_runtime_tree_link_007c(nullptr);
+    require(gag::activate_runtime_tree_link_007c(nullptr) == 0);
     serialization_root.transient_index_1 = 3;
     serialization_root.transient_index_2 = 3;
     serialization_root.event_records[3][14] = 0xffffffff;
-    gag::activate_runtime_tree_link_007c(&activation_link);
+    require(gag::activate_runtime_tree_link_007c(&activation_link) == 1);
     require((activation_link.owner_flags & 0x80000000) != 0 && serialization_root.event_records[3][14] == 0 && serialization_root.transient_index_1 == 3);
     serialization_root.event_records[3][14] = 0x1234;
-    gag::activate_runtime_tree_link_007c(&activation_link);
+    require(gag::activate_runtime_tree_link_007c(&activation_link) == 1);
     require(serialization_root.event_records[3][14] == 0x1234 && serialization_root.transient_index_1 == 3);
     serialization_root.transient_index_1 = 31;
     serialization_root.transient_index_2 = 0;
     serialization_root.event_records[31][14] = 0;
     activation_link.owner_flags = 0;
     activation_link.flags = 0x10000000;
-    gag::activate_runtime_tree_link_007c(&activation_link);
+    require(gag::activate_runtime_tree_link_007c(&activation_link) == 1);
     require((activation_link.owner_flags & 0x80000000) != 0 && serialization_root.transient_index_1 == 0);
     activation_link.owner_flags = 0;
     activation_link.flags = 1;
@@ -15837,7 +18733,7 @@ int main()
     serialization_root.transient_index_2 = 6;
     serialization_root.event_records[5][0] = 1;
     serialization_root.event_records[5][14] = 1;
-    gag::activate_runtime_tree_link_007c(&activation_link);
+    require(gag::activate_runtime_tree_link_007c(&activation_link) == 0);
     require(activation_link.owner_flags == 0 && serialization_root.transient_index_1 == 5);
     std::memcpy(serialization_root.event_records, saved_interaction_events, sizeof(saved_interaction_events));
     serialization_root.transient_index_1 = saved_interaction_read_index;
@@ -15994,7 +18890,53 @@ int main()
     require(gag::parse_runtime_command_definition(&command_parser) == 0 && *command_count == 32);
     gag::clear_runtime_command_definitions();
     require(*command_count == 0 && command_definitions[0].name[0] == '\0' && command_definitions[31].flags == 0);
+
+    const char empty_command_text[]{ "" };
+    command_parser.text = empty_command_text;
+    command_parser.text_length = 0;
+    command_parser.cursor = 0;
+    require(gag::parse_runtime_command_definition(&command_parser) == 0 && *command_count == 0);
+
+    const char missing_command_flag_text[]{ "FLAGLESS /F:" };
+    command_parser.text = missing_command_flag_text;
+    command_parser.text_length = sizeof(missing_command_flag_text) - 1;
+    command_parser.cursor = 0;
+    require(gag::parse_runtime_command_definition(&command_parser) == 1 && *command_count == 1 && std::strcmp(command_definitions[0].name, "FLAGLESS") == 0 && command_definitions[0].flags == 0);
+
+    const char missing_command_mouse_text[]{ "MOUSELESS /MOUSE:" };
+    command_parser.text = missing_command_mouse_text;
+    command_parser.text_length = sizeof(missing_command_mouse_text) - 1;
+    command_parser.cursor = 0;
+    require(gag::parse_runtime_command_definition(&command_parser) == 2 && *command_count == 2 && std::strcmp(command_definitions[1].name, "MOUSELESS") == 0
+            && command_definitions[1].visual_object == nullptr);
+    gag::clear_runtime_command_definitions();
     serialization_root.visual_objects = nullptr;
+
+    gag::RuntimeSceneSlot command_overlap_slots[32];
+    std::memset(command_overlap_slots, 0xff, sizeof(command_overlap_slots));
+    gag::set_runtime_scene_slots_for_testing(command_overlap_slots);
+    gag::use_embedded_script_runtime_root_for_testing();
+    gag::clear_runtime_command_definitions();
+    const auto *command_overlap_bytes = reinterpret_cast<const std::uint8_t *>(gag::get_runtime_scene_slots_for_testing());
+    require(command_overlap_bytes[0] == 0 && command_overlap_bytes[0x4df] == 0 && command_overlap_bytes[0x4e0] == 0xff && command_overlap_bytes[0x4ff] == 0xff);
+    gag::get_embedded_script_runtime_root_for_testing()->visual_objects = &command_visual;
+    command_parser.text = command_text;
+    command_parser.text_length = sizeof(command_text) - 1;
+    command_parser.cursor = 0;
+    require(gag::parse_runtime_command_definition(&command_parser) == 1);
+    const gag::RuntimeSceneSlot *embedded_command_slots = gag::get_runtime_scene_slots_for_testing();
+    require(embedded_command_slots[0].visual_object == &command_visual && embedded_command_slots[0].flags == 0x20);
+    const char second_command_text[]{ "SECOND" };
+    command_parser.text = second_command_text;
+    command_parser.text_length = sizeof(second_command_text) - 1;
+    command_parser.cursor = 0;
+    require(gag::parse_runtime_command_definition(&command_parser) == 2 && std::strcmp(embedded_command_slots[0].name, "SECOND") == 0);
+    gag::RuntimePointerRegion embedded_pointer_region_1{};
+    gag::RuntimePointerRegion embedded_pointer_region_2{};
+    gag::set_runtime_pointer_region_state_for_testing(nullptr, &embedded_pointer_region_1, nullptr, 0, nullptr);
+    require(reinterpret_cast<void *>(gag::get_embedded_script_runtime_root_for_testing()->global_link_0084_head) == &embedded_pointer_region_1);
+    gag::get_embedded_script_runtime_root_for_testing()->global_link_0084_head = reinterpret_cast<gag::RuntimeTreeLink84 *>(&embedded_pointer_region_2);
+    require(gag::get_runtime_pointer_regions_for_testing() == &embedded_pointer_region_2);
     gag::set_script_runtime_root_for_testing(&generic_load_root);
 
     gag::RuntimeTreeCreationApi runtime_tree_creation_api{ find_test_runtime_tree_creation_node, find_test_runtime_tree_creation_resource, find_test_runtime_tree_creation_root,
@@ -16220,6 +19162,7 @@ int main()
     require(gag::deactivate_runtime_tree_and_visuals(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2)) == 0xabcdef01);
     require(runtime_deactivate_event_count == 3 && runtime_deactivate_events[0] == 1 && runtime_deactivate_events[1] == 8 && runtime_deactivate_events[2] == 9);
     require(deactivate_object_1.visual_object == &deactivate_visual_1);
+    gag::set_graphics_host_flags_for_testing(0x100400);
     gag::enqueue_runtime_pair(7, 8);
     gag::set_graphics_host_flags_for_testing(0);
     require(gag::dequeue_runtime_pair(&runtime_pair) == 0);
@@ -16240,72 +19183,75 @@ int main()
     require(gag::copy_runtime_input_session_record(&input_session_copy) == 0);
     require(std::memcmp(&input_session_copy, &input_session_source, sizeof(input_session_copy)) == 0);
 
-    gag::RuntimeInputSessionApi input_session_api{ get_input_session_time, find_input_session_context, prepare_input_session, allocate_input_session_resource, acquire_input_session_resource,
-        create_input_session_object, activate_input_session_object, cleanup_input_session_state, configure_input_session_object, release_input_session_resource, release_input_session_context };
+    gag::RuntimeInputSessionApi input_session_api{ reset_input_session_bytes, get_input_session_time, acquire_input_session_record, initialize_input_session_text, find_input_session_scene_index,
+        lock_input_session_scene, acquire_input_session_scene, begin_input_session_update, draw_input_session_text, end_input_session_update, unlock_input_session_scene,
+        release_input_session_record };
     gag::set_runtime_input_session_api_for_testing(input_session_api);
-    input_session_context.context_value = reinterpret_cast<void *>(10);
-    input_session_context.resource_context = reinterpret_cast<void *>(16);
-    gag::set_runtime_input_session_globals_for_testing(reinterpret_cast<void *>(99), reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13),
-        reinterpret_cast<void *>(14), reinterpret_cast<void *>(15));
-    gag::set_graphics_host_flags_for_testing(0x100400);
+    gag::RuntimeCommandLoopState *input_state = gag::get_runtime_command_loop_state_for_testing();
+    std::memset(input_state, 0, sizeof(*input_state));
+    input_session_record.identity_context = reinterpret_cast<void *>(10);
+    input_session_record.scene_identifier = 16;
+    gag::set_runtime_input_alternate_scene_for_testing(11);
+    input_state->input_scene_identifier = 99;
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 0,
         reinterpret_cast<void *>(6));
-    require(input_session_event_count == 0 && gag::get_runtime_input_object_for_testing() == reinterpret_cast<void *>(99));
+    require(input_session_event_count == 0 && input_state->input_scene_identifier == 99);
 
-    gag::set_runtime_input_session_globals_for_testing(nullptr, reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13), reinterpret_cast<void *>(14),
-        reinterpret_cast<void *>(15));
+    std::memset(input_state, 0, sizeof(*input_state));
+    input_session_has_record = true;
+    input_session_initialize_result = false;
+    input_session_event_count = 0;
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 0,
         reinterpret_cast<void *>(6));
-    const int input_prepare_failure_events[]{ 1, 2, 3, 11 };
-    require(input_session_event_count == 4 && std::memcmp(input_session_events, input_prepare_failure_events, sizeof(input_prepare_failure_events)) == 0);
-    require(gag::get_runtime_input_character_width_for_testing() == 0x20 && gag::get_runtime_input_session_value_for_testing() == reinterpret_cast<void *>(6));
-    require(gag::get_runtime_input_object_for_testing() == nullptr && (gag::get_graphics_host_flags_for_testing() & 0x100) != 0);
+    const int input_initialize_failure_events[]{ 1, 2, 3, 4, 12 };
+    require(input_session_event_count == static_cast<int>(std::size(input_initialize_failure_events))
+            && std::memcmp(input_session_events, input_initialize_failure_events, sizeof(input_initialize_failure_events)) == 0);
+    require(input_state->input_end == 0x20 && input_state->input_text_flags == 6 && input_state->input_caret_tick == 1234 && (input_state->flags & 0x100) != 0);
     gag::copy_runtime_input_session_record(&input_session_copy);
     require(reinterpret_cast<std::uint8_t *>(&input_session_copy)[0] == 0x2d && reinterpret_cast<std::uint8_t *>(&input_session_copy)[1] == 0);
 
+    std::memset(input_state, 0, sizeof(*input_state));
     input_session_event_count = 0;
-    input_session_has_context = false;
-    gag::set_runtime_input_session_globals_for_testing(nullptr, reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13), reinterpret_cast<void *>(14),
-        reinterpret_cast<void *>(15));
+    input_session_has_record = false;
+    input_session_initialize_result = false;
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 12,
         reinterpret_cast<void *>(7));
-    const int input_no_context_events[]{ 1, 2, 3 };
-    require(input_session_event_count == 3 && std::memcmp(input_session_events, input_no_context_events, sizeof(input_no_context_events)) == 0);
-    require(gag::get_runtime_input_character_width_for_testing() == 12 && gag::get_runtime_input_session_value_for_testing() == reinterpret_cast<void *>(7));
+    const int input_no_record_events[]{ 1, 2, 3, 4 };
+    require(input_session_event_count == static_cast<int>(std::size(input_no_record_events)) && std::memcmp(input_session_events, input_no_record_events, sizeof(input_no_record_events)) == 0
+            && input_state->input_end == 12 && input_state->input_text_flags == 7);
 
+    std::memset(input_state, 0, sizeof(*input_state));
     input_session_event_count = 0;
-    input_session_has_context = true;
-    input_session_prepare_result = 1;
-    input_session_has_descriptor = false;
-    input_session_context.flags = 0;
-    gag::set_runtime_input_session_globals_for_testing(nullptr, reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13), reinterpret_cast<void *>(14),
-        reinterpret_cast<void *>(15));
+    input_session_has_record = true;
+    input_session_initialize_result = true;
+    input_session_has_scene = false;
+    input_session_record.flags = 0;
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 12,
         reinterpret_cast<void *>(7));
-    const int input_no_descriptor_events[]{ 1, 2, 3, 4, 5, 10, 11 };
-    require(input_session_event_count == 7 && std::memcmp(input_session_events, input_no_descriptor_events, sizeof(input_no_descriptor_events)) == 0);
-    require(gag::get_runtime_input_resource_for_testing() == reinterpret_cast<void *>(20) && gag::get_runtime_input_object_for_testing() == nullptr);
+    const int input_no_scene_events[]{ 1, 2, 3, 4, 5, 6, 11, 12 };
+    require(input_session_event_count == static_cast<int>(std::size(input_no_scene_events)) && std::memcmp(input_session_events, input_no_scene_events, sizeof(input_no_scene_events)) == 0
+            && input_state->input_scene_index == 7 && input_state->input_scene_identifier == 0);
 
+    std::memset(input_state, 0, sizeof(*input_state));
     input_session_event_count = 0;
-    input_session_has_descriptor = true;
-    input_session_activate_result = 1;
-    gag::set_runtime_input_session_globals_for_testing(nullptr, reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13), reinterpret_cast<void *>(14),
-        reinterpret_cast<void *>(15));
+    input_session_has_scene = true;
+    input_session_begin_result = 1;
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 12,
         reinterpret_cast<void *>(7));
-    const int input_active_events[]{ 1, 2, 3, 4, 5, 6, 7, 10, 11 };
-    require(input_session_event_count == 9 && std::memcmp(input_session_events, input_active_events, sizeof(input_active_events)) == 0);
+    const int input_begin_failure_events[]{ 1, 2, 3, 4, 5, 6, 7, 8, 11, 12 };
+    require(input_session_event_count == static_cast<int>(std::size(input_begin_failure_events))
+            && std::memcmp(input_session_events, input_begin_failure_events, sizeof(input_begin_failure_events)) == 0 && input_state->input_scene_identifier == 21);
 
+    std::memset(input_state, 0, sizeof(*input_state));
     input_session_event_count = 0;
-    input_session_activate_result = 0;
-    input_session_context.flags = 0x04000000;
-    gag::set_runtime_input_session_globals_for_testing(nullptr, reinterpret_cast<void *>(11), reinterpret_cast<void *>(12), reinterpret_cast<void *>(13), reinterpret_cast<void *>(14),
-        reinterpret_cast<void *>(15));
+    input_session_begin_result = 0;
+    input_session_record.flags = 0x04000000;
+    gag::set_runtime_input_alternate_scene_for_testing(11);
     gag::initialize_runtime_input_session(reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<void *>(3), reinterpret_cast<void *>(4), reinterpret_cast<void *>(5), 12,
         reinterpret_cast<void *>(7));
-    const int input_full_events[]{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
-    require(input_session_event_count == 11 && std::memcmp(input_session_events, input_full_events, sizeof(input_full_events)) == 0);
-    require(gag::get_runtime_input_object_for_testing() == reinterpret_cast<void *>(21));
+    const int input_full_events[]{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+    require(input_session_event_count == static_cast<int>(std::size(input_full_events)) && std::memcmp(input_session_events, input_full_events, sizeof(input_full_events)) == 0);
+    require(input_state->input_scene_identifier == 21 && (input_state->flags & 0x100) != 0);
 
     gag::RuntimeCommandLoopApi command_loop_api{ command_loop_begin_first, command_loop_begin_second, command_loop_begin_third, post_command_loop_message, process_command_loop,
         get_command_loop_script_state, sleep_command_loop, command_loop_cancel_first, command_loop_cancel_second, command_loop_cancel_third, command_loop_complete_first };
@@ -17678,6 +20624,10 @@ int main()
     require(observed_context.width == 324 && observed_context.height == 201 && observed_context.unknown_0038 == 11 && observed_context.unknown_003c == 13);
     require(observed_x == 323 && observed_y == 0 && observed_flags == 0x712345 && observed_heap == reinterpret_cast<HANDLE>(511));
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x800) != 0);
+    gag::ScriptRuntimeRoot *initialized_script_root = gag::get_embedded_script_runtime_root_for_testing();
+    require(graphics_host_script_root == initialized_script_root && initialized_script_root->flags == 0 && initialized_script_root->palette_flags == 0);
+    require(reinterpret_cast<void *>(initialized_script_root->set_property) == reinterpret_cast<void *>(&gag::set_runtime_script_property));
+    require(reinterpret_cast<void *>(initialized_script_root->get_property) == reinterpret_cast<void *>(&gag::get_runtime_script_property));
     require(observed_callbacks[0] == reinterpret_cast<void *>(&gag::invalidate_game_framebuffer_rect));
     require(observed_callbacks[12] == reinterpret_cast<void *>(&gag::set_runtime_media_backend_scale));
     require(observed_callbacks[13] == reinterpret_cast<void *>(&gag::apply_runtime_palette_entries));
@@ -17788,6 +20738,7 @@ int main()
     gag::get_graphics_host_observed_state_for_testing(&observed_context, observed_callbacks, &observed_x, &observed_y, &observed_flags, &observed_heap);
     require(observed_context.window == reinterpret_cast<HWND>(503) && observed_context.bits_per_pixel == 16 && observed_context.unknown_0028 == 0x123456
             && observed_context.framebuffer == reinterpret_cast<void *>(0x123456) && observed_context.unknown_0030 == 0x123456);
+    require(gag::get_runtime_display_window_for_testing() == reinterpret_cast<HWND>(502));
     require((gag::get_runtime_scene_control_flags_for_testing() & 0xe00) == 0xe00);
 
     runtime_bootstrap_expected_format = reinterpret_cast<gag::LegacyDisplayPixelFormat *>(&runtime_bootstrap_mode.pixel_format_flags);
@@ -17844,12 +20795,11 @@ int main()
     char selected_resource[] = "selected.flc";
     resource_selection_path = selected_resource;
     resource_selection_event_count = 0;
-    resource_selection_loop = 0;
     gag::set_runtime_resource_host_state_for_testing(nullptr, reinterpret_cast<gag::CdfArchive *>(701), 0, 1);
     gag::set_runtime_scene_control_state_for_testing(0x10000800, nullptr);
     gag::select_runtime_resource_with_loop_register(selected_resource, 0x1234);
     const int selection_events[] = { 1, 2, 3, 4, 5 };
-    require(resource_selection_event_count == 5 && std::memcmp(resource_selection_events, selection_events, sizeof(selection_events)) == 0 && resource_selection_loop == 0x1234);
+    require(resource_selection_event_count == 5 && std::memcmp(resource_selection_events, selection_events, sizeof(selection_events)) == 0);
     gag::AsyncFileHost *observed_resource_host;
     gag::CdfArchive *observed_resource_archive;
     std::int32_t observed_resource_mode;
@@ -17880,11 +20830,13 @@ int main()
 
     gag::set_runtime_script_property(13, nullptr, nullptr);
     gag::set_runtime_script_property(13, nullptr, nullptr);
+    require(gag::get_runtime_external_command_state_for_testing().nested_runtime_state_count == 2);
     gag::set_runtime_script_property(14, nullptr, nullptr);
     gag::set_runtime_script_property(14, nullptr, nullptr);
     gag::set_runtime_script_property(14, nullptr, nullptr);
     gag::set_runtime_script_property(16, nullptr, nullptr);
     gag::set_runtime_script_property(16, nullptr, nullptr);
+    require(gag::get_runtime_external_command_state_for_testing().nested_runtime_state_4_count == 2);
     gag::set_runtime_script_property(32, nullptr, nullptr);
     gag::set_runtime_script_property(32, nullptr, nullptr);
     gag::set_runtime_script_property(32, nullptr, nullptr);
@@ -18343,6 +21295,7 @@ int main()
     const int fade_out_palette_transition_events[] = { 1, 9, 10, 10, 10, 4, 3, 6, 5, 8 };
     require(palette_transition_event_count == 10 && std::memcmp(palette_transition_events, fade_out_palette_transition_events, sizeof(fade_out_palette_transition_events)) == 0);
     const PALETTEENTRY *transition_entries = gag::get_runtime_palette_scene_transition_entries_for_testing();
+    require(transition_entries == reinterpret_cast<const PALETTEENTRY *>(reinterpret_cast<const std::uint8_t *>(&gag::get_runtime_external_command_state_for_testing()) + 0x1978));
     require(transition_entries[1].peRed == 0 && transition_entries[1].peGreen == 0 && transition_entries[1].peBlue == 0);
     require(palette_transition_rectangle.left == 0 && palette_transition_rectangle.top == 0 && palette_transition_rectangle.right == 0 && palette_transition_rectangle.bottom == 0);
     require(
@@ -18891,6 +21844,7 @@ int main()
     gag::ScriptObjectState script_contained{};
     std::memcpy(script_primary.name, "object", 7);
     std::memcpy(script_secondary.name, "other", 6);
+    std::memcpy(script_contained.name, "contained", 10);
     script_primary.identity = reinterpret_cast<void *>(101);
     script_secondary.identity = reinterpret_cast<void *>(102);
     script_contained.identity = reinterpret_cast<void *>(103);
@@ -18910,6 +21864,13 @@ int main()
     require(gag::find_script_object_by_identity(reinterpret_cast<void *>(101)) == &script_primary);
     require(gag::find_script_object_by_identity(reinterpret_cast<void *>(103)) == &script_contained);
     require(gag::find_script_object_by_identity(reinterpret_cast<void *>(104)) == nullptr);
+    char contained_name[0x20]{};
+    char missing_object_name[0x20]{};
+    std::memcpy(contained_name, "contained", 10);
+    std::memcpy(missing_object_name, "missing", 8);
+    require(gag::find_script_object_by_name(script_primary.name) == &script_primary);
+    require(gag::find_script_object_by_name(contained_name) == &script_contained);
+    require(gag::find_script_object_by_name(missing_object_name) == nullptr);
     std::memcpy(script_primary.field_names[0], "number", 7);
     std::memcpy(script_primary.field_names[1], "text", 5);
     script_primary.field_count = 2;
@@ -19018,8 +21979,11 @@ int main()
     script_primary.next = &script_secondary;
     script_secondary.next = nullptr;
     tree_runtime.objects = &script_primary;
+    gag::RuntimeVisualObject *const object_adjacent_visuals = reinterpret_cast<gag::RuntimeVisualObject *>(0x3456789a);
+    tree_runtime.visual_objects = object_adjacent_visuals;
     gag::destroy_script_object_states();
-    require(tree_runtime.objects == nullptr && script_object_free_count == 2 && script_object_freed[0] == &script_primary && script_object_freed[1] == &script_secondary);
+    require(tree_runtime.objects == nullptr && script_object_free_count == 2 && script_object_freed[0] == &script_primary && script_object_freed[1] == &script_secondary
+            && tree_runtime.visual_objects == object_adjacent_visuals);
     gag::set_script_runtime_root_for_testing(nullptr);
     gag::destroy_script_object_states();
     require(script_object_free_count == 2);
@@ -19034,6 +21998,8 @@ int main()
     visual_first.next = &visual_second;
     visual_second.next = &visual_third;
     tree_runtime.visual_objects = &visual_first;
+    gag::RuntimeNamedNode *const visual_adjacent_named_nodes = reinterpret_cast<gag::RuntimeNamedNode *>(0x456789ab);
+    tree_runtime.runtime_nodes = visual_adjacent_named_nodes;
     script_object_free_count = 0;
     script_object_free_result = FALSE;
     require(gag::remove_runtime_visual_object(reinterpret_cast<void *>(202)) == FALSE && tree_runtime.visual_objects == &visual_first && visual_first.next == &visual_third
@@ -19041,11 +22007,12 @@ int main()
     require(gag::remove_runtime_visual_object(reinterpret_cast<void *>(204)) == FALSE && script_object_free_count == 1);
     script_object_free_result = TRUE;
     require(gag::remove_runtime_visual_object(reinterpret_cast<void *>(201)) == TRUE && tree_runtime.visual_objects == &visual_third && script_object_free_count == 2
-            && script_object_freed[1] == &visual_first);
+            && script_object_freed[1] == &visual_first && tree_runtime.runtime_nodes == visual_adjacent_named_nodes);
     gag::destroy_runtime_visual_objects();
     require(tree_runtime.visual_objects == nullptr && script_object_free_count == 3 && script_object_freed[2] == &visual_third);
     gag::destroy_runtime_visual_objects();
     require(script_object_free_count == 3);
+    tree_runtime.runtime_nodes = nullptr;
 
     gag::RuntimeTreeNode runtime_tree_first{};
     gag::RuntimeTreeNode runtime_tree_second{};
@@ -19085,12 +22052,16 @@ int main()
     std::memcpy(fixed_name_missing_value, "missing", 8);
     fixed_name_first.next = &fixed_name_second;
     tree_runtime.fixed_name_nodes = &fixed_name_first;
+    gag::RuntimePlanNode *const fixed_name_adjacent_plan_nodes = reinterpret_cast<gag::RuntimePlanNode *>(0x56789abc);
+    tree_runtime.plan_nodes = fixed_name_adjacent_plan_nodes;
     require(gag::find_runtime_fixed_name_list_node(fixed_name_first_value) == &fixed_name_first);
     require(gag::find_runtime_fixed_name_list_node(fixed_name_second_value) == &fixed_name_second);
     require(gag::find_runtime_fixed_name_list_node(fixed_name_missing_value) == nullptr);
     script_object_free_count = 0;
     gag::destroy_runtime_fixed_name_list_nodes();
-    require(tree_runtime.fixed_name_nodes == nullptr && script_object_free_count == 2 && script_object_freed[0] == &fixed_name_first && script_object_freed[1] == &fixed_name_second);
+    require(tree_runtime.fixed_name_nodes == nullptr && script_object_free_count == 2 && script_object_freed[0] == &fixed_name_first && script_object_freed[1] == &fixed_name_second
+            && tree_runtime.plan_nodes == fixed_name_adjacent_plan_nodes);
+    tree_runtime.plan_nodes = nullptr;
     gag::set_script_runtime_root_for_testing(nullptr);
     require(gag::find_runtime_fixed_name_list_node(fixed_name_first_value) == nullptr);
     gag::destroy_runtime_fixed_name_list_nodes();
@@ -20354,6 +23325,134 @@ int main()
     const int shutdown_events[] = { 1, 2, 3, 1, 4, 5, 6, 5, 6, 7 };
     require(display_host_shutdown_event_count == 10 && std::memcmp(display_host_shutdown_events, shutdown_events, sizeof(shutdown_events)) == 0);
     require(gag::get_display_palette_flags_for_testing() == 0 && gag::begin_display_mode_enumeration(0x30000) == nullptr && gag::get_current_display_mode() == nullptr);
+
+    gag::RuntimeCommandLoopState simple_opcode_state{};
+    gag::RuntimeTreeNode simple_opcode_tree{};
+    gag::RuntimeTreeLink7C simple_opcode_link{};
+    simple_opcode_state.flags = 1;
+    require(gag::execute_script_commands(&simple_opcode_state) == 0);
+    simple_opcode_state.flags = 0;
+    gag::RuntimeScriptExecutorApi script_executor_api{ set_batch_test_script_executor, get_tick_test_script_executor, get_time_test_script_executor, sleep_test_script_executor,
+        process_children_test_script_executor, process_message_test_script_executor, process_text_test_script_executor, process_pair_test_script_executor, run_loop_test_script_executor,
+        resolve_tree_test_script_executor, synchronize_test_script_executor, process_switch_test_script_executor, acknowledge_test_script_executor, run_external_test_script_executor,
+        activate_link_test_script_executor, parse_opcode_test_script_executor, dispatch_test_script_executor, select_random_test_script_executor };
+    gag::set_runtime_script_executor_api_for_testing(script_executor_api);
+    script_executor_state = &simple_opcode_state;
+    script_executor_tree = &simple_opcode_tree;
+    simple_opcode_state.runtime_tree_identity = reinterpret_cast<void *>(0x71234567);
+    simple_opcode_state.script_clock = 200;
+    script_executor_mode = 1;
+    script_executor_sleep_count = 0;
+    script_executor_event_count = 0;
+    require(gag::execute_script_commands(&simple_opcode_state) == 0 && simple_opcode_state.script_clock == 210);
+    const int script_executor_inactive_events[]{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 3, 4, 5, 6, 7, 10, 8, 18, 9 };
+    require(script_executor_event_count == static_cast<int>(std::size(script_executor_inactive_events))
+            && std::memcmp(script_executor_events, script_executor_inactive_events, sizeof(script_executor_inactive_events)) == 0);
+
+    simple_opcode_state.flags = 0x100000;
+    simple_opcode_state.script_clock = 100;
+    script_executor_mode = 3;
+    script_executor_sleep_count = 0;
+    script_executor_event_count = 0;
+    require(gag::execute_script_commands(&simple_opcode_state) == 0 && simple_opcode_state.script_clock == 110);
+    const int script_executor_switch_events[]{ 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 8, 18, 9 };
+    require(script_executor_event_count == static_cast<int>(std::size(script_executor_switch_events))
+            && std::memcmp(script_executor_events, script_executor_switch_events, sizeof(script_executor_switch_events)) == 0);
+
+    tree_runtime.global_link_007c_head = &simple_opcode_link;
+    simple_opcode_link.next = nullptr;
+    const int script_executor_link_events[]{ 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 3, 4, 5, 14, 6, 7, 15, 16, 17, 8, 18, 9 };
+    const gag::RuntimeScriptOpcodeDisposition dispositions[]{ gag::RuntimeScriptOpcodeDisposition::pause, gag::RuntimeScriptOpcodeDisposition::commit_cursor,
+        gag::RuntimeScriptOpcodeDisposition::finish_link, gag::RuntimeScriptOpcodeDisposition::restart_outer };
+    const std::uint32_t expected_cursors[]{ 20, 31, 5, 20 };
+    for(std::size_t index = 0; index < std::size(dispositions); ++index)
+    {
+        simple_opcode_state.flags = 0x100000;
+        simple_opcode_state.active_script_link = nullptr;
+        simple_opcode_link.owner_flags = 0x80000000;
+        simple_opcode_link.parser.start_offset = 5;
+        simple_opcode_link.parser.cursor = 20;
+        script_executor_disposition = dispositions[index];
+        script_executor_mode = 2;
+        script_executor_sleep_count = 0;
+        script_executor_event_count = 0;
+        require(gag::execute_script_commands(&simple_opcode_state) == 0 && simple_opcode_link.parser.cursor == expected_cursors[index] && simple_opcode_state.active_script_link == nullptr);
+        require(script_executor_event_count == static_cast<int>(std::size(script_executor_link_events))
+                && std::memcmp(script_executor_events, script_executor_link_events, sizeof(script_executor_link_events)) == 0);
+        require(dispositions[index] != gag::RuntimeScriptOpcodeDisposition::finish_link || (simple_opcode_link.owner_flags & 0x80000000) == 0);
+    }
+    tree_runtime.global_link_007c_head = nullptr;
+    gag::set_runtime_script_executor_api_for_testing({ GdiSetBatchLimit, GetTickCount, timeGetTime, Sleep, gag::process_available_runtime_generic_children, gag::process_runtime_message,
+        gag::process_runtime_text_input, gag::process_runtime_pair_message, gag::run_runtime_command_loop, gag::find_runtime_tree_node_by_identity, gag::synchronize_runtime_plan_mode,
+        gag::process_pending_runtime_tree_switch, gag::acknowledge_current_runtime_event_record, gag::run_pending_runtime_external_command, gag::activate_runtime_tree_link_007c,
+        gag::parse_script_opcode, gag::execute_simple_runtime_script_opcode_for_testing, gag::select_bounded_random_value });
+    const std::uint32_t empty_operand_opcodes[]{ 0xa0000000, 0xf0000000, 0x90000000, 0x80000000, 0xe0000000, 0xd0000000, 0xc0000000, 0x60000000, 0x50000001, 0x50000000, 0x40000001, 0x40000000, 1,
+        0x100, 0x200, 0x300, 0x400, 0x500, 0x600, 0x1000, 0x3000, 0x7000, 0x8000, 0x9000, 0xc000, 0x10000, 0x20000, 0x30000, 0x60000, 0x90000, 0xb0000, 0xc0000, 0xe0000 };
+    for(std::uint32_t opcode : empty_operand_opcodes)
+    {
+        simple_opcode_link.parser = make_script_parser("");
+        require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, opcode) == gag::RuntimeScriptOpcodeDisposition::complete);
+    }
+    simple_opcode_link.owner_flags = 0x20000000;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xa000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_link.owner_flags == 0x20000000);
+    simple_opcode_link.owner_flags = 0;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xb000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_link.owner_flags == 0);
+    simple_opcode_state.nested_runtime_state_count = 2;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xe000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_state.nested_runtime_state_count == 3);
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_state.nested_runtime_state_count == 2);
+    simple_opcode_state.nested_runtime_state_count = 0;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_state.nested_runtime_state_count == 0);
+    simple_opcode_state.script_clock = 100;
+    simple_opcode_link.owner_flags = 0;
+    simple_opcode_link.parser = make_script_parser("10");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf0000) == gag::RuntimeScriptOpcodeDisposition::pause
+            && simple_opcode_link.wait_deadline == 110 && (simple_opcode_link.owner_flags & 0x40000000) != 0);
+    simple_opcode_state.script_clock = 109;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf0000) == gag::RuntimeScriptOpcodeDisposition::pause);
+    simple_opcode_state.script_clock = 110;
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf0000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && (simple_opcode_link.owner_flags & 0x40000000) == 0);
+    gag::RuntimeTreeLink84 moving_zone{};
+    std::memcpy(moving_zone.name, "MOVING-ZONE", 12);
+    tree_runtime.global_link_0084_head = &moving_zone;
+    simple_opcode_link.parser = make_script_parser("MOVING-ZONE");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xe0000000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && moving_zone.unknown_0028 == 2);
+    gag::RuntimeTreePrimaryResourceLink moving_primary{};
+    std::memcpy(moving_primary.identifier, "MOVING-PRIMARY", 15);
+    tree_runtime.plan_nodes = reinterpret_cast<gag::RuntimePlanNode *>(&moving_primary);
+    simple_opcode_link.parser = make_script_parser("MOVING-PRIMARY");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0x90000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && moving_primary.flags == 2);
+    tree_runtime.global_link_0084_head = nullptr;
+    tree_runtime.plan_nodes = nullptr;
+    simple_opcode_link.parser = make_script_parser("MISSING");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xa0000000) == gag::RuntimeScriptOpcodeDisposition::complete);
+    simple_opcode_link.parser = make_script_parser("MISSING");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xf0000000) == gag::RuntimeScriptOpcodeDisposition::pause);
+    simple_opcode_state.flags = 0x10;
+    simple_opcode_link.parser = make_script_parser("");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xc000) == gag::RuntimeScriptOpcodeDisposition::pause);
+    simple_opcode_state.flags = 0x20;
+    simple_opcode_link.parser = make_script_parser("");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xc000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && (simple_opcode_state.flags & 0x20) == 0);
+    simple_opcode_link.parser = make_script_parser("/CSEND:");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0x40000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_link.parser.cursor != 0);
+    simple_opcode_link.parser = make_script_parser("/CSEND:");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0x50000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_link.parser.cursor != 0);
+    simple_opcode_link.parser = make_script_parser("OBJECT FIELD /CSEND:");
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0x4000) == gag::RuntimeScriptOpcodeDisposition::complete
+            && simple_opcode_link.parser.cursor != 0);
+    require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0x12345678) == gag::RuntimeScriptOpcodeDisposition::unhandled);
+
     test_runtime_tree_command_target();
     test_runtime_tree_basic_commands();
     test_script_object_serialization();
@@ -20362,6 +23461,7 @@ int main()
     test_archive_comment_dialog();
     test_archive_selection_dialog();
     test_runtime_sound_pause_resume();
+    test_runtime_resource_construction();
     test_archive_read_speed();
     return 0;
 }

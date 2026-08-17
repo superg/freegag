@@ -84,7 +84,7 @@ struct CdfIndexApi
 struct CdfOpenApi
 {
     HANDLE(WINAPI *create_file)(LPCSTR path, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD creation, DWORD attributes, HANDLE template_file);
-    HANDLE(__fastcall *open_alternate_stream)(const char *path);
+    HANDLE(__fastcall *open_alternate_stream)(std::uint32_t host, const char *path);
 };
 
 struct CdfWriteApi
@@ -92,6 +92,16 @@ struct CdfWriteApi
     HANDLE(WINAPI *get_process_heap)();
     DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG distance_high, DWORD method);
     BOOL(WINAPI *write_file)(HANDLE file, LPCVOID buffer, DWORD bytes_to_write, LPDWORD bytes_written, LPOVERLAPPED overlapped);
+};
+
+struct CdfCompressedWriteApi
+{
+    HANDLE(WINAPI *get_process_heap)();
+    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG distance_high, DWORD method);
+    BOOL(WINAPI *write_file)(HANDLE file, LPCVOID buffer, DWORD bytes_to_write, LPDWORD bytes_written, LPOVERLAPPED overlapped);
+    std::uint32_t(__fastcall *compress)(const void *source, std::uint32_t source_size, void *destination, std::uint32_t destination_capacity);
 };
 
 struct CdfWriterFinalizeApi
@@ -167,6 +177,12 @@ int __fastcall initialize_cdf_index(CdfArchive *archive);
 // GAG.EXE: 0x00429A90
 std::uint32_t __fastcall write_uncompressed_cdf_entry(CdfArchive *archive, const void *data);
 
+// GAG.EXE: 0x00429070
+std::uint32_t __fastcall write_compressed_cdf_index(CdfArchive *archive);
+
+// GAG.EXE: 0x00429B50
+std::uint32_t __fastcall write_compressed_cdf_entry(CdfArchive *archive, const void *data);
+
 // GAG.EXE: 0x004298E0
 std::uint32_t __fastcall finalize_cdf_writer(CdfArchive *archive);
 
@@ -189,6 +205,7 @@ void set_cdf_compression_api_for_testing(const CdfCompressionApi &api);
 void set_cdf_index_api_for_testing(const CdfIndexApi &api);
 void set_cdf_open_api_for_testing(const CdfOpenApi &api);
 void set_cdf_write_api_for_testing(const CdfWriteApi &api);
+void set_cdf_compressed_write_api_for_testing(const CdfCompressedWriteApi &api);
 void set_cdf_writer_finalize_api_for_testing(const CdfWriterFinalizeApi &api);
 void set_cdf_entry_write_api_for_testing(const CdfEntryWriteApi &api);
 void set_cdf_writer_create_api_for_testing(const CdfWriterCreateApi &api);

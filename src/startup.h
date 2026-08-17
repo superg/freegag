@@ -21,8 +21,10 @@ struct RuntimeGameHostContext;
 struct DisplaySceneNode;
 struct DisplayPixelFormatDescriptor;
 struct DisplaySceneDescriptor;
+struct RuntimeGenericBackendChild;
 struct DisplayRectangle;
 struct DisplayRectangleTransform;
+struct ScriptObjectState;
 
 struct ApplicationState
 {
@@ -138,6 +140,8 @@ static_assert(sizeof(GraphicsHostInitializationResult) == 0x464);
 static_assert(offsetof(GraphicsHostInitializationResult, capture_window) == 0x04);
 static_assert(offsetof(GraphicsHostInitializationResult, bits_per_pixel) == 0x460);
 
+struct RuntimeNamedNode;
+
 struct GraphicsHostApi
 {
     DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
@@ -154,7 +158,7 @@ struct GraphicsHostApi
     BOOL(WINAPI *screen_to_client)(HWND window, LPPOINT point);
     std::uint32_t(__fastcall *initialize_display)(HWND window, std::uint32_t options);
     void(__fastcall *set_script_root)(ScriptRuntimeRoot *root);
-    void *(__fastcall *get_or_create_named_node)(const char *name);
+    RuntimeNamedNode *(__fastcall *get_or_create_named_node)(const char *name);
     void(__fastcall *set_named_node_enabled)(void *identity, int enabled);
     void(WINAPI *initialize_critical_section)(LPCRITICAL_SECTION section);
     BOOL(WINAPI *show_window)(HWND window, int command);
@@ -185,6 +189,7 @@ void set_graphics_host_api_for_testing(const GraphicsHostApi &api);
 void reset_graphics_host_state_for_testing(std::uint32_t scene_flags);
 void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, std::int32_t *pointer_x, std::int32_t *pointer_y, std::uint32_t *target_flags,
     HANDLE *resource_heap);
+HWND get_runtime_display_window_for_testing();
 
 struct RuntimeBootstrapApi
 {
@@ -344,6 +349,32 @@ struct WindowProcedureApi
     void(__fastcall *update_cursor_state)(ApplicationState *state, int active);
 };
 
+struct MainWindowProcedureApi
+{
+    LONG(WINAPI *get_window_long)(HWND window, int index);
+    LONG(WINAPI *set_window_long)(HWND window, int index, LONG value);
+    BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+    void(WINAPI *post_quit_message)(int exit_code);
+    BOOL(WINAPI *reply_message)(LRESULT result);
+    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+    LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+    BOOL(WINAPI *destroy_window)(HWND window);
+    std::uint32_t (*get_script_state)();
+    ScriptObjectState *(__fastcall *resolve_state_field)(const char *object_name, const char *field_name, const void *value, int value_type);
+    void *(__fastcall *capture_bitmap)(void *game_context, std::uint32_t *size, int half_resolution);
+    void(__fastcall *free_memory)(void *memory);
+    void (*application_hook_1)();
+    void(__fastcall *set_application_lock)(ApplicationState *state);
+    void(__fastcall *clear_runtime_active)(ApplicationState *state);
+    int(__fastcall *validate_startup)(ApplicationState *state, const char *requested_archive, std::uint32_t stages);
+    void (*set_runtime_flag_40)();
+};
+
+// GAG.EXE: 0x0041D560
+LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+
+void set_main_window_procedure_api_for_testing(const MainWindowProcedureApi &api);
+
 // GAG.EXE: 0x0041E680
 LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
@@ -450,6 +481,14 @@ struct StateFieldReference
 static_assert(offsetof(StateFieldReference, activity) == 0x24);
 static_assert(offsetof(StateFieldReference, flags) == 0x2c);
 
+struct ApplicationStateFieldQuery
+{
+    char object_name[0x20];
+    char field_name[0x20];
+};
+
+static_assert(sizeof(ApplicationStateFieldQuery) == 0x40);
+
 // GAG.EXE: 0x0041D510
 void __fastcall finish_credits_state(ApplicationState *state, StateFieldReference *reference);
 
@@ -490,7 +529,7 @@ void __fastcall restore_application_display(ApplicationState *state);
 
 struct StateActivationApi
 {
-    std::uint32_t (*query_status)();
+    std::uint32_t(__fastcall *query_status)(void *identity);
     std::uint32_t (*get_script_state)();
     void (*on_cursor_outside)();
 };
@@ -535,7 +574,7 @@ struct SynchronizedStateApi
     int(__fastcall *operation_175f0)(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth);
     int(__fastcall *operation_176a0)(void *first, void *second, void *third, void *fourth);
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    HWND message_window;
+    HWND (*get_message_window)();
 };
 
 // GAG.EXE: 0x0041F7C0
@@ -607,10 +646,10 @@ ScriptTextBuffer *create_script_text_buffer();
 void __fastcall clear_script_text_buffer(ScriptTextBuffer *buffer);
 
 // GAG.EXE: 0x0040D0F0
-void __fastcall begin_script_text_document(ScriptTextBuffer *buffer, const char *text);
+void __fastcall begin_script_text_document(ScriptTextBuffer *buffer);
 
 // GAG.EXE: 0x0040D140
-void __fastcall end_script_text_document(ScriptTextBuffer *buffer, const char *text);
+void __fastcall end_script_text_document(ScriptTextBuffer *buffer);
 
 // GAG.EXE: 0x0040D180
 void __fastcall append_script_text_property(ScriptTextBuffer *buffer, std::uint32_t property, const char *value);
@@ -699,6 +738,8 @@ struct ScriptValueParseApi
 struct ScriptTypedValueApi
 {
     std::int32_t(__fastcall *parse_integer_expression)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_image_flag)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_value_token)(ScriptParserState *parser, char *value, std::uint32_t capacity);
 };
 
 struct RuntimeTreeCommandTargetApi
@@ -770,7 +811,7 @@ struct ScriptObjectState
     char mouse_visual_name[0x20];
     char alternate_mouse_visual_name[0x20];
     RuntimeVisualObject *visual_object;
-    std::uint32_t unknown_0474;
+    RuntimeVisualObject *alternate_visual_object;
     std::uint32_t image_flags;
     std::uint32_t command_mask;
     std::uint32_t active_field_mask;
@@ -784,6 +825,7 @@ static_assert(offsetof(ScriptObjectState, field_names) == 0x28);
 static_assert(offsetof(ScriptObjectState, field_count) == 0x428);
 static_assert(offsetof(ScriptObjectState, flags_042c) == 0x42c);
 static_assert(offsetof(ScriptObjectState, visual_object) == 0x470);
+static_assert(offsetof(ScriptObjectState, alternate_visual_object) == 0x474);
 static_assert(offsetof(ScriptObjectState, mouse_visual_name) == 0x430);
 static_assert(offsetof(ScriptObjectState, alternate_mouse_visual_name) == 0x450);
 static_assert(offsetof(ScriptObjectState, image_flags) == 0x478);
@@ -823,6 +865,23 @@ void __fastcall copy_runtime_tree_command_name(char *destination, std::uint32_t 
 
 // GAG.EXE: 0x00408340
 ScriptObjectState *__fastcall create_script_object_state(const void *name);
+
+// GAG.EXE: 0x00407FA0
+std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser);
+
+struct ScriptObjectParseApi
+{
+    std::uint32_t(__fastcall *parse_value)(ScriptParserState *parser, char *value, std::uint32_t capacity);
+    std::uint32_t(__fastcall *parse_scope)(ScriptParserState *parser);
+    std::int32_t(__fastcall *parse_integer)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_image_flag)(ScriptParserState *parser);
+    bool(__fastcall *fixed_equal)(const void *left, const void *right, std::uint32_t bytes);
+    RuntimeVisualObject *(__fastcall *find_visual)(const char *name);
+    ScriptObjectState *(__fastcall *create_object)(const void *name);
+};
+
+void set_script_object_parse_api_for_testing(const ScriptObjectParseApi &api);
+void reset_script_object_parse_api_for_testing();
 
 // GAG.EXE: 0x00408420
 ScriptObjectState *__fastcall find_script_object_by_identity(void *identity);
@@ -930,9 +989,12 @@ struct RuntimePointerRegion
     RuntimeVisualObject *visual_override;
     void *owner_identity;
     ScriptObjectState *state_object;
+    RuntimeTreePrimaryResourceLink *primary_resource;
+    void *previous_owner_identity;
+    void *previous_primary_resource_identity;
 };
 
-static_assert(sizeof(RuntimePointerRegion) == 0x5c);
+static_assert(sizeof(RuntimePointerRegion) == 0x68);
 static_assert(offsetof(RuntimePointerRegion, next) == 0x24);
 static_assert(offsetof(RuntimePointerRegion, left) == 0x2c);
 static_assert(offsetof(RuntimePointerRegion, scene_mask) == 0x40);
@@ -940,6 +1002,8 @@ static_assert(offsetof(RuntimePointerRegion, current_scene_bit) == 0x48);
 static_assert(offsetof(RuntimePointerRegion, priority) == 0x4c);
 static_assert(offsetof(RuntimePointerRegion, visual_override) == 0x50);
 static_assert(offsetof(RuntimePointerRegion, state_object) == 0x58);
+static_assert(offsetof(RuntimePointerRegion, primary_resource) == 0x5c);
+static_assert(offsetof(RuntimePointerRegion, previous_owner_identity) == 0x60);
 
 struct RuntimeSceneSlot
 {
@@ -1183,12 +1247,18 @@ struct RuntimeFixedNameListNode
     char name[0x20];
     void *identity;
     std::uint32_t flags;
-    char serialized_value[0x2c];
+    char serialized_value[0x20];
+    std::uint32_t resource_flags;
+    void *resource_identity;
+    void *previous_resource_identity;
     RuntimeFixedNameListNode *next;
 };
 
 static_assert(offsetof(RuntimeFixedNameListNode, next) == 0x54);
 static_assert(offsetof(RuntimeFixedNameListNode, serialized_value) == 0x28);
+static_assert(offsetof(RuntimeFixedNameListNode, resource_flags) == 0x48);
+static_assert(offsetof(RuntimeFixedNameListNode, resource_identity) == 0x4c);
+static_assert(offsetof(RuntimeFixedNameListNode, previous_resource_identity) == 0x50);
 static_assert(sizeof(RuntimeFixedNameListNode) == 0x58);
 
 // GAG.EXE: 0x0040CDA0
@@ -1209,6 +1279,9 @@ void __fastcall serialize_runtime_language(ScriptTextBuffer *buffer);
 // GAG.EXE: 0x004073D0
 void __fastcall serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer);
 
+// GAG.EXE: 0x00404990
+ScriptTextBuffer *serialize_current_runtime_state();
+
 // GAG.EXE: 0x00406980
 RuntimeTreeNode *get_runtime_tree_root();
 
@@ -1228,10 +1301,20 @@ static_assert(sizeof(RuntimePlanNode) == 0x2c);
 
 struct RuntimeLockRecord
 {
-    std::uint8_t unknown_0000[0x14];
+    std::uint8_t unknown_0000[4];
+    void *identity_context;
+    std::uint32_t unknown_0008;
+    std::uint32_t flags;
+    std::uint32_t unknown_0010;
     DWORD owner_thread;
     std::uint32_t recursion_count;
+    std::int32_t scene_identifier;
 };
+
+static_assert(sizeof(RuntimeLockRecord) == 0x20);
+static_assert(offsetof(RuntimeLockRecord, identity_context) == 0x04);
+static_assert(offsetof(RuntimeLockRecord, flags) == 0x0c);
+static_assert(offsetof(RuntimeLockRecord, scene_identifier) == 0x1c);
 
 struct RuntimeSceneRecord
 {
@@ -1283,8 +1366,15 @@ struct RuntimeResourceObject
     std::uint32_t frames_remaining;
     std::int32_t previous_x;
     std::int32_t previous_y;
-    std::uint8_t unknown_0060[0x14];
-    std::uint32_t field_0074;
+    std::uint8_t unknown_0060[4];
+    void *fixed_resource_identity;
+    void *secondary_resource_identity;
+    std::uint8_t unknown_006c[8];
+    union
+    {
+        RuntimeGenericBackendChild *generic_backend_child;
+        std::uint32_t field_0074;
+    };
     std::uint8_t unknown_0078[0x11c];
     std::uint32_t callback_position;
 };
@@ -1297,6 +1387,9 @@ static_assert(offsetof(RuntimeResourceObject, type_flags) == 8);
 static_assert(offsetof(RuntimeResourceObject, backend_flags) == 0x0c);
 static_assert(offsetof(RuntimeResourceObject, data) == 0x10);
 static_assert(offsetof(RuntimeResourceObject, owner_thread) == 0x14);
+static_assert(offsetof(RuntimeResourceObject, fixed_resource_identity) == 0x64);
+static_assert(offsetof(RuntimeResourceObject, secondary_resource_identity) == 0x68);
+static_assert(offsetof(RuntimeResourceObject, generic_backend_child) == 0x74);
 static_assert(offsetof(RuntimeResourceObject, scene_identifier) == 0x1c);
 static_assert(offsetof(RuntimeResourceObject, scene_descriptor) == 0x20);
 static_assert(offsetof(RuntimeResourceObject, presentation_owner) == 0x30);
@@ -1322,8 +1415,74 @@ struct RuntimeResourceConstructionPlanApi
     std::uint32_t(__fastcall *find_available_scene)(std::uint32_t flags);
 };
 
+struct RuntimeMediaBackend;
+struct RuntimeAnimationBackend;
+struct RuntimeSoundSlot;
+struct RuntimeGenericBackend;
+struct RuntimeGenericResourceNode;
+struct RuntimeTreeNode;
+struct DisplaySceneNode;
+struct DisplayPixelFormatDescriptor;
+struct AsyncFileRecord;
+struct RuntimeResourceCacheEntry;
+struct DisplayTraversalState;
+
+struct RuntimeResourceConstructionApi
+{
+    HANDLE(WINAPI *get_process_heap)();
+    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
+    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    std::uint32_t(__fastcall *detect_type)(const char *path);
+    void(__fastcall *update_host)(const char *path, std::int32_t mode);
+    void(__fastcall *load)(const char *path, void **data, std::uint32_t *size, std::int32_t *storage, std::uint32_t flags);
+    RuntimeMediaBackend *(__fastcall *create_bitmap)(std::uint32_t unused, std::uint32_t extension_bytes, void *data);
+    RuntimeAnimationBackend *(__fastcall *create_animation)(std::uint32_t unused, void *data, std::uint32_t extension_bytes, std::uint32_t storage);
+    std::uint32_t(__fastcall *create_sound)(WAVEFORMATEX *format);
+    RuntimeSoundSlot *(__fastcall *get_sound_slot)(std::uint32_t handle);
+    std::uint32_t(__fastcall *start_sound)(std::uint32_t handle, std::int32_t reset_timing);
+    std::uint32_t(__fastcall *queue_sound)(std::uint32_t handle, void *data, std::uint32_t size, std::int32_t replace);
+    void(__fastcall *set_sound_loop)(std::uint32_t handle, std::uint32_t value);
+    std::uint32_t(__fastcall *stop_sound)(std::uint32_t handle, std::int32_t reset_timing);
+    RuntimeGenericBackend *(__fastcall *create_generic)(std::uint32_t data, std::uint32_t size);
+    RuntimeGenericResourceNode *(__fastcall *find_generic_resource)(const char *path);
+    RuntimeTreeNode *(__fastcall *activate_tree)(const char *resource_name, const char *tree_name, void *creation_context, void *unused);
+    void(__fastcall *rebuild_tree)(void *identity);
+    DisplaySceneNode *(__fastcall *acquire_scene)(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+        DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format);
+    std::uint32_t(__fastcall *configure_bitmap)(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, void *callback, std::uint32_t flags);
+    std::uint32_t(__fastcall *configure_animation)(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, const void *comparison_palette, std::uint32_t flags,
+        std::int32_t(__fastcall *callback)(RuntimeMediaBackend *backend));
+    std::uint32_t(__fastcall *begin_scene)(std::int32_t identifier);
+    void(__fastcall *finalize_media)(void *identity);
+    void(__fastcall *configure_palette)(RuntimeResourceObject *resource);
+    std::uint32_t(__fastcall *end_scene)(std::int32_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+    void(__fastcall *wait_for_count)(std::uint32_t count);
+    std::uint32_t(__fastcall *destroy_media)(void *identity);
+    void(__fastcall *destroy_sound)(std::uint32_t handle);
+    std::uint32_t(__fastcall *destroy_generic)(void *identity);
+    BOOL(__fastcall *release_memory)(const char *path);
+    std::uint32_t(__fastcall *release_stream)(AsyncFileRecord *record);
+    void(__fastcall *build_path)(char *destination, const char *source);
+    CdfArchive *(__fastcall *open_archive)(const char *path, int alternate_stream);
+    RuntimeResourceCacheEntry *(__fastcall *register_resource)(void *parent_identity, void *data);
+    std::uint32_t(
+        __fastcall *add_scene_callback)(std::int32_t identifier, int(__fastcall *callback)(DisplayTraversalState *state), const void *context, std::uint32_t context_size, std::uint32_t flags);
+};
+
 // Non-original helper: exact pre-dispatch normalization from ConstructRuntimeResourceObject.
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t flags);
+
+// GAG.EXE: 0x00424EC0
+void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
+    std::uint32_t flags);
+
+// Non-original deterministic entry used by constructor tests; the final legacy argument is ignored.
+void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
+    std::uint32_t flags, std::int32_t animation_loop_stack_value);
+
+void set_runtime_resource_construction_api_for_testing(const RuntimeResourceConstructionApi &api);
 
 struct RuntimeResourceVisibilityCallbackContext
 {
@@ -1383,20 +1542,22 @@ std::uint32_t get_runtime_property_value();
 // GAG.EXE: 0x00426080
 std::uint16_t __fastcall query_runtime_resource_frame_number(void *identity);
 
+using RuntimeResourceConstructor = void *(
+    __fastcall *)(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop, std::uint32_t flags);
+
 struct RuntimeResourceSelectionApi
 {
     void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
     std::uint32_t(__fastcall *close_archive)(CdfArchive *archive);
     void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    void *(__fastcall *construct_resource)(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-        std::uint32_t flags, std::int32_t loop_animation);
+    RuntimeResourceConstructor construct_resource;
 };
 
 // GAG.EXE: 0x004244E0
 void __fastcall select_runtime_resource(char *path);
 
-// Non-original helper exposing the original hidden ESI input for deterministic testing.
+// Non-original compatibility entry retained for focused caller tests.
 void select_runtime_resource_with_loop_register(char *path, std::int32_t loop_animation);
 
 void set_runtime_resource_selection_api_for_testing(const RuntimeResourceSelectionApi &api);
@@ -2381,7 +2542,7 @@ struct RuntimeDisplayResetApi
 
 struct RuntimeDisplayShutdownApi
 {
-    void *(__fastcall *get_named_node)(const char *name);
+    RuntimeNamedNode *(__fastcall *get_named_node)(const char *name);
     DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
     BOOL(WINAPI *close_handle)(HANDLE handle);
     std::uint32_t(__fastcall *release_scene)(std::int32_t identifier, std::int32_t owner);
@@ -2652,8 +2813,6 @@ struct RuntimeNamedLockApi
     void(WINAPI *sleep)(DWORD milliseconds);
 };
 
-static_assert(sizeof(RuntimeLockRecord) == 0x1c);
-
 static_assert(offsetof(ScriptObjectContainer, next) == 0x24);
 static_assert(sizeof(ScriptObjectContainer) == 0x1b4);
 static_assert(offsetof(ScriptObjectContainer, identity) == 0x20);
@@ -2677,18 +2836,21 @@ static_assert(offsetof(RuntimeCommandDefinition, flags) == 0x24);
 
 struct ScriptRuntimeRoot
 {
-    std::uint8_t unknown_0000[4];
+    ScriptRuntimeRoot *self;
     std::uint32_t flags;
     std::uint32_t palette_flags;
     std::uint32_t event_records[32][16];
     std::uint32_t transient_index_1;
     std::uint32_t transient_index_2;
-    void(__fastcall *destroy_generic_resource)(std::uint32_t operation, std::int32_t argument, RuntimeGenericResourceNode *node);
-    void(__fastcall *dispatch_resource_operation)(std::uint32_t operation, void **resource_data, void **resource_metadata);
+    void(__fastcall *set_property)(std::uint32_t operation, std::int32_t argument, RuntimeGenericResourceNode *node);
+    void(__fastcall *get_property)(std::uint32_t operation, void **resource_data, void **resource_metadata);
     HANDLE heap;
-    std::uint8_t unknown_0820[8];
+    std::uint32_t parser_integer_0820;
+    std::uint32_t state_value_0824;
     char language[0x20];
-    std::uint8_t unknown_0848[0x228];
+    char parser_value_0848[0x20];
+    char parser_text_0868[0x104];
+    char default_auxiliary_names[0x104];
     std::uint32_t command_definition_count;
     RuntimeCommandDefinition command_definitions[32];
     RuntimeGenericResourceNode *generic_resources;
@@ -2715,6 +2877,7 @@ struct ScriptRuntimeRoot
 };
 
 static_assert(offsetof(ScriptRuntimeRoot, objects) == 0xf7c);
+static_assert(offsetof(ScriptRuntimeRoot, self) == 0);
 static_assert(offsetof(ScriptRuntimeRoot, visual_objects) == 0xf80);
 static_assert(offsetof(ScriptRuntimeRoot, containers) == 0xf98);
 static_assert(offsetof(ScriptRuntimeRoot, flags) == 4);
@@ -2726,6 +2889,11 @@ static_assert(offsetof(ScriptRuntimeRoot, runtime_nodes) == 0xf84);
 static_assert(offsetof(ScriptRuntimeRoot, fixed_name_nodes) == 0xf88);
 static_assert(offsetof(ScriptRuntimeRoot, heap) == 0x81c);
 static_assert(offsetof(ScriptRuntimeRoot, language) == 0x828);
+static_assert(offsetof(ScriptRuntimeRoot, parser_integer_0820) == 0x820);
+static_assert(offsetof(ScriptRuntimeRoot, state_value_0824) == 0x824);
+static_assert(offsetof(ScriptRuntimeRoot, parser_value_0848) == 0x848);
+static_assert(offsetof(ScriptRuntimeRoot, parser_text_0868) == 0x868);
+static_assert(offsetof(ScriptRuntimeRoot, default_auxiliary_names) == 0x96c);
 static_assert(offsetof(ScriptRuntimeRoot, plan_nodes) == 0xf8c);
 static_assert(offsetof(ScriptRuntimeRoot, plan_terminal) == 0xfa8);
 static_assert(offsetof(ScriptRuntimeRoot, global_link_007c_head) == 0xf90);
@@ -2741,11 +2909,17 @@ static_assert(offsetof(ScriptRuntimeRoot, global_secondary_resource_link_tail) =
 static_assert(offsetof(ScriptRuntimeRoot, global_scene_link_tail) == 0xfc0);
 static_assert(offsetof(ScriptRuntimeRoot, serialized_script) == 0xfc4);
 static_assert(offsetof(ScriptRuntimeRoot, runtime_tree) == 0xf78);
-static_assert(offsetof(ScriptRuntimeRoot, destroy_generic_resource) == 0x814);
-static_assert(offsetof(ScriptRuntimeRoot, dispatch_resource_operation) == 0x818);
+static_assert(offsetof(ScriptRuntimeRoot, set_property) == 0x814);
+static_assert(offsetof(ScriptRuntimeRoot, get_property) == 0x818);
 static_assert(offsetof(ScriptRuntimeRoot, generic_resources) == 0xf74);
 static_assert(offsetof(ScriptRuntimeRoot, command_definition_count) == 0xa70);
 static_assert(offsetof(ScriptRuntimeRoot, command_definitions) == 0xa74);
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, visual_object) == 0x1444 + offsetof(RuntimeSceneSlot, visual_object));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, flags) + 2 == 0x1444 + offsetof(RuntimeSceneSlot, flags));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + sizeof(RuntimeCommandDefinition) == 0x1444 + offsetof(RuntimeSceneSlot, name));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, generic_resources) == 0x1444 + 31 * sizeof(RuntimeSceneSlot) + offsetof(RuntimeSceneSlot, name));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, global_link_0084_head) == 0x1944);
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, serialized_script) + sizeof(ScriptTextBuffer *) == 0x1978);
 
 // GAG.EXE: 0x004050B0
 RuntimeGenericResourceNode *__fastcall find_runtime_generic_resource(void *identity);
@@ -2839,6 +3013,9 @@ struct RuntimeTreeCreationApi
     void(__fastcall *activate_node)(RuntimeTreeNode *node);
 };
 
+// GAG.EXE: 0x004056C0
+RuntimeTreeNode *__fastcall dispatch_runtime_tree_parser(RuntimeTreeParserContext *context);
+
 // GAG.EXE: 0x00405410
 RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context);
 
@@ -2882,6 +3059,48 @@ struct RuntimeTreeParserResetApi
     RuntimeTreeNode *(__fastcall *resolve_included_tree)(ScriptParserState *parser);
     RuntimeTreeNode *(__fastcall *find_node)(void *identity);
 };
+
+struct RuntimeTreeParserDirectDispatchApi
+{
+    std::uint32_t(__fastcall *parse_property)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_object)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_link_0084)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_link_007c)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_visual)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_primary)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_container)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_command)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_named)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_link_008c)(ScriptParserState *parser);
+    RuntimeTreeNode *(__fastcall *create_conditional)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_auxiliary_names)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *create_fixed_name)(ScriptParserState *parser);
+    bool(__fastcall *parse_language)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_secondary)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_value)(ScriptParserState *parser, char *value, std::uint32_t capacity);
+    std::uint32_t(__fastcall *apply_image_flags)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *dispatch_section)(ScriptParserState *parser);
+    void(__fastcall *set_resource_position)(void *identity, std::uint32_t position);
+    std::uint32_t(__fastcall *read_resource_token)(void *identity, char *output, std::uint32_t capacity, std::uint8_t delimiter);
+    std::uint32_t(__fastcall *parse_scene)(ScriptParserState *parser);
+    void(__fastcall *add_auxiliary_name)(RuntimeTreeNode *owner, const char *name);
+    void(__fastcall *publish_links)(RuntimeTreeNode *owner);
+};
+
+void set_runtime_tree_parser_direct_dispatch_api_for_testing(const RuntimeTreeParserDirectDispatchApi &api);
+void reset_runtime_tree_parser_direct_dispatch_api_for_testing();
+
+struct RuntimeTreeParserSpecialDispatchApi
+{
+    std::int32_t(__fastcall *parse_integer)(ScriptParserState *parser);
+    std::uint32_t(__fastcall *parse_image_flag)(ScriptParserState *parser);
+    RuntimeTreeNode *(__fastcall *create_command)(ScriptParserState *parser);
+    RuntimeTreeNode *(__fastcall *find_jump)(ScriptParserState *parser, const char *property_name, std::uint32_t cursor);
+    bool(__fastcall *strings_equal)(const char *left, const char *right);
+};
+
+void set_runtime_tree_parser_special_dispatch_api_for_testing(const RuntimeTreeParserSpecialDispatchApi &api);
+void reset_runtime_tree_parser_special_dispatch_api_for_testing();
 
 // GAG.EXE: 0x00405E00
 void __fastcall reset_runtime_tree_parser_context_recursive(ScriptParserState *parser);
@@ -3004,7 +3223,7 @@ void __fastcall serialize_runtime_command_definitions(ScriptTextBuffer *buffer);
 void clear_runtime_command_definitions();
 
 // GAG.EXE: 0x00407690
-void *__fastcall get_or_create_runtime_named_node(const char *name);
+RuntimeNamedNode *__fastcall get_or_create_runtime_named_node(const char *name);
 
 // GAG.EXE: 0x0040A7A0
 bool set_runtime_plans_inactive();
@@ -3144,7 +3363,10 @@ struct RuntimeTreeLink7C
     RuntimeTreeLink7C *next;
     std::uint8_t unknown_0028[0x10];
     ScriptParserState parser;
-    std::uint8_t unknown_0060[0x10];
+    RuntimeGenericBackendChild *backend_child;
+    void *fixed_resource_identity;
+    void *secondary_resource_identity;
+    std::uint32_t wait_deadline;
     std::uint32_t owner_flags;
     std::uint32_t command_bit;
     ScriptObjectState *source_object;
@@ -3187,6 +3409,10 @@ static_assert(sizeof(RuntimeTreeLink84) == 0x68);
 static_assert(sizeof(RuntimeTreeLink7C) == 0xb4);
 static_assert(offsetof(RuntimeTreeLink7C, next) == 0x24);
 static_assert(offsetof(RuntimeTreeLink7C, parser) == 0x38);
+static_assert(offsetof(RuntimeTreeLink7C, backend_child) == 0x60);
+static_assert(offsetof(RuntimeTreeLink7C, fixed_resource_identity) == 0x64);
+static_assert(offsetof(RuntimeTreeLink7C, secondary_resource_identity) == 0x68);
+static_assert(offsetof(RuntimeTreeLink7C, wait_deadline) == 0x6c);
 static_assert(offsetof(RuntimeTreeLink7C, owner_flags) == 0x70);
 static_assert(offsetof(RuntimeTreeLink7C, command_bit) == 0x74);
 static_assert(offsetof(RuntimeTreeLink7C, source_object) == 0x78);
@@ -3323,7 +3549,7 @@ std::uint32_t __fastcall scan_runtime_tree_link_007c_control_boundary(void *iden
 std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t *state, const std::uint32_t *criteria);
 
 // GAG.EXE: 0x0040C4B0
-void __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link);
+std::uint32_t __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link);
 
 // GAG.EXE: 0x0040C570
 std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser);
@@ -3602,6 +3828,78 @@ std::uint32_t __fastcall read_runtime_event_record(std::uint32_t *record, std::i
 // GAG.EXE: 0x004237F0
 std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region);
 
+// GAG.EXE: 0x00407A80
+std::uint32_t __fastcall synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tree_identity, RuntimePointerRegion *region);
+
+struct RuntimePointerResourceRebuildApi
+{
+    RuntimeTreeNode *(__fastcall *resolve_tree)(void *identity);
+    std::uint32_t(__fastcall *synchronize_owner)(void *owner_identity, void *tree_identity, RuntimePointerRegion *region);
+    std::uint32_t(__fastcall *query_scene_flags)(void *identity);
+    void(__fastcall *finalize_destruction)(void *identity);
+    void(__fastcall *request_destruction)(void *identity);
+    RuntimeResourceConstructor construct_resource;
+    void(__fastcall *update_position)(void *identity, std::int32_t x, std::int32_t y);
+    void(__fastcall *set_comment_mode)(RuntimeTreeNode *root, int enabled);
+    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+    void(__fastcall *wait_for_count)(std::uint32_t count);
+};
+
+struct RuntimeTreeResourceRebuildApi
+{
+    RuntimeTreeNode *(__fastcall *resolve_tree)(void *identity);
+    DisplaySceneNode *(__fastcall *acquire_scene)(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+        DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format);
+    RuntimeResourceConstructor construct_resource;
+    std::uint32_t(__fastcall *synchronize_owner)(void *owner_identity, void *tree_identity, RuntimePointerRegion *region);
+    std::uint32_t(__fastcall *query_scene_flags)(void *identity);
+    void(__fastcall *request_destruction)(void *identity);
+    RuntimeGenericBackendChild *(__fastcall *configure_resource)(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, std::uint32_t value, std::uint32_t flags);
+    void(__fastcall *set_comment_mode)(RuntimeTreeNode *root, int enabled);
+    void(__fastcall *wait_for_count)(std::uint32_t count);
+    void (*reset_byte_queue)();
+    void (*reset_pair_queue)();
+    void (*reset_transient_indices)();
+    void(__fastcall *set_resource_state)(void *identity, std::uint32_t state);
+    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+};
+
+struct RuntimeGenericChildAttachmentApi
+{
+    RuntimeLockRecord *(__fastcall *acquire_resource)(void *identity);
+    void(__fastcall *release_resource)(RuntimeLockRecord *record);
+    std::uint32_t(__fastcall *find_scene_index)(std::uint32_t candidate);
+    RuntimeGenericBackendChild *(__fastcall *create_child)(void *backend_identity, void *font_identity, const std::uint32_t *context, std::uintptr_t selection, std::uint32_t flags);
+    DisplaySceneNode *(__fastcall *lock_scene)(std::int32_t identifier);
+    void(__fastcall *unlock_scene)(std::int32_t identifier);
+    DisplaySceneNode *(__fastcall *acquire_scene)(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+        DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format);
+    void *(__fastcall *destroy_child)(void *identity);
+};
+
+// GAG.EXE: 0x00425D50
+RuntimeGenericBackendChild *__fastcall attach_runtime_generic_backend_child(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, std::uint32_t selection,
+    std::uint32_t flags);
+
+void set_runtime_generic_child_attachment_api_for_testing(const RuntimeGenericChildAttachmentApi &api);
+void set_runtime_generic_child_attachment_scene_for_testing(std::int32_t identifier);
+
+// GAG.EXE: 0x004268B0
+void __fastcall rebuild_runtime_tree_resources(void *identity);
+
+// Non-original compatibility entry retained for focused rebuild tests.
+void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity, std::int32_t loop_animation);
+
+void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api);
+
+// GAG.EXE: 0x00426700
+void rebuild_runtime_pointer_resources();
+
+// Non-original compatibility entry retained for focused rebuild tests.
+void rebuild_runtime_pointer_resources_with_loop_register(std::int32_t loop_animation);
+
+void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerResourceRebuildApi &api);
+
 // GAG.EXE: 0x00423BC0
 std::uint32_t handle_runtime_left_button_up();
 
@@ -3654,7 +3952,7 @@ struct RuntimeCommentTreeCleanupApi
     RuntimeTreeNode *(__fastcall *next_node)(RuntimeTreeNode *root);
     void(__fastcall *destroy_resources)(void *identity);
     std::uint32_t(__fastcall *deactivate_node)(void *identity, void *second);
-    void (*finalize_destroyed_nodes)();
+    void(__fastcall *finalize_destroyed_nodes)(void *identity);
     void (*rebuild_runtime_plans)();
 };
 
@@ -3959,8 +4257,10 @@ void *get_current_runtime_scene_identity_for_testing();
 void set_runtime_scene_control_state_for_testing(std::uint32_t flags, void *saved_identity);
 std::uint32_t get_runtime_scene_control_flags_for_testing();
 void set_runtime_scene_slots_for_testing(const RuntimeSceneSlot *slots);
+const RuntimeSceneSlot *get_runtime_scene_slots_for_testing();
 void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, std::uint32_t state_mask, void *state_owner);
 RuntimePointerRegion *get_active_runtime_pointer_region_for_testing();
+RuntimePointerRegion *get_runtime_pointer_regions_for_testing();
 std::uint32_t get_runtime_pointer_event_flags_for_testing();
 void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api);
 void set_runtime_display_reset_state_for_testing(std::uint32_t value_1, std::uint8_t byte_value, std::uint32_t value_2, const std::uint32_t *scene_state);
@@ -3994,6 +4294,8 @@ ScriptObjectState *__fastcall find_script_object_by_name(const char *name);
 ScriptObjectState *__fastcall resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type);
 
 void set_script_runtime_root_for_testing(ScriptRuntimeRoot *root);
+void use_embedded_script_runtime_root_for_testing();
+ScriptRuntimeRoot *get_embedded_script_runtime_root_for_testing();
 
 // GAG.EXE: 0x0040D030
 void __fastcall copy_file_name_from_path(char *destination, const char *source);
@@ -4289,8 +4591,8 @@ struct RuntimePendingTreeSwitchApi
 {
     void(__fastcall *destroy_resources)(void *identity);
     RuntimeTreeNode *(__fastcall *activate_tree)(const char *first, const char *second, void *third, void *fourth);
-    void (*finalize_current_tree)();
-    void (*rebuild_runtime_plans)();
+    void(__fastcall *finalize_current_tree)(void *identity);
+    void(__fastcall *rebuild_runtime_plans)(void *identity);
     std::uint32_t(__fastcall *update_pointer)(std::int32_t x, std::int32_t y);
 };
 
@@ -4338,36 +4640,22 @@ static_assert(sizeof(RuntimeInputSessionRecord) == 0x20);
 // GAG.EXE: 0x004208E0
 std::uint32_t __fastcall copy_runtime_input_session_record(RuntimeInputSessionRecord *record);
 
-#pragma pack(push, 1)
-struct RuntimeInputContext
-{
-    std::uint8_t unknown_00[4];
-    void *context_value;
-    std::uint8_t unknown_08[4];
-    std::uint32_t flags;
-    std::uint8_t unknown_10[0x0c];
-    void *resource_context;
-};
-#pragma pack(pop)
-
-static_assert(offsetof(RuntimeInputContext, context_value) == 4);
-static_assert(offsetof(RuntimeInputContext, flags) == 0x0c);
-static_assert(offsetof(RuntimeInputContext, resource_context) == 0x1c);
-static_assert(sizeof(RuntimeInputContext) == 0x20);
-
 struct RuntimeInputSessionApi
 {
+    void (*reset_byte_queue)();
     DWORD(WINAPI *get_time)();
-    RuntimeInputContext *(__fastcall *find_context)(void *selector);
-    int(__fastcall *prepare)(RuntimeInputSessionRecord *record, void *first, void *second, void *context_value, void *fourth, void *fifth, void *session_state);
-    void *(__fastcall *allocate_resource)(std::uint32_t mask);
-    void *(__fastcall *acquire_resource)(void *context);
-    void *(__fastcall *create_input_object)(void *resource, void *first, void *second, void *value_1, void *value_2, std::uint32_t flags, void *graphics_state, void *local_state, void *descriptor);
-    int(__fastcall *activate_input_object)(void *object);
-    void(__fastcall *cleanup_session_state)(void *session_state, void *local_state);
-    void(__fastcall *configure_input_object)(void *object, void *local_state, void *configuration);
-    void(__fastcall *release_resource)(void *context);
-    void(__fastcall *release_context)(RuntimeInputContext *context);
+    RuntimeLockRecord *(__fastcall *acquire_record)(void *selector);
+    std::uint32_t(__fastcall *initialize_text)(const char *text, std::uint32_t value_0014, std::uint32_t value_0018, void *font_identity, std::uint32_t low_color, std::uint32_t high_color,
+        RuntimeStandaloneTextState *state);
+    std::uint32_t(__fastcall *find_scene_index)(std::uint32_t flags);
+    DisplaySceneNode *(__fastcall *lock_scene)(std::int32_t identifier);
+    DisplaySceneNode *(__fastcall *acquire_scene)(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+        DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format);
+    std::uint32_t(__fastcall *begin_update)(std::int32_t identifier);
+    void(__fastcall *draw_text)(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination);
+    std::uint32_t(__fastcall *end_update)(std::int32_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+    void(__fastcall *unlock_scene)(std::int32_t identifier);
+    void(__fastcall *release_record)(RuntimeLockRecord *record);
 };
 
 // GAG.EXE: 0x00420790
@@ -4390,36 +4678,187 @@ void reset_runtime_byte_queue_for_testing();
 void reset_runtime_pair_queue_for_testing();
 void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, std::uint32_t status);
 void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api);
-void set_runtime_input_session_globals_for_testing(void *active_object, void *alternate_resource_context, void *value_1, void *value_2, void *graphics_state, void *configuration);
-void *get_runtime_input_object_for_testing();
-void *get_runtime_input_resource_for_testing();
-std::uint32_t get_runtime_input_character_width_for_testing();
-void *get_runtime_input_session_value_for_testing();
+void set_runtime_input_alternate_scene_for_testing(std::int32_t identifier);
 
 #pragma pack(push, 1)
 struct RuntimeCommandLoopState
 {
     HWND window;
-    std::uint8_t unknown_004[0x450];
+    std::uint8_t unknown_004[8];
+    std::uint8_t resource_archive_state;
+    std::uint8_t unknown_00d[0x103];
+    char resource_directory[0x104];
+    void *display_scene_host;
+    std::uint8_t unknown_218[0x10];
+    std::uint32_t display_pixel_format[8];
+    std::int32_t input_alternate_scene_identifier;
+    char first_runtime_path[0x104];
+    char second_runtime_path[0x104];
     void *command_context;
     std::uint8_t command_target[0x20];
     std::uint16_t width;
     std::uint16_t height;
-    std::uint8_t unknown_47c[0x490];
-    std::uint32_t unknown_90c;
-    std::uint8_t unknown_910[0x18];
+    void *display_surface;
+    std::uint32_t callback_first_position_1;
+    std::uint32_t callback_first_position_2;
+    std::uint32_t callback_first_position_3;
+    PALETTEENTRY *palette_entries;
+    std::uint8_t unknown_490[0x94];
+    HMODULE game_dll_module;
+    FARPROC game_dll_initialize;
+    FARPROC game_dll_window_procedure;
+    FARPROC game_dll_execute;
+    std::uint32_t game_result_type;
+    std::uint8_t game_result_data[0x104];
+    char input_text[0x20];
+    RuntimeStandaloneTextState input_text_state;
+    std::int32_t input_scene_identifier;
+    std::uint32_t input_text_flags;
+    std::uint32_t input_scene_index;
+    std::uint32_t input_caret_tick;
+    std::uint32_t input_cursor;
+    std::uint32_t input_end;
+    std::uint32_t pair_available;
+    RuntimeMessagePair pair_queue[0x20];
+    std::uint32_t pair_read_index;
+    std::uint32_t pair_write_index;
+    std::uint32_t byte_available;
+    std::uint8_t byte_queue[0x20];
+    std::uint32_t byte_read_index;
+    std::uint32_t byte_write_index;
+    std::uint32_t message_available;
+    std::uint32_t message_queue[0x20];
+    std::uint32_t message_read_index;
+    std::uint32_t message_write_index;
+    CdfArchive *active_archive;
+    AsyncFileHost *async_file_host;
+    void *resource_cache_parent_identity;
+    CRITICAL_SECTION byte_queue_critical_section;
+    CRITICAL_SECTION pair_queue_critical_section;
+    CRITICAL_SECTION message_queue_critical_section;
+    CRITICAL_SECTION resource_critical_section;
+    CRITICAL_SECTION path_critical_section;
+    HANDLE resource_heap;
+    HANDLE script_thread;
+    std::uint8_t unknown_900[4];
+    void *media_objects_parent_identity;
+    std::uint32_t resource_wait_count;
+    std::uint32_t accumulated_tree_flags;
+    std::uint32_t reset_value_1;
+    std::uint32_t reset_value_2;
+    std::uint32_t reset_value_3;
+    std::uint32_t nested_runtime_state_count;
+    std::uint32_t nested_runtime_state_4_count;
+    std::uint32_t resource_count;
     std::uint32_t external_command_pending;
-    std::uint32_t unknown_92c;
+    std::uint32_t target_flags;
     std::uint32_t flags;
+    std::int32_t resource_host_mode;
+    std::uint32_t script_clock;
+    std::int32_t scene_x;
+    std::int32_t scene_y;
+    std::uint8_t unknown_944[0x10];
+    void *saved_default_comment_scene_identity;
+    void *deferred_scene_identity;
+    void *current_scene_identity;
+    void *current_runtime_resource;
+    void *runtime_tree_identity;
+    RuntimeTreeLink7C *active_script_link;
+    RuntimePointerRegion *active_pointer_region;
 };
 #pragma pack(pop)
 
 static_assert(offsetof(RuntimeCommandLoopState, flags) == 0x930);
+static_assert(offsetof(RuntimeCommandLoopState, script_clock) == 0x938);
+static_assert(offsetof(RuntimeCommandLoopState, scene_x) == 0x93c);
+static_assert(offsetof(RuntimeCommandLoopState, scene_y) == 0x940);
+static_assert(offsetof(RuntimeCommandLoopState, saved_default_comment_scene_identity) == 0x954);
+static_assert(offsetof(RuntimeCommandLoopState, deferred_scene_identity) == 0x958);
+static_assert(offsetof(RuntimeCommandLoopState, current_scene_identity) == 0x95c);
+static_assert(offsetof(RuntimeCommandLoopState, current_runtime_resource) == 0x960);
+static_assert(offsetof(RuntimeCommandLoopState, runtime_tree_identity) == 0x964);
+static_assert(offsetof(RuntimeCommandLoopState, active_script_link) == 0x968);
+static_assert(offsetof(RuntimeCommandLoopState, active_pointer_region) == 0x96c);
+static_assert(sizeof(RuntimeCommandLoopState) == 0x970);
+static_assert(offsetof(RuntimeCommandLoopState, input_alternate_scene_identifier) == 0x248);
+static_assert(offsetof(RuntimeCommandLoopState, display_scene_host) == 0x214);
+static_assert(offsetof(RuntimeCommandLoopState, resource_archive_state) == 0x0c);
+static_assert(offsetof(RuntimeCommandLoopState, resource_directory) == 0x110);
+static_assert(offsetof(RuntimeCommandLoopState, first_runtime_path) == 0x24c);
+static_assert(offsetof(RuntimeCommandLoopState, second_runtime_path) == 0x350);
+static_assert(offsetof(RuntimeCommandLoopState, display_pixel_format) == 0x228);
 static_assert(offsetof(RuntimeCommandLoopState, command_target) == 0x458);
 static_assert(offsetof(RuntimeCommandLoopState, width) == 0x478);
-static_assert(offsetof(RuntimeCommandLoopState, unknown_90c) == 0x90c);
+static_assert(offsetof(RuntimeCommandLoopState, accumulated_tree_flags) == 0x90c);
+static_assert(offsetof(RuntimeCommandLoopState, resource_wait_count) == 0x908);
 static_assert(offsetof(RuntimeCommandLoopState, height) == 0x47a);
-static_assert(sizeof(RuntimeCommandLoopState) == 0x934);
+static_assert(offsetof(RuntimeCommandLoopState, display_surface) == 0x47c);
+static_assert(offsetof(RuntimeCommandLoopState, callback_first_position_1) == 0x480);
+static_assert(offsetof(RuntimeCommandLoopState, palette_entries) == 0x48c);
+static_assert(offsetof(RuntimeCommandLoopState, script_thread) == 0x8fc);
+static_assert(offsetof(RuntimeCommandLoopState, resource_cache_parent_identity) == 0x87c);
+static_assert(offsetof(RuntimeCommandLoopState, resource_heap) == 0x8f8);
+static_assert(offsetof(RuntimeCommandLoopState, media_objects_parent_identity) == 0x904);
+static_assert(offsetof(RuntimeCommandLoopState, target_flags) == 0x92c);
+static_assert(offsetof(RuntimeCommandLoopState, resource_host_mode) == 0x934);
+static_assert(offsetof(RuntimeCommandLoopState, game_result_type) == 0x534);
+static_assert(offsetof(RuntimeCommandLoopState, game_dll_module) == 0x524);
+static_assert(offsetof(RuntimeCommandLoopState, game_dll_initialize) == 0x528);
+static_assert(offsetof(RuntimeCommandLoopState, game_dll_window_procedure) == 0x52c);
+static_assert(offsetof(RuntimeCommandLoopState, game_dll_execute) == 0x530);
+static_assert(offsetof(RuntimeCommandLoopState, game_result_data) == 0x538);
+static_assert(offsetof(RuntimeCommandLoopState, input_text) == 0x63c);
+static_assert(offsetof(RuntimeCommandLoopState, input_text_state) == 0x65c);
+static_assert(offsetof(RuntimeCommandLoopState, input_scene_identifier) == 0x698);
+static_assert(offsetof(RuntimeCommandLoopState, input_text_flags) == 0x69c);
+static_assert(offsetof(RuntimeCommandLoopState, input_scene_index) == 0x6a0);
+static_assert(offsetof(RuntimeCommandLoopState, input_caret_tick) == 0x6a4);
+static_assert(offsetof(RuntimeCommandLoopState, input_cursor) == 0x6a8);
+static_assert(offsetof(RuntimeCommandLoopState, input_end) == 0x6ac);
+static_assert(offsetof(RuntimeCommandLoopState, pair_available) == 0x6b0);
+static_assert(offsetof(RuntimeCommandLoopState, pair_queue) == 0x6b4);
+static_assert(offsetof(RuntimeCommandLoopState, pair_read_index) == 0x7b4);
+static_assert(offsetof(RuntimeCommandLoopState, pair_write_index) == 0x7b8);
+static_assert(offsetof(RuntimeCommandLoopState, byte_available) == 0x7bc);
+static_assert(offsetof(RuntimeCommandLoopState, byte_queue) == 0x7c0);
+static_assert(offsetof(RuntimeCommandLoopState, byte_read_index) == 0x7e0);
+static_assert(offsetof(RuntimeCommandLoopState, byte_write_index) == 0x7e4);
+static_assert(offsetof(RuntimeCommandLoopState, message_available) == 0x7e8);
+static_assert(offsetof(RuntimeCommandLoopState, message_queue) == 0x7ec);
+static_assert(offsetof(RuntimeCommandLoopState, message_read_index) == 0x86c);
+static_assert(offsetof(RuntimeCommandLoopState, message_write_index) == 0x870);
+static_assert(offsetof(RuntimeCommandLoopState, active_archive) == 0x874);
+static_assert(offsetof(RuntimeCommandLoopState, async_file_host) == 0x878);
+static_assert(offsetof(RuntimeCommandLoopState, byte_queue_critical_section) == 0x880);
+static_assert(offsetof(RuntimeCommandLoopState, pair_queue_critical_section) == 0x898);
+static_assert(offsetof(RuntimeCommandLoopState, message_queue_critical_section) == 0x8b0);
+static_assert(offsetof(RuntimeCommandLoopState, resource_critical_section) == 0x8c8);
+static_assert(offsetof(RuntimeCommandLoopState, path_critical_section) == 0x8e0);
+static_assert(offsetof(RuntimeCommandLoopState, reset_value_1) == 0x910);
+static_assert(offsetof(RuntimeCommandLoopState, reset_value_2) == 0x914);
+static_assert(offsetof(RuntimeCommandLoopState, reset_value_3) == 0x918);
+static_assert(offsetof(RuntimeCommandLoopState, nested_runtime_state_count) == 0x91c);
+static_assert(offsetof(RuntimeCommandLoopState, nested_runtime_state_4_count) == 0x920);
+static_assert(offsetof(RuntimeCommandLoopState, resource_count) == 0x924);
+struct RuntimeTextInputApi
+{
+    std::uint8_t (*dequeue_byte)();
+    DWORD(WINAPI *time_get_time)();
+    std::uint32_t(__fastcall *initialize_text)(const char *text, std::uint32_t value_0014, std::uint32_t value_0018, void *font_identity, std::uint32_t low_color, std::uint32_t high_color,
+        RuntimeStandaloneTextState *state);
+    DisplaySceneNode *(__fastcall *acquire_scene)(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
+        DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format);
+    std::uint32_t(__fastcall *begin_update)(std::int32_t identifier);
+    void(__fastcall *draw_text)(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination);
+    std::uint32_t(__fastcall *end_update)(std::int32_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+    std::uint32_t(__fastcall *release_scene)(std::int32_t identifier, std::int32_t owner);
+};
+
+// GAG.EXE: 0x00420E10
+void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state);
+
+void set_runtime_text_input_api_for_testing(const RuntimeTextInputApi &api);
+RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing();
 
 struct RuntimeCommandBounds
 {
@@ -5097,6 +5536,37 @@ struct RuntimeCommandLoopApi
     void (*complete_first)();
 };
 
+struct RuntimeSessionResetApi
+{
+    std::uint32_t (*stop_game_dll)();
+    RuntimeTreeNode *(*get_tree_root)();
+    void(__fastcall *destroy_tree_resources)(void *identity);
+    std::uint32_t(__fastcall *deactivate_tree)(void *identity, void *replacement_identity);
+    void (*reset_display_state)();
+    void(__fastcall *request_resource_destruction)(void *identity);
+    void (*destroy_fixed_name_nodes)();
+    void (*purge_named_nodes)();
+    void (*destroy_object_states)();
+    void (*destroy_visual_objects)();
+    void (*clear_command_definitions)();
+    void (*remove_generic_resources)();
+    std::uint32_t(__fastcall *close_archive)(CdfArchive *archive);
+    std::uint32_t(__fastcall *destroy_async_host)(AsyncFileHost *host);
+    void(__fastcall *operate_surface)(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, std::int32_t mode);
+    RuntimeNamedNode *(__fastcall *get_named_node)(const char *name);
+    DWORD(WINAPI *get_time)();
+    void(WINAPI *sleep)(DWORD milliseconds);
+};
+
+// GAG.EXE: 0x004263A0
+void reset_runtime_session();
+
+void set_runtime_session_reset_api_for_testing(const RuntimeSessionResetApi &api);
+void set_runtime_session_reset_storage_for_testing(std::uint32_t value);
+std::uint32_t get_runtime_session_reset_storage_for_testing(std::uint32_t index);
+std::uint32_t get_runtime_pointer_event_record_for_testing(std::uint32_t index);
+void set_embedded_script_runtime_flags_for_testing(std::uint32_t flags, std::uint32_t palette_flags);
+
 // GAG.EXE: 0x00420CE0
 int __fastcall run_runtime_command_loop(RuntimeCommandLoopState *state);
 
@@ -5116,6 +5586,48 @@ std::uint32_t run_pending_runtime_external_command();
 void set_runtime_external_command_api_for_testing(const RuntimeExternalCommandApi &api);
 void set_runtime_external_command_state_for_testing(const RuntimeCommandLoopState &state);
 const RuntimeCommandLoopState &get_runtime_external_command_state_for_testing();
+
+// GAG.EXE: 0x00421530
+DWORD WINAPI execute_script_commands(LPVOID parameter);
+
+enum class RuntimeScriptOpcodeDisposition : std::uint32_t
+{
+    unhandled,
+    complete,
+    pause,
+    commit_cursor,
+    finish_link,
+    restart_outer
+};
+
+// Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
+RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, std::uint32_t opcode,
+    std::int32_t random_value = 0, std::uint32_t saved_cursor = 0xffffffff);
+
+struct RuntimeScriptExecutorApi
+{
+    DWORD(WINAPI *set_batch_limit)(DWORD limit);
+    DWORD(WINAPI *get_tick_count)();
+    DWORD(WINAPI *time_get_time)();
+    void(WINAPI *sleep)(DWORD milliseconds);
+    void(__fastcall *process_children)(std::uint32_t maximum_end_position);
+    void(__fastcall *process_message)(RuntimeCommandLoopState *state);
+    void(__fastcall *process_text_input)(RuntimeCommandLoopState *state);
+    std::uint32_t (*process_pair_message)();
+    int(__fastcall *run_command_loop)(RuntimeCommandLoopState *state);
+    RuntimeTreeNode *(__fastcall *resolve_tree)(void *identity);
+    bool (*synchronize_plan_mode)();
+    bool (*process_pending_tree_switch)(RuntimeTreeNode *node);
+    void (*acknowledge_event)();
+    std::uint32_t (*run_external_command)();
+    std::uint32_t(__fastcall *activate_link)(RuntimeTreeLink7C *link);
+    std::uint32_t(__fastcall *parse_opcode)(ScriptParserState *parser);
+    RuntimeScriptOpcodeDisposition (
+        *dispatch_opcode)(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, std::uint32_t opcode, std::int32_t random_value, std::uint32_t saved_cursor);
+    std::int32_t(__fastcall *select_random)(std::int32_t minimum, std::int32_t maximum);
+};
+
+void set_runtime_script_executor_api_for_testing(const RuntimeScriptExecutorApi &api);
 
 // GAG.EXE: 0x0041CE40
 void application_hook_no_op_1();
