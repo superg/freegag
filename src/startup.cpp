@@ -11,6 +11,8 @@ namespace gag
 namespace
 {
 
+#define trace_animation_startup(...) ((void)0)
+
 DisplayMode *display_mode_head;
 DisplayMode *display_mode_tail;
 DisplayMode *display_mode_iterator;
@@ -19,6 +21,41 @@ std::uint32_t display_mode_count;
 std::uint32_t display_bootstrap_error;
 std::uint32_t display_platform_id;
 HMODULE direct_draw_module;
+
+#if defined(FREEGAG_WINDOWS_FIXES)
+// Non-original modern-Windows compatibility selection. This remains a code constant until a user-facing setting is recovered or introduced.
+enum class ModernWindowsColorMode
+{
+    indexed_8,
+    rgb565_16,
+};
+
+constexpr ModernWindowsColorMode modern_windows_color_mode = ModernWindowsColorMode::rgb565_16;
+constexpr DWORD modern_windows_windowed_style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+DisplayMode modern_windows_virtual_display_mode;
+
+// Non-original factory for an original-compatible framebuffer mode presented on a true-color desktop through GDI.
+void build_modern_windows_virtual_display_mode(DisplayMode *mode, std::int32_t width, std::int32_t height, ModernWindowsColorMode color_mode)
+{
+    *mode = {};
+    mode->flags = 0x10000;
+    mode->width = width;
+    mode->height = height;
+    if(color_mode == ModernWindowsColorMode::indexed_8)
+    {
+        mode->pixel_value_count = 0x100;
+        mode->bits_per_pixel = 8;
+    }
+    else
+    {
+        mode->pixel_value_count = 0x10000;
+        mode->bits_per_pixel = 16;
+        mode->red_mask = 0xf800;
+        mode->green_mask = 0x07e0;
+        mode->blue_mask = 0x001f;
+    }
+}
+#endif
 
 RuntimePlanModeSyncApi runtime_plan_mode_sync_api{ set_runtime_plans_inactive, clear_runtime_plans_inactive, rebuild_runtime_pointer_resources };
 
@@ -56,6 +93,8 @@ std::uint32_t display_scene_count;
 DisplayRectangle display_pending_rectangle;
 std::int32_t display_width;
 std::int32_t display_height;
+// Non-original storage adapter: the original points scene nodes at the contiguous global block beginning at display_lock_flags, where +0x34/+0x38 are display_width/display_height.
+DisplaySceneSurface display_scene_surface_state;
 DisplaySceneNode *display_scene_head;
 void *display_scene_sync_context;
 DisplaySceneNode *display_scene_root;
@@ -87,8 +126,6 @@ void *display_backend_target;
 void (*runtime_subsystem_callback)();
 std::uint8_t *active_object;
 DisplaySwitchApi display_switch_api{ set_active_display_mode_if_graphics_ready, restore_active_display_mode_if_graphics_ready };
-std::uint32_t runtime_state_value;
-std::uint32_t saved_runtime_state_value;
 
 // Non-original adapter for callers that store the scene identity in a 32-bit scalar.
 void __fastcall switch_runtime_scene_value(std::uint32_t value)
@@ -173,9 +210,6 @@ ScriptObjectMemoryApi script_object_memory_api{ HeapAlloc };
 ScriptObjectReleaseApi script_object_release_api{ HeapFree };
 ScriptObjectParseApi script_object_parse_api{ parse_script_value_token, parse_script_scope_code, parse_script_integer_expression, parse_image_flag, fixed_dword_memory_equal,
     find_runtime_visual_object, create_script_object_state };
-CRITICAL_SECTION runtime_named_lock_critical_section;
-void *runtime_named_lock_parent_identity;
-RuntimeNamedLockApi runtime_named_lock_api{ GetCurrentThreadId, EnterCriticalSection, LeaveCriticalSection, Sleep };
 RuntimeNamedNodeMemoryApi runtime_named_node_memory_api{ HeapAlloc, HeapFree };
 
 RuntimeSceneSwitchApi runtime_scene_switch_api{ acquire_runtime_lock_record, release_runtime_lock_record, offset_display_scene_node };
@@ -199,12 +233,15 @@ RuntimeSceneSlot *runtime_scene_slots = reinterpret_cast<RuntimeSceneSlot *>(&gr
 RuntimePointerRegion *&runtime_pointer_regions = reinterpret_cast<RuntimePointerRegion *&>(graphics_script_runtime_root.global_link_0084_head);
 std::uint32_t &graphics_host_flags = runtime_display_context.flags;
 std::uint32_t &runtime_scene_control_flags = runtime_display_context.flags;
+std::uint32_t &runtime_resource_transition_flags = runtime_display_context.accumulated_tree_flags;
 std::uint32_t &runtime_command_state = runtime_display_context.external_command_pending;
 std::uint32_t &runtime_target_flags = runtime_display_context.target_flags;
 std::int32_t &runtime_scene_x = runtime_display_context.scene_x;
 std::int32_t &runtime_scene_y = runtime_display_context.scene_y;
 void *&deferred_runtime_scene_identity = runtime_display_context.deferred_scene_identity;
 void *&current_runtime_scene_identity = runtime_display_context.current_scene_identity;
+std::uint32_t &runtime_state_value = reinterpret_cast<std::uint32_t &>(runtime_display_context.deferred_scene_identity);
+std::uint32_t &saved_runtime_state_value = reinterpret_cast<std::uint32_t &>(runtime_display_context.current_scene_identity);
 void *&saved_default_comment_scene_identity = runtime_display_context.saved_default_comment_scene_identity;
 void *&runtime_pointer_root_identity = runtime_display_context.runtime_tree_identity;
 RuntimePointerRegion *&active_runtime_pointer_region = runtime_display_context.active_pointer_region;
@@ -244,9 +281,9 @@ RuntimeBootstrapApi runtime_bootstrap_api{ find_current_display_mode, create_dis
     set_display_clip_rectangle, release_display_lock, operate_display_surface, reset_runtime_display_state, CreateThread, execute_script_commands };
 RuntimeDisplayShutdownApi runtime_display_shutdown_api{ get_or_create_runtime_named_node, WaitForSingleObject, CloseHandle, release_display_scene_node, shutdown_display_scene_host,
     teardown_display_palette_surface };
-std::uint32_t &runtime_resource_count = runtime_display_context.resource_count;
-std::uint32_t runtime_property_value;
-std::uint32_t runtime_resource_presentation_owner;
+std::uint32_t &runtime_resource_count = runtime_display_context.resource_wait_count;
+std::uint32_t &runtime_property_value = runtime_display_context.script_clock;
+std::uint32_t &runtime_resource_presentation_owner = runtime_display_context.script_clock;
 RuntimeResourceStateApi runtime_resource_state_api{ acquire_runtime_lock_record, begin_display_scene_update, finalize_runtime_media_backend, configure_runtime_resource_palette,
     end_display_scene_update, clear_runtime_generic_backend_child_ready, enable_runtime_generic_backend_child_mode_200, disable_runtime_generic_backend_child_mode_200, select_runtime_scene_transition,
     get_runtime_sound_slot, queue_runtime_sound_data, start_runtime_sound, stop_runtime_sound, release_runtime_lock_record };
@@ -289,15 +326,15 @@ RuntimeTreeResourceRebuildApi runtime_tree_resource_rebuild_api{ find_runtime_tr
     reset_runtime_pair_queue, reset_script_runtime_transient_indices, set_runtime_resource_state, SendMessageA };
 RuntimeResourceWaitApi runtime_resource_wait_api{ Sleep };
 RuntimeResourceFileOpenApi runtime_resource_file_open_api{ GetVersionExA, CreateFileA };
-CRITICAL_SECTION runtime_resource_critical_section;
+CRITICAL_SECTION &runtime_resource_critical_section = runtime_display_context.resource_critical_section;
 AsyncFileHost *&runtime_resource_host = runtime_display_context.async_file_host;
 CdfArchive *&runtime_resource_archive = runtime_display_context.active_archive;
-std::int32_t runtime_resource_archive_alternate_stream;
+std::int32_t &runtime_resource_archive_alternate_stream = reinterpret_cast<std::int32_t &>(runtime_display_context.async_file_host);
 std::int32_t &runtime_resource_host_mode = runtime_display_context.resource_host_mode;
 std::uint8_t &runtime_resource_archive_state = runtime_display_context.resource_archive_state;
 RuntimeResourceHostApi runtime_resource_host_api{ EnterCriticalSection, LeaveCriticalSection, destroy_async_file_host, create_async_file_host, set_async_file_host_mode, close_cdf_archive };
 void *&runtime_resource_cache_parent_identity = runtime_display_context.resource_cache_parent_identity;
-HWND runtime_resource_notification_window;
+HWND &runtime_resource_notification_window = runtime_display_context.window;
 RuntimeResourceTypeApi runtime_resource_type_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, update_runtime_resource_host, open_runtime_resource_file, ReadFile,
     CloseHandle, SendMessageA, get_cdf_entry_flags };
 RuntimeCdfStreamApi runtime_cdf_stream_api{ lstrcmpiA, duplicate_async_file_record, CreateFileA, SetFilePointer };
@@ -306,7 +343,7 @@ ArchiveCommentEnumerationApi archive_comment_enumeration_api{ FindFirstFileA, Fi
 ArchiveCommentDialogApi archive_comment_dialog_api{ GetDlgItem, SendMessageA, SetFocus, ShowWindow, EndDialog, GetProcessHeap, HeapFree, enumerate_archive_comments, MessageBoxA, Sleep };
 ArchiveCommentDialogLaunchApi archive_comment_dialog_launch_api{ _splitpath, DialogBoxParamA };
 HANDLE &runtime_resource_heap = runtime_display_context.resource_heap;
-std::uint32_t runtime_resource_streamed_count;
+std::uint32_t &runtime_resource_streamed_count = runtime_display_context.resource_count;
 RuntimeResourceLoadApi runtime_resource_load_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, open_async_file_record, get_async_file_size,
     activate_default_comment_scene, HeapAlloc, HeapFree, read_async_file_record, deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue,
     get_or_create_runtime_resource_cache_entry, SendMessageA, get_cdf_entry_flags, get_cdf_entry_size, open_runtime_cdf_entry_stream, read_cdf_entry, set_script_runtime_flags, Sleep };
@@ -326,7 +363,6 @@ RuntimeAnimationBackendCreateApi runtime_animation_backend_create_api{ get_async
 RuntimeMediaBackendConfigureApi runtime_media_backend_configure_api{ WaitForSingleObject, ReleaseMutex };
 RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ WaitForSingleObject, ReleaseMutex, CreateThread, CloseHandle };
 RuntimeResourcePaletteConfigureApi runtime_resource_palette_configure_api{ set_display_scene_primary_owner, configure_display_scene_palette };
-std::uint32_t runtime_resource_palette_bits_per_pixel;
 RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface, SetPaletteEntries, RealizePalette, SetDIBColorTable, BitBlt };
 RuntimeAnimationFailureApi runtime_animation_failure_api{ PostMessageA };
 std::uint32_t runtime_animation_control_flags;
@@ -437,7 +473,7 @@ RuntimeResourceDestroyApi runtime_resource_destroy_api{ acquire_runtime_lock_rec
     destroy_runtime_media_backend, release_runtime_memory_resource_by_data, release_runtime_streamed_resource, destroy_runtime_sound_handle, destroy_runtime_generic_backend,
     release_display_scene_node, remove_runtime_named_child_by_identity, GetProcessHeap, HeapFree };
 RuntimeResourceControlApi runtime_resource_control_api{ acquire_runtime_lock_record, release_runtime_lock_record, destroy_runtime_resource, get_runtime_sound_slot };
-CRITICAL_SECTION runtime_game_dll_critical_section;
+CRITICAL_SECTION &runtime_game_dll_critical_section = runtime_display_context.resource_critical_section;
 HMODULE &runtime_game_dll_module = runtime_display_context.game_dll_module;
 RuntimeGameDllUnloadApi runtime_game_dll_unload_api{ EnterCriticalSection, FreeLibrary, leave_runtime_state_1000, LeaveCriticalSection };
 FARPROC &runtime_game_dll_initialize = runtime_display_context.game_dll_initialize;
@@ -445,8 +481,12 @@ FARPROC &runtime_game_dll_window_procedure = runtime_display_context.game_dll_wi
 FARPROC &runtime_game_dll_execute = runtime_display_context.game_dll_execute;
 GraphicsHostInitializationResult &graphics_host_state = *reinterpret_cast<GraphicsHostInitializationResult *>(graphics_host_storage);
 RuntimeGameHostContext &runtime_game_host_context = *reinterpret_cast<RuntimeGameHostContext *>(graphics_host_storage + 0x458);
+std::uint32_t &runtime_resource_palette_bits_per_pixel = runtime_game_host_context.bits_per_pixel;
 void *(&runtime_game_host_callbacks)[35] = *reinterpret_cast<void *(*)[35]>(graphics_host_storage + 0x498);
 void *&runtime_media_objects_parent_identity = runtime_display_context.media_objects_parent_identity;
+CRITICAL_SECTION &runtime_named_lock_critical_section = runtime_display_context.path_critical_section;
+void *&runtime_named_lock_parent_identity = runtime_display_context.media_objects_parent_identity;
+RuntimeNamedLockApi runtime_named_lock_api{ GetCurrentThreadId, EnterCriticalSection, LeaveCriticalSection, Sleep };
 std::uint32_t &graphics_host_value_1 = runtime_display_context.reset_value_1;
 std::uint32_t &graphics_host_value_2 = runtime_display_context.reset_value_2;
 std::uint32_t &graphics_host_value_3 = runtime_display_context.reset_value_3;
@@ -773,7 +813,7 @@ ULONG WINAPI release_direct_draw_surface(void *surface)
 DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
     release_direct_draw_surface, GetDC, CreateCompatibleDC, ReleaseDC, DeleteDC, GetProcessHeap, HeapAlloc, HeapFree, CreatePalette, SelectPalette, DeleteObject, CreateDIBSection, SelectObject,
     SetPaletteEntries, RealizePalette, SetDIBColorTable };
-WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowPos, GetClientRect, SetFocus, SendMessageA };
+WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA };
 
 // Non-original adapter preserving the original pointer-valued return in a 32-bit state slot.
 std::uint32_t get_serialized_script_state_for_application()
@@ -1997,6 +2037,16 @@ DisplayMode *find_current_display_mode()
         int height = GetDeviceCaps(display, VERTRES);
         DeleteDC(display);
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility: render through an original 8/16-bit DIB without changing the true-color desktop mode.
+        if(bits_per_pixel > 16)
+        {
+            build_modern_windows_virtual_display_mode(&modern_windows_virtual_display_mode, width, height, modern_windows_color_mode);
+            current_display_mode = &modern_windows_virtual_display_mode;
+            return current_display_mode;
+        }
+#endif
+
         while(mode != nullptr)
         {
             if(mode->width == width && mode->height == height && mode->bits_per_pixel == bits_per_pixel)
@@ -2010,6 +2060,18 @@ DisplayMode *find_current_display_mode()
     }
     return result;
 }
+
+#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
+void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, std::int32_t width, std::int32_t height, bool indexed)
+{
+    build_modern_windows_virtual_display_mode(mode, width, height, indexed ? ModernWindowsColorMode::indexed_8 : ModernWindowsColorMode::rgb565_16);
+}
+
+std::int32_t get_modern_windows_color_depth_for_testing()
+{
+    return modern_windows_color_mode == ModernWindowsColorMode::indexed_8 ? 8 : 16;
+}
+#endif
 
 // GAG.EXE: 0x0041F960
 DisplayMode *get_current_display_mode()
@@ -2044,6 +2106,15 @@ DisplayMode *__fastcall get_next_available_display_mode(std::uint32_t mask)
 // GAG.EXE: 0x0041EFA0
 std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
 {
+#if defined(FREEGAG_WINDOWS_FIXES)
+    // Non-original modern-Windows compatibility: a virtual framebuffer must never trigger a physical 640x480 display-mode switch.
+    if(state->display_bits_per_pixel > 16)
+    {
+        state->display_mode_iterator = nullptr;
+        state->flags &= ~0x4000U;
+        return 0;
+    }
+#endif
     std::uint32_t remaining = 0x18;
     DisplayMode *active_mode = get_current_display_mode();
     do
@@ -2251,8 +2322,12 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
         }
         if(state->display_bits_per_pixel > 16)
         {
+#if defined(FREEGAG_WINDOWS_FIXES)
+            // Non-original modern-Windows compatibility: the renderer uses a virtual original-compatible DIB selected by find_current_display_mode().
+#else
             validation_api.message_box(state->window, state->message_table + 0x1658, state->message_table, MB_ICONERROR);
             return 0;
+#endif
         }
     }
 
@@ -2313,13 +2388,40 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
 
     state->desktop_window_rect.left = 0;
     state->desktop_window_rect.top = 0;
-    state->desktop_window_rect.right = application_initialization_api.get_system_metrics(SM_CXSCREEN);
-    state->desktop_window_rect.bottom = application_initialization_api.get_system_metrics(SM_CYSCREEN);
-    application_initialization_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
-    state->desktop_window_rect.top -= application_initialization_api.get_system_metrics(SM_CYCAPTION);
-    state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        // Non-original modern-Windows compatibility: make the original Window mode a centered window whose client area matches the game framebuffer.
+        state->desktop_window_rect.right = width;
+        state->desktop_window_rect.bottom = height;
+        application_initialization_api.adjust_window_rect(&state->desktop_window_rect, modern_windows_windowed_style, TRUE);
+        const std::int32_t outer_width = state->desktop_window_rect.right - state->desktop_window_rect.left;
+        const std::int32_t outer_height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
+        state->desktop_window_rect.left = (application_initialization_api.get_system_metrics(SM_CXSCREEN) - outer_width) / 2;
+        state->desktop_window_rect.top = (application_initialization_api.get_system_metrics(SM_CYSCREEN) - outer_height) / 2;
+        state->desktop_window_rect.right = state->desktop_window_rect.left + outer_width;
+        state->desktop_window_rect.bottom = state->desktop_window_rect.top + outer_height;
+        state->window_top_adjustment = 0;
+    }
+    else
+#endif
+    {
+        state->desktop_window_rect.right = application_initialization_api.get_system_metrics(SM_CXSCREEN);
+        state->desktop_window_rect.bottom = application_initialization_api.get_system_metrics(SM_CYSCREEN);
+        application_initialization_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
+        state->desktop_window_rect.top -= application_initialization_api.get_system_metrics(SM_CYCAPTION);
+        state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+    }
 
-    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", 0x82000000, state->desktop_window_rect.left, state->desktop_window_rect.top,
+    DWORD window_style = 0x82000000;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        // Non-original modern-Windows compatibility: provide a fixed-size movable frame without a sizing border or maximize button.
+        window_style = modern_windows_windowed_style;
+    }
+#endif
+    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, state->desktop_window_rect.left, state->desktop_window_rect.top,
         state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
     if(state->window == nullptr)
     {
@@ -2331,7 +2433,17 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
     RECT client_rectangle;
     application_initialization_api.get_client_rect(state->window, &client_rectangle);
     state->content_left = static_cast<std::int32_t>(static_cast<std::uint32_t>(client_rectangle.right - width) >> 1);
-    state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        // Non-original modern-Windows compatibility: the framebuffer is centered only within the window's client coordinates.
+        state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>(client_rectangle.bottom - height) >> 1);
+    }
+    else
+#endif
+    {
+        state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
+    }
     state->content_right = state->content_left + width;
     state->content_bottom = state->content_top + height;
 
@@ -2627,7 +2739,15 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             if((state->flags & 0x40000000) == 0)
             {
+#if defined(FREEGAG_WINDOWS_FIXES)
+                // Non-original modern-Windows compatibility: a normal window must not minimize merely because another application receives focus.
+                if((state->flags & 0x80) == 0)
+                {
+                    main_window_procedure_api.post_message(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+                }
+#else
                 main_window_procedure_api.post_message(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+#endif
             }
         }
     }
@@ -3107,7 +3227,15 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
         }
         if((state->flags & 0x40000000) == 0)
         {
+#if defined(FREEGAG_WINDOWS_FIXES)
+            // Non-original modern-Windows compatibility: preserve an inactive Window-mode top-level window without minimizing it.
+            if((state->flags & 0x80) == 0)
+            {
+                window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+            }
+#else
             window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+#endif
         }
     }
     else if(message == WM_CLOSE)
@@ -3228,20 +3356,63 @@ void __fastcall update_application_window_layout(ApplicationState *state, Second
 
     state->desktop_window_rect.left = 0;
     state->desktop_window_rect.top = 0;
-    state->desktop_window_rect.right = window_layout_api.get_system_metrics(SM_CXSCREEN);
-    state->desktop_window_rect.bottom = window_layout_api.get_system_metrics(SM_CYSCREEN);
-    window_layout_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
-    state->desktop_window_rect.top -= window_layout_api.get_system_metrics(SM_CYMENU);
-    state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        // Non-original modern-Windows compatibility: preserve a framebuffer-sized centered window when entering or restoring Window mode.
+        if(state->window != nullptr)
+        {
+            // Non-original modern-Windows compatibility: replacing GWL_STYLE after ShowWindow must retain visibility or Windows excludes the stale-looking frame from hit testing.
+            window_layout_api.set_window_long(state->window, GWL_STYLE, modern_windows_windowed_style | WS_VISIBLE);
+        }
+        state->desktop_window_rect.right = state->width;
+        state->desktop_window_rect.bottom = state->height;
+        window_layout_api.adjust_window_rect(&state->desktop_window_rect, modern_windows_windowed_style, TRUE);
+        const std::int32_t outer_width = state->desktop_window_rect.right - state->desktop_window_rect.left;
+        const std::int32_t outer_height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
+        state->desktop_window_rect.left = (window_layout_api.get_system_metrics(SM_CXSCREEN) - outer_width) / 2;
+        state->desktop_window_rect.top = (window_layout_api.get_system_metrics(SM_CYSCREEN) - outer_height) / 2;
+        state->desktop_window_rect.right = state->desktop_window_rect.left + outer_width;
+        state->desktop_window_rect.bottom = state->desktop_window_rect.top + outer_height;
+        state->window_top_adjustment = 0;
+    }
+    else
+#endif
+    {
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(state->window != nullptr)
+        {
+            window_layout_api.set_window_long(state->window, GWL_STYLE, 0x82000000 | WS_VISIBLE);
+        }
+#endif
+        state->desktop_window_rect.right = window_layout_api.get_system_metrics(SM_CXSCREEN);
+        state->desktop_window_rect.bottom = window_layout_api.get_system_metrics(SM_CYSCREEN);
+        window_layout_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
+        state->desktop_window_rect.top -= window_layout_api.get_system_metrics(SM_CYMENU);
+        state->window_top_adjustment = 1 - state->desktop_window_rect.top;
+    }
     if(state->window != nullptr && state->capture_window != nullptr)
     {
+        UINT position_flags = 0x100;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        position_flags |= SWP_FRAMECHANGED;
+#endif
         window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
-            state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, 0x100);
+            state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, position_flags);
         RECT client_rect;
         window_layout_api.get_client_rect(state->window, &client_rect);
         state->content_left = (client_rect.right - state->width) / 2;
         state->content_right = state->content_left + state->width;
-        state->content_top = ((client_rect.bottom - state->desktop_window_rect.top) - state->height) / 2 - 1;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if((state->flags & 0x80) != 0)
+        {
+            state->content_top = (client_rect.bottom - state->height) / 2;
+        }
+        else
+#endif
+        {
+            state->content_top = ((client_rect.bottom - state->desktop_window_rect.top) - state->height) / 2 - 1;
+        }
         state->content_bottom = state->content_top + state->height;
         window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
         window_layout_api.set_focus(state->capture_window);
@@ -5294,8 +5465,19 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
     // The original reads this stack slot before its first assignment when the first executed conditional is SWRAND.
     // Zero is an explicitly non-original Debug-build guard against MSVC Run-Time Check Failure #3; the slot is assigned at 0x0042319B after the first outer pass.
     std::int32_t random_value = 0;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    std::uint32_t traced_script_iterations = 0;
+#endif
     while(true)
     {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        if(traced_script_iterations < 12)
+        {
+            trace_animation_startup("script iteration=%u flags=%08X accumulated=%08X tree=%p root_links=%p", traced_script_iterations, state->flags, state->accumulated_tree_flags,
+                state->runtime_tree_identity, script_runtime_root->global_link_007c_head);
+            ++traced_script_iterations;
+        }
+#endif
         if((state->flags & 1) != 0)
         {
             return 0;
@@ -5517,6 +5699,16 @@ std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangl
                 if(rectangle_flags != nullptr)
                 {
                     *rectangle_flags = dirty_flags;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+                    static std::uint32_t traced_dirty_acquisitions = 0;
+                    if(traced_dirty_acquisitions < 20)
+                    {
+                        trace_animation_startup("acquire display index=%u dirty=%08X rectangle=(%d,%d)-(%d,%d) clip=(%d,%d)-(%d,%d)", traced_dirty_acquisitions, dirty_flags, primary_rectangle->left,
+                            primary_rectangle->top, primary_rectangle->right, primary_rectangle->bottom, display_clip_bounds.left, display_clip_bounds.top, display_clip_bounds.right,
+                            display_clip_bounds.bottom);
+                        ++traced_dirty_acquisitions;
+                    }
+#endif
                 }
             }
             display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
@@ -5706,6 +5898,14 @@ void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, Dis
     {
         return;
     }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    const bool trace_accumulation = node->extra_width != 0 || node->extra_height != 0 || node->previous_width != node->width || node->previous_height != node->height;
+    if(trace_accumulation)
+    {
+        trace_animation_startup("accumulate begin node=%p rectangle=(%d,%d)-(%d,%d) previous=(%d,%d)-(%d,%d) xy=(%d,%d) surface=%dx%d", node, rectangle->left, rectangle->top, rectangle->right,
+            rectangle->bottom, node->previous_width, node->previous_height, node->extra_width, node->extra_height, node->x, node->y, node->surface->width, node->surface->height);
+    }
+#endif
     std::int32_t left = node->x + node->x_offset;
     std::int32_t top = node->y + node->y_offset;
     std::int32_t right;
@@ -5781,6 +5981,12 @@ void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, Dis
     node->previous_height = node->height;
     node->previous_x = node->x;
     node->previous_y = node->y;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    if(trace_accumulation)
+    {
+        trace_animation_startup("accumulate end node=%p rectangle=(%d,%d)-(%d,%d)", node, rectangle->left, rectangle->top, rectangle->right, rectangle->bottom);
+    }
+#endif
 }
 
 // GAG.EXE: 0x0041B6F0
@@ -5914,12 +6120,18 @@ std::uint32_t __fastcall set_display_clip_rectangle(DisplayRectangle *rectangle)
         if(rectangle == nullptr)
         {
             display_clip_bounds = { 0, 0, 0, 0 };
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            trace_animation_startup("set clip null -> (0,0)-(0,0)");
+#endif
             return 0;
         }
         if(rectangle->right >= 0 && rectangle->bottom >= 0 && rectangle->left <= display_width && rectangle->top <= display_height)
         {
             constrain_display_rectangle_to_surface(rectangle);
             display_clip_bounds = *rectangle;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            trace_animation_startup("set clip rectangle=(%d,%d)-(%d,%d)", rectangle->left, rectangle->top, rectangle->right, rectangle->bottom);
+#endif
             return 0;
         }
         return 0x80000000;
@@ -7049,7 +7261,7 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         }
                         node->callback_position = node->callback_first_position;
                         node->identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node));
-                        node->surface = reinterpret_cast<DisplaySceneSurface *>(&display_lock_flags);
+                        node->surface = &display_scene_surface_state;
                         node->flags = (flags & 0xf7fcffbf) | 0x01000000;
                         node->unknown_2c = requested_index;
                         node->previous_width = node->width;
@@ -7334,6 +7546,8 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
     display_pending_rectangle = {};
     display_width = 0;
     display_height = 0;
+    display_scene_surface_state.width = 0;
+    display_scene_surface_state.height = 0;
     display_scene_sync_api.synchronize = nullptr;
     display_scene_sync_context = nullptr;
     display_scene_worker_interval = 0;
@@ -7359,6 +7573,8 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
 
     display_width = width;
     display_height = height;
+    display_scene_surface_state.width = width;
+    display_scene_surface_state.height = height;
     display_lock_flags = 1;
     display_scene_root_primary_position = primary_position;
     display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
@@ -7425,14 +7641,34 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
     DWORD frame_start = display_scene_worker_api.time_get_time();
     DWORD rate_start = frame_start;
     std::uint32_t frame_count = 0;
+    std::uint32_t worker_iteration = 0;
     while((*flags & 0x40000000) == 0)
     {
-        DisplayRectangle primary_rectangle;
-        DisplayRectangle secondary_rectangle;
-        std::uint32_t dirty_flags;
-        if(display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags) == 0)
+        ++worker_iteration;
+        DisplayRectangle primary_rectangle{};
+        DisplayRectangle secondary_rectangle{};
+        std::uint32_t dirty_flags = 0;
+        const std::uint32_t acquire_result = display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        static std::uint32_t traced_worker_iterations = 0;
+        if(traced_worker_iterations < 12 && (dirty_flags != 0 || traced_worker_iterations < 2))
         {
-            if(dirty_flags != 0 && display_scene_worker_api.synchronize_node(display_scene_root, &primary_rectangle) != 0)
+            trace_animation_startup("scene worker index=%u acquire=%08X dirty=%08X primary=(%d,%d)-(%d,%d) busy=%u flags=%08X", traced_worker_iterations, acquire_result, dirty_flags,
+                primary_rectangle.left, primary_rectangle.top, primary_rectangle.right, primary_rectangle.bottom, display_lock_busy, *flags);
+            ++traced_worker_iterations;
+        }
+#endif
+        if(acquire_result == 0)
+        {
+            const int synchronize_result = dirty_flags != 0 ? display_scene_worker_api.synchronize_node(display_scene_root, &primary_rectangle) : 0;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            if(dirty_flags != 0 && traced_worker_iterations <= 12)
+            {
+                trace_animation_startup("scene synchronize dirty=%08X result=%d primary=(%d,%d)-(%d,%d)", dirty_flags, synchronize_result, primary_rectangle.left, primary_rectangle.top,
+                    primary_rectangle.right, primary_rectangle.bottom);
+            }
+#endif
+            if(dirty_flags != 0 && synchronize_result != 0)
             {
                 *flags |= 0x20;
                 if((dirty_flags & 0x20000) != 0 && display_scene_root->root_rectangle_callback != nullptr)
@@ -7458,7 +7694,16 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
                 }
                 display_scene_sync_api.synchronize(display_scene_sync_context, &primary_rectangle, 1);
             }
-            display_scene_worker_api.release_lock();
+            const std::uint32_t release_result = display_scene_worker_api.release_lock();
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            static std::uint32_t traced_releases = 0;
+            if(traced_releases < 4)
+            {
+                trace_animation_startup("scene release result=%08X flags=%08X owner=%u current=%u recursion=%u", release_result, *flags, display_lock_owner_thread, GetCurrentThreadId(),
+                    display_lock_recursion_count);
+                ++traced_releases;
+            }
+#endif
         }
         DWORD now = display_scene_worker_api.time_get_time();
         DWORD elapsed = now - frame_start;
@@ -7483,7 +7728,16 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
             frame_count = 0;
             rate_start = now;
         }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        if(worker_iteration == 100)
+        {
+            trace_animation_startup("scene worker heartbeat iteration=%u flags=%08X busy=%u count=%u", worker_iteration, *flags, display_lock_busy, display_scene_count);
+        }
+#endif
     }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    trace_animation_startup("scene worker exit iteration=%u flags=%08X", worker_iteration, *flags);
+#endif
     return 0;
 }
 
@@ -7709,6 +7963,15 @@ int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRec
     std::int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
     int synchronized = display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x10000);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    static std::uint32_t traced_target_synchronizations = 0;
+    if(traced_target_synchronizations < 8)
+    {
+        trace_animation_startup("target synchronize index=%u node=%p result=%d geometry=(%d,%d)-(%d,%d) primary=%08X secondary=%d", traced_target_synchronizations, node, synchronized, geometry.left,
+            geometry.top, geometry.right, geometry.bottom, primary_position, secondary_position);
+        ++traced_target_synchronizations;
+    }
+#endif
     if(synchronized == 0)
     {
         return 0;
@@ -7740,6 +8003,8 @@ int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRec
             {
                 display_width = geometry.right;
                 display_height = geometry.bottom;
+                display_scene_surface_state.width = geometry.right;
+                display_scene_surface_state.height = geometry.bottom;
             }
             queue_display_rectangle(&geometry);
             display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
@@ -8183,8 +8448,31 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
     }
     else if(mode == 1)
     {
-        display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, display_palette_dib_dc,
-            rectangle->left, rectangle->top, SRCCOPY);
+        const BOOL result = display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top,
+            display_palette_dib_dc, rectangle->left, rectangle->top, SRCCOPY);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        static std::uint32_t traced_presentations = 0;
+        if(traced_presentations < 8)
+        {
+            std::uint32_t nonzero_surface_pixels = 0;
+            if(display_palette_pixels != nullptr && display_palette_bits_per_pixel == 16)
+            {
+                const auto *surface_pixels = static_cast<const std::uint16_t *>(display_palette_pixels);
+                for(std::int32_t y = rectangle->top; y < rectangle->bottom; ++y)
+                {
+                    for(std::int32_t x = rectangle->left; x < rectangle->right; ++x)
+                    {
+                        nonzero_surface_pixels += surface_pixels[y * display_palette_width + x] != 0 ? 1u : 0u;
+                    }
+                }
+            }
+            trace_animation_startup("display blit index=%u flags=%08X destination=%p source=%p rect=(%d,%d)-(%d,%d) result=%d error=%u", traced_presentations, display_palette_flags,
+                display_palette_dc, display_palette_dib_dc, rectangle->left, rectangle->top, rectangle->right, rectangle->bottom, result, GetLastError());
+            trace_animation_startup("display surface index=%u pixels=%p bpp=%d width=%d nonzero=%u", traced_presentations, display_palette_pixels, display_palette_bits_per_pixel,
+                display_palette_width, nonzero_surface_pixels);
+            ++traced_presentations;
+        }
+#endif
     }
     else if(mode == 2)
     {
@@ -8945,6 +9233,8 @@ void set_display_lock_acquire_state_for_testing(HANDLE gate_event, std::uint32_t
     display_pending_rectangle = pending_rectangle;
     display_width = width;
     display_height = height;
+    display_scene_surface_state.width = width;
+    display_scene_surface_state.height = height;
     display_scene_head = scene_head;
     display_scene_count = 0;
     for(DisplaySceneNode *node = scene_head; node != nullptr; node = node->next)
@@ -9184,6 +9474,7 @@ void set_main_window_procedure_api_for_testing(const MainWindowProcedureApi &api
 {
     main_window_procedure_api = api;
 }
+
 
 void set_settings_registry_api_for_testing(const SettingsRegistryApi &api)
 {
@@ -10854,7 +11145,7 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
             return mapping.value;
         }
     }
-    return 0xffffffff;
+    return 0;
 }
 
 // GAG.EXE: 0x00421440
@@ -12016,7 +12307,7 @@ void reset_runtime_tree_parser_special_dispatch_api_for_testing()
 // GAG.EXE: 0x00405410
 RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
 {
-    RuntimeTreeNode *current = runtime_tree_creation_api.find_node(script_runtime_root->runtime_tree);
+    RuntimeTreeNode *current = runtime_tree_creation_api.find_node(parent_selector);
     RuntimeGenericResourceNode *resolved_resource = runtime_tree_creation_api.find_resource(resource);
     if(resolved_resource == nullptr)
     {
@@ -12679,6 +12970,76 @@ RuntimeTreeNode *__fastcall destroy_runtime_tree_node(void *identity, void *repl
     {
         runtime_tree_destruction_core_api.notify(0x40, 0, node);
     }
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(replacement != nullptr && replacement->parent == node)
+    {
+        // Non-original modern-Windows compatibility: PRELOAD creates the replacement as a child, while the original teardown subsequently reuses it after recursively freeing the parent's children.
+        // Detach and promote that explicitly selected replacement so modern heap reclamation cannot invalidate the new active tree.
+        RuntimeTreeNode *replacement_previous = nullptr;
+        RuntimeTreeNode *child = node->child;
+        while(child != nullptr && child != replacement)
+        {
+            replacement_previous = child;
+            child = child->next;
+        }
+        if(child == replacement)
+        {
+            if(replacement_previous == nullptr)
+            {
+                node->child = replacement->next;
+            }
+            else
+            {
+                replacement_previous->next = replacement->next;
+            }
+            if(replacement->next != nullptr)
+            {
+                replacement->next->previous = replacement_previous;
+            }
+
+            RuntimeTreeNode *next = node->next;
+            replacement->parent = node->parent;
+            replacement->previous = node->previous;
+            replacement->next = next;
+            node->next = replacement;
+
+            // Non-original modern-Windows compatibility: the replacement was parsed while the removed parent remained in the global lists. Rebind its zone-qualified events away from matching parent
+            // zones.
+            for(RuntimeTreeLink7C *event_link = replacement->link_007c_head; event_link != nullptr; event_link = event_link->next)
+            {
+                RuntimeTreeLink84 *removed_zone = node->link_0084_head;
+                while(removed_zone != nullptr && removed_zone != event_link->zone_link)
+                {
+                    if(removed_zone == node->link_0084_tail)
+                    {
+                        removed_zone = nullptr;
+                        break;
+                    }
+                    removed_zone = removed_zone->next;
+                }
+                if(removed_zone != nullptr)
+                {
+                    for(RuntimeTreeLink84 *replacement_zone = replacement->link_0084_head; replacement_zone != nullptr; replacement_zone = replacement_zone->next)
+                    {
+                        if(strings_equal(replacement_zone->name, removed_zone->name))
+                        {
+                            event_link->zone_link = replacement_zone;
+                            break;
+                        }
+                        if(replacement_zone == replacement->link_0084_tail)
+                        {
+                            break;
+                        }
+                    }
+                }
+                if(event_link == replacement->link_007c_tail)
+                {
+                    break;
+                }
+            }
+        }
+    }
+#endif
     for(RuntimeTreeNode *child = node->child; child != nullptr;)
     {
         RuntimeTreeNode *next = child->next;
@@ -12872,6 +13233,9 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
         std::uint8_t header[0x80];
         std::uint32_t bytes_read;
         runtime_animation_backend_create_api.read_record(record, header, sizeof(header), &bytes_read, 0);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        trace_animation_startup("backend header record=%p saved=%u bytes=%u sig=%04X", record, saved_position, bytes_read, *reinterpret_cast<const std::uint16_t *>(header + 4));
+#endif
         backend = static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0xa70 + extension_bytes));
         if(backend == nullptr)
         {
@@ -12899,13 +13263,17 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
             backend->base.error_state = 1;
             backend->base.media_flags |= 0x80000000;
         }
-        runtime_animation_backend_create_api.set_position(record, saved_position);
+        runtime_animation_backend_create_api.set_position(record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(backend->data_start)));
     }
     else
     {
         return nullptr;
     }
     backend->base.identity = backend;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    trace_animation_startup("backend created=%p storage=%08X error=%u start=%p end=%p duration=%u", backend, storage, backend->base.error_state, backend->data_start, backend->data_end,
+        backend->base.frame_duration);
+#endif
     backend->base.type = 0xaa;
     backend->base.media_flags |= storage | 0x21;
     backend->base.field_001c = 0x0300;
@@ -13555,6 +13923,13 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     {
         std::uint32_t bytes_read = 0;
         runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        if(backend.frame_number < 2)
+        {
+            trace_animation_startup("frame header backend=%p bytes=%u magic=%04X", animation, bytes_read,
+                bytes_read >= 6 ? *reinterpret_cast<const std::uint16_t *>(static_cast<const std::uint8_t *>(backend.frame_header) + 4) : 0);
+        }
+#endif
         if(bytes_read != 0x10)
         {
             runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
@@ -13621,6 +13996,12 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
     backend.animation_callback(&backend);
     std::uint16_t chunk_count = 0;
     std::memcpy(&chunk_count, static_cast<const std::uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    if(backend.frame_number <= 2)
+    {
+        trace_animation_startup("decode backend=%p frame=%u chunks=%u callback=%p", animation, backend.frame_number, chunk_count, backend.animation_callback);
+    }
+#endif
     for(std::uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
     {
         backend.chunk_header = animation->source_cursor;
@@ -13644,6 +14025,13 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
             payload_size = chunk_size - 6;
         }
         animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + 6;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        if(backend.frame_number <= 2)
+        {
+            trace_animation_startup("chunk begin backend=%p frame=%u index=%u type=%04X payload=%u cursor=%p", animation, backend.frame_number, chunk_index, chunk_type, payload_size,
+                animation->source_cursor);
+        }
+#endif
         bool marks_pixels = true;
         switch(chunk_type)
         {
@@ -13686,6 +14074,12 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
         {
             backend.media_flags |= 0x8000;
         }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+        if(backend.frame_number <= 2)
+        {
+            trace_animation_startup("chunk end backend=%p frame=%u index=%u type=%04X", animation, backend.frame_number, chunk_index, chunk_type);
+        }
+#endif
         animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + payload_size;
     }
     backend.media_flags |= 0x20000000;
@@ -14083,6 +14477,10 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
         {
             packet_count = read_word(source);
             source += 2;
+            if(packet_count == 0)
+            {
+                continue;
+            }
         }
         std::uint32_t x = 0;
         do
@@ -15771,7 +16169,14 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
         }
         else
         {
-            begin_display_scene_update(resource->scene_identifier);
+            const std::uint32_t begin_result = begin_display_scene_update(resource->scene_identifier);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            if(backend->frame_number <= 2)
+            {
+                trace_animation_startup("present begin backend=%p frame=%u flags=%08X scene=%08X result=%08X pixels=%p stride=%u bpp=%u", backend, backend->frame_number, flags,
+                    static_cast<std::uint32_t>(resource->scene_identifier), begin_result, backend->destination_pixels, backend->destination_stride, backend->destination_bits_per_pixel);
+            }
+#endif
             resource->state_flags &= ~1u;
         }
         render_runtime_generic_backend_child(backend);
@@ -15832,8 +16237,28 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
         update_runtime_generic_backend_child(backend);
         if((resource->state_flags & 1) == 0)
         {
-            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&backend->destination_x),
+            const std::uint32_t end_result = end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&backend->destination_x),
                 reinterpret_cast<const DisplayRectangle *>(&backend->dirty_left));
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+            if(backend->frame_number <= 2)
+            {
+                std::uint32_t nonzero_pixels = 0;
+                const std::uint32_t pixel_count = static_cast<std::uint32_t>(backend->destination_stride) * resource->output_height;
+                for(std::uint32_t index = 0; index < pixel_count; ++index)
+                {
+                    nonzero_pixels += backend->destination_pixels[index] != 0 ? 1u : 0u;
+                }
+                trace_animation_startup("present end backend=%p frame=%u flags=%08X scene=%08X result=%08X destination=(%u,%u) dirty=(%u,%u)-(%u,%u)", backend, backend->frame_number,
+                    backend->media_flags, static_cast<std::uint32_t>(resource->scene_identifier), end_result, backend->destination_x, backend->destination_y, backend->dirty_left, backend->dirty_top,
+                    backend->dirty_right, backend->dirty_bottom);
+                auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier));
+                trace_animation_startup("present scene node=%p xy=(%d,%d) previous_xy=(%d,%d) accumulated=(%d,%d)-(%d,%d) size=%dx%d surface=%p surface_size=%dx%d", scene, scene->x, scene->y,
+                    scene->previous_x, scene->previous_y, scene->previous_width, scene->previous_height, scene->extra_width, scene->extra_height, scene->width, scene->height, scene->surface,
+                    scene->surface->width, scene->surface->height);
+                trace_animation_startup("present pixels backend=%p frame=%u count=%u nonzero=%u first=%02X", backend, backend->frame_number, pixel_count, nonzero_pixels,
+                    backend->destination_pixels[0]);
+            }
+#endif
         }
         backend->media_flags &= ~0x20000000u;
     }
@@ -16676,7 +17101,13 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
                 {
                     output.header->dwFlags &= ~WHDR_DONE;
                     runtime_sound_window_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+#if defined(FREEGAG_WINDOWS_FIXES)
+                    // Non-original modern-Windows compatibility: HWAVEOUT is an opaque pointer-sized handle on current Windows and cannot serve as the millisecond marker assumed by the original.
+                    // RuntimeWaveOutCallback already supplies timeGetTime() in lParam for WOM_DONE.
+                    runtime_sound_mixer(message == WOM_DONE ? static_cast<std::uint32_t>(lparam) : static_cast<std::uint32_t>(wparam));
+#else
                     runtime_sound_mixer(static_cast<std::uint32_t>(wparam));
+#endif
                     runtime_sound_window_api.release_mutex(runtime_sound_mutex);
                     runtime_sound_window_api.wave_out_write(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
                     ++runtime_sound_output_index;
@@ -17497,6 +17928,10 @@ void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scen
                     resource->output_height = output_height;
                     resource->scene_identifier = reinterpret_cast<std::intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
                         reinterpret_cast<std::int32_t>(resource), reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor), nullptr));
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+                    trace_animation_startup("resource animation path=%s backend=%p error=%u size=%ux%u scene=%08X", path, backend, backend->base.error_state, output_width, output_height,
+                        static_cast<std::uint32_t>(resource->scene_identifier));
+#endif
                     if(resource->scene_identifier != 0)
                     {
                         resource->callback_position = reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor)->pixels;
@@ -18007,12 +18442,18 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     else if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
     {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
         if(message == WM_MOUSEMOVE)
         {
             runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(lparam)), static_cast<std::uint16_t>(HIWORD(lparam)));
         }
         runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
         runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(lparam));
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
         return 0;
     }
     else if(message == 0x30f)
@@ -19226,6 +19667,9 @@ std::uint32_t __fastcall render_runtime_bitmap_backend_region(void *identity, Di
 // GAG.EXE: 0x00426D50
 void __fastcall select_runtime_scene_transition(std::uint32_t flags)
 {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    trace_animation_startup("select scene transition flags=%08X", flags);
+#endif
     std::uint32_t available;
     if((flags & 0x10000000) != 0)
     {
@@ -19267,6 +19711,9 @@ void __fastcall select_runtime_scene_transition(std::uint32_t flags)
 // GAG.EXE: 0x00426E30
 void __fastcall apply_immediate_runtime_scene_transition(std::uint32_t, std::uint32_t flags)
 {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+    trace_animation_startup("apply immediate transition flags=%08X current=%p", flags, current_runtime_resource);
+#endif
     DisplayRectangle rectangle{ 0, 0, 0, 0 };
     std::uint32_t type = flags & 0xff000;
     if(type == 0x1000)
@@ -19622,7 +20069,7 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
     {
         if(current_runtime_resource == identity && state == 1)
         {
-            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+            runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x1000);
         }
         return;
     }
@@ -19654,11 +20101,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
         {
             if(state == 1)
             {
-                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+                runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x1000);
             }
             else if(!force_refresh)
             {
-                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+                runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x20002000);
             }
         }
     }
@@ -19671,11 +20118,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
         {
             if(state == 0)
             {
-                runtime_resource_state_api.select_transition(transition_flag | runtime_scene_control_flags | 0x2000);
+                runtime_resource_state_api.select_transition(transition_flag | runtime_resource_transition_flags | 0x2000);
             }
             if(state == 1)
             {
-                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+                runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x1000);
             }
         }
     }
@@ -19717,11 +20164,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
         {
             if(state == 1)
             {
-                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+                runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x1000);
             }
             else if(!force_refresh)
             {
-                runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+                runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x20002000);
             }
         }
     }
@@ -19729,11 +20176,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
     {
         if(state == 1)
         {
-            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x1000);
+            runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x1000);
         }
         else if((state & 0x20000) == 0)
         {
-            runtime_resource_state_api.select_transition(runtime_scene_control_flags | 0x20002000);
+            runtime_resource_state_api.select_transition(runtime_resource_transition_flags | 0x20002000);
         }
     }
     runtime_resource_state_api.release_record(record);
@@ -21025,6 +21472,8 @@ void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerRe
 // GAG.EXE: 0x00423BC0
 std::uint32_t handle_runtime_left_button_up()
 {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
     {
         return 0;
@@ -21063,12 +21512,16 @@ std::uint32_t handle_runtime_left_button_up()
         }
     }
     enqueue_runtime_pointer_event();
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
     return 0;
 }
 
 // GAG.EXE: 0x004238B0
 std::uint32_t handle_runtime_left_button_down()
 {
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
     if((runtime_scene_control_flags & 0x100000) == 0)
     {
         return 0;
@@ -21190,6 +21643,8 @@ std::uint32_t handle_runtime_left_button_down()
     {
         set_script_runtime_flags(2, 1);
     }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
+#endif
     return 0;
 }
 
@@ -26640,6 +27095,7 @@ void set_runtime_resource_state_api_for_testing(const RuntimeResourceStateApi &a
 void set_runtime_resource_state_globals_for_testing(void *current_resource, std::uint32_t scene_flags)
 {
     current_runtime_resource = current_resource;
+    runtime_resource_transition_flags = scene_flags;
     runtime_scene_control_flags = scene_flags;
 }
 
@@ -27175,6 +27631,31 @@ void *get_runtime_resource_destroy_state_for_testing()
 void set_runtime_named_lock_state_for_testing(void *parent_identity)
 {
     runtime_named_lock_parent_identity = parent_identity;
+}
+
+CRITICAL_SECTION *get_runtime_named_lock_critical_section_for_testing()
+{
+    return &runtime_named_lock_critical_section;
+}
+
+CRITICAL_SECTION *get_runtime_resource_critical_section_for_testing()
+{
+    return &runtime_resource_critical_section;
+}
+
+CRITICAL_SECTION *get_runtime_game_dll_critical_section_for_testing()
+{
+    return &runtime_game_dll_critical_section;
+}
+
+void *get_runtime_named_lock_parent_identity_for_testing()
+{
+    return runtime_named_lock_parent_identity;
+}
+
+HWND get_runtime_resource_notification_window_for_testing()
+{
+    return runtime_resource_notification_window;
 }
 
 void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api)

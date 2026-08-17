@@ -1,5 +1,17 @@
 # Learned patterns
 
+# 2026-08-17 - Scope focus-loss compatibility to Window mode
+
+- Legacy fullscreen applications may intentionally minimize on `WM_ACTIVATE` focus loss. For a modern fixed-frame Window mode, suppress only the automatic minimize post while the recovered Window-mode flag is active; preserve explicit user minimization, fullscreen focus-loss behavior, and the original fixes-OFF path.
+
+# 2026-08-17 - Legacy window mode may still assume a desktop-sized game resolution
+
+- A recovered Window/Full Screen toggle does not guarantee useful modern window geometry. Preserve its state machine, but under the compatibility guard size Window mode from the native framebuffer client dimensions with menu-aware `AdjustWindowRect`, while leaving Full Screen and fixes-OFF behavior unchanged.
+
+# 2026-08-17 - Emulate legacy color depth at the framebuffer boundary
+
+- On a modern true-color desktop, keep the original renderer in a supported 8- or 16-bit top-down DIB and let GDI convert during presentation. This preserves original asset selection, palette construction, pixel compositing, and renderer assumptions while avoiding unsupported physical display-mode changes.
+
 # 2026-08-17 - Validate delegated codecs through production bindings and original containers
 
 - Keep library replacements behind the recovered callback ABI, test their framing and failure contracts directly, and also open an original container through the default production binding. Synthetic injected callbacks alone cannot prove that the executable target is wired to a functioning codec.
@@ -1997,7 +2009,32 @@ do not replace prior entries without correcting a demonstrated error.
 
 # Main message loop termination uses the MSG field
 
+# Flag parsers distinguish unknown tokens from extraction failure
+
+- `ParseImageFlag` (`0x0040E580`) returns zero for a successfully extracted but unrecognized token. `0xFFFFFFFF` is reserved for null input, token extraction failure, or failed PARAM evaluation. This distinction lets callers rewind and reinterpret ordinary tokens as resource/tree names or typed strings; collapsing unknown and missing tokens prevents valid commands such as `/PRELOAD::ENTRY` from executing.
+
 - `GagWinMain` (`0x0041CAE0`) does not branch on `GetMessageA`'s return value. It initializes `MSG.message` to `WM_COMMAND`, then unconditionally translates and dispatches after every retrieval and loops until `MSG.message == WM_QUIT`. Preserve this field-driven termination and the post-loop fatal-dialog check instead of substituting a conventional `while(GetMessage(...) > 0)` loop.
+
+# Global addresses inside a cleared host block must remain aliases
+
+- When raw instructions use a global address inside the single `InitializeGraphicsHost` allocation, model it as an alias of that embedded field rather than as an independent source global. `AcquireRuntimeLockRecord` (`0x00425F10`) uses `0x0047F840`, the host's `path_critical_section`, and `0x0047F864`, its `media_objects_parent_identity`; splitting either address creates an uninitialized lock or null named-node parent even though startup initialized the original storage correctly.
+- Audit aliases by absolute-address xrefs across all consumers, not by matching one semantic variable name per field. The original deliberately reuses `0x0047F828` for resource and game-DLL synchronization, `0x0047F898` for script time/property/presentation state, and the scene identity slots for temporary state transitions. Conversely, similar counters at `0x0047F868` and `0x0047F884` are distinct. Both artificial splitting and artificial merging can silently pass isolated unit tests.
+- Pointer-valued host fields may be passed through an integer-typed legacy API slot. `ConstructRuntimeResource` loads `0x0047F7D8`, the async-file-host field at `+0x878`, as `OpenCdfArchive`'s integer alternate-stream argument. Splitting that address into a standalone integer silently changes an archive from async-record mode to Win32-HANDLE mode; later consumers then interpret HANDLE values as `AsyncFileRecord *`. Follow the absolute storage identity even when the decompiler's nominal types differ.
+- A Win9x handle used as an integer timing marker may not remain numerically meaningful on modern Windows. GAG passes `HWAVEOUT` through `WOM_DONE.wParam` into its mixer, but its callback also records `timeGetTime()` in `lParam`. A modern compatibility branch can use that existing timestamp while keeping the original handle-based path in fidelity builds; keep `WOM_OPEN` on its original marker because it has no callback timestamp.
+
+# Root-cause fixes require attempt cleanup
+
+- Diagnostic probes and experimental compatibility changes are temporary evidence-gathering tools. Once the root cause is proven, review all changes made during that investigation and remove every unrelated or superseded attempt. Retain only the smallest root-cause fix, its necessary compatibility annotation, and focused tests; verify the cleaned result rather than reporting success from the diagnostic build.
+
+# Preserve selector arguments used for identity lookup
+
+- A tree constructor may search the global tree using an explicit parent-selector argument even when it also has direct access to the global root. In `CreateRuntimeTreeNode` (`0x00405410`), EDX is preserved across the first lookup and selects whether the new node is a root or child. Substituting the global root pointer silently forces null-parent loads to become children and prevents later root-publication logic from selecting them. Verify register provenance at the lookup call and test the observed selector identity directly.
+
+# Fixed-size compatibility windows need style refresh on transitions
+
+- For a framebuffer whose dimensions the game owns, a movable modern Window mode should use caption/system-menu/minimize styles without `WS_THICKFRAME` or `WS_MAXIMIZEBOX`. When switching an existing popup between Full Screen and Window, apply `GWL_STYLE` first and include `SWP_FRAMECHANGED` in the following `SetWindowPos`; using the framed style only in `AdjustWindowRect` does not create a visible or draggable non-client frame.
+- Before interactive retesting, terminate the previous instance. GAG rejects a second process through `FindWindowA("FlcAppClassNT", nullptr)`; if an old unclosable instance survives, rebuilt launches silently fail validation and every visible observation still describes the stale executable.
+- `SetWindowLong(GWL_STYLE, value)` replaces dynamic bits as well as structural frame bits. If it runs after `ShowWindow`, include or preserve `WS_VISIBLE`; otherwise DWM can leave a stale visual frame while `IsWindowVisible` is false and Windows excludes the entire parent/child hierarchy from hit testing. This presents as a transparent, unactivatable, unmovable, unclosable window even though its thread is healthy in `GetMessage`.
 
 # Sequential flag assignments may intentionally reuse the pre-update value
 

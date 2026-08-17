@@ -544,6 +544,7 @@ struct WindowLayoutApi
 {
     int(WINAPI *get_system_metrics)(int index);
     BOOL(WINAPI *adjust_window_rect)(LPRECT rect, DWORD style, BOOL menu);
+    LONG(WINAPI *set_window_long)(HWND window, int index, LONG value);
     BOOL(WINAPI *set_window_position)(HWND window, HWND insert_after, int x, int y, int width, int height, UINT flags);
     BOOL(WINAPI *get_client_rect)(HWND window, LPRECT rect);
     HWND(WINAPI *set_focus)(HWND window);
@@ -4282,6 +4283,11 @@ void get_runtime_game_dll_state_for_testing(HMODULE *module, FARPROC *initialize
 void set_runtime_resource_destroy_state_for_testing(void *current_resource);
 void *get_runtime_resource_destroy_state_for_testing();
 void set_runtime_named_lock_state_for_testing(void *parent_identity);
+CRITICAL_SECTION *get_runtime_named_lock_critical_section_for_testing();
+CRITICAL_SECTION *get_runtime_resource_critical_section_for_testing();
+CRITICAL_SECTION *get_runtime_game_dll_critical_section_for_testing();
+void *get_runtime_named_lock_parent_identity_for_testing();
+HWND get_runtime_resource_notification_window_for_testing();
 void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api);
 void set_runtime_scene_switch_state_for_testing(void *current_identity, std::int32_t x, std::int32_t y);
 void *get_current_runtime_scene_identity_for_testing();
@@ -4434,6 +4440,11 @@ DisplayMode *__fastcall get_next_display_mode(std::uint32_t mask);
 
 // GAG.EXE: 0x004136F0
 DisplayMode *find_current_display_mode();
+
+#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
+void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, std::int32_t width, std::int32_t height, bool indexed);
+std::int32_t get_modern_windows_color_depth_for_testing();
+#endif
 
 // GAG.EXE: 0x0041F960
 DisplayMode *get_current_display_mode();
