@@ -35,11 +35,21 @@ if(NOT WIN32)
   message(FATAL_ERROR "xtet_loader requires Windows")
 endif()
 
-add_executable(gag WIN32
+set(GAG_RESOURCE_DIR "" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets")
+
+set(GAG_SOURCES
   src/cdf_archive.cpp
   src/main.cpp
   src/startup.cpp
 )
+if(GAG_RESOURCE_DIR)
+  if(NOT EXISTS "${GAG_RESOURCE_DIR}/gag_resources.rc")
+    message(FATAL_ERROR "GAG_RESOURCE_DIR must contain gag_resources.rc")
+  endif()
+  list(APPEND GAG_SOURCES "${GAG_RESOURCE_DIR}/gag_resources.rc")
+endif()
+
+add_executable(gag WIN32 ${GAG_SOURCES})
 target_compile_features(gag PRIVATE cxx_std_17)
 target_compile_definitions(gag PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(gag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -56,12 +66,27 @@ target_include_directories(gag_startup_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(gag_startup_test PRIVATE user32 gdi32 winmm advapi32 comdlg32)
 add_test(NAME gag_startup_test COMMAND gag_startup_test)
 
+if(GAG_RESOURCE_DIR)
+  add_executable(gag_resource_test src/resource_test.cpp)
+  target_compile_features(gag_resource_test PRIVATE cxx_std_17)
+  target_compile_definitions(gag_resource_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  target_link_libraries(gag_resource_test PRIVATE user32)
+  add_dependencies(gag_resource_test gag)
+  add_test(NAME gag_resource_test COMMAND gag_resource_test "${CMAKE_CURRENT_SOURCE_DIR}/data/orig/GAG.EXE" "$<TARGET_FILE:gag>")
+endif()
+
 if(MSVC)
   target_compile_options(gag PRIVATE /W4 /permissive-)
   target_compile_options(gag_startup_test PRIVATE /W4 /permissive-)
+  if(TARGET gag_resource_test)
+    target_compile_options(gag_resource_test PRIVATE /W4 /permissive-)
+  endif()
 else()
   target_compile_options(gag PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(gag_startup_test PRIVATE -Wall -Wextra -Wpedantic)
+  if(TARGET gag_resource_test)
+    target_compile_options(gag_resource_test PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
 endif()
 
 add_subdirectory(tools/cdf_extractor)

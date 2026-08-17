@@ -868,6 +868,7 @@ HANDLE async_file_host_seek_handle;
 int async_file_host_read_count;
 BOOL async_file_host_read_result;
 DWORD async_file_host_read_limit;
+gag::AsyncFileHost *async_file_worker_stop_host;
 int target_draw_count;
 int target_begin_count;
 int target_end_count;
@@ -5943,7 +5944,7 @@ HANDLE WINAPI create_test_async_host_thread(LPSECURITY_ATTRIBUTES attributes, SI
     async_file_host_thread_start = start;
     async_file_host_thread_parameter = parameter;
     *thread_id = 123;
-    return reinterpret_cast<HANDLE>(95);
+    return async_file_host_fail_stage == 4 ? nullptr : reinterpret_cast<HANDLE>(95);
 }
 
 DWORD WINAPI wait_test_async_host_thread(HANDLE object, DWORD milliseconds)
@@ -5980,6 +5981,12 @@ DWORD WINAPI seek_test_async_host_file(HANDLE file, LONG distance, PLONG high_di
 DWORD WINAPI get_test_async_host_time()
 {
     return 100;
+}
+
+void WINAPI sleep_test_async_file_worker(DWORD)
+{
+    require(async_file_worker_stop_host != nullptr);
+    async_file_worker_stop_host->flags |= 1;
 }
 
 void __fastcall transition_runtime_state(std::uint32_t value)
@@ -7586,7 +7593,7 @@ BOOL WINAPI initialization_get_client_rect(HWND, LPRECT rectangle)
     return TRUE;
 }
 
-gag::GraphicsHostInitializationResult *__fastcall initialization_initialize_graphics(HINSTANCE instance, HWND window, int x, int y, int width, int height, std::uint32_t flags)
+gag::GraphicsHostInitializationResult *__fastcall initialization_initialize_graphics(HINSTANCE instance, HWND window, int x, int y, std::int16_t width, std::uint16_t height, std::uint32_t flags)
 {
     record_initialization_event(initialization_event_graphics);
     require(instance == reinterpret_cast<HINSTANCE>(0x102) && window == reinterpret_cast<HWND>(0x103));
@@ -8930,6 +8937,17 @@ void test_runtime_left_button_up()
     root.runtime_nodes = &synchronization_owner;
     root.runtime_tree = &synchronization_tree;
     root.global_link_0084_head = synchronization_links;
+    synchronization_owner.unknown_0028 = 0;
+    synchronization_links[0].value_0040 = 0x81;
+    synchronization_primary[0].flags = 0x80000000;
+    require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
+    require(synchronization_links[0].value_0040 == 0x81 && synchronization_links[0].identity_0058 == nullptr && synchronization_primary[0].flags == 0x80000000);
+    synchronization_owner.unknown_0028 = 1;
+    synchronization_links[0].value_0054 = 999;
+    require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
+    require(synchronization_links[0].value_0040 == 0x81 && synchronization_links[0].identity_0058 == nullptr && synchronization_primary[0].flags == 0x80000000);
+    synchronization_links[0].value_0054 = 501;
+    synchronization_owner.unknown_0028 = 2;
     require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
     require(synchronization_links[0].identity_0058 == &synchronization_object && synchronization_links[0].value_0040 == 0x40);
     require(std::strcmp(synchronization_primary[0].file_name, "MOUSE.FLC") == 0 && (synchronization_primary[0].flags & 0x80000000) == 0);
@@ -9505,6 +9523,10 @@ void test_script_image_flags()
     script_parameter_result = 0;
     parameter_expression = make_script_parser("PARAM score");
     require(gag::parse_script_integer_expression(&parameter_expression) == 0x7fffffff && parameter_expression.cursor == 0);
+    script_parameter_result = 1;
+    script_parameter_value = 654;
+    parameter_expression = make_script_parser("PARAM");
+    require(gag::parse_script_integer_expression(&parameter_expression) == 654 && script_parameter_name[0] == '\0' && parameter_expression.cursor == 5);
 
     integer_expression_random_result = 6;
     gag::ScriptParserState random_expression = make_script_parser("RAND 3 9");
@@ -9618,6 +9640,15 @@ void test_script_image_flags()
     conditional_create = make_script_parser("RES TREE /GLOBAL:", &conditional_owner);
     require(gag::create_conditional_runtime_tree(&conditional_create) == &created_tree && conditional_tree_create_resource == &loaded_resource
             && conditional_tree_parent == reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff)));
+    conditional_tree_found = nullptr;
+    conditional_tree_parent = nullptr;
+    conditional_create = make_script_parser("TREE /C: /GLOBAL:", &conditional_owner);
+    conditional_create.resource = &current_resource;
+    require(gag::update_conditional_runtime_tree(&conditional_create) == &created_tree && conditional_tree_parent == &conditional_owner);
+    conditional_tree_parent = nullptr;
+    conditional_create = make_script_parser("TREE /C: /GLOBAL:", &conditional_owner);
+    conditional_create.resource = &current_resource;
+    require(gag::create_conditional_runtime_tree(&conditional_create) == &created_tree && conditional_tree_parent == &conditional_owner);
 
     root.heap = GetProcessHeap();
     gag::set_runtime_tree_auxiliary_create_api_for_testing({ HeapAlloc, HeapFree, resolve_test_auxiliary_name });
@@ -9825,6 +9856,7 @@ bool archive_comment_alloc_fails;
 bool archive_comment_realloc_fails;
 bool archive_comment_open_fails;
 bool archive_comment_oversized;
+bool archive_comment_read_fails;
 std::uint32_t archive_comment_close_count;
 std::uint32_t archive_comment_free_count;
 std::uint32_t archive_comment_realloc_count;
@@ -9914,6 +9946,10 @@ std::uint32_t __fastcall get_archive_comment_size(gag::CdfArchive *, std::uint8_
 int __fastcall read_archive_comment(gag::CdfArchive *, std::uint8_t selector, const char *name, void *destination)
 {
     require(selector == 0 && std::strcmp(name, "COMMENT.TXT") == 0);
+    if(archive_comment_read_fails)
+    {
+        return 0;
+    }
     std::memcpy(destination, archive_comment_texts[archive_comment_file_index], std::strlen(archive_comment_texts[archive_comment_file_index]) + 1);
     return 1;
 }
@@ -9946,6 +9982,7 @@ void reset_archive_comment_test()
     archive_comment_realloc_fails = false;
     archive_comment_open_fails = false;
     archive_comment_oversized = false;
+    archive_comment_read_fails = false;
     archive_comment_close_count = 0;
     archive_comment_free_count = 0;
     archive_comment_realloc_count = 0;
@@ -9997,6 +10034,22 @@ void test_archive_comment_enumeration()
     archive_comment_oversized = true;
     require(gag::enumerate_archive_comments(&state, reinterpret_cast<HWND>(4)) == 2 && state.archive_paths == nullptr && state.comment_capacity == 0);
     require(archive_comment_free_count == 1 && archive_comment_close_count == 1);
+
+    reset_archive_comment_test();
+    state = {};
+    state.directory = "D:\\";
+    std::memcpy(state.extension, ".cdf", 5);
+    archive_comment_file_count = 1;
+    archive_comment_read_fails = true;
+    require(gag::enumerate_archive_comments(&state, reinterpret_cast<HWND>(4)) == 2 && archive_comment_close_count == 1 && archive_comment_message_count == 0);
+
+    reset_archive_comment_test();
+    state = {};
+    state.directory = "D:\\";
+    std::memcpy(state.extension, ".cdf", 5);
+    archive_comment_file_count = 1;
+    archive_comment_open_fails = true;
+    require(gag::enumerate_archive_comments(&state, reinterpret_cast<HWND>(4)) == 2 && archive_comment_delete_count == 0 && archive_comment_close_count == 0);
 
     reset_archive_comment_test();
     state = {};
@@ -11294,7 +11347,7 @@ std::uint32_t __fastcall parse_test_special_dispatch_value(gag::ScriptParserStat
 
 void __fastcall set_test_special_dispatch_root_property(std::uint32_t operation, std::int32_t argument, gag::RuntimeGenericResourceNode *value)
 {
-    require((operation == 1 || operation == 2 || operation == 4) && argument == 0);
+    require((operation == 1 || operation == 2 || operation == 4 || operation == 8 || operation == 0x0c) && argument == 0);
     record_direct_dispatch_event(0x500 + static_cast<int>(operation), value);
 }
 
@@ -11335,7 +11388,7 @@ void test_runtime_tree_parser_special_values()
     require(gag::dispatch_runtime_tree_parser(&context) == &owner);
     require(special_dispatch_integer_index == static_cast<int>(std::size(integers)) && special_dispatch_flag_index == static_cast<int>(std::size(flags)));
     require(direct_dispatch_event_count == 6);
-    constexpr int operations[]{ 0x504, 0x501, 0x502, 0x504, 0x504 };
+    constexpr int operations[]{ 0x504, 0x501, 0x502, 0x508, 0x50c };
     constexpr std::uintptr_t values[]{ 11, 22, 33, 44, 66 };
     for(int index = 0; index < 5; ++index)
     {
@@ -11807,6 +11860,285 @@ void test_script_object_parser_branches()
     gag::reset_script_object_parse_api_for_testing();
 }
 } // namespace
+
+gag::CustomControlState *custom_window_state;
+BOOL custom_window_has_update;
+LRESULT custom_window_default_result;
+int custom_window_begin_count;
+int custom_window_end_count;
+int custom_window_pattern_count;
+int custom_window_initialize_count;
+int custom_window_present_count;
+int custom_window_destroy_count;
+int custom_window_set_bitmap_count;
+BOOL custom_window_present_background;
+BITMAPINFO *custom_window_bitmap_argument;
+bool custom_window_archive_open_fails;
+std::uint32_t custom_window_entry_size;
+bool custom_window_allocation_fails;
+int custom_window_archive_close_count;
+int custom_window_archive_read_count;
+int custom_window_heap_free_count;
+HGLOBAL custom_window_loaded_resource;
+void *custom_window_locked_resource;
+int custom_window_free_resource_count;
+std::uint8_t custom_window_heap_data[0x500];
+std::uint8_t custom_window_resource_data[0x500];
+
+BOOL WINAPI get_custom_window_update(HWND, LPRECT, BOOL)
+{
+    return custom_window_has_update;
+}
+
+HDC WINAPI begin_custom_window_paint(HWND, LPPAINTSTRUCT)
+{
+    ++custom_window_begin_count;
+    return reinterpret_cast<HDC>(1);
+}
+
+BOOL WINAPI end_custom_window_paint(HWND, const PAINTSTRUCT *)
+{
+    ++custom_window_end_count;
+    return TRUE;
+}
+
+LONG WINAPI get_custom_window_state(HWND, int)
+{
+    return reinterpret_cast<LONG>(custom_window_state);
+}
+
+LONG WINAPI set_custom_window_state(HWND, int, LONG value)
+{
+    custom_window_state = reinterpret_cast<gag::CustomControlState *>(value);
+    return 0;
+}
+
+LRESULT WINAPI default_custom_window(HWND, UINT, WPARAM, LPARAM)
+{
+    return custom_window_default_result;
+}
+
+BOOL WINAPI pattern_custom_window(HDC, int, int, int, int, DWORD)
+{
+    ++custom_window_pattern_count;
+    return TRUE;
+}
+
+LPVOID WINAPI allocate_custom_window(HANDLE, DWORD, SIZE_T)
+{
+    return custom_window_allocation_fails ? nullptr : custom_window_heap_data;
+}
+
+BOOL WINAPI free_custom_window(HANDLE, DWORD, LPVOID memory)
+{
+    require(memory == custom_window_heap_data);
+    ++custom_window_heap_free_count;
+    return TRUE;
+}
+
+HRSRC WINAPI find_custom_window_resource(HMODULE module, LPCSTR name, LPCSTR type)
+{
+    require(module == nullptr && reinterpret_cast<ULONG_PTR>(name) == 0x70 && type == RT_BITMAP);
+    return reinterpret_cast<HRSRC>(2);
+}
+
+HMODULE WINAPI get_custom_window_module(LPCSTR name)
+{
+    require(name == nullptr);
+    return reinterpret_cast<HMODULE>(3);
+}
+
+HGLOBAL WINAPI load_custom_window_resource(HMODULE module, HRSRC resource)
+{
+    require(module == reinterpret_cast<HMODULE>(3) && resource == reinterpret_cast<HRSRC>(2));
+    return custom_window_loaded_resource;
+}
+
+LPVOID WINAPI lock_custom_window_resource(HGLOBAL resource)
+{
+    require(resource == custom_window_loaded_resource);
+    return custom_window_locked_resource;
+}
+
+BOOL WINAPI free_custom_window_resource(HGLOBAL resource)
+{
+    require(resource == custom_window_loaded_resource);
+    ++custom_window_free_resource_count;
+    return TRUE;
+}
+
+gag::CdfArchive *__fastcall open_custom_window_archive(const char *path, int alternate)
+{
+    require(std::strcmp(path, "D:\\pack.cdf") == 0 && alternate == 0);
+    return custom_window_archive_open_fails ? nullptr : reinterpret_cast<gag::CdfArchive *>(4);
+}
+
+std::uint32_t __fastcall get_custom_window_entry_size(gag::CdfArchive *archive, std::uint8_t selector, const char *name)
+{
+    require(archive == reinterpret_cast<gag::CdfArchive *>(4) && selector == 0 && std::strcmp(name, "COMMENT.BMP") == 0);
+    return custom_window_entry_size;
+}
+
+int __fastcall read_custom_window_entry(gag::CdfArchive *, std::uint8_t, const char *name, void *destination)
+{
+    ++custom_window_archive_read_count;
+    if(std::strcmp(name, "COMMENT.TXT") == 0)
+    {
+        std::strcpy(static_cast<char *>(destination), "comment");
+    }
+    return 1;
+}
+
+std::uint32_t __fastcall close_custom_window_archive(gag::CdfArchive *)
+{
+    ++custom_window_archive_close_count;
+    return 1;
+}
+
+bool __fastcall equal_custom_window_strings(const char *left, const char *right)
+{
+    return std::strcmp(left, right) == 0;
+}
+
+int __fastcall copy_custom_window_string(char *destination, const char *source)
+{
+    std::strcpy(destination, source);
+    return static_cast<int>(std::strlen(source));
+}
+
+void __fastcall initialize_custom_window(HWND, gag::CustomControlState *)
+{
+    ++custom_window_initialize_count;
+}
+
+void __fastcall set_custom_window_bitmap(gag::CustomControlState *, BITMAPINFO *bitmap, int present)
+{
+    require(present == 1);
+    custom_window_bitmap_argument = bitmap;
+    ++custom_window_set_bitmap_count;
+}
+
+void __fastcall present_custom_window(gag::CustomControlState *, BOOL background)
+{
+    custom_window_present_background = background;
+    ++custom_window_present_count;
+}
+
+void __fastcall destroy_custom_window(HWND, gag::CustomControlState *)
+{
+    ++custom_window_destroy_count;
+}
+
+void reset_custom_window_test()
+{
+    custom_window_state = nullptr;
+    custom_window_has_update = FALSE;
+    custom_window_default_result = 77;
+    custom_window_begin_count = 0;
+    custom_window_end_count = 0;
+    custom_window_pattern_count = 0;
+    custom_window_initialize_count = 0;
+    custom_window_present_count = 0;
+    custom_window_destroy_count = 0;
+    custom_window_set_bitmap_count = 0;
+    custom_window_present_background = FALSE;
+    custom_window_bitmap_argument = nullptr;
+    custom_window_archive_open_fails = false;
+    custom_window_entry_size = sizeof(custom_window_heap_data);
+    custom_window_allocation_fails = false;
+    custom_window_archive_close_count = 0;
+    custom_window_archive_read_count = 0;
+    custom_window_heap_free_count = 0;
+    custom_window_loaded_resource = reinterpret_cast<HGLOBAL>(5);
+    custom_window_locked_resource = custom_window_resource_data;
+    custom_window_free_resource_count = 0;
+}
+
+void test_custom_control_window_procedure()
+{
+    gag::set_custom_control_window_api_for_testing({ get_custom_window_update, begin_custom_window_paint, end_custom_window_paint, get_custom_window_state, set_custom_window_state,
+        default_custom_window, pattern_custom_window, GetProcessHeap, allocate_custom_window, free_custom_window, find_custom_window_resource, get_custom_window_module, load_custom_window_resource,
+        lock_custom_window_resource, free_custom_window_resource, open_custom_window_archive, get_custom_window_entry_size, read_custom_window_entry, close_custom_window_archive,
+        equal_custom_window_strings, copy_custom_window_string, initialize_custom_window, set_custom_window_bitmap, present_custom_window, destroy_custom_window });
+    reset_custom_window_test();
+    HWND window = reinterpret_cast<HWND>(1);
+    gag::CustomControlState state{};
+    char archive_path[0x104] = "D:\\old.cdf";
+    char comment_text[0x104] = "old";
+    state.archive_path = archive_path;
+    state.comment_text = comment_text;
+    state.destination_context = reinterpret_cast<HDC>(51);
+    state.source_context = reinterpret_cast<HDC>(52);
+    state.client_rect = { 0, 0, 320, 200 };
+    state.source_width = 640;
+    state.source_height = 480;
+
+    require(gag::gag_custom_control_window_procedure(window, WM_CREATE, 0, 0) == 0 && custom_window_state == nullptr);
+    require(gag::gag_custom_control_window_procedure(window, WM_NULL, 2, 3) == 77);
+    require(gag::gag_custom_control_window_procedure(window, WM_PAINT, 0, 0) == 77 && custom_window_begin_count == 0);
+    custom_window_has_update = TRUE;
+    require(gag::gag_custom_control_window_procedure(window, WM_PAINT, 0, 0) == 0 && custom_window_begin_count == 1 && custom_window_end_count == 1);
+    custom_window_state = &state;
+    custom_gdi_event_count = 0;
+    require(gag::gag_custom_control_window_procedure(window, WM_PAINT, 0, 0) == 0 && custom_gdi_event_count == 1);
+    custom_window_present_count = 0;
+    require(gag::gag_custom_control_window_procedure(window, WM_QUERYNEWPALETTE, 0, 0) == 1 && custom_window_present_count == 1 && custom_window_present_background == FALSE);
+    require(gag::gag_custom_control_window_procedure(window, WM_PALETTECHANGED, reinterpret_cast<WPARAM>(window), 0) == 0 && custom_window_present_count == 1);
+    require(gag::gag_custom_control_window_procedure(window, WM_PALETTECHANGED, 0, 0) == 0 && custom_window_present_count == 2 && custom_window_present_background == TRUE);
+
+    custom_window_state = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state)) == 1 && custom_window_state == &state && custom_window_initialize_count == 1);
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 2, 0) == reinterpret_cast<LRESULT>(&state));
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 99, 0) == 77);
+
+    state.bitmap_identity = nullptr;
+    std::strcpy(archive_path, "D:\\pack.cdf");
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 4, reinterpret_cast<LPARAM>(archive_path)) == 1 && custom_window_archive_read_count == 0);
+    std::strcpy(archive_path, "D:\\old.cdf");
+    custom_window_archive_open_fails = true;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 4, reinterpret_cast<LPARAM>("D:\\pack.cdf")) == 0 && comment_text[0] == '\0');
+    custom_window_archive_open_fails = false;
+    custom_window_entry_size = 0;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 4, reinterpret_cast<LPARAM>("D:\\pack.cdf")) == 0 && custom_window_archive_close_count == 1);
+    custom_window_entry_size = sizeof(custom_window_heap_data);
+    custom_window_allocation_fails = true;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 4, reinterpret_cast<LPARAM>("D:\\pack.cdf")) == 0 && custom_window_archive_close_count == 2);
+    custom_window_allocation_fails = false;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 4, reinterpret_cast<LPARAM>("D:\\pack.cdf")) == 1);
+    require(custom_window_archive_read_count == 2 && custom_window_archive_close_count == 3 && custom_window_heap_free_count == 1 && custom_window_pattern_count == 1);
+    require(custom_window_set_bitmap_count == 1 && custom_window_bitmap_argument == reinterpret_cast<BITMAPINFO *>(custom_window_heap_data + 0xe));
+    require(std::strcmp(archive_path, "D:\\pack.cdf") == 0 && std::strcmp(comment_text, "comment") == 0 && state.bitmap_identity == nullptr);
+
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 8, 0) == 0 && custom_window_destroy_count == 1 && custom_window_pattern_count == 2);
+    custom_window_state = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 8, 0) == 0 && custom_window_destroy_count == 1);
+
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x10, 0x70) == 0);
+    custom_window_state = &state;
+    state.bitmap_identity = reinterpret_cast<void *>(0x70);
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x10, 0x70) == 1);
+    state.bitmap_identity = nullptr;
+    custom_window_loaded_resource = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x10, 0x70) == 0 && state.bitmap_identity == reinterpret_cast<void *>(0x70));
+    state.bitmap_identity = nullptr;
+    custom_window_loaded_resource = reinterpret_cast<HGLOBAL>(5);
+    custom_window_locked_resource = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x10, 0x70) == 0 && custom_window_free_resource_count == 0);
+    state.bitmap_identity = nullptr;
+    custom_window_locked_resource = custom_window_resource_data;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x10, 0x70) == 1 && custom_window_free_resource_count == 1);
+    require(custom_window_bitmap_argument == reinterpret_cast<BITMAPINFO *>(custom_window_resource_data));
+
+    custom_window_state = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(custom_window_resource_data)) == 0);
+    custom_window_state = &state;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x20, 0) == 0);
+    state.bitmap_identity = custom_window_resource_data;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(custom_window_resource_data)) == 1);
+    state.bitmap_identity = nullptr;
+    require(gag::gag_custom_control_window_procedure(window, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(custom_window_resource_data)) == 1);
+    require(custom_window_bitmap_argument == reinterpret_cast<BITMAPINFO *>(custom_window_resource_data + 0xe));
+}
 
 int main()
 {
@@ -12419,6 +12751,10 @@ int main()
     parser_state.text_length = 33;
     parser_state.cursor = 0;
     require(gag::extract_script_property_name(&parser_state, parser_token) == 31 && std::strlen(parser_token) == 31 && parser_state.cursor == 32);
+    parser_state.text = "=value";
+    parser_state.text_length = 6;
+    parser_state.cursor = 0;
+    require(gag::extract_script_property_name(&parser_state, parser_token) == 0 && parser_token[0] == '\0' && parser_state.cursor == 1);
 
     constexpr char scope_source[] = "xx/FILE:rest";
     parser_state.text = scope_source;
@@ -12440,6 +12776,10 @@ int main()
     parser_state.text_length = 33;
     parser_state.cursor = 0;
     require(gag::extract_script_scope_name(&parser_state, parser_token) == 31 && std::strlen(parser_token) == 31 && parser_state.cursor == 32);
+    parser_state.text = "/";
+    parser_state.text_length = 1;
+    parser_state.cursor = 0;
+    require(gag::extract_script_scope_name(&parser_state, parser_token) == 0 && parser_token[0] == '\0' && parser_state.cursor == 1);
 
     char parenthesized_text[8];
     parser_state.text = "(abc)tail";
@@ -12464,6 +12804,11 @@ int main()
     parser_state.text_length = 3;
     parser_state.cursor = 0;
     require(gag::extract_script_parenthesized_text(&parser_state, parenthesized_text, sizeof(parenthesized_text)) == 0xffffffff && parenthesized_text[0] == '\0');
+    parser_state.text = "(abc";
+    parser_state.text_length = 4;
+    parser_state.cursor = 0;
+    require(gag::extract_script_parenthesized_text(&parser_state, parenthesized_text, sizeof(parenthesized_text)) == 3);
+    require(std::strcmp(parenthesized_text, "abc") == 0 && parser_state.cursor == 5);
 
     require(gag::find_whitespace_token_index("alpha beta\tgamma\r\ndelta", "alpha") == 0);
     require(gag::find_whitespace_token_index("alpha beta\tgamma\r\ndelta", "gamma") == 2);
@@ -12471,6 +12816,8 @@ int main()
     require(gag::find_whitespace_token_index("alpha beta", "bet") == -1);
     require(gag::find_whitespace_token_index("alpha beta", "BETA") == -1);
     require(gag::find_whitespace_token_index("", "alpha") == -1);
+    require(gag::find_whitespace_token_index("alpha   ", "") == 1);
+    require(gag::find_whitespace_token_index("   ", "") == 0);
 
     parser_state.text = " \t,(ignored):token/rest";
     parser_state.text_length = 23;
@@ -12577,6 +12924,14 @@ int main()
     parser_state.text_length = 8;
     parser_state.cursor = 0;
     require(gag::parse_script_property_code(&parser_state) == 0);
+    parser_state.text = "OBJECT=";
+    parser_state.text_length = 7;
+    parser_state.cursor = 0;
+    require(gag::parse_script_property_code(&parser_state) == 0 && parser_state.cursor == 7);
+    parser_state.text = "no equals";
+    parser_state.text_length = 9;
+    parser_state.cursor = 0;
+    require(gag::parse_script_property_code(&parser_state) == 0xffffffff && parser_state.cursor == 0);
     require(gag::parse_script_property_code(nullptr) == 0xffffffff);
 
     constexpr ParserMappingCase scope_mapping_cases[]{
@@ -12627,6 +12982,14 @@ int main()
     parser_state.text_length = 9;
     parser_state.cursor = 0;
     require(gag::parse_script_scope_code(&parser_state) == 0);
+    parser_state.text = "/file:";
+    parser_state.text_length = 6;
+    parser_state.cursor = 0;
+    require(gag::parse_script_scope_code(&parser_state) == 0 && parser_state.cursor == 5);
+    parser_state.text = "no slash";
+    parser_state.text_length = 8;
+    parser_state.cursor = 0;
+    require(gag::parse_script_scope_code(&parser_state) == 0xffffffff && parser_state.cursor == 0);
     require(gag::parse_script_scope_code(nullptr) == 0xffffffff);
 
     constexpr ParserMappingCase opcode_mapping_cases[]{
@@ -13108,7 +13471,11 @@ int main()
     remap_bits_per_pixel = 8;
     std::memcpy(reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x93c, &remap_bits_per_pixel, sizeof(remap_bits_per_pixel));
     gag::build_runtime_palette_index_remap(&remap_backend);
-    require(std::all_of(reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x824, reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x924, [](std::uint8_t value) { return value == 0; }));
+    require(std::all_of(reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x824, reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x924, [](std::uint8_t value) { return value == 0xec; }));
+    std::memset(comparison_palette, 0, sizeof(comparison_palette));
+    std::memset(reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x20, 0xff, 0x400);
+    gag::build_runtime_palette_index_remap(&remap_backend);
+    require(reinterpret_cast<std::uint8_t *>(&remap_backend)[0x824] == 0xec);
     std::memset(reinterpret_cast<std::uint8_t *>(&remap_backend) + 0x824, 0x5a, 0x100);
     remap_backend.media_flags = 0x4000000;
     gag::build_runtime_palette_index_remap(&remap_backend);
@@ -13884,6 +14251,14 @@ int main()
     require(std::memcmp(literal_destination + 25, literal_scaled_second_row, sizeof(literal_scaled_second_row)) == 0
             && std::memcmp(literal_destination + 33, literal_scaled_second_row, sizeof(literal_scaled_second_row)) == 0);
     require(*reinterpret_cast<const std::uint32_t *>(literal_animation_bytes + 0x994) == 4 && *reinterpret_cast<const std::uint32_t *>(literal_animation_bytes + 0x998) == 4);
+    literal_animation_backend.base.scale_x = 3;
+    literal_animation_backend.base.scale_y = 1;
+    literal_stride = 8;
+    std::memcpy(literal_animation_bytes + 0x928, &literal_stride, sizeof(literal_stride));
+    std::memset(literal_destination, 0xee, sizeof(literal_destination));
+    gag::decode_runtime_animation_literal(&literal_animation_backend.base);
+    const std::uint8_t literal_tripled_row[] = { 1, 1, 1, 2, 2, 2 };
+    require(std::memcmp(literal_destination + 9, literal_tripled_row, sizeof(literal_tripled_row)) == 0 && *reinterpret_cast<const std::uint32_t *>(literal_animation_bytes + 0x994) == 6);
     gag::RuntimeAnimationBackend byte_run_animation_backend{};
     std::uint8_t byte_run_header[16]{};
     std::uint16_t byte_run_width = 5;
@@ -13923,6 +14298,14 @@ int main()
     gag::decode_runtime_animation_byte_run(&byte_run_animation_backend.base);
     const std::uint8_t byte_run_mapped_row[] = { 27, 27, 21, 22, 23 };
     require(std::memcmp(byte_run_destination + 1, byte_run_mapped_row, sizeof(byte_run_mapped_row)) == 0);
+    byte_run_animation_backend.base.scale_x = 3;
+    byte_run_animation_backend.base.media_flags = 0x4000000;
+    byte_run_stride = 20;
+    std::memcpy(byte_run_animation_bytes + 0x928, &byte_run_stride, sizeof(byte_run_stride));
+    std::memset(byte_run_destination, 0xee, sizeof(byte_run_destination));
+    gag::decode_runtime_animation_byte_run(&byte_run_animation_backend.base);
+    const std::uint8_t byte_run_tripled_row[] = { 7, 7, 7, 7, 7, 7, 1, 1, 1, 2, 2, 2, 3, 3, 3 };
+    require(std::memcmp(byte_run_destination + 1, byte_run_tripled_row, sizeof(byte_run_tripled_row)) == 0 && *reinterpret_cast<const std::uint32_t *>(byte_run_animation_bytes + 0x994) == 15);
     gag::RuntimeAnimationBackend mvz_animation_backend{};
     mvz_animation_backend.base.scale_x = 1;
     mvz_animation_backend.base.scale_y = 1;
@@ -13961,6 +14344,14 @@ int main()
     require(std::memcmp(mvz_destination + 30 * 3 + 3, mvz8_expected, sizeof(mvz8_expected)) == 0 && std::memcmp(mvz_destination + 30 * 4 + 3, mvz8_expected, sizeof(mvz8_expected)) == 0);
     require(*reinterpret_cast<const std::uint32_t *>(mvz_animation_bytes + 0x98c) == 2 && *reinterpret_cast<const std::uint32_t *>(mvz_animation_bytes + 0x990) == 2
             && *reinterpret_cast<const std::uint32_t *>(mvz_animation_bytes + 0x994) == 14 && *reinterpret_cast<const std::uint32_t *>(mvz_animation_bytes + 0x998) == 4);
+    mvz_animation_backend.base.scale_x = 3;
+    mvz_animation_backend.base.scale_y = 1;
+    mvz_animation_backend.source_cursor = const_cast<std::uint8_t *>(mvz5_source);
+    mvz_stride = 40;
+    std::memcpy(mvz_animation_bytes + 0x928, &mvz_stride, sizeof(mvz_stride));
+    std::memset(mvz_destination, 0xee, sizeof(mvz_destination));
+    gag::decode_runtime_animation_mvz5(&mvz_animation_backend.base);
+    require(mvz_destination[41] == 1 && mvz_destination[42] == 1 && mvz_destination[43] == 1 && *reinterpret_cast<const std::uint32_t *>(mvz_animation_bytes + 0x994) == 24);
     gag::RuntimeAnimationBackend delta_animation_backend{};
     std::uint8_t delta_animation_header[16]{};
     std::uint16_t delta_width = 8;
@@ -14010,6 +14401,19 @@ int main()
     require(delta_destination[20 * 3 + 1 + 2] == 1 && delta_destination[20 * 3 + 1 + 3] == 1 && delta_destination[20 * 4 + 1 + 2] == 1 && delta_destination[20 * 4 + 1 + 3] == 1);
     require(*reinterpret_cast<const std::int32_t *>(delta_animation_bytes + 0x98c) == 0 && *reinterpret_cast<const std::int32_t *>(delta_animation_bytes + 0x990) == 2
             && *reinterpret_cast<const std::int32_t *>(delta_animation_bytes + 0x994) == 16 && *reinterpret_cast<const std::int32_t *>(delta_animation_bytes + 0x998) == 6);
+    delta_animation_backend.base.scale_x = 3;
+    delta_animation_backend.base.scale_y = 1;
+    delta_animation_backend.source_cursor = const_cast<std::uint8_t *>(delta_source);
+    delta_stride = 40;
+    std::memcpy(delta_animation_bytes + 0x928, &delta_stride, sizeof(delta_stride));
+    std::memset(delta_destination, 0xee, sizeof(delta_destination));
+    std::memcpy(delta_animation_bytes + 0x98c, &delta_dirty_minimum, sizeof(delta_dirty_minimum));
+    std::memcpy(delta_animation_bytes + 0x990, &delta_dirty_minimum, sizeof(delta_dirty_minimum));
+    std::memcpy(delta_animation_bytes + 0x994, &delta_dirty_zero, sizeof(delta_dirty_zero));
+    std::memcpy(delta_animation_bytes + 0x998, &delta_dirty_zero, sizeof(delta_dirty_zero));
+    gag::decode_runtime_animation_delta_flc(&delta_animation_backend.base);
+    require(delta_destination[40 * 2 + 1 + 3] == 1 && delta_destination[40 * 2 + 1 + 4] == 1 && delta_destination[40 * 2 + 1 + 5] == 1
+            && *reinterpret_cast<const std::int32_t *>(delta_animation_bytes + 0x994) == 24);
     gag::RuntimeBitmapBackendCreateApi runtime_bitmap_backend_create_api{ allocate_test_runtime_bitmap_backend, wait_test_runtime_media_backend, release_test_runtime_media_backend };
     gag::set_runtime_bitmap_backend_create_api_for_testing(runtime_bitmap_backend_create_api);
     std::uint8_t runtime_bitmap_data[32]{};
@@ -14100,6 +14504,11 @@ int main()
     runtime_media_backend_release_count = 0;
     runtime_media_backend_sleep_count = 0;
     gag::set_runtime_media_backend_state_for_testing(reinterpret_cast<HANDLE>(203), reinterpret_cast<HANDLE>(204), &media_backend_1, &media_backend_2);
+    media_backend_1.identity = &media_backend_1;
+    require(gag::acquire_first_runtime_media_backend() == &media_backend_1 && media_backend_1.owner_thread == 77 && media_backend_1.recursion_count == 1);
+    media_backend_1.owner_thread = 0;
+    media_backend_1.recursion_count = 0;
+    media_backend_1.identity = reinterpret_cast<void *>(205);
     require(gag::acquire_runtime_media_backend(reinterpret_cast<void *>(999)) == nullptr);
     require(gag::acquire_runtime_media_backend(reinterpret_cast<void *>(205)) == &media_backend_1 && media_backend_1.owner_thread == 77 && media_backend_1.recursion_count == 1);
     require(gag::acquire_runtime_media_backend(reinterpret_cast<void *>(205)) == &media_backend_1 && media_backend_1.recursion_count == 2);
@@ -15461,8 +15870,13 @@ int main()
     gag::enqueue_runtime_event_record(event_record);
     require(std::memcmp(script_root.event_records[31], event_record, sizeof(event_record)) == 0);
     require(script_root.transient_index_1 == 1 && script_root.transient_index_2 == 0);
+    script_root.transient_index_1 = 6;
+    script_root.transient_index_2 = 5;
+    gag::enqueue_runtime_event_record(event_record);
+    require(std::memcmp(script_root.event_records[5], event_record, sizeof(event_record)) == 0);
+    require(script_root.transient_index_1 == 7 && script_root.transient_index_2 == 6);
     gag::enqueue_runtime_event_record(nullptr);
-    require(script_root.transient_index_1 == 1 && script_root.transient_index_2 == 0);
+    require(script_root.transient_index_1 == 7 && script_root.transient_index_2 == 6);
     std::uint32_t read_event_record[16];
     std::fill(std::begin(read_event_record), std::end(read_event_record), 0xffffffff);
     script_root.transient_index_1 = 4;
@@ -15488,6 +15902,7 @@ int main()
     gag::acknowledge_current_runtime_event_record();
     require(script_root.transient_index_1 == 8);
     gag::set_script_runtime_root_for_testing(nullptr);
+    gag::enqueue_runtime_event_record(event_record);
     std::fill(std::begin(read_event_record), std::end(read_event_record), 0xffffffff);
     require(gag::read_runtime_event_record(read_event_record, 1) == 0 && read_event_record[14] == 0);
     gag::acknowledge_current_runtime_event_record();
@@ -15530,12 +15945,22 @@ int main()
     enumeration_d.identity = &enumeration_d;
     enumeration_d.parent = &enumeration_root;
     script_root.runtime_tree = &enumeration_root;
-    require(gag::begin_runtime_tree_enumeration(nullptr) == &enumeration_b);
+    require(gag::begin_runtime_tree_enumeration(nullptr) == nullptr);
+    require(enumeration_root.iterator_current == &enumeration_b && enumeration_root.iterator_ascending == 0);
+    require(gag::begin_runtime_tree_enumeration(&enumeration_root) == &enumeration_b);
     require(gag::get_next_runtime_tree_node(&enumeration_root) == &enumeration_c);
     require(gag::get_next_runtime_tree_node(&enumeration_root) == &enumeration_a);
     require(gag::get_next_runtime_tree_node(&enumeration_root) == &enumeration_d);
     require(gag::get_next_runtime_tree_node(&enumeration_root) == nullptr);
     require(gag::begin_runtime_tree_enumeration(&enumeration_d) == nullptr);
+    gag::RuntimeTreeNode enumeration_flat_root{};
+    gag::RuntimeTreeNode enumeration_flat_child{};
+    enumeration_flat_root.identity = &enumeration_flat_root;
+    enumeration_flat_root.child = &enumeration_flat_child;
+    enumeration_flat_child.identity = &enumeration_flat_child;
+    script_root.runtime_tree = &enumeration_flat_root;
+    require(gag::begin_runtime_tree_enumeration(nullptr) == &enumeration_flat_child);
+    require(enumeration_flat_root.iterator_current == nullptr && enumeration_flat_root.iterator_ascending == 0);
     script_root.runtime_tree = &runtime_tree_1;
     gag::RuntimeNamedNode runtime_parent{};
     gag::RuntimeNamedNode runtime_child_1{};
@@ -15634,6 +16059,10 @@ int main()
     gag::ScriptParserState parsed_named_parser{};
     parsed_named_parser.text = parsed_named_text;
     parsed_named_parser.text_length = sizeof(parsed_named_text) - 1;
+    display_scene_allocation_fail_at = display_scene_allocation_count;
+    require(gag::parse_runtime_named_node(&parsed_named_parser) == 0 && script_root.runtime_nodes == nullptr);
+    display_scene_allocation_fail_at = -1;
+    parsed_named_parser.cursor = 0;
     int parsed_named_allocation_start = display_scene_allocation_count;
     require(gag::parse_runtime_named_node(&parsed_named_parser) == 0);
     gag::RuntimeNamedNode *parsed_named_node = script_root.runtime_nodes;
@@ -15651,6 +16080,13 @@ int main()
     require(gag::parse_runtime_named_node(&parsed_named_parser) == 0);
     require(*reinterpret_cast<const std::uint32_t *>(parsed_named_bytes + 0x30) == 9 && *reinterpret_cast<const std::uint32_t *>(parsed_named_bytes + 0x34) == 8 && parsed_named_node->unknown_0028 == 1
             && *reinterpret_cast<const std::uint32_t *>(parsed_named_bytes + 0x38) == 4 && *reinterpret_cast<const std::uint32_t *>(parsed_named_bytes + 0x3c) == 5);
+    const char parsed_named_missing_object[]{ "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ABSENT /F: COMMENT" };
+    parsed_named_parser.text = parsed_named_missing_object;
+    parsed_named_parser.text_length = sizeof(parsed_named_missing_object) - 1;
+    parsed_named_parser.cursor = 0;
+    int parsed_named_missing_allocation_start = display_scene_allocation_count;
+    require(gag::parse_runtime_named_node(&parsed_named_parser) == 0 && parsed_named_node->status == 1 && parsed_named_node->flags == 0x800
+            && display_scene_allocation_count == parsed_named_missing_allocation_start);
     const char empty_named_text[]{ '\0' };
     gag::ScriptParserState empty_named_parser{};
     empty_named_parser.text = empty_named_text;
@@ -15677,6 +16113,8 @@ int main()
     named_object_parent.child_cursor = reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1);
     require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_2));
     require(gag::rotate_runtime_named_node_cursor_next(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
+    require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 0) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
+    require(gag::rotate_runtime_named_node_cursor_next(named_parent_name, 0) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
     named_object_parent.unknown_0028 = 2;
     require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
     require(gag::rotate_runtime_named_node_cursor_next(named_missing_name, 1) == 0);
@@ -16040,7 +16478,15 @@ int main()
     async_record_3.self = &async_record_3;
     async_record_3.file = reinterpret_cast<HANDLE>(92);
     gag::set_async_file_state_for_testing(false, &async_host_1);
+    async_host_1.flags = 0x10000;
+    async_file_enter_count = 0;
+    async_file_leave_count = 0;
+    gag::release_async_file_host(&async_host_1);
+    require((async_host_1.flags & 0x10000) == 0 && async_file_enter_count == 1 && async_file_leave_count == 1);
     require(gag::acquire_async_file_host(&async_host_1) == nullptr && gag::acquire_async_file_record(&async_record_1) == nullptr);
+    async_record_1.flags = 0x10000;
+    gag::release_async_file_record(&async_record_1);
+    require((async_record_1.flags & 0x10000) != 0 && gag::close_async_file_record(&async_record_1) == 0);
     gag::set_async_file_state_for_testing(true, &async_host_1);
     async_file_enter_count = 0;
     async_file_leave_count = 0;
@@ -16104,16 +16550,39 @@ int main()
     require(gag::create_async_file_host("C:\\", 0x20000, 0) == nullptr && async_file_host_heap_free_count == 1);
     async_file_host_fail_stage = 3;
     require(gag::create_async_file_host("C:\\", 0x20000, 0) == nullptr && async_file_host_initialize_count == 2 && async_file_host_delete_count == 2 && async_file_host_heap_free_count == 2);
-    async_file_host_fail_stage = 0;
+    async_file_host_fail_stage = 4;
     async_file_host_thread_start = nullptr;
     auto *created_async_host = gag::create_async_file_host("C:\\", 0x20000, 0);
     require(created_async_host == reinterpret_cast<gag::AsyncFileHost *>(async_file_host_storage) && created_async_host->self == created_async_host && created_async_host->next == nullptr);
     require(created_async_host->mode == -1 && created_async_host->bytes_per_sector == 512 && created_async_host->sectors_per_cluster == 8);
     require(created_async_host->buffer_size == 0x1fe00 && created_async_host->available_bytes == 0x1fe00 && async_file_host_requested_allocation == 0x1fe00);
     require(created_async_host->buffer == async_file_host_buffer && created_async_host->write_cursor == async_file_host_buffer && created_async_host->secondary_cursor == async_file_host_buffer);
-    require(created_async_host->thread == reinterpret_cast<HANDLE>(95) && async_file_host_thread_start == gag::run_async_file_worker && async_file_host_thread_parameter == created_async_host);
+    require(created_async_host->thread == nullptr && async_file_host_thread_start == gag::run_async_file_worker && async_file_host_thread_parameter == created_async_host);
+    async_file_host_fail_stage = 0;
     created_async_host->flags = 1;
     require(gag::run_async_file_worker(created_async_host) == 0);
+    gag::AsyncFileHost worker_host{};
+    worker_host.buffer = async_file_host_buffer;
+    worker_host.buffer_size = sizeof(async_file_host_buffer);
+    worker_host.bytes_per_sector = 4;
+    worker_host.mode = 1000;
+    worker_host.available_bytes = 0x4000;
+    worker_host.write_cursor = async_file_host_buffer;
+    worker_host.buffer_start_cursor = async_file_host_buffer;
+    worker_host.active_file = reinterpret_cast<gag::AsyncFileRecord *>(1);
+    worker_host.file = reinterpret_cast<HANDLE>(96);
+    worker_host.end_offset = 0x40000;
+    worker_host.remaining_size = 0x40000;
+    async_file_host_read_result = TRUE;
+    async_file_host_read_limit = 8;
+    async_file_host_read_count = 0;
+    async_file_worker_stop_host = &worker_host;
+    gag::AsyncFileLockApi async_file_worker_lock_api{ enter_test_async_file_lock, leave_test_async_file_lock, sleep_test_async_file_worker };
+    gag::set_async_file_lock_api_for_testing(async_file_worker_lock_api);
+    require(gag::run_async_file_worker(&worker_host) == 0);
+    require(async_file_host_read_count == 1 && worker_host.write_cursor == async_file_host_buffer + 0x4000 && worker_host.available_bytes == 0 && (worker_host.flags & 1) != 0);
+    gag::set_async_file_lock_api_for_testing(async_file_lock_api);
+    async_file_worker_stop_host = nullptr;
     gag::AsyncFileHost accounting_host{};
     std::uint8_t accounting_buffer[32]{};
     accounting_host.buffer = accounting_buffer;
@@ -16205,6 +16674,11 @@ int main()
     accounting_host.buffer_start_cursor = accounting_buffer + 1;
     gag::seek_async_host(&accounting_host, 24);
     require(accounting_host.secondary_cursor == accounting_buffer + 5 && accounting_host.current_offset == 24 && (accounting_host.flags & 0x10) == 0);
+    accounting_host.current_offset = 40;
+    accounting_host.start_offset = 20;
+    accounting_host.buffer_start_cursor = accounting_buffer + 30;
+    gag::seek_async_host(&accounting_host, 25);
+    require(reinterpret_cast<std::uintptr_t>(accounting_host.secondary_cursor) == 3 && accounting_host.current_offset == 25);
     for(std::uint32_t index = 0; index < sizeof(accounting_buffer); ++index)
     {
         accounting_buffer[index] = static_cast<std::uint8_t>(index);
@@ -16220,6 +16694,9 @@ int main()
     require(gag::copy_async_host_bytes(&accounting_host, copied_async_bytes, 8, &copied_async_count) == 1);
     require(copied_async_count == 8 && std::memcmp(copied_async_bytes, accounting_buffer + 12, 4) == 0 && std::memcmp(copied_async_bytes + 4, accounting_buffer, 4) == 0);
     require(accounting_host.current_offset == 8 && accounting_host.secondary_cursor == accounting_buffer + 4);
+    accounting_host.current_offset = accounting_host.file_size;
+    copied_async_count = 0;
+    require(gag::copy_async_host_bytes(&accounting_host, copied_async_bytes, 8, &copied_async_count) == 0 && copied_async_count == 0);
     gag::AsyncFileRecord activation_record{};
     activation_record.file = reinterpret_cast<HANDLE>(99);
     activation_record.file_size = 200;
@@ -16236,6 +16713,16 @@ int main()
     require(accounting_host.active_file == &activation_record && accounting_host.file == reinterpret_cast<HANDLE>(99) && accounting_host.file_size == 200);
     require(accounting_host.remaining_size == 150 && accounting_host.start_offset == 3 && accounting_host.end_offset == 153 && accounting_host.current_offset == 7);
     require((activation_record.flags & 1) == 0 && accounting_host.file_offset == 4 && accounting_host.secondary_cursor == accounting_buffer + 3);
+    accounting_host.active_file = nullptr;
+    accounting_host.buffer_size = sizeof(accounting_buffer);
+    accounting_host.available_bytes = sizeof(accounting_buffer);
+    activation_record.flags = 0x11;
+    activation_record.remaining_size = 32;
+    async_file_host_read_result = TRUE;
+    async_file_host_read_limit = 8;
+    async_file_host_read_count = 0;
+    gag::activate_async_file_record(&activation_record);
+    require(async_file_host_read_count == 1 && accounting_host.buffered_bytes == 8 && accounting_host.available_bytes == 24 && (activation_record.flags & 1) == 0);
     gag::AsyncFileRecord direct_read_record{};
     gag::AsyncFileRecord active_read_record{};
     std::uint8_t direct_read_buffer[8]{ 11, 12, 13, 14, 15, 16, 17, 18 };
@@ -16308,6 +16795,7 @@ int main()
     async_file_open_size = 1000;
     async_file_expected_record_free = async_file_record_storage;
     async_file_expected_buffer_free = async_file_buffer_storage;
+    require(gag::open_async_file_record(reinterpret_cast<gag::AsyncFileHost *>(999), "ASYNC.DAT", 100, 0, 0x20) == nullptr);
     async_file_open_fail_stage = 1;
     require(gag::open_async_file_record(&async_host_2, "ASYNC.DAT", 100, 0, 0x20) == nullptr && (async_host_2.flags & 0x10000) == 0);
     async_file_open_fail_stage = 2;
@@ -16331,6 +16819,7 @@ int main()
     duplicate_source.buffer = async_file_buffer_storage;
     duplicate_source.host = &async_host_2;
     async_host_2.files = &duplicate_source;
+    require(gag::duplicate_async_file_record(reinterpret_cast<gag::AsyncFileRecord *>(999), 100, 0, 0x40) == nullptr);
     async_file_open_fail_stage = 2;
     require(gag::duplicate_async_file_record(&duplicate_source, 100, 0, 0x40) == nullptr && (duplicate_source.flags & 0x10000) == 0);
     async_file_open_fail_stage = 0;
@@ -16785,16 +17274,31 @@ int main()
     require(procedure_state == &state && procedure_append_count == 19);
     require(state.game_menu == reinterpret_cast<HMENU>(22) && state.options_menu == reinterpret_cast<HMENU>(23) && state.system_menu == reinterpret_cast<HMENU>(24));
 
+    gag::ApplicationState capture_without_menu{};
+    capture_without_menu.window = reinterpret_cast<HWND>(30);
+    CREATESTRUCTA create_without_menu{};
+    create_without_menu.lpCreateParams = &capture_without_menu;
+    const int appended_menu_items = procedure_append_count;
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_CREATE, 0, reinterpret_cast<LPARAM>(&create_without_menu)) == 0);
+    require(procedure_state == &capture_without_menu && procedure_append_count == appended_menu_items && capture_without_menu.game_menu == nullptr);
+    procedure_state = &state;
+
     state.flags = 0x80000000;
     procedure_default_count = 0;
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_NULL, 0, 0) == 0 && procedure_default_count == 0);
     state.flags = 0;
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_ACTIVATE, 0, reinterpret_cast<LPARAM>(reinterpret_cast<HWND>(32))) == 0);
     require(procedure_post_count == 1);
+    state.flags = 0x40000000;
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_ACTIVATE, 0, reinterpret_cast<LPARAM>(reinterpret_cast<HWND>(32))) == 0 && procedure_post_count == 1);
+    state.flags = 0;
     procedure_default_result = HTMENU;
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_NCHITTEST, 0, 0) == HTMENU);
     require(procedure_cursor_update_count == 1);
+    procedure_default_result = HTCLIENT;
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_NCHITTEST, 0, 0) == HTCLIENT && procedure_cursor_update_count == 1);
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_NCACTIVATE, 0, 0) == 1);
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_ACTIVATEAPP, 0, 0) == 0);
 
     std::uint8_t game_context[8]{};
     *reinterpret_cast<HWND *>(game_context + 4) = reinterpret_cast<HWND>(33);
@@ -16803,6 +17307,12 @@ int main()
     require(procedure_last_target == reinterpret_cast<HWND>(33) && procedure_last_message == WM_KEYDOWN);
     require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_COMMAND, 6, 7) == 73);
     require(procedure_last_target == state.window && procedure_last_message == WM_COMMAND);
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_SYSCOMMAND, 8, 9) == 73);
+    require(procedure_last_target == state.window && procedure_last_message == WM_SYSCOMMAND);
+    state.game_context = nullptr;
+    procedure_default_result = 91;
+    require(gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_CHAR, 4, 5) == 91);
+    state.game_context = game_context;
     state.flags = 0x4000000;
     gag::gag_capture_window_procedure(reinterpret_cast<HWND>(31), WM_MENUSELECT, MAKEWPARAM(0, 0xffff), 0);
     require((state.flags & 0x4000000) == 0);
@@ -16833,6 +17343,25 @@ int main()
     require(gag::gag_main_window_procedure(main_window, WM_NULL, 0, 0) == 0 && main_procedure_last_message == 0xffffffff);
     state.flags = 0;
     require(gag::gag_main_window_procedure(main_window, WM_SYSCOMMAND, SC_SCREENSAVE, 0) == 0);
+    require(gag::gag_main_window_procedure(main_window, WM_ACTIVATEAPP, 0, 0) == 0);
+
+    main_procedure_post_count = 0;
+    state.flags = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_ACTIVATE, 0, 0) == 0x1234 && main_procedure_post_count == 1);
+    state.flags = 0x40000000;
+    require(gag::gag_main_window_procedure(main_window, WM_ACTIVATE, 0, 0) == 0x1234 && main_procedure_post_count == 1);
+
+    state.flags = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_CLOSE, 0, 0) == 0);
+    require(state.flags == 0x09000202);
+
+    procedure_state = nullptr;
+    main_procedure_post_count = 0;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8890, 0) == 0 && main_procedure_post_count == 1 && main_procedure_last_message == WM_CLOSE);
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8790, 0) == 0);
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8800, 0) == 0);
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8780, 0) == 0);
+    procedure_state = &state;
 
     std::uint8_t main_game_context[0x9b8]{};
     *reinterpret_cast<HWND *>(main_game_context + 4) = reinterpret_cast<HWND>(42);
@@ -18066,6 +18595,9 @@ int main()
     require(runtime_serialization.length == 0);
     gag::ScriptRuntimeRoot serialization_root{};
     gag::set_script_runtime_root_for_testing(&serialization_root);
+    gag::serialize_runtime_tree_sections(&runtime_serialization);
+    gag::serialize_runtime_language(&runtime_serialization);
+    require(runtime_serialization.length == 0);
     gag::RuntimeTreeNode serialization_tree_1{};
     gag::RuntimeTreeNode serialization_tree_2{};
     gag::RuntimeTreeParserContext serialization_context{};
@@ -18239,6 +18771,28 @@ int main()
     scene_link_parser.text_length = sizeof(scene_link_text) - 1;
     serialization_root.global_scene_links = nullptr;
     serialization_root.global_scene_link_tail = nullptr;
+
+    const char missing_scene_link_name[]{ "" };
+    scene_link_parser.text = missing_scene_link_name;
+    scene_link_parser.text_length = 0;
+    require(gag::parse_runtime_tree_scene_link(&scene_link_parser) == 0 && parsed_link_owner.scene_link_head == nullptr && serialization_root.global_scene_links == nullptr);
+
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    const char failed_scene_link_text[]{ "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" };
+    scene_link_parser.text = failed_scene_link_text;
+    scene_link_parser.text_length = sizeof(failed_scene_link_text) - 1;
+    scene_link_parser.cursor = 0;
+    require(gag::parse_runtime_tree_scene_link(&scene_link_parser) == 0 && display_scene_allocation_count == 1 && parsed_link_owner.scene_link_head == nullptr
+            && serialization_root.global_scene_links == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
+    scene_link_parser.text = scene_link_text;
+    scene_link_parser.text_length = sizeof(scene_link_text) - 1;
+    scene_link_parser.cursor = 0;
     require(gag::parse_runtime_tree_scene_link(&scene_link_parser) == 0);
     gag::RuntimeTreeSceneLink *parsed_scene_link = parsed_link_owner.scene_link_head;
     require(parsed_scene_link != nullptr && parsed_link_owner.scene_link_tail == parsed_scene_link && serialization_root.global_scene_links == parsed_scene_link
@@ -18264,6 +18818,28 @@ int main()
     serialization_root.global_secondary_resource_links = nullptr;
     serialization_root.global_secondary_resource_link_tail = nullptr;
     *reinterpret_cast<std::uint32_t *>(serialization_root_bytes + 0x824) = 7;
+
+    const char missing_secondary_link_name[]{ "" };
+    secondary_link_parser.text = missing_secondary_link_name;
+    secondary_link_parser.text_length = 0;
+    require(gag::parse_runtime_tree_secondary_resource_link(&secondary_link_parser) == 0 && parsed_link_owner.secondary_resource_link_head == nullptr
+            && serialization_root.global_secondary_resource_links == nullptr);
+
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    secondary_link_parser.text = secondary_link_text;
+    secondary_link_parser.text_length = sizeof(secondary_link_text) - 1;
+    secondary_link_parser.cursor = 0;
+    require(gag::parse_runtime_tree_secondary_resource_link(&secondary_link_parser) == 0 && display_scene_allocation_count == 1 && parsed_link_owner.secondary_resource_link_head == nullptr
+            && serialization_root.global_secondary_resource_links == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
+    secondary_link_parser.text = secondary_link_text;
+    secondary_link_parser.text_length = sizeof(secondary_link_text) - 1;
+    secondary_link_parser.cursor = 0;
     require(gag::parse_runtime_tree_secondary_resource_link(&secondary_link_parser) == 0);
     gag::RuntimeTreeSecondaryResourceLink *parsed_secondary_link = parsed_link_owner.secondary_resource_link_head;
     require(parsed_secondary_link != nullptr && parsed_link_owner.secondary_resource_link_tail == parsed_secondary_link && serialization_root.global_secondary_resource_links == parsed_secondary_link
@@ -18333,6 +18909,22 @@ int main()
     empty_primary_parser.owner = &primary_parser_owner;
     empty_primary_parser.text = empty_primary_text;
     require(gag::parse_runtime_tree_primary_resource_link(&empty_primary_parser) == 0 && primary_parser_owner.primary_resource_link_head == nullptr);
+
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    gag::ScriptParserState failed_primary_parser{};
+    const char failed_primary_text[]{ "ALLOCFAIL" };
+    failed_primary_parser.owner = &primary_parser_owner;
+    failed_primary_parser.text = failed_primary_text;
+    failed_primary_parser.text_length = sizeof(failed_primary_text) - 1;
+    require(gag::parse_runtime_tree_primary_resource_link(&failed_primary_parser) == 0 && display_scene_allocation_count == 1 && primary_parser_owner.primary_resource_link_head == nullptr
+            && serialization_root.plan_nodes == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
+
     char missing_primary_identifier[0x20]{};
     std::memcpy(missing_primary_identifier, "MISSING", 8);
     require(gag::create_or_update_runtime_tree_primary_resource_link(reinterpret_cast<void *>(0x7999), missing_primary_identifier, nullptr, 0, 0, 0, 0) == nullptr);
@@ -18438,6 +19030,34 @@ int main()
     const char empty_link84_text[]{ '\0' };
     link84_parser.text = empty_link84_text;
     require(gag::parse_runtime_tree_link_0084(&link84_parser) == 0 && parsed_link84_owner.link_0084_head == nullptr);
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    const char failed_link84_text[]{ "ALLOCFAIL" };
+    link84_parser.text = failed_link84_text;
+    link84_parser.text_length = sizeof(failed_link84_text) - 1;
+    link84_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_0084(&link84_parser) == 0 && display_scene_allocation_count == 1 && parsed_link84_owner.link_0084_head == nullptr
+            && serialization_root.global_link_0084_head == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
+    gag::RuntimeTreeNode *saved_link84_runtime_tree = serialization_root.runtime_tree;
+    parsed_link84_owner.identity = &parsed_link84_owner;
+    serialization_root.runtime_tree = &parsed_link84_owner;
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    char failed_link84_name[0x20]{};
+    std::memcpy(failed_link84_name, "CREATEFAIL", 11);
+    require(gag::create_or_update_runtime_tree_link_0084(&parsed_link84_owner, failed_link84_name, 0, 0, 0, 0, 0, nullptr, nullptr, 0, 0, 0) == nullptr && display_scene_allocation_count == 1
+            && parsed_link84_owner.link_0084_head == nullptr && serialization_root.global_link_0084_head == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    serialization_root.runtime_tree = saved_link84_runtime_tree;
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
     const char rejected_link84_text[]{ "REJECTED /C: REJECT" };
     link84_parser.text = rejected_link84_text;
     link84_parser.text_length = sizeof(rejected_link84_text) - 1;
@@ -18481,6 +19101,19 @@ int main()
     const char empty_link8c_text[]{ '\0' };
     link8c_parser.text = empty_link8c_text;
     require(gag::parse_runtime_tree_link_008c(&link8c_parser) == 0 && parsed_link8c_owner.link_008c_head == nullptr);
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    const char failed_link8c_text[]{ "ALLOCFAIL" };
+    link8c_parser.text = failed_link8c_text;
+    link8c_parser.text_length = sizeof(failed_link8c_text) - 1;
+    link8c_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_008c(&link8c_parser) == 0 && display_scene_allocation_count == 1 && parsed_link8c_owner.link_008c_head == nullptr
+            && serialization_root.global_link_008c_head == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
     const char parsed_link8c_text[]{ "PATH /TIME: 9 /RAD /LINE: 7 8 /RECT: 1 2 3 4" };
     link8c_parser.text = parsed_link8c_text;
     link8c_parser.text_length = sizeof(parsed_link8c_text) - 1;
@@ -18497,7 +19130,17 @@ int main()
     link8c_parser.cursor = 0;
     require(
         gag::parse_runtime_tree_link_008c(&link8c_parser) == 0 && parsed_link8c->next != nullptr && parsed_link8c->next == parsed_link8c_owner.link_008c_tail && parsed_link8c->next->next == nullptr);
-    HeapFree(serialization_root.heap, 0, parsed_link8c->next);
+    gag::RuntimeTreeLink8C *second_link8c = parsed_link8c->next;
+    const char negative_time_link8c_text[]{ "NEGATIVE /TIME: -1 /RAD" };
+    link8c_parser.text = negative_time_link8c_text;
+    link8c_parser.text_length = sizeof(negative_time_link8c_text) - 1;
+    link8c_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_008c(&link8c_parser) == 0);
+    gag::RuntimeTreeLink8C *negative_time_link8c = second_link8c->next;
+    require(negative_time_link8c != nullptr && negative_time_link8c == parsed_link8c_owner.link_008c_tail && negative_time_link8c->time == 0xffffffff && negative_time_link8c->flags == 0
+            && negative_time_link8c->next == nullptr);
+    HeapFree(serialization_root.heap, 0, negative_time_link8c);
+    HeapFree(serialization_root.heap, 0, second_link8c);
     HeapFree(serialization_root.heap, 0, parsed_link8c);
     serialization_root.global_link_008c_head = saved_parser_link8c_head;
     serialization_root.global_link_008c_tail = saved_parser_link8c_tail;
@@ -18539,6 +19182,19 @@ int main()
     const char empty_link7c_text[]{ '\0' };
     link7c_parser.text = empty_link7c_text;
     require(gag::parse_runtime_tree_link_007c(&link7c_parser) == 0 && parsed_link7c_owner.link_007c_head == nullptr);
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    const char failed_link7c_text[]{ "ALLOCFAIL" };
+    link7c_parser.text = failed_link7c_text;
+    link7c_parser.text_length = sizeof(failed_link7c_text) - 1;
+    link7c_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_007c(&link7c_parser) == 0 && display_scene_allocation_count == 1 && parsed_link7c_owner.link_007c_head == nullptr
+            && serialization_root.global_link_007c_head == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
     const char parsed_link7c_text[]{ "TRIGGER /UPDOWN /NOMATCHES /R: -2 3 /IMAGE: BASE000 /TRANSPARENT /KEYUP /SOUR: SRC /RECT: 10 11 12 13 /COMM: CMD2 /DEST: DST /C: COND /ZONE: BASE000" };
     link7c_parser.text = parsed_link7c_text;
     link7c_parser.text_length = sizeof(parsed_link7c_text) - 1;
@@ -18563,6 +19219,14 @@ int main()
     require(missing_link7c != nullptr && missing_link7c == parsed_link7c_owner.link_007c_tail && missing_link7c->next == nullptr && missing_link7c->flags == 0
             && missing_link7c->primary_resource == nullptr && missing_link7c->source_object == nullptr && missing_link7c->destination_object == nullptr && missing_link7c->condition == nullptr
             && missing_link7c->zone_link == nullptr);
+    const char negative_random_link7c_text[]{ "NEGATIVE /R: -2 -1 /UPDOWN" };
+    link7c_parser.text = negative_random_link7c_text;
+    link7c_parser.text_length = sizeof(negative_random_link7c_text) - 1;
+    link7c_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_007c(&link7c_parser) == 0);
+    gag::RuntimeTreeLink7C *negative_random_link7c = missing_link7c->next;
+    require(negative_random_link7c != nullptr && negative_random_link7c == parsed_link7c_owner.link_007c_tail && negative_random_link7c->random_minimum == -2
+            && negative_random_link7c->random_maximum == -1 && negative_random_link7c->flags == 0x80 && negative_random_link7c->next == nullptr);
 
     const char link7c_label_text[]{ "/LABEL: FIRST /LABEL: TARGET /STOP" };
     parsed_link7c->parser.text = link7c_label_text;
@@ -18738,6 +19402,7 @@ int main()
     std::memcpy(serialization_root.event_records, saved_interaction_events, sizeof(saved_interaction_events));
     serialization_root.transient_index_1 = saved_interaction_read_index;
     serialization_root.transient_index_2 = saved_interaction_write_index;
+    HeapFree(serialization_root.heap, 0, negative_random_link7c);
     HeapFree(serialization_root.heap, 0, missing_link7c);
     HeapFree(serialization_root.heap, 0, parsed_link7c);
     serialization_root.global_link_007c_head = saved_parser_link7c_head;
@@ -18783,6 +19448,25 @@ int main()
     serialization_root.heap = GetProcessHeap();
     gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
     gag::RuntimeTreeNode parsed_container_owner{};
+    gag::ScriptParserState empty_container_parser{};
+    const char empty_container_text[]{ '\0' };
+    empty_container_parser.owner = &parsed_container_owner;
+    empty_container_parser.text = empty_container_text;
+    require(gag::parse_script_object_container(&empty_container_parser) == 0 && parsed_container_owner.container_head == nullptr && serialization_root.containers == nullptr);
+    serialization_root.heap = reinterpret_cast<HANDLE>(72);
+    display_scene_allocation_count = 0;
+    display_scene_allocation_fail_at = 0;
+    gag::set_runtime_named_node_memory_api_for_testing(runtime_named_node_memory_api);
+    gag::ScriptParserState failed_container_parser{};
+    const char failed_container_text[]{ "ALLOCFAIL" };
+    failed_container_parser.owner = &parsed_container_owner;
+    failed_container_parser.text = failed_container_text;
+    failed_container_parser.text_length = sizeof(failed_container_text) - 1;
+    require(gag::parse_script_object_container(&failed_container_parser) == 0 && display_scene_allocation_count == 1 && parsed_container_owner.container_head == nullptr
+            && parsed_container_owner.container_tail == nullptr && serialization_root.containers == nullptr && serialization_root.container_tail == nullptr);
+    display_scene_allocation_fail_at = -1;
+    serialization_root.heap = GetProcessHeap();
+    gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
     const char system_container_text[]{
         "SYSTEM GLOBAL_SYSTEM_STATE::DRIVE_BUSY::ON GLOBAL_SYSTEM_STATE::NOCOMMENT::OFF GLOBAL_SYSTEM_STATE::INVENTORY_OPEN::ON GLOBAL_SYSTEM_STATE::INVENTORY_CLOSE::OFF;"
     };
@@ -19013,9 +19697,32 @@ int main()
     require(std::memcmp(creation_storage.name, creation_tree_name, 0x20) == 0);
     require(runtime_tree_creation_event_count == 4 && runtime_tree_creation_events[0] == 1 && runtime_tree_creation_events[1] == 2 && runtime_tree_creation_events[2] == 5
             && runtime_tree_creation_events[3] == 6);
+    gag::RuntimeTreeNode creation_top_level_first{};
+    gag::RuntimeTreeNode creation_top_level_tail{};
+    gag::RuntimeTreeNode creation_top_level_new{};
+    creation_top_level_first.next = &creation_top_level_tail;
+    generic_load_root.runtime_tree = &creation_top_level_first;
+    runtime_tree_creation_current = nullptr;
+    runtime_tree_creation_allocation = &creation_top_level_new;
+    runtime_tree_creation_dispatch_result = &creation_top_level_new;
+    runtime_tree_creation_event_count = 0;
+    require(gag::create_runtime_tree_node(&creation_resource, nullptr, creation_tree_name, creation_text) == &creation_top_level_new);
+    require(generic_load_root.runtime_tree == &creation_top_level_first && creation_top_level_first.next == &creation_top_level_tail && creation_top_level_tail.next == &creation_top_level_new);
+    require(creation_top_level_new.previous == &creation_top_level_tail && creation_top_level_new.parent == nullptr);
+    require(runtime_tree_creation_event_count == 4 && runtime_tree_creation_events[2] == 5 && runtime_tree_creation_events[3] == 6);
+
+    gag::RuntimeTreeNode creation_null_dispatch{};
+    generic_load_root.runtime_tree = nullptr;
+    runtime_tree_creation_allocation = &creation_null_dispatch;
+    runtime_tree_creation_dispatch_result = nullptr;
+    runtime_tree_creation_event_count = 0;
+    require(gag::create_runtime_tree_node(&creation_resource, nullptr, creation_tree_name, creation_text) == nullptr);
+    require(generic_load_root.runtime_tree == &creation_null_dispatch && runtime_tree_creation_event_count == 3 && runtime_tree_creation_events[2] == 5);
+
     gag::RuntimeTreeNode creation_old_root{};
     generic_load_root.runtime_tree = &creation_old_root;
     runtime_tree_creation_current = nullptr;
+    runtime_tree_creation_allocation = &creation_storage;
     runtime_tree_creation_dispatch_result = &creation_storage;
     std::memset(&creation_storage, 0, sizeof(creation_storage));
     require(gag::create_runtime_tree_node(&creation_resource, reinterpret_cast<void *>(0xffffffff), creation_tree_name, creation_text) == &creation_storage);
@@ -19820,6 +20527,39 @@ int main()
     format_descriptor.palette_entries = nullptr;
     gag::configure_display_scene_format(&format_root, &format_descriptor);
     require(format_root.rectangle_callback == nullptr && format_root.root_rectangle_callback == gag::fill_display_scene_rectangle_16);
+
+    gag::set_display_scene_sync_state_for_testing(reinterpret_cast<void *>(90), nullptr);
+    format_node.rectangle_callback = gag::composite_opaque_8_to_8;
+    format_node.root_rectangle_callback = gag::fill_display_scene_rectangle_8;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == nullptr && format_node.root_rectangle_callback == nullptr);
+    gag::set_display_scene_sync_state_for_testing(reinterpret_cast<void *>(90), &format_root);
+    format_root.rectangle_callback_metadata[0] = 8;
+    format_descriptor.bits_per_pixel = 8;
+    format_descriptor.palette_source = nullptr;
+    format_descriptor.palette_entries = nullptr;
+    format_node.flags = 0;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == gag::composite_transparent_8_to_8 && format_node.root_rectangle_callback == gag::fill_display_scene_rectangle_8);
+    format_node.flags = 0x20;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == gag::composite_opaque_8_to_8);
+    format_descriptor.bits_per_pixel = 0x10;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == nullptr && format_node.root_rectangle_callback == gag::fill_display_scene_rectangle_16);
+    format_root.rectangle_callback_metadata[0] = 0x10;
+    format_descriptor.bits_per_pixel = 8;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == nullptr && format_node.root_rectangle_callback == gag::fill_display_scene_rectangle_8);
+    format_root.rectangle_callback_metadata[0] = 0x18;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == nullptr && format_node.root_rectangle_callback == gag::fill_display_scene_rectangle_8);
+    format_descriptor.bits_per_pixel = 0x10;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.root_rectangle_callback == gag::fill_display_scene_rectangle_16);
+    format_descriptor.bits_per_pixel = 0x20;
+    gag::configure_display_scene_format(&format_node, &format_descriptor);
+    require(format_node.rectangle_callback == nullptr && format_node.root_rectangle_callback == nullptr);
 
     gag::DisplaySceneNode palette_root{};
     gag::DisplaySceneNode palette_node{};
@@ -22091,6 +22831,19 @@ int main()
     file_parser.text_length = sizeof(qualified_file_expression) - 1;
     file_parser.cursor = 0;
     require(gag::parse_script_file_value(&file_parser, parsed_file, nullptr) == 7 && std::strcmp(parsed_file, "scene.de") == 0);
+    const char unqualified_file_expression[]{ "scene" };
+    file_parser.text = unqualified_file_expression;
+    file_parser.text_length = sizeof(unqualified_file_expression) - 1;
+    file_parser.cursor = 0;
+    std::memset(parsed_file, 0, sizeof(parsed_file));
+    std::memset(serialized_file, 0, sizeof(serialized_file));
+    require(gag::parse_script_file_value(&file_parser, parsed_file, serialized_file) == 0x7fffffff && std::strcmp(parsed_file, "scene.en") == 0 && std::strcmp(serialized_file, "scene.en ") == 0
+            && file_parser.cursor == sizeof(unqualified_file_expression) - 1);
+    const char missing_file_expression[]{ '\0' };
+    file_parser.text = missing_file_expression;
+    file_parser.text_length = 0;
+    file_parser.cursor = 0;
+    require(gag::parse_script_file_value(&file_parser, parsed_file, serialized_file) == 0xffffffff && file_parser.cursor == 0);
 
     tree_runtime.fixed_name_nodes = nullptr;
     const char fixed_create_text[] = "hero /F: PRIMARY /FILE: scene 7";
@@ -22107,6 +22860,12 @@ int main()
     fixed_update_parser.text_length = sizeof(fixed_update_text) - 1;
     require(gag::create_or_update_runtime_fixed_name_node(&fixed_update_parser) == 1 && tree_runtime.fixed_name_nodes == created_fixed
             && *reinterpret_cast<std::uint32_t *>(created_fixed->serialized_value + 0x20) == 0x04000000);
+    const char fixed_failed_file_text[] = "hero /FILE: scene 8 /F: PRIMARY";
+    gag::ScriptParserState fixed_failed_file_parser{};
+    fixed_failed_file_parser.text = fixed_failed_file_text;
+    fixed_failed_file_parser.text_length = sizeof(fixed_failed_file_text) - 1;
+    created_fixed->flags = 0;
+    require(gag::create_or_update_runtime_fixed_name_node(&fixed_failed_file_parser) == 1 && tree_runtime.fixed_name_nodes == created_fixed && (created_fixed->flags & 1) != 0);
     tree_runtime.fixed_name_nodes = nullptr;
     require(HeapFree(tree_runtime.heap, 0, created_fixed) != FALSE);
     tree_runtime.heap = saved_tree_heap;
@@ -23460,6 +24219,7 @@ int main()
     test_archive_comment_enumeration();
     test_archive_comment_dialog();
     test_archive_selection_dialog();
+    test_custom_control_window_procedure();
     test_runtime_sound_pause_resume();
     test_runtime_resource_construction();
     test_archive_read_speed();

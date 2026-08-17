@@ -1,5 +1,41 @@
 # Learned patterns
 
+# 2026-08-17 - Keep original copyrighted PE payloads opt-in and outside source
+
+- Recovered numeric resource identifiers and templates can remain represented by an optional local bundle without placing original binary payloads in version control. Keep that bundle in an ignored evidence/data directory, make the RC input an explicit CMake cache path, and enable byte-parity tests only when the bundle is supplied.
+- This repository's `.gitignore` is user-managed and must not be modified. Place local-only evidence beneath paths covered by its existing rules.
+
+# 2026-08-16 - Recompile PE resources and verify their payloads, not just identifiers
+
+- Referencing an original numeric icon, dialog, or bitmap identifier in recovered WinAPI code is insufficient if the reconstructed target does not embed the corresponding resource. Inventory the original `.rsrc` tree by type/name/language and include every required payload in the GUI target.
+- RC source can preserve binary dialog templates exactly, but extended dialogs may carry per-control `EXSTYLE` values that are easy to miss in a visual transcription. Compare the compiled `FindResourceEx` payload byte-for-byte against the original executable; equal dimensions and item counts do not prove equality.
+- A multi-language icon set must be ordered so RC assigns the original RT_ICON component identifiers before constructing RT_GROUP_ICON records. Verify component icons and group records independently.
+
+# 2026-08-16 - Unknown tokens and extraction failures are separate parser outcomes
+
+- Table-driven decoders return zero for a successfully extracted but unrecognized/case-mismatched name, while extraction failure returns `0xffffffff`. Tests must cover both outcomes and cursor positions.
+- Delimiter cursor conventions differ by extractor: property-name extraction advances past `=`, while slash-scope extraction stops on the terminating delimiter (for example the colon). Do not normalize these positions in wrappers.
+
+# 2026-08-16 - Optional parser lookahead may affect serialization only
+
+- `ParseScriptFileValue` serializes one token of lookahead, restores the original cursor, then reparses that position as an integer qualifier. With no lookahead it still appends a trailing space and returns the integer parser's `0x7fffffff` sentinel while retaining the suffixed file name.
+- Test serialized bytes, final cursor, and return sentinel together. Any one alone is insufficient to prove the original lookahead/restoration sequence.
+
+# 2026-08-16 - Separate allocation publication from partial parse publication
+
+- A parser can have two distinct failure boundaries. `ParseScriptObjectContainer` publishes nothing when the name or 0x1B4-byte allocation fails, but inserts the container into both local and flattened lists before reading the first condition triple; later token failure deliberately retains a partial container.
+- Preserve an original uninitialized byte read through object-representation copying when checked scalar evaluation would trigger MSVC runtime diagnostics. Do not replace the unknown stack bytes with a guessed constant.
+
+# 2026-08-16 - Preserve the return register across parser case bodies
+
+- A parser's loop condition may test EAX after a case-specific callee rather than the original scope code. Link-8C parsing deliberately leaves the last integer result in EAX; a valid integer `-1` therefore terminates the scope loop even though the ordinary parse-failure sentinel is `0x7fffffff`.
+- Test this with a valid `-1` followed by another recognized token. Verifying only final field values at EOF cannot distinguish preserved return-register control flow from a conventional scope loop.
+
+# 2026-08-16 - Resolve parser-token semantics at branch destinations
+
+- When adjacent parser cases differ only in coordinate interpretation, follow each raw compare directly to its destination block instead of trusting decompiler case presentation. In link-84 parsing, token `0x02000000` reaches four direct stores (POS), while `0x0B000000` reaches x/y stores plus two additions (RECT right/bottom conversion).
+- Allocation-failure tests for flattened records must assert both publication layers: the owning node's local head/tail and the runtime root's shared flattened head/tail. A null return alone does not prove list integrity.
+
 # 2026-08-16 - Convert absolute stores to offsets from the correct embedded base
 
 - Nearby low offsets can be dangerously plausible. `0x00480124/0x00480128` looked like root `+4/+8` when viewed without the real base, but the embedded root begins at `0x0047F910`, making them `+0x814/+0x818`. Always subtract the confirmed absolute base before translating a store into a structure field.
@@ -1846,6 +1882,115 @@ do not replace prior entries without correcting a demonstrated error.
 - In `0x00408DD0`, the scope code normally controls repetition, but the image-flag result and second POS integer overwrite the same register tested at the loop tail. A `0xffffffff` result can therefore mutate palette or Y-position state and then terminate parsing.
 - When translating decompiled parser loops, track the physical loop-test register through every branch. A tidy source loop that always retests the original scope token can silently change valid sentinel behavior.
 
+# 2026-08-16 - Successful record-name parsing can commit despite nested parse failure
+
+- `0x00409370` returns immediately only when the command count is full or the initial name token is missing. Once a name succeeds, later `/F` or `/MOUSE` failure exits the scope loop but still increments the global count.
+- Existing-name reuse does not suppress that increment. It updates the matched earlier definition while extending the logical count, so tests must preserve the resulting untouched/blank later slot rather than deduplicating records.
+
+# 2026-08-16 - Flattened tree lists are maintained only on first local insertion
+
+- Scene and secondary-resource parsers append subsequent records directly after the node's current tail. Only the first local record invokes hierarchical insertion, because that operation publishes the beginning of the node's inclusive range into the flattened ancestor/global list.
+- Allocation and initial-name failures occur before any local/global mutation. Tests should assert both views remain unchanged; checking only the node-local head cannot detect accidental publication through a global tail selector.
+
+# 2026-08-16 - Primary-resource links and runtime plans share global list storage
+
+- The flattened primary-resource list uses script-root `+0xF8C/+0xFA8`, the same storage exposed as runtime plan head/terminal. Primary insertion/removal must therefore preserve the plan-list alias exactly; creating a separate global-primary list would diverge despite locally correct links.
+- LIST expansion owns only a temporary 0x8C-byte template. Whether the named list is absent, empty, or fully expanded, the template is freed; generated primary and link-84 records are independently owned by their node ranges.
+
 ## Function-accounting baseline
 
 - Derive reconstruction statistics from the current Ghidra internal-function address set intersected with unique `// GAG.EXE: 0xXXXXXXXX` annotations. Keep import thunks separate, and positively classify bundled libraries and CRT/compiler runtime bodies before calculating the game-function denominator. “Represented in source” is address coverage; it must not be presented as completed fidelity re-verification.
+# 2026-08-16 - Similar parser properties can target distinct callback operations
+
+- In `DispatchRuntimeTreeParser` (`0x004056C0`), integer-valued properties are not interchangeable: property `0x0B` starts with operation 4 and can switch to 1/2, property `0x0F` uses operation 8, and property `0xA0` uses operation `0x0C`. Keep test expectations independently derived from each raw call site's ECX setup; a shared helper can otherwise conceal an incorrect collapsed operation code.
+
+# 2026-08-16 - Tree constructors may publish before semantic dispatch succeeds
+
+- `CreateRuntimeTreeNode` (`0x00405410`) links its new 0xBC-byte node into the root or child chain before invoking the parser dispatcher. A null dispatcher result suppresses activation and becomes the function result, but does not roll back the newly published node. Treat allocation/context-construction failures separately from post-publication semantic failure.
+
+# 2026-08-16 - Preserve original identity arguments across resolved-state setup
+
+- `BeginRuntimeTreeEnumeration` (`0x00406770`) resolves a nullable identity only to initialize iterator fields, but its nested-child branch passes the original identity—not the resolved node—to `GetNextRuntimeTreeNode`. Null identity therefore initializes the global root and still returns null for a nested tree. Do not normalize an original argument into a resolved pointer merely because that seems more useful; verify the call-site register immediately before the call.
+
+# 2026-08-16 - Nonzero serializer inputs can emit empty semantic payloads
+
+- `AppendScriptRuntimeFlags` (`0x004068F0`) suppresses output only when the entire input is zero. A nonzero mask containing none of its three recognized bits still emits `flags=;`. Keep the outer presence gate distinct from recognized-bit filtering.
+
+# 2026-08-16 - Nested parser returns can overwrite outer loop controls
+
+- Both conditional-tree parsers (`0x00406CB0`, `0x00406EA0`) reuse the outer scope local for the `/C` value parser's return. Missing `/C` input produces `0xFFFFFFFF` and terminates the outer scope loop immediately, ignoring later scopes such as `/GLOBAL`. Preserve the actual stack-local reuse rather than modeling nested parse results as disposable temporaries.
+
+# 2026-08-16 - A nested parser return may deliberately not control its outer loop
+
+- The inverse pattern occurs in `CreateOrUpdateRuntimeFixedNameNode` (`0x00407240`): `/FILE` calls `ParseScriptFileValue` into EAX while the outer scope code remains in ESI. Even a `0xFFFFFFFF` file result does not terminate the loop, so later flags are still consumed. Track the physical result register and the register tested at the loop latch independently.
+
+# 2026-08-16 - Circular-list scans use the stored tail as an inclusive boundary
+
+- The runtime named-list lookup and removal functions start at the head and stop only after examining the stored tail. This remains correct even though each tail links back to the head; translating these loops as ordinary null-terminated walks would never terminate on a miss.
+- Several constructors rely on `HEAP_ZERO_MEMORY` to terminate a fixed-width copied name and then dereference the allocation without checking it. Preserve the distinction between constructors that explicitly handle allocation failure and these original unchecked paths.
+
+# 2026-08-16 - Multi-field parser sentinels may be field-specific
+
+- `ParseRuntimeNamedNode` treats the five `/ZONE` integer sentinels asymmetrically: fields one, two, four, and five retain their previous values on `0x7fffffff`, but field three is always assigned and then normalized from that sentinel to 1. Do not factor such sequences into one generic optional-field helper without proving identical behavior at every store.
+
+# 2026-08-16 - Separate source coverage from fidelity acceptance
+
+- A source address annotation proves representation, not that the function has passed the current raw-assembly and branch-test audit. Maintain a unique address-indexed acceptance ledger and derive progress from its rows; do not count prose milestone mentions because repeated audits and cluster summaries duplicate addresses.
+
+# 2026-08-16 - Sequential token expansions are not necessarily exclusive
+
+- `ParseScriptValueToken` tests PARAM and SVALUE with two independent branches. After PARAM rewrites the output buffer, that new value is immediately eligible for the SVALUE test. Replacing the second branch with `else if` would suppress a real chained expansion path.
+- Several parser primitives deliberately accept empty tokens or commit cursors beyond bounded input on unterminated/truncated forms. Preserve and test their exact cursor arithmetic rather than constraining it to the input length.
+
+# 2026-08-16 - Nested token-read failure may still feed an evaluator
+
+- In `ParseScriptIntegerExpression`, the PARAM branch does not test the nested value-token result. Because that helper clears its output before failing, bare `PARAM` calls parameter evaluation with an empty name and can succeed. Do not add a conventional missing-argument early return unless raw control flow has one.
+
+# 2026-08-16 - Lifecycle cleanup may intentionally be asymmetric
+
+- Runtime media initialization returns failure after mutex creation fails without destroying the heap created immediately beforehand. Async-file shutdown deletes its global critical section after the final empty recheck without a matching leave. Preserve evidence-backed resource and lock ordering even when modern cleanup conventions would differ.
+
+# 2026-08-16 - Async worker creation occurs after host publication
+
+- `CreateAsyncFileHost` publishes the fully allocated host in the global list before calling `CreateThread`, and it does not check the returned thread handle. A null thread handle therefore remains part of a successful, externally visible host. Also, `ReleaseAsyncFileHost` has no subsystem-enabled guard and always touches the global critical section. Preserve these lifecycle boundaries instead of adding conventional rollback or state guards.
+
+# 2026-08-16 - Shared async records acquire and release as a handle group
+
+- Async record bit 2 means that all records with the same host and file handle share one underlying handle/buffer. Acquiring one such record sets ownership bit `0x10000` on every same-handle sibling, and releasing it clears the group. Closing a shared record frees no underlying resource while siblings remain; when exactly one remains, that sibling loses bit 2 and becomes the sole owner.
+
+# 2026-08-16 - Async worker accounting follows requested reads, not completed reads
+
+- `RunAsyncFileWorker` passes the requested tail/body count from EBP or EBX to `AdvanceAsyncHostWrite` after `ReadFile`; it does not pass the reported byte count. Short reads therefore advance producer cursor, file offset, buffered bytes, and available capacity by the request before short-read recovery runs. Preserve live-register provenance around API output parameters rather than assuming accounting consumes the API's reported result.
+
+# 2026-08-16 - Palette remap exhaustion is a bounded byte-tolerance search
+
+- `BuildPaletteIndexRemap` tests tolerances 0 through 240 in increments of 10. It does not test 250 and does not wrap the byte tolerance. When no candidate matches, it stores the exhausted candidate count: `0xEC` in 8-bit destination mode or `0x100` truncated to zero otherwise. Preserve the loop's post-increment bound rather than translating it as an unbounded search for an inevitable match.
+# Custom-control bitmap state
+
+- The GAG custom bitmap control stores its caller-owned state pointer in window extra offset zero. The confirmed 0x88-byte state has DCs at `+0x48/+0x4C`, palette handles at `+0x50/+0x54`, bitmap handles at `+0x58/+0x5C`, client `RECT` at `+0x60`, display depth at `+0x70`, source dimensions at `+0x74/+0x78`, cached bitmap identity at `+0x7C`, and caller-owned archive/comment string pointers at `+0x80/+0x84`.
+- Preserve the distinction between complete BMP files and Win32 `RT_BITMAP` resources: CDF and caller-memory BMP inputs include `BITMAPFILEHEADER` and pass `input + 0x0E`, while `RT_BITMAP` begins at `BITMAPINFOHEADER` and is passed directly.
+
+# Display-scene format selection
+
+- A scene's `root_rectangle_callback` describes how its own pixels are filled and follows the source depth (8 or 16), even when the display root uses a different depth. The ordinary compositor is selected separately from the root depth, palette-source/palette-map presence, and scene flag `0x20`; a 24-bit root supports fill callbacks but no recovered compositor in this cluster.
+
+# Display-scene compositor coordinate modes
+
+- The six display compositors share two coordinate modes selected by flag `0x01000000`. Without it, the input rectangle is source-local and is rewritten to the clipped destination rectangle. With it, the rectangle is in global display coordinates, source/destination node origins are subtracted, and the caller's rectangle is not rewritten. Source flags bit 0 and `0x01000000` suppress all pixel writes in both modes.
+
+# Main message loop termination uses the MSG field
+
+- `GagWinMain` (`0x0041CAE0`) does not branch on `GetMessageA`'s return value. It initializes `MSG.message` to `WM_COMMAND`, then unconditionally translates and dispatches after every retrieval and loops until `MSG.message == WM_QUIT`. Preserve this field-driven termination and the post-loop fatal-dialog check instead of substituting a conventional `while(GetMessage(...) > 0)` loop.
+
+# Sequential flag assignments may intentionally reuse the pre-update value
+
+- Application-state routines sometimes load flags once and issue two successive assignments derived from that same saved value. The second assignment can therefore discard bits apparently added or cleared by the first; examples occur in inactive-state and current-state activation handling. Preserve register provenance across sequential stores instead of algebraically combining them as cumulative mutations.
+
+# Shutdown message suppression has a private-message exception
+
+- Both GAG application window procedures consume ordinary messages without calling `DefWindowProcA` while application flag `0x80000000` is set, but private messages `0x30F`, `0x310`, and `0x311` remain forwardable to the game child window. Apply the inclusive exception before ordinary message dispatch.
+
+# Narrow x86 stack parameters remain ABI-significant
+
+- `InitializeGraphicsHost` (`0x0041FA00`) receives width as signed 16-bit and height as unsigned 16-bit stack parameters even though x86 argument slots are four bytes. Preserve the narrow source types and explicit caller conversion: matching only the slot width can hide sign/zero-extension behavior and produces an imprecise recovered interface.
+- For indirect x86 callback calls, do not trust a decompiler argument list while the callback global is untyped. Reconstruct the ABI from register setup and stack pushes immediately before the `CALL`; `RuntimeGameWindowProcedure` at `0x00423201` proves its DLL callback uses ECX/EDX plus two stack arguments, i.e. a four-argument `__fastcall` call.

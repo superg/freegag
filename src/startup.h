@@ -165,7 +165,7 @@ struct GraphicsHostApi
 };
 
 // GAG.EXE: 0x0041FA00
-GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int width, int height, std::uint32_t flags);
+GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, std::int16_t width, std::uint16_t height, std::uint32_t flags);
 
 struct GraphicsHostShutdownApi
 {
@@ -272,7 +272,7 @@ struct ApplicationInitializationApi
     BOOL(WINAPI *show_window)(HWND window, int command);
     BOOL(WINAPI *set_window_position)(HWND window, HWND insert_after, int x, int y, int width, int height, UINT flags);
     BOOL(WINAPI *get_client_rect)(HWND window, LPRECT rectangle);
-    GraphicsHostInitializationResult *(__fastcall *initialize_graphics_host)(HINSTANCE instance, HWND window, int x, int y, int width, int height, std::uint32_t flags);
+    GraphicsHostInitializationResult *(__fastcall *initialize_graphics_host)(HINSTANCE instance, HWND window, int x, int y, std::int16_t width, std::uint16_t height, std::uint32_t flags);
     void(__fastcall *switch_display_mode)(ApplicationState *state, int restore_current);
     GraphicsHostInitializationResult *(__fastcall *initialize_runtime)(const LegacyDisplayPixelFormat *format);
     void(__fastcall *update_window_layout)(ApplicationState *state, SecondaryWindowLayout *secondary_layout);
@@ -446,6 +446,37 @@ void __fastcall destroy_custom_control_gdi(HWND window, CustomControlState *stat
 LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
 void set_custom_control_gdi_api_for_testing(const CustomControlGdiApi &api);
+
+struct CustomControlWindowApi
+{
+    BOOL(WINAPI *get_update_rect)(HWND window, LPRECT rect, BOOL erase);
+    HDC(WINAPI *begin_paint)(HWND window, LPPAINTSTRUCT paint);
+    BOOL(WINAPI *end_paint)(HWND window, const PAINTSTRUCT *paint);
+    LONG(WINAPI *get_window_long)(HWND window, int index);
+    LONG(WINAPI *set_window_long)(HWND window, int index, LONG value);
+    LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+    BOOL(WINAPI *pattern_blt)(HDC context, int x, int y, int width, int height, DWORD operation);
+    HANDLE(WINAPI *get_process_heap)();
+    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    HRSRC(WINAPI *find_resource)(HMODULE module, LPCSTR name, LPCSTR type);
+    HMODULE(WINAPI *get_module_handle)(LPCSTR name);
+    HGLOBAL(WINAPI *load_resource)(HMODULE module, HRSRC resource);
+    LPVOID(WINAPI *lock_resource)(HGLOBAL resource);
+    BOOL(WINAPI *free_resource)(HGLOBAL resource);
+    CdfArchive *(__fastcall *open_archive)(const char *path, int alternate_stream);
+    std::uint32_t(__fastcall *get_entry_size)(CdfArchive *archive, std::uint8_t selector, const char *name);
+    int(__fastcall *read_entry)(CdfArchive *archive, std::uint8_t selector, const char *name, void *destination);
+    std::uint32_t(__fastcall *close_archive)(CdfArchive *archive);
+    bool(__fastcall *strings_equal)(const char *left, const char *right);
+    int(__fastcall *copy_string)(char *destination, const char *source);
+    void(__fastcall *initialize_gdi)(HWND window, CustomControlState *state);
+    void(__fastcall *set_bitmap)(CustomControlState *state, BITMAPINFO *bitmap, int present);
+    void(__fastcall *realize_and_present)(CustomControlState *state, BOOL background);
+    void(__fastcall *destroy_gdi)(HWND window, CustomControlState *state);
+};
+
+void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api);
 
 struct SettingsRegistryApi
 {

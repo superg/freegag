@@ -514,6 +514,9 @@ MainWindowProcedureApi main_window_procedure_api{ GetWindowLongA, SetWindowLongA
     validate_startup_environment, set_runtime_flag_40 };
 CustomControlGdiApi custom_control_gdi_api{ GetDC, CreateCompatibleDC, GetDeviceCaps, GetClientRect, SetSystemPaletteUse, CreatePalette, SelectPalette, SetStretchBltMode, UnrealizeObject,
     RealizePalette, StretchBlt, SelectObject, DeleteObject, ReleaseDC, DeleteDC, CreateDIBSection, SetPaletteEntries, SetDIBColorTable };
+CustomControlWindowApi custom_control_window_api{ GetUpdateRect, BeginPaint, EndPaint, GetWindowLongA, SetWindowLongA, DefWindowProcA, PatBlt, GetProcessHeap, HeapAlloc, HeapFree, FindResourceA,
+    GetModuleHandleA, LoadResource, LockResource, FreeResource, open_cdf_archive, get_cdf_entry_size, read_cdf_entry, close_cdf_archive, strings_equal, copy_string, initialize_custom_control_gdi,
+    set_custom_control_bitmap, realize_and_present_custom_control, destroy_custom_control_gdi };
 SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegSetValueExA, RegCloseKey };
 
 void enter_runtime_byte_queue_lock()
@@ -997,7 +1000,7 @@ void __fastcall get_runtime_script_property(std::uint32_t property, void **value
 }
 
 // GAG.EXE: 0x0041FA00
-GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int width, int height, std::uint32_t flags)
+GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, std::int16_t width, std::uint16_t height, std::uint32_t flags)
 {
     if((runtime_scene_control_flags & 0x800) != 0)
     {
@@ -1431,32 +1434,33 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
 {
     if(message == WM_CREATE)
     {
-        SetWindowLongA(window, 0, 0);
+        custom_control_window_api.set_window_long(window, 0, 0);
         return 0;
     }
     if(message == WM_PAINT)
     {
         RECT update_rect;
-        if(GetUpdateRect(window, &update_rect, FALSE) == FALSE)
+        if(custom_control_window_api.get_update_rect(window, &update_rect, FALSE) == FALSE)
         {
-            return DefWindowProcA(window, message, wparam, lparam);
+            return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
         }
         PAINTSTRUCT paint;
-        BeginPaint(window, &paint);
-        CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        custom_control_window_api.begin_paint(window, &paint);
+        CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         if(state != nullptr)
         {
-            StretchBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width, state->source_height, SRCCOPY);
+            custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width,
+                state->source_height, SRCCOPY);
         }
-        EndPaint(window, &paint);
+        custom_control_window_api.end_paint(window, &paint);
         return 0;
     }
     if(message == WM_QUERYNEWPALETTE)
     {
-        CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         if(state != nullptr)
         {
-            realize_and_present_custom_control(state, FALSE);
+            custom_control_window_api.realize_and_present(state, FALSE);
         }
         return 1;
     }
@@ -1464,81 +1468,81 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
     {
         if(reinterpret_cast<HWND>(wparam) != window)
         {
-            CustomControlState *state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+            CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
             if(state != nullptr)
             {
-                realize_and_present_custom_control(state, TRUE);
+                custom_control_window_api.realize_and_present(state, TRUE);
             }
         }
         return 0;
     }
     if(message != 0x7ff0)
     {
-        return DefWindowProcA(window, message, wparam, lparam);
+        return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
     }
 
     CustomControlState *state;
     switch(wparam)
     {
     case 1:
-        SetWindowLongA(window, 0, static_cast<LONG>(lparam));
-        initialize_custom_control_gdi(window, reinterpret_cast<CustomControlState *>(lparam));
+        custom_control_window_api.set_window_long(window, 0, static_cast<LONG>(lparam));
+        custom_control_window_api.initialize_gdi(window, reinterpret_cast<CustomControlState *>(lparam));
         return 1;
     case 2:
-        return GetWindowLongA(window, 0);
+        return custom_control_window_api.get_window_long(window, 0);
     case 4:
     {
-        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         if(state == nullptr)
         {
             return 0;
         }
         const char *archive_path = reinterpret_cast<const char *>(lparam);
-        if(state->bitmap_identity == nullptr && strings_equal(state->archive_path, archive_path))
+        if(state->bitmap_identity == nullptr && custom_control_window_api.strings_equal(state->archive_path, archive_path))
         {
             return 1;
         }
         state->comment_text[0] = 0;
-        CdfArchive *archive = open_cdf_archive(archive_path, 0);
+        CdfArchive *archive = custom_control_window_api.open_archive(archive_path, 0);
         if(archive == nullptr)
         {
             return 0;
         }
-        std::uint32_t size = get_cdf_entry_size(archive, 0, "COMMENT.BMP");
+        std::uint32_t size = custom_control_window_api.get_entry_size(archive, 0, "COMMENT.BMP");
         if(size == 0)
         {
-            close_cdf_archive(archive);
+            custom_control_window_api.close_archive(archive);
             return 0;
         }
-        void *data = HeapAlloc(GetProcessHeap(), 0, size);
+        void *data = custom_control_window_api.heap_alloc(custom_control_window_api.get_process_heap(), 0, size);
         if(data == nullptr)
         {
-            close_cdf_archive(archive);
+            custom_control_window_api.close_archive(archive);
             return 0;
         }
         char comment[0x104]{};
-        read_cdf_entry(archive, 0, "COMMENT.TXT", comment);
-        read_cdf_entry(archive, 0, "COMMENT.BMP", data);
-        close_cdf_archive(archive);
-        copy_string(state->comment_text, comment);
-        copy_string(state->archive_path, archive_path);
-        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
+        custom_control_window_api.read_entry(archive, 0, "COMMENT.TXT", comment);
+        custom_control_window_api.read_entry(archive, 0, "COMMENT.BMP", data);
+        custom_control_window_api.close_archive(archive);
+        custom_control_window_api.copy_string(state->comment_text, comment);
+        custom_control_window_api.copy_string(state->archive_path, archive_path);
+        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
         state->bitmap_identity = nullptr;
-        HeapFree(GetProcessHeap(), 0, data);
+        custom_control_window_api.heap_free(custom_control_window_api.get_process_heap(), 0, data);
         return 1;
     }
     case 8:
-        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         if(state != nullptr)
         {
-            PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-            destroy_custom_control_gdi(window, state);
+            custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+            custom_control_window_api.destroy_gdi(window, state);
         }
         return 0;
     case 0x10:
     {
-        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         const void *identity = reinterpret_cast<const void *>(lparam);
         if(state == nullptr)
         {
@@ -1549,25 +1553,25 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
             return 1;
         }
         state->bitmap_identity = identity;
-        HRSRC resource = FindResourceA(nullptr, reinterpret_cast<LPCSTR>(lparam), RT_BITMAP);
-        HGLOBAL loaded_resource = LoadResource(GetModuleHandleA(nullptr), resource);
+        HRSRC resource = custom_control_window_api.find_resource(nullptr, reinterpret_cast<LPCSTR>(lparam), RT_BITMAP);
+        HGLOBAL loaded_resource = custom_control_window_api.load_resource(custom_control_window_api.get_module_handle(nullptr), resource);
         if(loaded_resource == nullptr)
         {
             return 0;
         }
-        void *data = LockResource(loaded_resource);
+        void *data = custom_control_window_api.lock_resource(loaded_resource);
         if(data == nullptr)
         {
             return 0;
         }
-        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
-        FreeResource(loaded_resource);
+        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        custom_control_window_api.set_bitmap(state, static_cast<BITMAPINFO *>(data), 1);
+        custom_control_window_api.free_resource(loaded_resource);
         return 1;
     }
     case 0x20:
     {
-        state = reinterpret_cast<CustomControlState *>(GetWindowLongA(window, 0));
+        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
         const void *data = reinterpret_cast<const void *>(lparam);
         if(state == nullptr || data == nullptr)
         {
@@ -1578,18 +1582,23 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
             return 1;
         }
         state->bitmap_identity = data;
-        PatBlt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        set_custom_control_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<std::uint8_t *>(static_cast<const std::uint8_t *>(data) + 0xe)), 1);
+        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
+        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<std::uint8_t *>(static_cast<const std::uint8_t *>(data) + 0xe)), 1);
         return 1;
     }
     default:
-        return DefWindowProcA(window, message, wparam, lparam);
+        return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
     }
 }
 
 void set_custom_control_gdi_api_for_testing(const CustomControlGdiApi &api)
 {
     custom_control_gdi_api = api;
+}
+
+void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api)
+{
+    custom_control_window_api = api;
 }
 
 // GAG.EXE: 0x00413650
@@ -2320,7 +2329,8 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
     state->content_right = state->content_left + width;
     state->content_bottom = state->content_top + height;
 
-    GraphicsHostInitializationResult *graphics = application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top, width, height, 0x300000);
+    GraphicsHostInitializationResult *graphics = application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top,
+        static_cast<std::int16_t>(width), static_cast<std::uint16_t>(height), 0x300000);
     if(graphics == nullptr)
     {
         return nullptr;
@@ -10963,7 +10973,8 @@ RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *p
         {
             saw_condition = true;
             char container_name[0x20];
-            if(parse_script_value_token(parser, container_name, sizeof(container_name)) != 0xffffffff)
+            scope = parse_script_value_token(parser, container_name, sizeof(container_name));
+            if(scope != 0xffffffff)
             {
                 conditions_match &= runtime_tree_conditional_create_api.container_matches(container_name);
             }
@@ -11047,7 +11058,8 @@ RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *p
         else if(scope == 0x0e000000)
         {
             char container_name[0x20];
-            if(parse_script_value_token(parser, container_name, sizeof(container_name)) != 0xffffffff && !runtime_tree_conditional_create_api.container_matches(container_name))
+            scope = parse_script_value_token(parser, container_name, sizeof(container_name));
+            if(scope != 0xffffffff && !runtime_tree_conditional_create_api.container_matches(container_name))
             {
                 return nullptr;
             }
@@ -11851,7 +11863,7 @@ dispatch_property_0b_value:;
             }
             else
             {
-                dispatch_root_operation(4, reinterpret_cast<void *>(value));
+                dispatch_root_operation(8, reinterpret_cast<void *>(value));
             }
             break;
         }
@@ -11902,7 +11914,7 @@ dispatch_property_0b_value:;
             }
             else
             {
-                dispatch_root_operation(4, reinterpret_cast<void *>(value));
+                dispatch_root_operation(0x0c, reinterpret_cast<void *>(value));
             }
             break;
         }
@@ -13186,8 +13198,8 @@ void __fastcall build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
     for(std::uint16_t source_index = 0; source_index < 0x100; ++source_index)
     {
         std::uint8_t tolerance = 0;
-        std::uint16_t comparison_index;
-        for(;;)
+        std::uint16_t comparison_index = comparison_count;
+        do
         {
             comparison_index = 0;
             const std::uint8_t *comparison_color = comparison_palette;
@@ -13216,7 +13228,7 @@ void __fastcall build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
                 break;
             }
             tolerance = static_cast<std::uint8_t>(tolerance + 10);
-        }
+        } while(tolerance < 0xfa);
         *remap++ = static_cast<std::uint8_t>(comparison_index);
         source_color += 4;
     }
@@ -21543,7 +21555,7 @@ RuntimeTreeNode *__fastcall begin_runtime_tree_enumeration(void *identity)
     if(child->child != nullptr)
     {
         root->iterator_current = child->child;
-        return get_next_runtime_tree_node(root);
+        return get_next_runtime_tree_node(static_cast<RuntimeTreeNode *>(identity));
     }
     root->iterator_current = child->next;
     return child;
@@ -22806,13 +22818,13 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                     DWORD bytes_read = 0;
                     async_file_lock_api.sleep(0);
                     async_file_host_api.read_file(host->file, host->write_cursor, tail_bytes, &bytes_read, nullptr);
-                    advance_async_host_write(host, bytes_read);
+                    advance_async_host_write(host, tail_bytes);
                     if(tail_bytes <= bytes_read && host->file_offset < host->end_offset)
                     {
                         bytes_to_read -= tail_bytes;
                         async_file_lock_api.sleep(0);
                         async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
-                        advance_async_host_write(host, bytes_read);
+                        advance_async_host_write(host, bytes_to_read);
                         if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
                         {
                             handle_async_host_short_read(host);
@@ -22828,7 +22840,7 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                     DWORD bytes_read = 0;
                     async_file_lock_api.sleep(0);
                     async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
-                    advance_async_host_write(host, bytes_read);
+                    advance_async_host_write(host, bytes_to_read);
                     if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
                     {
                         handle_async_host_short_read(host);
@@ -26209,7 +26221,7 @@ std::uint32_t __fastcall create_or_update_runtime_fixed_name_node(ScriptParserSt
         {
             *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x28) = *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24);
             *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24) = 0;
-            code = parse_script_file_value(parser, node->serialized_value, nullptr);
+            parse_script_file_value(parser, node->serialized_value, nullptr);
         }
         else if(code == 0x0a000000)
         {
