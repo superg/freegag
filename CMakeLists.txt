@@ -36,6 +36,10 @@ if(NOT WIN32)
 endif()
 
 set(GAG_RESOURCE_DIR "" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets")
+set(GAG_LOCAL_RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/gag-resources")
+if(NOT GAG_RESOURCE_DIR AND EXISTS "${GAG_LOCAL_RESOURCE_DIR}/gag_resources.rc")
+  set(GAG_RESOURCE_DIR "${GAG_LOCAL_RESOURCE_DIR}" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets" FORCE)
+endif()
 set(FREEGAG_ZLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib-1.3.2" CACHE PATH "Directory containing the zlib source tree used by freegag")
 option(FREEGAG_WINDOWS_FIXES "Enable compatibility fixes for modern Windows" ON)
 

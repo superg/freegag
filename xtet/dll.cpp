@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -49,11 +50,13 @@ struct GameState
     std::uint32_t level_effect_deadline{};
     bool level_effect_active{};
     bool audio_enabled{ true };
-    bool initialized{};
+    std::atomic_bool initialized{};
 };
 
+// Declared before g_game so it remains alive while GameWorker is stopped by
+// GameState destruction during DLL unload.
+std::recursive_mutex g_mutex;
 GameState g_game;
-std::mutex g_mutex;
 
 void present_dirty_region(const xtet::FigurineRenderRegion &region);
 bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first = nullptr, const xtet::FallingFigurine *excluded_second = nullptr);
@@ -345,7 +348,7 @@ void handle_gameplay_key(std::uint32_t key)
 
 void run_game_tick()
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if(!g_game.initialized)
         return;
     xtet::IndexedFramebuffer framebuffer;
@@ -385,7 +388,7 @@ void run_game_tick()
 
 void report_worker_failure()
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if(!g_game.initialized)
         return;
     g_game.initialized = false;
@@ -399,7 +402,7 @@ bool initialize_worker()
     return g_game.worker.start(
         []()
         {
-            std::lock_guard<std::mutex> lock(g_mutex);
+            std::lock_guard<std::recursive_mutex> lock(g_mutex);
             return xtet::get_game_tick_interval(g_game.gameplay_runtime.progress().level);
         },
         []() { run_game_tick(); }, []() { report_worker_failure(); });
@@ -458,8 +461,8 @@ int find_pressed_button()
     RECT client;
     if(!GetClientRect(g_game.window, &client) || !GetCursorPos(&point) || !ScreenToClient(g_game.window, &point))
         return -1;
-    point.x -= client.left;
-    point.y -= client.top;
+    point.x = xtet::map_scaled_cursor_coordinate(point.x - client.left, client.right - client.left, g_game.host_context ? g_game.host_context->width : 0);
+    point.y = xtet::map_scaled_cursor_coordinate(point.y - client.top, client.bottom - client.top, g_game.host_context ? g_game.host_context->height : 0);
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(homes.size() != 1 || homes[0]->children.size() != 3)
         return -1;
@@ -588,7 +591,7 @@ void handle_mouse_button(bool pressed)
 extern "C" void XTET_ABI GAME_DLL_INIT(xtet::GameHostContext *host_context, void **callback_table)
 {
     g_game.worker.stop();
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     g_game.host_context = host_context;
     g_game.window = host_context ? host_context->window : nullptr;
     g_game.callbacks.fill(nullptr);
@@ -631,8 +634,14 @@ extern "C" void XTET_ABI GAME_DLL_INIT(xtet::GameHostContext *host_context, void
 
 extern "C" std::uint32_t XTET_ABI GAME_DLL_WND_PROC(HWND, UINT message, WPARAM wparam, LPARAM)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if(!g_game.initialized)
+    // The original ordinal checks inactive gameplay state before entering its
+    // recursive Win32 critical section. This also lets synchronous result or
+    // failure reporting re-enter through the host without blocking on state
+    // synchronization owned by the reporting thread.
+    if(!g_game.initialized.load())
+        return 1;
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
+    if(!g_game.initialized.load())
         return 1;
     xtet::GameWindowMessageCallbacks callbacks;
     callbacks.destroy = []() { stop_gameplay(); };
@@ -643,7 +652,7 @@ extern "C" std::uint32_t XTET_ABI GAME_DLL_WND_PROC(HWND, UINT message, WPARAM w
 
 extern "C" void XTET_ABI GAME_DLL_EXEC(std::uint32_t command)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
     switch(command)
     {
     case 1:

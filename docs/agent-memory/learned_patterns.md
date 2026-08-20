@@ -1,5 +1,10 @@
 # Learned patterns
 
+# 2026-08-19 - Decode a save before diagnosing a missing conditional scene object
+
+- GAG save slots are CDF archives whose embedded `START.CFG` records object fields, inventory membership, and the active scene. When an original binary and the reconstruction both hide an object from the same save, extract that state and evaluate the scene's `local` condition conjunction before changing runtime code.
+- A missing inventory object can remain intentionally gated by a separate story flag even while its own `Pick_Up` field is OFF. Trace both the pickup object's state and every prerequisite field used by the containing scene.
+
 # 2026-08-17 - Scope focus-loss compatibility to Window mode
 
 - Legacy fullscreen applications may intentionally minimize on `WM_ACTIVATE` focus loss. For a modern fixed-frame Window mode, suppress only the automatic minimize post while the recovered Window-mode flag is active; preserve explicit user minimization, fullscreen focus-loss behavior, and the original fixes-OFF path.
@@ -148,7 +153,7 @@
 
 - `0x0040E580` recognizes `BVALUE` and `PARAM` by their first four bytes, while ordinary image-flag names use exact string comparison. The otherwise ambiguous data strings at `0x0043E370`, `0x0043E374`, and `0x0043E378` are `OFF`, `ON`, and `DUAL`, mapping to `0x07000000`, `0x03000000`, and `0x00200000` respectively.
 - `0x00406B40` consumes flags through the `0xffffffff` terminator. Bit 1 is global script-root flags `+4`, bit `0x04000000` is global script-root palette flags `+8`, and every other returned flag is ORed into the parser owner tree at `+0x2c`.
-- `0x0040F2C0` is the shared recursive value-token reader: `PARAM` evaluates a recursively parsed name as type 4, while `SVALUE` recursively parses object and field names and reads a 32-byte string. Both substitutions normalize success to `0x20` and failure to zero.
+- `0x0040F2C0` is the shared recursive value-token reader: `PARAM` evaluates a recursively parsed name as type 4, while `SVALUE` recursively parses object and field names and reads a 32-byte string. Both substitutions normalize success to `0x20` and failure to `0xFFFFFFFF`.
 
 ## 2026-08-16 - Runtime configuration serializers preserve sparse-list output
 
@@ -2018,6 +2023,7 @@ do not replace prior entries without correcting a demonstrated error.
 # Global addresses inside a cleared host block must remain aliases
 
 - When raw instructions use a global address inside the single `InitializeGraphicsHost` allocation, model it as an alias of that embedded field rather than as an independent source global. `AcquireRuntimeLockRecord` (`0x00425F10`) uses `0x0047F840`, the host's `path_critical_section`, and `0x0047F864`, its `media_objects_parent_identity`; splitting either address creates an uninitialized lock or null named-node parent even though startup initialized the original storage correctly.
+- The same storage-identity rule applies to global pointers used by unrelated-looking helpers. `SetScriptRuntimeRootIfValid` (`0x00404970`) and `SetActiveObjectField0824` (`0x00404980`) both read or write the pointer at `0x0043E2B0`; modeling the second helper with a separate `active_object` silently discards the 16-bit cursor-file selector even though its field offset is correct. Confirm both the base pointer's absolute address and the field offset before introducing distinct semantic globals.
 - Audit aliases by absolute-address xrefs across all consumers, not by matching one semantic variable name per field. The original deliberately reuses `0x0047F828` for resource and game-DLL synchronization, `0x0047F898` for script time/property/presentation state, and the scene identity slots for temporary state transitions. Conversely, similar counters at `0x0047F868` and `0x0047F884` are distinct. Both artificial splitting and artificial merging can silently pass isolated unit tests.
 - Pointer-valued host fields may be passed through an integer-typed legacy API slot. `ConstructRuntimeResource` loads `0x0047F7D8`, the async-file-host field at `+0x878`, as `OpenCdfArchive`'s integer alternate-stream argument. Splitting that address into a standalone integer silently changes an archive from async-record mode to Win32-HANDLE mode; later consumers then interpret HANDLE values as `AsyncFileRecord *`. Follow the absolute storage identity even when the decompiler's nominal types differ.
 - A Win9x handle used as an integer timing marker may not remain numerically meaningful on modern Windows. GAG passes `HWAVEOUT` through `WOM_DONE.wParam` into its mixer, but its callback also records `timeGetTime()` in `lParam`. A modern compatibility branch can use that existing timestamp while keeping the original handle-based path in fidelity builds; keep `WOM_OPEN` on its original marker because it has no callback timestamp.
@@ -2025,6 +2031,10 @@ do not replace prior entries without correcting a demonstrated error.
 # Root-cause fixes require attempt cleanup
 
 - Diagnostic probes and experimental compatibility changes are temporary evidence-gathering tools. Once the root cause is proven, review all changes made during that investigation and remove every unrelated or superseded attempt. Retain only the smallest root-cause fix, its necessary compatibility annotation, and focused tests; verify the cleaned result rather than reporting success from the diagnostic build.
+
+# Script loop restarts can commit the parser cursor
+
+- When reconstructing a command executor with shared cleanup labels, distinguish a restart that restores the saved pre-opcode cursor from a direct branch that preserves the opcode handler's advanced cursor. In `ExecuteScriptCommands` (`0x00421530`), successful `/PLOAD` and `/SPLOAD` jump directly to the outer-loop labels and bypass the common cursor restore. Collapsing both paths into one `restart_outer` disposition can rerun the load forever; model the restart and cursor-commit effects independently and test both the next cursor and link traversal.
 
 # Script rectangle keywords can use different coordinate conventions
 
@@ -2036,9 +2046,13 @@ do not replace prior entries without correcting a demonstrated error.
 
 # Fixed-size compatibility windows need style refresh on transitions
 
+- `AdjustWindowRect`'s menu argument must describe whether the created top-level window actually has a menu; it is not a request to account for `WS_SYSMENU`. Passing `TRUE` for a menu-less fixed-frame window enlarges the client by a menu row, so a separately centered fixed-size rendering child exposes matching top/bottom bars. Keep startup, restore enforcement, saved-position validation, and tests on the same adjusted outer geometry.
 - For a framebuffer whose dimensions the game owns, a movable modern Window mode should use caption/system-menu/minimize styles without `WS_THICKFRAME` or `WS_MAXIMIZEBOX`. When switching an existing popup between Full Screen and Window, apply `GWL_STYLE` first and include `SWP_FRAMECHANGED` in the following `SetWindowPos`; using the framed style only in `AdjustWindowRect` does not create a visible or draggable non-client frame.
+- When Window-mode placement belongs to Windows or the user, using `CW_USEDEFAULT` only at creation is insufficient if a later layout pass supplies explicit top-level coordinates. Guard every top-level `SetWindowPos` in that compatibility path while retaining separate capture-child placement required by the framebuffer.
+- Persist compatibility-window placement per user and apply a valid saved point in `CreateWindowEx`, rather than repositioning after the window becomes visible. Validate the reconstructed outer rectangle against the current monitor topology and fall back to `CW_USEDEFAULT` when displays changed or the value is malformed.
 - Before interactive retesting, terminate the previous instance. GAG rejects a second process through `FindWindowA("FlcAppClassNT", nullptr)`; if an old unclosable instance survives, rebuilt launches silently fail validation and every visible observation still describes the stale executable.
 - `SetWindowLong(GWL_STYLE, value)` replaces dynamic bits as well as structural frame bits. If it runs after `ShowWindow`, include or preserve `WS_VISIBLE`; otherwise DWM can leave a stale visual frame while `IsWindowVisible` is false and Windows excludes the entire parent/child hierarchy from hit testing. This presents as a transparent, unactivatable, unmovable, unclosable window even though its thread is healthy in `GetMessage`.
+- A `WM_WINDOWPOSCHANGING` compatibility handler must preserve both Windows' incoming restore coordinates and `SWP_NOMOVE`. Preserving only `x/y` is insufficient when the original helper clears that flag, because coordinates are unspecified when `SWP_NOMOVE` arrives set; conversely, retaining the flag permits fixed-size enforcement without taking ownership of top-level placement.
 
 # Sequential flag assignments may intentionally reuse the pre-update value
 
@@ -2052,3 +2066,123 @@ do not replace prior entries without correcting a demonstrated error.
 
 - `InitializeGraphicsHost` (`0x0041FA00`) receives width as signed 16-bit and height as unsigned 16-bit stack parameters even though x86 argument slots are four bytes. Preserve the narrow source types and explicit caller conversion: matching only the slot width can hide sign/zero-extension behavior and produces an imprecise recovered interface.
 - For indirect x86 callback calls, do not trust a decompiler argument list while the callback global is untyped. Reconstruct the ABI from register setup and stack pushes immediately before the `CALL`; `RuntimeGameWindowProcedure` at `0x00423201` proves its DLL callback uses ECX/EDX plus two stack arguments, i.e. a four-argument `__fastcall` call.
+
+# Fixed-stride overflow can reveal the real global backing allocation
+
+- Do not add a detached safety element when the original indexes one slot beyond a nominal fixed-size global array. Compute `base + index * stride`: GAG's sound slot `0x400` begins exactly at `0x0043E048`, where the following sound globals live, so its field writes are intentional cross-views of those globals rather than writes to an independent 1025th slot. Model one contiguous backing image and test the side effects through both semantic views.
+- A global can have two destructive roles even without differing types. Display-mode address `0x0043EAD8` is both the list-construction tail and the enumeration cursor; beginning or advancing enumeration overwrites the tail. Preserve the shared address and add a regression test for the overwrite instead of retaining two convenient C++ variables.
+
+# Adjacent bitmasks require behaviorally opposing tests
+
+- Same-typed adjacent fields can compile and mostly behave when swapped. `ScriptObjectState +0x47C` is the command mask used by pointer-scene eligibility and hover-mode transitions, while `+0x480` is the current active-field mask used to serialize and evaluate ON/OFF object values. Confirm the raw displacement at every consumer and test with one mask set while the other is clear; tests that give both masks compatible bits cannot detect the swap.
+- An overlapping array view can be rotated by fields while retaining the correct stride. GAG's 0x28-byte runtime scene slots are the command-definition records themselves (`name +0`, visual `+0x20`, flags `+0x24`), not a second array beginning at the first visual pointer. A one-record rotation left visual switching functional but associated each scene with the next command name, breaking special `IView`/`Hide` behavior. Anchor every semantic field—not only stride and one convenient pointer—against absolute addresses.
+
+# Re-evaluate decompiler arithmetic at unsigned wrap boundaries
+
+- A decompiler expression such as `(-(failure) & 0xFFFFFFDF) + 0x20` must be evaluated with 32-bit wraparound. In `ParseScriptValueToken`, success produces `0x20`, while failure produces `0xFFFFFFFF`, not zero. Translating the apparent boolean selection without checking the emitted `CMP/SBB/AND/ADD` sequence can turn a hard parse failure into a valid empty token and publish malformed template-generated runtime objects. Add tests for both result values whenever compact flag arithmetic controls parser success.
+
+# Test seams must not replace direct production calls
+
+- Keep dependency injection at an explicit testing boundary; do not replace a statically resolved original call with a mutable production function pointer merely to make a small function observable. `EnableRuntimeSubsystem` and `DisableRuntimeSubsystem` directly call `ToggleRuntimeSoundState` in GAG. An uninitialized artificial callback turned an ordinary menu toggle into a garbage indirect jump. Prefer asserting the real callee's state change, or wrap the entire caller only in test code, when raw instructions show a direct call.
+
+# Borderless fullscreen should virtualize presentation, not game geometry
+
+- Keep the recovered framebuffer, dirty rectangles, script coordinates, and binary-facing structures at their original dimensions. Implement modern Full Screen as a fixes-only presentation layer: resize a child viewport, scale the final blit, and inverse-map input before any original consumer sees it.
+- Save the complete framed Window-mode rectangle before replacing the top-level style. A persisted Full Screen startup must preload that rectangle (or a deterministic valid fallback) before the first fullscreen layout, otherwise the initial monitor-sized popup can be mistaken for the Window-mode restore geometry.
+- For aspect or integer letterboxing, make the rendering child exactly the viewport size and let the black top-level parent own the surrounding area. This naturally keeps bar input outside the game surface and avoids embedding viewport offsets in the 640x480 game coordinate system.
+- Scaled dirty clears need floor mapping for left/top and ceiling mapping for right/bottom so every destination pixel touched by a source rectangle is covered. Full-frame presentation can use one deterministic `StretchBlt` with `COLORONCOLOR`; Window mode should retain its original unscaled blit path.
+
+# Fast compatibility transitions can expose level-triggered script actions
+
+- A script event tied to a mouse-down state can be reevaluated several times before the physical release. If a modern compatibility transition completes much faster than the original operation and changes the state used to select the next command, one click can request alternating transitions. Gate the compatibility action once per physical press while leaving the original script dispatcher intact.
+- Rearm such a gate on the next button-down, not button-up, when the script worker can process an already-active event after the UI thread has received the release. Do not add mouse capture merely to protect the release across the transition: changing capture ownership while the graphics child is moved or resized can disrupt later input routing, and the per-press script-action latch does not require capture.
+- If a cross-thread `SendMessage` receiver calls `ReplyMessage` before finishing its callback, duplicate suppression inside the receiving window procedure can be too late: the released sender may issue another synchronous send and block before the busy UI thread can enter that procedure. Put the compatibility gate at the sending boundary so the duplicate call is never made.
+- When an original input gate is deliberately paused during a borderless resize, preserve the physical button release needed to terminate the initiating level event, but continue rejecting resize-generated moves. A stationary screen cursor can map to a different game coordinate after viewport relocation; processing that synthetic move before the release changes the active region and releases the wrong interaction.
+
+# Indirect string tables require slot-level verification
+
+- When an instruction loads a string through an absolute pointer-table slot, read the DWORD stored in that exact slot and inspect the bytes at its target. Do not flatten the indirection based on a nearby literal or a decompiler-rendered string reference. Adjacent slots can intentionally point to related but noninterchangeable names: in `GagMainWindowProcedure`, `0x004408EC` points to `NewGame.cfg`, while adjacent `0x004408F0` points to `NEWGAME`. Selecting the neighboring slot produced a plausible extensionless name that could never match the exact CDF entry lookup.
+- Audit these tables instruction-first: enumerate code references to readable four-byte data slots, retain slots whose initialized value points to a valid string, group every consumer by the exact slot, and then compare each consumer with its source function. Scan narrow, wide, and indexed forms separately. Requiring a real code reference avoids false pointer candidates created when four ASCII bytes inside an ordinary string happen to form an in-image address.
+- When several instructions load the same slot, represent the recovered value with one shared source constant where practical. GAG slot `0x00440900` supplies `AutoSave.cdf` to startup detection, Resume Game, and shutdown state saving; independent literals allowed two consumers to drift to adjacent `CREDITS` even though the third remained correct.
+
+# Fastcall callees can stage later calls across an intervening call
+
+- In x86 fastcall wrappers, pushes performed before an intervening fastcall may be staging stack arguments for a later callee rather than arguments to the immediate callee. Track ESP after every saved register and push. `ActivateRuntimeTreeWithNotifications` pushes incoming argument 4 and `treeName`, calls a register-only resource resolver, then loads incoming argument 3 into EDX before calling `CreateRuntimeTreeNode`; argument 3 is the parent selector and argument 4 is creation text. Collapsing them into one semantic value turned the valid `0xFFFFFFFF` global-root sentinel into a string pointer. Test recovered multi-argument forwarding with behaviorally distinct values, including sentinel/null combinations, rather than passing the same pointer in every slot.
+
+# Binary chunk scanners require literal-byte verification
+
+- When original code scans loaded binary data using a pointer to a four-byte global, inspect the global's raw bytes rather than inventing a semantic integer marker from the decompiler's generic data label. `ConstructRuntimeResourceObject` scans WAV chunks for ASCII `data` at `0x0044216C`; replacing that literal with integer 1 can plausibly match PCM header fields, queue unrelated bytes, emit garbage audio, and only crash later in the mixer. Regression fixtures should include a plausible false integer marker before the real chunk ID so the distinction is observable.
+
+# Similar slot scans can have opposite predicates
+
+- A subsystem may scan the same slot array twice for opposite purposes. In `CreateSoundHandle`, the first format-selection scan advances over inactive slots and stops at the first active sound to decide between preserving the mixer with conversion and rebuilding it; the later handle-allocation scan advances over active slots and stops at the first inactive slot. Reusing one convenient “find free slot” loop for both silently breaks mixed-format playback. Verify the exact `TEST` branch direction at each scan and cover active-plus-free and entirely-inactive layouts separately.
+
+# Adjacent parser keywords must be verified against their dispatch cases
+
+- Similar adjacent string globals can be transposed while leaving parsing apparently functional. Verify each literal's exact address and numeric parser code, then follow that code through dispatch to its behavioral consumer. In GAG, `font` at `0x0043E468` is property `0x10` and creates a fixed-name resource node, while `time` at `0x0043E470` is property `0x0F` and publishes an integer setting. Swapping them silently prevented subtitle font construction while subtitle text resources still loaded normally.
+- Keep parser and serializer mappings covered together. A round-trip-looking table test alone may preserve the same wrong bijection; include behavior-specific expectations, such as fixed-name serialization using `font` and runtime operation 8 serialization using `time`.
+
+# Recovered modal UI depends on PE resources as well as code
+
+- A correct `DialogBoxParam` reconstruction silently fails when its numeric dialog resource was not linked into the rebuilt executable. The caller may already have paused gameplay or entered a transition, making a missing resource look like a deadlock rather than a packaging failure. When modal UI never appears, compare the rebuilt PE resource table against the original before instrumenting the message loop.
+- Locally extracted copyrighted resources can remain optional in source control while being auto-detected when present. Keep a resource-equivalence acceptance test enabled whenever the extraction directory is selected so a successful C++ link cannot conceal a resource-free executable.
+
+# Recover array indices from stack offsets, not decompiler local names
+
+- A decompiler may split one caller-owned array into an initial array local followed by separately named scalar and structure locals. Recover the original indices by subtracting stack offsets from the array base. In `ProcessAvailableRuntimeGenericChildren`, the state buffer starts at `-0x3c`; x/y at `-0x28/-0x24` are state[5]/state[6], not state[2]/state[3]. Using the latter treated a duration and text pointer as coordinates and placed subtitles far off-screen. Regression tests should give plausible candidate indices distinct values so the wrong interpretation cannot pass.
+
+# Initialized BSS addresses may be live fields, not constants
+
+- A writable address whose initial bytes look like an empty string may be a field inside a larger runtime object. Before flattening it into a constant, subtract the bases of known host allocations and audit runtime writers at the resulting offset. GAG address `0x00480158` is `ScriptRuntimeRoot +0x848`, populated by the script `class` property and later used to select the inventory subtree for removal; treating its initial zero bytes as a permanent empty string left the overlay active and intercepted world-object drops.
+
+# Legacy HKLM persistence depends on process manifest behavior
+
+- A faithful 32-bit reconstruction can call the same HKLM registry APIs and still lose settings on modern Windows. An embedded `requestedExecutionLevel` manifest disables legacy registry virtualization; if ordinary users have read-only access, the original write fails instead of being redirected to the per-user VirtualStore. Check the built PE manifest, key ACL, real and virtualized values, and ignored Win32 return codes before blaming state masks or shutdown flow. Keep an HKCU replacement explicitly fixes-only rather than presenting it as recovered original behavior.
+
+# Resizable compatibility windows should isolate scaling in a child viewport
+
+- Keep the top-level client freely resizable and make the rendering/input child exactly the calculated viewport. Centering that child lets the parent's background supply letterboxing and naturally prevents bar-area mouse events from entering game-space input.
+- Derive the minimum top-level tracking size by applying the active framed style to the minimum client rectangle in `WM_GETMINMAXINFO`; constraining raw outer dimensions does not guarantee an exact minimum client area.
+- Treat presentation scaling as a viewport property rather than a fullscreen property. The same final-blit, dirty-clear, repaint, and inverse-coordinate paths then work for fullscreen and resizable Window mode, while a viewport matching the framebuffer can retain the unscaled fast path.
+- Persist the normal framed rectangle, not the current minimized/maximized bounds. `WINDOWPLACEMENT::rcNormalPosition` preserves the user's preferred size for transient window states; validate its size and monitor intersection before restoring, and retain older point-only values as a migration fallback.
+
+# Paired text measurement and drawing passes must share terminators
+
+- When a text engine first measures a segment and later draws it, audit both switch tables for identical structural terminators. A missing draw-only stop can render parser section labels beyond the measured dialogue even though allocation and positioning appear correct.
+- Verify switch cases from the raw jump table when a decompiler or manual transcription may have dropped a low-information branch. GAG's generic subtitle renderer maps `'['` directly to cleanup because `.RUS` files use `[END]` as a section marker; omitting that one case exposes `END` as subtitle text.
+
+# Game DLL names resolve through the active resource directory
+
+- A bare `/GAME` DLL name is not resolved relative to `gag.exe`. GAG first combines it with `RuntimeCommandLoopState::resource_directory`, then passes that full path to `LoadLibraryA`. In a CD-style installation this can produce a path such as `E:\\XTETDLL.DLL`; placing a reconstructed DLL only beside the executable will therefore leave the script's original load attempt failing and immediately continuing.
+
+# Synchronous host callbacks can re-enter a DLL window export
+
+- A DLL that calls `SendMessage` on its host child window can re-enter its own ordinal window callback before the initiating callback returns. `PeekMessage` may likewise dispatch pending sent messages while draining posted input. When the original synchronization primitive is a Win32 critical section, preserve its same-thread recursive semantics; replacing it with `std::mutex` can throw `std::system_error` inside the callback. Retain the original inactive-state gate before locking as well, so a worker synchronously reporting failure cannot deadlock against UI-thread re-entry.
+
+# Scaled hosts must map cursor queries back to fixed scene coordinates
+
+- An original DLL may ignore mouse-message `lParam` and query the cursor with `GetCursorPos`/`ScreenToClient`. If a compatibility host scales the actual child client while leaving the DLL's scene/framebuffer fixed, inverse-scale that queried client point before scene hit testing. Preserve exact-size identity and outside coordinates so the compatibility adapter does not change original unscaled behavior or turn an outside point into a hit.
+
+# Global synchronization must outlive objects whose destructors use it
+
+- C++ globals in one translation unit are destroyed in reverse declaration order. If a global owner contains a worker whose destructor stops/joins code that can acquire a separate global mutex, declare the mutex before the owner. Declaring it afterward creates an unload-only use-after-destruction hazard even when every runtime lock acquisition is otherwise correct.
+
+# Verify compact decompiler arithmetic against condition-code instructions
+
+- Decompiled boolean-to-signed-state expressions can obscure `CMP`/`SBB` idioms. Evaluate the raw instruction sequence for every input class before assigning semantic constants. XTET's spawn sequence `DEC; CMP 1; SBB AL,AL; AND AL,2; DEC AL` yields `+1/-1`; reading the compact pseudocode as `-3/-1` removed horizontal facing variation while leaving all later orientation and mirror tables correct.
+
+
+# Modal script messages can require cursor-preserving restarts
+
+- A synchronous `/MESSAGE` can start a modal application operation and return only after a runtime-state transition. In `ExecuteScriptCommands`, a nonzero accumulated command-loop result branches directly to the outer loop and bypasses the common saved-cursor restore. Model that as `restart_outer_commit_cursor`; restoring the pre-message cursor repeats the modal command forever, while suppressing the intended post-operation menu reload would conceal the interpreter error and prevent state-dependent entries from updating.
+- A cursor-preserving outer restart must not be implemented as “read the advanced cursor, then write it back.” Tree-changing commands such as `/PLOAD` may free the current link during dispatch. Preserve the original direct branch by performing no post-dispatch access through the parser/link pointer.
+- Audit every branch to the interpreter's outer-loop label, not only modal and load commands. XTET-confirmed GAG paths for root `PEXIT`/`CONTINUE`, a nested deactivation with no continuation, and session reset also bypass the common parser tail because their current link can already be gone.
+- When a persisted UI preference and a transient script flag encode inverse views of the same feature, startup content can legitimately overwrite the transient flag after preference restoration. Do not repair the divergence in a read-only UI query. For a compatibility persistence layer, toggle the persisted preference at the command boundary and derive the transient inverse from the new value; preserve the original transient-driven command in fidelity builds.
+
+# Separate spatial hit testing from scripted aim resolution
+
+- A minigame can use pointer coordinates only to select a target zone, then decide success from an independent animation phase sampled on button release. Trace the selected region, queued interaction record, matching event, and sampled phase separately before changing coordinate conversion. In GAG's rat game, all rat-zone clicks matched correctly; held duration controls a 50-frame gun animation, only frames 8-17 are aligned, and impacts away from the target are intentional feedback for other phase bands.
+
+# Size parameter-evaluation temporaries for every materializable type
+
+- A typed parameter evaluator may parse and write the actual value before comparing its type with the caller's expected type. Therefore, even scalar-only consumers must provide storage large enough for the widest materializable value and read the scalar member only after successful validation. In GAG, both integer-expression PARAM and image-flag PARAM callers use 0x20-byte temporaries because a mismatched string is written before the evaluator reports failure; reducing either temporary to one DWORD corrupts the caller's stack.

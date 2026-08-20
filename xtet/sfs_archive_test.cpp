@@ -122,6 +122,10 @@ int main(int argc, char **argv)
             return 15;
     }
     const xtet::SceneNode &controls = home.children[2];
+    if(xtet::map_scaled_cursor_coordinate(319, 640, 640) != 319 || xtet::map_scaled_cursor_coordinate(0, 1280, 640) != 0 || xtet::map_scaled_cursor_coordinate(1279, 1280, 640) != 639
+        || xtet::map_scaled_cursor_coordinate(719, 1440, 640) != 319 || xtet::map_scaled_cursor_coordinate(1079, 1080, 480) != 479 || xtet::map_scaled_cursor_coordinate(-1, 1280, 640) != -1
+        || xtet::map_scaled_cursor_coordinate(1280, 1280, 640) != 1280)
+        return 138;
     for(std::size_t index = 0; index < controls.children.size(); ++index)
     {
         const xtet::SceneNode &control = controls.children[index];
@@ -302,7 +306,7 @@ int main(int argc, char **argv)
         return 49;
     std::int32_t family_balance = 0;
     xtet::FallingFigurine falling_figurine = xtet::select_falling_figurine(0, 17, 1, family_balance, runtime_tables.slotCount());
-    if(falling_figurine.first_family || falling_figurine.shape_index != 7 || falling_figurine.orientation != -3 || falling_figurine.column != 7 || falling_figurine.row != 2 || family_balance != -1
+    if(falling_figurine.first_family || falling_figurine.shape_index != 7 || falling_figurine.orientation != 1 || falling_figurine.column != 7 || falling_figurine.row != 2 || family_balance != -1
         || !xtet::can_place_figurine(falling_figurine, runtime_tables))
         return 50;
     family_balance = -3;
@@ -490,7 +494,7 @@ int main(int argc, char **argv)
     falling_figurine.row = 2;
     xtet::FigurineSpriteSelection sprite_selection;
     if(!xtet::select_figurine_sprite(falling_figurine, sprite_selection) || sprite_selection.family != xtet::FigurineSpriteFamily::woman || sprite_selection.frame_index != 7
-        || sprite_selection.mirror_horizontal || !sprite_selection.mirror_vertical || sprite_selection.x != 74 || sprite_selection.y != -11)
+        || sprite_selection.mirror_horizontal || sprite_selection.mirror_vertical || sprite_selection.x != 74 || sprite_selection.y != -11)
         return 56;
     xtet::FallingFigurine man_figurine = forced_first_family;
     man_figurine.orientation = -2;

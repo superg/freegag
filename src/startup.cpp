@@ -1,5 +1,6 @@
 #include "startup.h"
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -13,14 +14,70 @@ namespace
 
 #define trace_animation_startup(...) ((void)0)
 
-DisplayMode *display_mode_head;
-DisplayMode *display_mode_tail;
-DisplayMode *display_mode_iterator;
-DisplayMode *current_display_mode;
-std::uint32_t display_mode_count;
-std::uint32_t display_bootstrap_error;
-std::uint32_t display_platform_id;
-HMODULE direct_draw_module;
+struct DisplayModeHostState
+{
+    std::uint32_t flags;
+    std::uint32_t bootstrap_error;
+    DisplayMode *current_mode;
+    std::uint32_t unknown_000c;
+    std::uint32_t platform_id;
+    HMODULE direct_draw_module;
+    void *direct_draw;
+    void *direct_draw_primary_surface;
+    void *direct_draw_secondary_surface;
+    HWND window;
+    HDC dc;
+    std::uint8_t unknown_002c[0x10];
+    std::uint32_t mode_count;
+    DisplayMode *mode_tail;
+    DisplayMode *mode_head;
+    HDC dib_dc;
+    std::int32_t width;
+    std::int32_t height;
+    std::int32_t bits_per_pixel;
+    void *pixels;
+    HBITMAP bitmap;
+    HBITMAP previous_bitmap;
+    HPALETTE palette;
+    HPALETTE previous_palette;
+    CRITICAL_SECTION critical_section;
+    WORD palette_version;
+    WORD palette_count;
+    PALETTEENTRY palette_entries[0x100];
+};
+
+static_assert(sizeof(DisplayModeHostState) == 0x488);
+static_assert(offsetof(DisplayModeHostState, current_mode) == 0x08);
+static_assert(offsetof(DisplayModeHostState, mode_count) == 0x3c);
+static_assert(offsetof(DisplayModeHostState, critical_section) == 0x6c);
+static_assert(offsetof(DisplayModeHostState, palette_entries) == 0x88);
+
+DisplayModeHostState display_mode_host_state;
+std::uint32_t &display_palette_flags = display_mode_host_state.flags;
+std::uint32_t &display_bootstrap_error = display_mode_host_state.bootstrap_error;
+DisplayMode *&current_display_mode = display_mode_host_state.current_mode;
+std::uint32_t &display_platform_id = display_mode_host_state.platform_id;
+HMODULE &direct_draw_module = display_mode_host_state.direct_draw_module;
+void *&display_direct_draw = display_mode_host_state.direct_draw;
+void *&display_direct_draw_primary_surface = display_mode_host_state.direct_draw_primary_surface;
+void *&display_direct_draw_secondary_surface = display_mode_host_state.direct_draw_secondary_surface;
+HWND &display_palette_window = display_mode_host_state.window;
+HDC &display_palette_dc = display_mode_host_state.dc;
+std::uint32_t &display_mode_count = display_mode_host_state.mode_count;
+DisplayMode *&display_mode_tail = display_mode_host_state.mode_tail;
+DisplayMode *&display_mode_head = display_mode_host_state.mode_head;
+DisplayMode *&display_mode_iterator = display_mode_host_state.mode_tail;
+HDC &display_palette_dib_dc = display_mode_host_state.dib_dc;
+std::int32_t &display_palette_width = display_mode_host_state.width;
+std::int32_t &display_palette_height = display_mode_host_state.height;
+std::int32_t &display_palette_bits_per_pixel = display_mode_host_state.bits_per_pixel;
+void *&display_palette_pixels = display_mode_host_state.pixels;
+HBITMAP &display_palette_bitmap = display_mode_host_state.bitmap;
+HBITMAP &display_palette_previous_bitmap = display_mode_host_state.previous_bitmap;
+HPALETTE &display_palette = display_mode_host_state.palette;
+HPALETTE &display_palette_previous_palette = display_mode_host_state.previous_palette;
+CRITICAL_SECTION &display_host_critical_section = display_mode_host_state.critical_section;
+PALETTEENTRY (&display_palette_entries)[0x100] = display_mode_host_state.palette_entries;
 
 #if defined(FREEGAG_WINDOWS_FIXES)
 // Non-original modern-Windows compatibility selection. This remains a code constant until a user-facing setting is recovered or introduced.
@@ -30,9 +87,121 @@ enum class ModernWindowsColorMode
     rgb565_16,
 };
 
+enum class ModernWindowsFullscreenScaling
+{
+    preserve_aspect,
+    stretch,
+    integer,
+};
+
+enum class ModernWindowsWindowedScaling
+{
+    preserve_aspect,
+    integer,
+};
+
 constexpr ModernWindowsColorMode modern_windows_color_mode = ModernWindowsColorMode::rgb565_16;
-constexpr DWORD modern_windows_windowed_style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+constexpr ModernWindowsFullscreenScaling modern_windows_fullscreen_scaling = ModernWindowsFullscreenScaling::integer;
+constexpr ModernWindowsWindowedScaling modern_windows_windowed_scaling = ModernWindowsWindowedScaling::integer;
+constexpr DWORD modern_windows_windowed_style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_CLIPCHILDREN;
 DisplayMode modern_windows_virtual_display_mode;
+
+struct ModernWindowsPresentationState
+{
+    bool fullscreen;
+    bool windowed_rectangle_valid;
+    RECT windowed_rectangle;
+    std::int32_t viewport_width;
+    std::int32_t viewport_height;
+};
+
+ModernWindowsPresentationState modern_windows_presentation_state;
+bool modern_windows_fullscreen_toggle_latched;
+
+RECT calculate_modern_windows_fullscreen_viewport(std::int32_t monitor_width, std::int32_t monitor_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    ModernWindowsFullscreenScaling scaling)
+{
+    RECT viewport{};
+    if(monitor_width <= 0 || monitor_height <= 0 || framebuffer_width <= 0 || framebuffer_height <= 0)
+    {
+        return viewport;
+    }
+
+    std::int32_t width = monitor_width;
+    std::int32_t height = monitor_height;
+    if(scaling == ModernWindowsFullscreenScaling::integer)
+    {
+        const std::int32_t factor = std::min(monitor_width / framebuffer_width, monitor_height / framebuffer_height);
+        if(factor > 0)
+        {
+            width = framebuffer_width * factor;
+            height = framebuffer_height * factor;
+        }
+        else
+        {
+            scaling = ModernWindowsFullscreenScaling::preserve_aspect;
+        }
+    }
+    if(scaling == ModernWindowsFullscreenScaling::preserve_aspect)
+    {
+        if(static_cast<std::int64_t>(monitor_width) * framebuffer_height <= static_cast<std::int64_t>(monitor_height) * framebuffer_width)
+        {
+            width = monitor_width;
+            height = static_cast<std::int32_t>(static_cast<std::int64_t>(monitor_width) * framebuffer_height / framebuffer_width);
+        }
+        else
+        {
+            height = monitor_height;
+            width = static_cast<std::int32_t>(static_cast<std::int64_t>(monitor_height) * framebuffer_width / framebuffer_height);
+        }
+    }
+
+    viewport.left = (monitor_width - width) / 2;
+    viewport.top = (monitor_height - height) / 2;
+    viewport.right = viewport.left + width;
+    viewport.bottom = viewport.top + height;
+    return viewport;
+}
+
+RECT calculate_modern_windows_windowed_viewport(std::int32_t client_width, std::int32_t client_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    ModernWindowsWindowedScaling scaling)
+{
+    if(scaling == ModernWindowsWindowedScaling::preserve_aspect)
+    {
+        return calculate_modern_windows_fullscreen_viewport(client_width, client_height, framebuffer_width, framebuffer_height, ModernWindowsFullscreenScaling::preserve_aspect);
+    }
+    return calculate_modern_windows_fullscreen_viewport(client_width, client_height, framebuffer_width, framebuffer_height, ModernWindowsFullscreenScaling::integer);
+}
+
+bool modern_windows_presentation_is_scaled()
+{
+    return modern_windows_presentation_state.viewport_width > 0 && modern_windows_presentation_state.viewport_height > 0
+        && (modern_windows_presentation_state.viewport_width != display_palette_width || modern_windows_presentation_state.viewport_height != display_palette_height);
+}
+
+std::int32_t map_modern_windows_presentation_coordinate(std::int32_t value, std::int32_t destination_extent, std::int32_t source_extent)
+{
+    if(destination_extent <= 0 || source_extent <= 0)
+    {
+        return 0;
+    }
+    value = std::max(0, std::min(value, destination_extent - 1));
+    return static_cast<std::int32_t>(static_cast<std::int64_t>(value) * source_extent / destination_extent);
+}
+
+RECT map_modern_windows_presentation_rectangle(std::int32_t left, std::int32_t top, std::int32_t right, std::int32_t bottom, std::int32_t source_width, std::int32_t source_height)
+{
+    RECT rectangle{};
+    if(source_width <= 0 || source_height <= 0 || modern_windows_presentation_state.viewport_width <= 0 || modern_windows_presentation_state.viewport_height <= 0)
+    {
+        return rectangle;
+    }
+    rectangle.left = static_cast<std::int32_t>(static_cast<std::int64_t>(left) * modern_windows_presentation_state.viewport_width / source_width);
+    rectangle.top = static_cast<std::int32_t>(static_cast<std::int64_t>(top) * modern_windows_presentation_state.viewport_height / source_height);
+    rectangle.right = static_cast<std::int32_t>((static_cast<std::int64_t>(right) * modern_windows_presentation_state.viewport_width + source_width - 1) / source_width);
+    rectangle.bottom = static_cast<std::int32_t>((static_cast<std::int64_t>(bottom) * modern_windows_presentation_state.viewport_height + source_height - 1) / source_height);
+    return rectangle;
+}
 
 // Non-original factory for an original-compatible framebuffer mode presented on a true-color desktop through GDI.
 void build_modern_windows_virtual_display_mode(DisplayMode *mode, std::int32_t width, std::int32_t height, ModernWindowsColorMode color_mode)
@@ -78,53 +247,68 @@ RuntimeTreeCommandTargetApi runtime_tree_command_target_api{ parse_image_flag, p
 const std::uint8_t *compressor_input;
 std::uint32_t compressor_input_size;
 std::uint32_t compressor_input_position;
-std::uint32_t display_palette_flags;
-CRITICAL_SECTION display_host_critical_section;
-std::uint32_t display_lock_flags;
-DWORD display_lock_owner_thread;
-std::uint32_t display_lock_recursion_count;
-HANDLE display_lock_release_event;
-DisplayRectangle display_clip_bounds;
+
+struct DisplaySceneHostState
+{
+    std::uint32_t lock_flags;
+    CRITICAL_SECTION lock_critical_section;
+    HANDLE lock_gate_event;
+    std::uint32_t lock_busy;
+    HANDLE lock_release_event;
+    DWORD lock_owner_thread;
+    std::uint32_t lock_recursion_count;
+    std::int32_t root_primary_position;
+    std::int32_t width;
+    std::int32_t height;
+    std::int32_t root_secondary_position;
+    DisplayRectangle clip_bounds;
+    DisplayRectangle pending_rectangle;
+    std::uint32_t *palette_source_state;
+    HANDLE worker_thread;
+    DisplaySceneSyncApi sync_api;
+    void *sync_context;
+    std::uint32_t worker_interval;
+    std::uint32_t worker_rate;
+    std::uint32_t scene_count;
+    DisplaySceneNode *root;
+    DisplaySceneNode *head;
+};
+
+static_assert(sizeof(DisplaySceneHostState) == 0x84);
+static_assert(offsetof(DisplaySceneHostState, width) == 0x34);
+static_assert(offsetof(DisplaySceneHostState, height) == 0x38);
+static_assert(offsetof(DisplaySceneHostState, sync_api) == 0x68);
+static_assert(offsetof(DisplaySceneHostState, root) == 0x7c);
+static_assert(offsetof(DisplaySceneHostState, head) == 0x80);
+
+DisplaySceneHostState display_scene_host_state;
+std::uint32_t &display_lock_flags = display_scene_host_state.lock_flags;
+CRITICAL_SECTION &display_lock_critical_section = display_scene_host_state.lock_critical_section;
+HANDLE &display_lock_gate_event = display_scene_host_state.lock_gate_event;
+std::uint32_t &display_lock_busy = display_scene_host_state.lock_busy;
+HANDLE &display_lock_release_event = display_scene_host_state.lock_release_event;
+DWORD &display_lock_owner_thread = display_scene_host_state.lock_owner_thread;
+std::uint32_t &display_lock_recursion_count = display_scene_host_state.lock_recursion_count;
+std::int32_t &display_scene_root_primary_position = display_scene_host_state.root_primary_position;
+std::int32_t &display_width = display_scene_host_state.width;
+std::int32_t &display_height = display_scene_host_state.height;
+std::int32_t &display_scene_root_secondary_position = display_scene_host_state.root_secondary_position;
+DisplayRectangle &display_clip_bounds = display_scene_host_state.clip_bounds;
+DisplayRectangle &display_pending_rectangle = display_scene_host_state.pending_rectangle;
+std::uint32_t *&display_palette_source_state = display_scene_host_state.palette_source_state;
+HANDLE &display_scene_worker_thread = display_scene_host_state.worker_thread;
+DisplaySceneSyncApi &display_scene_sync_api = display_scene_host_state.sync_api;
+void *&display_scene_sync_context = display_scene_host_state.sync_context;
+std::uint32_t &display_scene_worker_interval = display_scene_host_state.worker_interval;
+std::uint32_t &display_scene_worker_rate = display_scene_host_state.worker_rate;
+std::uint32_t &display_scene_count = display_scene_host_state.scene_count;
+DisplaySceneNode *&display_scene_root = display_scene_host_state.root;
+DisplaySceneNode *&display_scene_head = display_scene_host_state.head;
+DisplaySceneSurface &display_scene_surface_state = reinterpret_cast<DisplaySceneSurface &>(display_scene_host_state);
 DisplaySceneCallbackApi display_scene_callback_api{ timeGetTime };
-HANDLE display_lock_gate_event;
-CRITICAL_SECTION display_lock_critical_section;
-std::uint32_t display_lock_busy;
-std::uint32_t display_scene_count;
-DisplayRectangle display_pending_rectangle;
-std::int32_t display_width;
-std::int32_t display_height;
-// Non-original storage adapter: the original points scene nodes at the contiguous global block beginning at display_lock_flags, where +0x34/+0x38 are display_width/display_height.
-DisplaySceneSurface display_scene_surface_state;
-DisplaySceneNode *display_scene_head;
-void *display_scene_sync_context;
-DisplaySceneNode *display_scene_root;
 DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
-std::uint32_t *display_palette_source_state;
-HANDLE display_scene_worker_thread;
-std::uint32_t display_scene_worker_interval;
-std::uint32_t display_scene_worker_rate;
-std::int32_t display_scene_root_primary_position;
-std::int32_t display_scene_root_secondary_position;
-std::int32_t display_palette_bits_per_pixel;
-std::int32_t display_palette_surface_bits_per_pixel;
-HDC display_palette_dc;
-HDC display_palette_dib_dc;
-HPALETTE display_palette;
-HBITMAP display_palette_bitmap;
-HWND display_palette_window;
-HPALETTE display_palette_previous_palette;
-HBITMAP display_palette_previous_bitmap;
-void *display_palette_pixels;
-void *display_direct_draw;
-void *display_direct_draw_primary_surface;
-void *display_direct_draw_secondary_surface;
-std::int32_t display_palette_width;
-std::int32_t display_palette_height;
-PALETTEENTRY display_palette_entries[0x100];
 void *display_backend;
 void *display_backend_target;
-void (*runtime_subsystem_callback)();
-std::uint8_t *active_object;
 DisplaySwitchApi display_switch_api{ set_active_display_mode_if_graphics_ready, restore_active_display_mode_if_graphics_ready };
 
 // Non-original adapter for callers that store the scene identity in a 32-bit scalar.
@@ -229,7 +413,7 @@ RuntimeResourceLoopApi runtime_resource_loop_api{ acquire_runtime_lock_record, s
 alignas(4) std::uint8_t graphics_host_storage[0x1d7c];
 RuntimeCommandLoopState &runtime_display_context = *reinterpret_cast<RuntimeCommandLoopState *>(graphics_host_storage);
 ScriptRuntimeRoot &graphics_script_runtime_root = *reinterpret_cast<ScriptRuntimeRoot *>(graphics_host_storage + 0x9b0);
-RuntimeSceneSlot *runtime_scene_slots = reinterpret_cast<RuntimeSceneSlot *>(&graphics_script_runtime_root.command_definitions[0].visual_object);
+RuntimeSceneSlot *runtime_scene_slots = reinterpret_cast<RuntimeSceneSlot *>(graphics_script_runtime_root.command_definitions);
 RuntimePointerRegion *&runtime_pointer_regions = reinterpret_cast<RuntimePointerRegion *&>(graphics_script_runtime_root.global_link_0084_head);
 std::uint32_t &graphics_host_flags = runtime_display_context.flags;
 std::uint32_t &runtime_scene_control_flags = runtime_display_context.flags;
@@ -428,40 +612,60 @@ std::uint32_t runtime_generic_backend_enabled;
 RuntimeGenericBackendShutdownApi runtime_generic_backend_shutdown_api{ WaitForSingleObject, ReleaseMutex, destroy_runtime_generic_backend, CloseHandle };
 RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapCreate, CreateMutexA, initialize_runtime_sound_class, WaitForSingleObject, ReleaseMutex, InitializeCriticalSection };
 RuntimeSoundDestroyApi runtime_sound_destroy_api{ WaitForSingleObject, ReleaseMutex, GetProcessHeap, HeapAlloc, HeapFree };
-std::int32_t runtime_sound_enabled;
 HANDLE runtime_sound_mutex;
-RuntimeSoundSlot runtime_sound_slot_storage[1025];
-RuntimeSoundSlot *runtime_sound_slots = runtime_sound_slot_storage;
+
+struct RuntimeSoundBackingStorage
+{
+    RuntimeSoundSlot slots[1025];
+    std::uint8_t trailing_class_name[8];
+
+    RuntimeSoundBackingStorage()
+        : slots{}
+        , trailing_class_name{}
+    {
+        slots[1024].schedule_state = 0x600;
+        std::memcpy(&slots[1024].transition_flags, "SoundClassName", sizeof("SoundClassName"));
+    }
+};
+
+static_assert(offsetof(RuntimeSoundBackingStorage, slots[1024]) == 0xd000);
+static_assert(offsetof(RuntimeSoundBackingStorage, trailing_class_name) == 0xd034);
+
+RuntimeSoundBackingStorage runtime_sound_backing_storage;
+RuntimeSoundSlot *runtime_sound_slots = runtime_sound_backing_storage.slots;
+RuntimeSoundSlot &runtime_sound_overflow_slot = runtime_sound_backing_storage.slots[1024];
+std::uint32_t &runtime_sound_mixing_suppressed = runtime_sound_overflow_slot.active;
+std::uint32_t &runtime_sound_fault = runtime_sound_overflow_slot.playing;
+std::uint32_t &runtime_sound_base_state = runtime_sound_overflow_slot.base_state;
+std::uint32_t &runtime_sound_toggle_state = runtime_sound_overflow_slot.base_state;
+std::uint32_t &runtime_sound_output_initialized = runtime_sound_overflow_slot.playback_state;
+std::uint32_t &runtime_sound_mixer_data_size = runtime_sound_overflow_slot.schedule_state;
+std::uint32_t &runtime_sound_window_creation_failed = runtime_sound_overflow_slot.fade_block_index;
+std::int32_t &runtime_sound_enabled = reinterpret_cast<std::int32_t &>(runtime_sound_overflow_slot.fade_current);
+HANDLE &runtime_sound_thread = reinterpret_cast<HANDLE &>(runtime_sound_overflow_slot.fade_step);
+DWORD &runtime_sound_thread_id = reinterpret_cast<DWORD &>(runtime_sound_overflow_slot.loop_value_1);
+HWND &runtime_sound_window = reinterpret_cast<HWND &>(runtime_sound_overflow_slot.volume);
+char *runtime_sound_window_class_name = reinterpret_cast<char *>(&runtime_sound_overflow_slot.transition_flags);
 std::uint32_t runtime_sound_maximum_handle;
 RuntimeSoundFormatCleanupApi runtime_sound_format_cleanup_api{ GetProcessHeap, HeapFree };
 void *runtime_sound_format_buffer;
-std::uint32_t runtime_sound_base_state;
 WAVEFORMATEX *runtime_sound_output_format;
-std::uint32_t runtime_sound_mixer_data_size;
 RuntimeWaveOutCallbackApi runtime_wave_out_callback_api{ PostMessageA, timeGetTime };
-HWND runtime_sound_window;
 std::uint32_t runtime_sound_output_ready;
 RuntimeSoundShutdownApi runtime_sound_shutdown_api{ WaitForSingleObject, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, destroy_runtime_sound_handle,
     cleanup_runtime_sound_format_buffer };
 HANDLE runtime_sound_lifecycle_mutex;
 HWAVEOUT runtime_sound_wave_out;
 WAVEHDR *runtime_sound_headers[2];
-HANDLE runtime_sound_thread;
-DWORD runtime_sound_thread_id;
-std::uint32_t runtime_sound_output_initialized;
 std::uint32_t runtime_sound_ready;
 HINSTANCE runtime_sound_instance;
-std::uint32_t runtime_sound_window_creation_failed;
 RuntimeSoundThreadApi runtime_sound_thread_api{ CreateWindowExA, ShowWindow, GetCurrentThread, SetThreadPriority, GetMessageA, DispatchMessageA, ExitThread };
 RuntimeSoundOutputBlock runtime_sound_output_storage[2];
 RuntimeSoundOutputBlock *runtime_sound_outputs = runtime_sound_output_storage;
 std::uint32_t runtime_sound_output_index;
 void(__fastcall *runtime_sound_mixer)(std::uint32_t marker);
-std::uint32_t runtime_sound_mixing_suppressed;
 RuntimeSoundWindowApi runtime_sound_window_api{ waveOutPrepareHeader, WaitForSingleObject, ReleaseMutex, waveOutWrite, PostQuitMessage, DestroyWindow, DefWindowProcA };
 RuntimeSoundClassApi runtime_sound_class_api{ RegisterClassA, CreateMutexA };
-std::uint32_t runtime_sound_fault;
-std::uint32_t runtime_sound_toggle_state;
 RuntimeSoundPauseResumeApi runtime_sound_pause_resume_api{ WaitForSingleObject, ReleaseMutex, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, CreateThread, Sleep,
     waveOutOpen };
 
@@ -557,7 +761,8 @@ CustomControlGdiApi custom_control_gdi_api{ GetDC, CreateCompatibleDC, GetDevice
 CustomControlWindowApi custom_control_window_api{ GetUpdateRect, BeginPaint, EndPaint, GetWindowLongA, SetWindowLongA, DefWindowProcA, PatBlt, GetProcessHeap, HeapAlloc, HeapFree, FindResourceA,
     GetModuleHandleA, LoadResource, LockResource, FreeResource, open_cdf_archive, get_cdf_entry_size, read_cdf_entry, close_cdf_archive, strings_equal, copy_string, initialize_custom_control_gdi,
     set_custom_control_bitmap, realize_and_present_custom_control, destroy_custom_control_gdi };
-SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegSetValueExA, RegCloseKey };
+SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegCreateKeyExA, RegSetValueExA, RegCloseKey };
+WindowPositionPersistenceApi window_position_persistence_api{ RegOpenKeyExA, RegCreateKeyExA, RegQueryValueExA, RegSetValueExA, RegCloseKey, GetWindowRect, GetWindowPlacement, MonitorFromRect };
 
 void enter_runtime_byte_queue_lock()
 {
@@ -699,7 +904,6 @@ RuntimeTargetUpdateApi runtime_target_update_api{ draw_runtime_bounds, begin_run
 DisplayLockReleaseApi display_lock_release_api{ GetCurrentThreadId, SetEvent };
 DisplayLockAcquireApi display_lock_acquire_api{ GetCurrentThreadId, WaitForSingleObject, Sleep, EnterCriticalSection, LeaveCriticalSection, ResetEvent };
 DisplayTargetApi display_target_api{ release_display_backend_target };
-DisplaySceneSyncApi display_scene_sync_api{ nullptr };
 DisplaySceneMemoryApi display_scene_memory_api{ GetProcessHeap, HeapAlloc, HeapFree };
 DisplaySceneHostApi display_scene_host_api{ InitializeCriticalSection, DeleteCriticalSection, CreateEventA, CloseHandle, CreateThread, WaitForSingleObject };
 DisplaySceneWorkerApi display_scene_worker_api{ timeGetTime, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
@@ -782,8 +986,8 @@ HRESULT WINAPI restore_direct_draw_display_mode(void *display)
     return reinterpret_cast<RestoreDisplayMode>(vtable[0x4c / sizeof(void *)])(display);
 }
 
-DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, PatBlt };
-DisplayRegionSynchronizationApi display_region_synchronization_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, PatBlt };
+DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
+DisplayRegionSynchronizationApi display_region_synchronization_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
 DisplayTargetBeginApi display_target_begin_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, is_direct_draw_surface_lost, restore_direct_draw_surface, lock_direct_draw_surface };
 DisplayModeChangeApi display_mode_change_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, set_display_cooperative_mode, set_direct_draw_display_mode, restore_direct_draw_display_mode,
     ChangeDisplaySettingsA, find_current_display_mode };
@@ -812,8 +1016,13 @@ ULONG WINAPI release_direct_draw_surface(void *surface)
 
 DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
     release_direct_draw_surface, GetDC, CreateCompatibleDC, ReleaseDC, DeleteDC, GetProcessHeap, HeapAlloc, HeapFree, CreatePalette, SelectPalette, DeleteObject, CreateDIBSection, SelectObject,
-    SetPaletteEntries, RealizePalette, SetDIBColorTable };
-WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA };
+    SetPaletteEntries, RealizePalette, SetDIBColorTable, SetStretchBltMode };
+WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA
+#if defined(FREEGAG_WINDOWS_FIXES)
+    ,
+    GetWindowRect, MonitorFromWindow, GetMonitorInfoA, InvalidateRect
+#endif
+};
 
 // Non-original adapter preserving the original pointer-valued return in a 32-bit state slot.
 std::uint32_t get_serialized_script_state_for_application()
@@ -842,6 +1051,7 @@ void restore_application_scene_after_dialog()
 SaveStateApi save_state_api{ capture_game_bitmap, get_serialized_script_state_for_application, clear_runtime_display, show_save_state_dialog, write_selected_application_state,
     restore_application_scene_after_dialog };
 const char *const save_dialog_data[] = { "GAG.GSF", "SOFTWARE\\ZES't Corp.\\GAG", "Russian Edition Version 2.51", "C:\\Zes't Corp\\Gag_Re\\" };
+constexpr char auto_save_file_name[] = "AutoSave.cdf";
 
 int __fastcall show_open_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, char *installed_version)
 {
@@ -1804,6 +2014,11 @@ std::uint32_t get_display_mode_count_for_testing()
     return display_mode_count;
 }
 
+DisplayMode *get_display_mode_tail_for_testing()
+{
+    return display_mode_tail;
+}
+
 // GAG.EXE: 0x00413030
 std::uint32_t enumerate_windows_display_modes()
 {
@@ -2071,6 +2286,44 @@ std::int32_t get_modern_windows_color_depth_for_testing()
 {
     return modern_windows_color_mode == ModernWindowsColorMode::indexed_8 ? 8 : 16;
 }
+
+RECT calculate_modern_windows_fullscreen_viewport_for_testing(std::int32_t monitor_width, std::int32_t monitor_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    std::int32_t scaling)
+{
+    return calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsFullscreenScaling>(scaling));
+}
+
+RECT calculate_modern_windows_windowed_viewport_for_testing(std::int32_t client_width, std::int32_t client_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    std::int32_t scaling)
+{
+    return calculate_modern_windows_windowed_viewport(client_width, client_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsWindowedScaling>(scaling));
+}
+
+std::int32_t map_modern_windows_fullscreen_coordinate_for_testing(std::int32_t value, std::int32_t destination_extent, std::int32_t source_extent)
+{
+    return map_modern_windows_presentation_coordinate(value, destination_extent, source_extent);
+}
+
+void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, std::int32_t viewport_width, std::int32_t viewport_height)
+{
+    modern_windows_presentation_state.fullscreen = fullscreen;
+    modern_windows_presentation_state.viewport_width = viewport_width;
+    modern_windows_presentation_state.viewport_height = viewport_height;
+}
+
+void reset_modern_windows_presentation_for_testing()
+{
+    modern_windows_presentation_state = {};
+}
+
+bool get_modern_windows_windowed_rectangle_for_testing(RECT *rectangle)
+{
+    if(rectangle != nullptr)
+    {
+        *rectangle = modern_windows_presentation_state.windowed_rectangle;
+    }
+    return modern_windows_presentation_state.windowed_rectangle_valid;
+}
 #endif
 
 // GAG.EXE: 0x0041F960
@@ -2107,14 +2360,11 @@ DisplayMode *__fastcall get_next_available_display_mode(std::uint32_t mask)
 std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
-    // Non-original modern-Windows compatibility: a virtual framebuffer must never trigger a physical 640x480 display-mode switch.
-    if(state->display_bits_per_pixel > 16)
-    {
-        state->display_mode_iterator = nullptr;
-        state->flags &= ~0x4000U;
-        return 0;
-    }
-#endif
+    // Non-original modern-Windows compatibility: expose borderless scaled fullscreen without selecting a physical 640x480 display mode.
+    state->display_mode_iterator = nullptr;
+    state->flags |= 0x4000;
+    return state->flags & 0x4000;
+#else
     std::uint32_t remaining = 0x18;
     DisplayMode *active_mode = get_current_display_mode();
     do
@@ -2134,6 +2384,7 @@ std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
         }
     } while(remaining > 8);
     return state->flags & 0x4000;
+#endif
 }
 
 // GAG.EXE: 0x0041EBD0
@@ -2241,7 +2492,7 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
         char path[MAX_PATH];
         WIN32_FIND_DATAA find_data;
         copy_string(path, state->installation_path);
-        append_string(path, "AutoSave.cdf");
+        append_string(path, auto_save_file_name);
         HANDLE find = validation_api.find_first_file(path, &find_data);
         if(find == INVALID_HANDLE_VALUE)
         {
@@ -2364,6 +2615,10 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
     {
         return nullptr;
     }
+#if defined(FREEGAG_WINDOWS_FIXES)
+    modern_windows_presentation_state = {};
+    modern_windows_fullscreen_toggle_latched = false;
+#endif
 
     state->instance = instance;
     state->message_table = application_message_table[0];
@@ -2386,15 +2641,33 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
         return nullptr;
     }
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+    {
+        // Non-original modern-Windows compatibility: restore the complete framed window rectangle, with the legacy saved point used as a migration fallback.
+        RECT windowed_rectangle{ 0, 0, width, height };
+        application_initialization_api.adjust_window_rect(&windowed_rectangle, modern_windows_windowed_style, FALSE);
+        const std::int32_t minimum_width = windowed_rectangle.right - windowed_rectangle.left;
+        const std::int32_t minimum_height = windowed_rectangle.bottom - windowed_rectangle.top;
+        windowed_rectangle = { 0, 0, minimum_width, minimum_height };
+        if(!load_saved_window_rectangle(minimum_width, minimum_height, &windowed_rectangle))
+        {
+            const std::int32_t screen_width = application_initialization_api.get_system_metrics(SM_CXSCREEN);
+            const std::int32_t screen_height = application_initialization_api.get_system_metrics(SM_CYSCREEN);
+            const std::int32_t left = (screen_width - minimum_width) / 2;
+            const std::int32_t top = (screen_height - minimum_height) / 2;
+            windowed_rectangle = { left, top, left + minimum_width, top + minimum_height };
+        }
+        modern_windows_presentation_state.windowed_rectangle = windowed_rectangle;
+        modern_windows_presentation_state.windowed_rectangle_valid = true;
+    }
+#endif
+
     state->desktop_window_rect.left = 0;
     state->desktop_window_rect.top = 0;
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: size the original Window mode for the game framebuffer and let Windows choose its initial position.
-        state->desktop_window_rect.right = width;
-        state->desktop_window_rect.bottom = height;
-        application_initialization_api.adjust_window_rect(&state->desktop_window_rect, modern_windows_windowed_style, TRUE);
+        state->desktop_window_rect = modern_windows_presentation_state.windowed_rectangle;
         state->window_top_adjustment = 0;
     }
     else
@@ -2411,7 +2684,7 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: provide a fixed-size movable frame without a sizing border or maximize button.
+        // Non-original modern-Windows compatibility: provide a freely resizable framed window around the fixed-size game framebuffer.
         window_style = modern_windows_windowed_style;
     }
 #endif
@@ -2420,8 +2693,8 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        window_x = CW_USEDEFAULT;
-        window_y = CW_USEDEFAULT;
+        window_x = state->desktop_window_rect.left;
+        window_y = state->desktop_window_rect.top;
     }
 #endif
     state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, window_x, window_y, state->desktop_window_rect.right - state->desktop_window_rect.left,
@@ -2431,7 +2704,12 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
         return nullptr;
     }
     application_initialization_api.show_window(state->window, show_command);
-    application_initialization_api.set_window_position(state->window, nullptr, 0, 0, 0, 0, 0x103);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) == 0)
+#endif
+    {
+        application_initialization_api.set_window_position(state->window, nullptr, 0, 0, 0, 0, 0x103);
+    }
 
     RECT client_rectangle;
     application_initialization_api.get_client_rect(state->window, &client_rectangle);
@@ -2717,6 +2995,12 @@ std::uint32_t __fastcall register_custom_control_class(HINSTANCE instance)
 LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     auto *state = reinterpret_cast<ApplicationState *>(main_window_procedure_api.get_window_long(window, 0));
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(message == WM_LBUTTONDOWN)
+    {
+        modern_windows_fullscreen_toggle_latched = false;
+    }
+#endif
     if(state != nullptr && (state->flags & 0x80000000) != 0 && (message < 0x30f || message > 0x311))
     {
         return 0;
@@ -2768,6 +3052,31 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     {
         return 0;
     }
+#if defined(FREEGAG_WINDOWS_FIXES)
+    else if(message == WM_GETMINMAXINFO)
+    {
+        if(state != nullptr && (state->flags & 0x80) != 0)
+        {
+            RECT minimum_rectangle{ 0, 0, state->width, state->height };
+            window_layout_api.adjust_window_rect(&minimum_rectangle, modern_windows_windowed_style, FALSE);
+            auto *minimum_information = reinterpret_cast<MINMAXINFO *>(lparam);
+            minimum_information->ptMinTrackSize.x = minimum_rectangle.right - minimum_rectangle.left;
+            minimum_information->ptMinTrackSize.y = minimum_rectangle.bottom - minimum_rectangle.top;
+            return 0;
+        }
+    }
+    else if(message == WM_SIZE)
+    {
+        if(state != nullptr && (state->flags & 0x80) != 0 && wparam != SIZE_MINIMIZED)
+        {
+            update_modern_windows_windowed_viewport(state);
+            if(wparam == SIZE_RESTORED && window_layout_api.get_window_rect(state->window, &modern_windows_presentation_state.windowed_rectangle) != FALSE)
+            {
+                modern_windows_presentation_state.windowed_rectangle_valid = true;
+            }
+        }
+    }
+#endif
     else if(message == WM_WINDOWPOSCHANGING)
     {
         auto *position = reinterpret_cast<WINDOWPOS *>(lparam);
@@ -2781,7 +3090,11 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     {
         const std::int32_t x = static_cast<std::uint16_t>(LOWORD(lparam));
         const std::int32_t y = static_cast<std::uint16_t>(HIWORD(lparam));
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(x < state->content_left || y < state->content_top || x >= state->content_right || y >= state->content_bottom)
+#else
         if(x < state->content_left || y < state->content_top || state->content_right < x || state->content_bottom < y)
+#endif
         {
             set_game_cursor_active(state, 1);
         }
@@ -2881,7 +3194,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         {
             main_window_procedure_api.application_hook_1();
             state->flags |= 0x200000;
-            copy_string(state->startup_config, "NEWGAME");
+            copy_string(state->startup_config, "NewGame.cfg");
             main_window_procedure_api.set_application_lock(state);
             main_window_procedure_api.clear_runtime_active(state);
             while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
@@ -2901,7 +3214,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             copy_string(state->startup_config, "START.CFG");
             copy_string(state->installed_version, state->installation_path);
-            append_string(state->installed_version, "CREDITS");
+            append_string(state->installed_version, auto_save_file_name);
             main_window_procedure_api.set_runtime_flag_40();
             return 0;
         }
@@ -2918,6 +3231,21 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8820)
         {
+#if defined(FREEGAG_WINDOWS_FIXES)
+            // The original toggles from the live NOCOMMENT bit. Intro trees set that bit after the persisted application preference is restored, while the menu graphic reads the application bit;
+            // toggling from the stale live value therefore makes the first click appear ineffective. With per-user persistence enabled, keep the persisted preference authoritative and derive the live
+            // inverse from the newly toggled value.
+            const bool comments_enabled = (state->flags & 0x02000000) == 0;
+            if(comments_enabled)
+            {
+                state->flags |= 0x02000000;
+            }
+            else
+            {
+                state->flags &= 0xfdffffff;
+            }
+            set_script_runtime_flags(1, !comments_enabled);
+#else
             const bool enabled = (*reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x9b4) & 1) == 0;
             if(enabled)
             {
@@ -2928,6 +3256,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
                 state->flags |= 0x02000000;
             }
             set_script_runtime_flags(1, enabled);
+#endif
             state->flags |= 0x40000;
             return 0;
         }
@@ -3032,7 +3361,9 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             else if(wparam == 0x7d4)
                 main_window_procedure_api.send_message(window, WM_COMMAND, 0x8870, 0);
             else
+            {
                 main_window_procedure_api.send_message(window, WM_COMMAND, (state->flags & 0x20) == 0 ? 0x8900 : 0x8910, 0);
+            }
             return 0;
         case 0x7e4:
             main_window_procedure_api.send_message(window, WM_COMMAND, 0x8850, 0);
@@ -3131,7 +3462,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             if((state->validation_flags & 0x100) != 0 && state->script_state != 0)
             {
-                append_string(state->installation_path, "CREDITS");
+                append_string(state->installation_path, auto_save_file_name);
                 run_synchronized_state_operation_176a0(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
             }
             save_runtime_settings(state);
@@ -3293,22 +3624,142 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
 // GAG.EXE: 0x0041D060
 void __fastcall save_runtime_settings(ApplicationState *state)
 {
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if((state->flags & 0x80) != 0)
+    {
+        save_window_position(state);
+    }
+#endif
     if(state->archive_context == nullptr)
     {
         std::uint32_t settings = state->flags & 0x02001020;
         HKEY key;
 #if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility behavior: saving requires value-write access, not full control of the HKLM key.
-        constexpr REGSAM registry_access = KEY_SET_VALUE;
+        // Non-original modern-Windows compatibility: the original HKLM write is not available to an unelevated manifested process, so persist mutable preferences per user.
+        if(settings_registry_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS)
 #else
-        constexpr REGSAM registry_access = KEY_ALL_ACCESS;
+        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
 #endif
-        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, registry_access, &key) == ERROR_SUCCESS)
         {
             settings_registry_api.set_value(key, "set", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&settings), sizeof(settings));
             settings_registry_api.close_key(key);
         }
     }
+}
+
+bool load_saved_window_position(std::int32_t width, std::int32_t height, POINT *position)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    HKEY key;
+    if(position == nullptr || window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    {
+        return false;
+    }
+
+    POINT saved_position{};
+    DWORD type = 0;
+    DWORD size = sizeof(saved_position);
+    const LSTATUS query_result = window_position_persistence_api.query_value(key, "WindowPosition", nullptr, &type, reinterpret_cast<BYTE *>(&saved_position), &size);
+    window_position_persistence_api.close_key(key);
+    if(query_result != ERROR_SUCCESS || type != REG_BINARY || size != sizeof(saved_position))
+    {
+        return false;
+    }
+
+    RECT saved_rectangle{ saved_position.x, saved_position.y, saved_position.x + width, saved_position.y + height };
+    if(window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) == nullptr)
+    {
+        return false;
+    }
+    *position = saved_position;
+    return true;
+#else
+    (void)width;
+    (void)height;
+    (void)position;
+    return false;
+#endif
+}
+
+bool load_saved_window_rectangle(std::int32_t minimum_width, std::int32_t minimum_height, RECT *rectangle)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(rectangle == nullptr)
+    {
+        return false;
+    }
+
+    const std::int32_t fallback_width = rectangle->right - rectangle->left;
+    const std::int32_t fallback_height = rectangle->bottom - rectangle->top;
+    HKEY key;
+    if(window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    {
+        return false;
+    }
+
+    RECT saved_rectangle{};
+    DWORD type = 0;
+    DWORD size = sizeof(saved_rectangle);
+    LSTATUS query_result = window_position_persistence_api.query_value(key, "WindowRectangle", nullptr, &type, reinterpret_cast<BYTE *>(&saved_rectangle), &size);
+    bool valid = query_result == ERROR_SUCCESS && type == REG_BINARY && size == sizeof(saved_rectangle) && saved_rectangle.right - saved_rectangle.left >= minimum_width
+              && saved_rectangle.bottom - saved_rectangle.top >= minimum_height && window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
+    if(!valid)
+    {
+        POINT saved_position{};
+        type = 0;
+        size = sizeof(saved_position);
+        query_result = window_position_persistence_api.query_value(key, "WindowPosition", nullptr, &type, reinterpret_cast<BYTE *>(&saved_position), &size);
+        saved_rectangle = { saved_position.x, saved_position.y, saved_position.x + fallback_width, saved_position.y + fallback_height };
+        valid = query_result == ERROR_SUCCESS && type == REG_BINARY && size == sizeof(saved_position)
+             && window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
+    }
+    window_position_persistence_api.close_key(key);
+    if(valid)
+    {
+        *rectangle = saved_rectangle;
+    }
+    return valid;
+#else
+    (void)minimum_width;
+    (void)minimum_height;
+    (void)rectangle;
+    return false;
+#endif
+}
+
+void save_window_position(ApplicationState *state)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(state == nullptr || state->window == nullptr)
+    {
+        return;
+    }
+    RECT rectangle{};
+    WINDOWPLACEMENT placement{};
+    placement.length = sizeof(placement);
+    if(window_position_persistence_api.get_window_placement(state->window, &placement) != FALSE)
+    {
+        rectangle = placement.rcNormalPosition;
+    }
+    else if(window_position_persistence_api.get_window_rect(state->window, &rectangle) == FALSE)
+    {
+        return;
+    }
+
+    HKEY key;
+    if(window_position_persistence_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+    {
+        return;
+    }
+    const POINT position{ rectangle.left, rectangle.top };
+    window_position_persistence_api.set_value(key, "WindowRectangle", 0, REG_BINARY, reinterpret_cast<const BYTE *>(&rectangle), sizeof(rectangle));
+    window_position_persistence_api.set_value(key, "WindowPosition", 0, REG_BINARY, reinterpret_cast<const BYTE *>(&position), sizeof(position));
+    window_position_persistence_api.close_key(key);
+    modern_windows_presentation_state.windowed_rectangle = rectangle;
+    modern_windows_presentation_state.windowed_rectangle_valid = true;
+#else
+    (void)state;
+#endif
 }
 
 // GAG.EXE: 0x0041D0D0
@@ -3343,11 +3794,63 @@ void __fastcall finish_credits_state(ApplicationState *state, StateFieldReferenc
 }
 
 // GAG.EXE: 0x0041CE60
+void update_modern_windows_windowed_viewport(ApplicationState *state)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(state == nullptr || state->window == nullptr || (state->flags & 0x80) == 0)
+    {
+        return;
+    }
+    RECT client_rectangle{};
+    if(window_layout_api.get_client_rect(state->window, &client_rectangle) == FALSE)
+    {
+        return;
+    }
+    const RECT viewport = calculate_modern_windows_windowed_viewport(client_rectangle.right - client_rectangle.left, client_rectangle.bottom - client_rectangle.top, state->width, state->height,
+        modern_windows_windowed_scaling);
+    state->content_left = viewport.left;
+    state->content_top = viewport.top;
+    state->content_right = viewport.right;
+    state->content_bottom = viewport.bottom;
+    modern_windows_presentation_state.viewport_width = viewport.right - viewport.left;
+    modern_windows_presentation_state.viewport_height = viewport.bottom - viewport.top;
+    if(state->capture_window != nullptr)
+    {
+        window_layout_api.set_window_position(state->capture_window, nullptr, viewport.left, viewport.top, modern_windows_presentation_state.viewport_width,
+            modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
+        window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
+    }
+    window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
+    if(state->game_context != nullptr)
+    {
+        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
+        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
+    }
+#else
+    (void)state;
+#endif
+}
+
 void __fastcall update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
 {
     if(secondary_layout != nullptr)
     {
         secondary_layout->state = 0;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if((state->flags & 0x80) != 0)
+        {
+            // Non-original modern-Windows compatibility: Windows owns the freely resizable framed window dimensions.
+            return;
+        }
+        secondary_layout->flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+        secondary_layout->x = state->desktop_window_rect.left;
+        secondary_layout->y = state->desktop_window_rect.top;
+        secondary_layout->width = state->desktop_window_rect.right - state->desktop_window_rect.left;
+        secondary_layout->height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
+        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, modern_windows_presentation_state.viewport_width,
+            modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
+        return;
+#else
         secondary_layout->flags &= 0xfffffff8;
         secondary_layout->x = state->desktop_window_rect.left;
         secondary_layout->y = state->desktop_window_rect.top;
@@ -3355,6 +3858,7 @@ void __fastcall update_application_window_layout(ApplicationState *state, Second
         secondary_layout->height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
         window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
         return;
+#endif
     }
 
     state->desktop_window_rect.left = 0;
@@ -3362,67 +3866,116 @@ void __fastcall update_application_window_layout(ApplicationState *state, Second
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: preserve a framebuffer-sized centered window when entering or restoring Window mode.
         if(state->window != nullptr)
         {
             // Non-original modern-Windows compatibility: replacing GWL_STYLE after ShowWindow must retain visibility or Windows excludes the stale-looking frame from hit testing.
             window_layout_api.set_window_long(state->window, GWL_STYLE, modern_windows_windowed_style | WS_VISIBLE);
         }
-        state->desktop_window_rect.right = state->width;
-        state->desktop_window_rect.bottom = state->height;
-        window_layout_api.adjust_window_rect(&state->desktop_window_rect, modern_windows_windowed_style, TRUE);
-        const std::int32_t outer_width = state->desktop_window_rect.right - state->desktop_window_rect.left;
-        const std::int32_t outer_height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
-        state->desktop_window_rect.left = (window_layout_api.get_system_metrics(SM_CXSCREEN) - outer_width) / 2;
-        state->desktop_window_rect.top = (window_layout_api.get_system_metrics(SM_CYSCREEN) - outer_height) / 2;
-        state->desktop_window_rect.right = state->desktop_window_rect.left + outer_width;
-        state->desktop_window_rect.bottom = state->desktop_window_rect.top + outer_height;
         state->window_top_adjustment = 0;
+
+        if(modern_windows_presentation_state.fullscreen && modern_windows_presentation_state.windowed_rectangle_valid && state->window != nullptr)
+        {
+            const RECT &rectangle = modern_windows_presentation_state.windowed_rectangle;
+            window_layout_api.set_window_position(state->window, nullptr, rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top,
+                SWP_FRAMECHANGED | SWP_NOCOPYBITS);
+            state->desktop_window_rect = rectangle;
+        }
+        else if(state->window != nullptr)
+        {
+            window_layout_api.get_window_rect(state->window, &state->desktop_window_rect);
+        }
+        modern_windows_presentation_state.fullscreen = false;
     }
     else
-#endif
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
+        if(!modern_windows_presentation_state.fullscreen && !modern_windows_presentation_state.windowed_rectangle_valid && state->window != nullptr)
+        {
+            modern_windows_presentation_state.windowed_rectangle_valid = window_layout_api.get_window_rect(state->window, &modern_windows_presentation_state.windowed_rectangle) != FALSE;
+        }
         if(state->window != nullptr)
         {
             window_layout_api.set_window_long(state->window, GWL_STYLE, 0x82000000 | WS_VISIBLE);
         }
-#endif
+
+        MONITORINFO monitor_info{};
+        monitor_info.cbSize = sizeof(monitor_info);
+        const HMONITOR monitor = state->window != nullptr ? window_layout_api.monitor_from_window(state->window, MONITOR_DEFAULTTONEAREST) : nullptr;
+        if(monitor == nullptr || window_layout_api.get_monitor_info(monitor, &monitor_info) == FALSE)
+        {
+            monitor_info.rcMonitor = { 0, 0, window_layout_api.get_system_metrics(SM_CXSCREEN), window_layout_api.get_system_metrics(SM_CYSCREEN) };
+        }
+        state->desktop_window_rect = monitor_info.rcMonitor;
+        state->window_top_adjustment = 0;
+
+        const std::int32_t monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+        const std::int32_t monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
+        const RECT viewport = calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, state->width, state->height, modern_windows_fullscreen_scaling);
+        state->content_left = viewport.left;
+        state->content_top = viewport.top;
+        state->content_right = viewport.right;
+        state->content_bottom = viewport.bottom;
+        modern_windows_presentation_state.fullscreen = true;
+        modern_windows_presentation_state.viewport_width = viewport.right - viewport.left;
+        modern_windows_presentation_state.viewport_height = viewport.bottom - viewport.top;
+    }
+#else
+    {
         state->desktop_window_rect.right = window_layout_api.get_system_metrics(SM_CXSCREEN);
         state->desktop_window_rect.bottom = window_layout_api.get_system_metrics(SM_CYSCREEN);
         window_layout_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
         state->desktop_window_rect.top -= window_layout_api.get_system_metrics(SM_CYMENU);
         state->window_top_adjustment = 1 - state->desktop_window_rect.top;
     }
+#endif
     if(state->window != nullptr && state->capture_window != nullptr)
     {
-        UINT position_flags = 0x100;
 #if defined(FREEGAG_WINDOWS_FIXES)
-        position_flags |= SWP_FRAMECHANGED;
+        if((state->flags & 0x80) == 0)
+        {
+            window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
+                state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, SWP_FRAMECHANGED | SWP_NOCOPYBITS);
+        }
+#else
+        {
+            UINT position_flags = 0x100;
+            window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
+                state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, position_flags);
+        }
 #endif
-        window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
-            state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, position_flags);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if((state->flags & 0x80) != 0)
+        {
+            update_modern_windows_windowed_viewport(state);
+        }
+        else
+        {
+            window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, modern_windows_presentation_state.viewport_width,
+                modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
+        }
+        if((state->flags & 0x80) == 0)
+        {
+            window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
+            window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
+        }
+#else
         RECT client_rect;
         window_layout_api.get_client_rect(state->window, &client_rect);
         state->content_left = (client_rect.right - state->width) / 2;
         state->content_right = state->content_left + state->width;
-#if defined(FREEGAG_WINDOWS_FIXES)
-        if((state->flags & 0x80) != 0)
-        {
-            state->content_top = (client_rect.bottom - state->height) / 2;
-        }
-        else
-#endif
         {
             state->content_top = ((client_rect.bottom - state->desktop_window_rect.top) - state->height) / 2 - 1;
         }
         state->content_bottom = state->content_top + state->height;
         window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
+#endif
         window_layout_api.set_focus(state->capture_window);
         window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
     }
-    *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
-    *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
+    if(state->game_context != nullptr)
+    {
+        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
+        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
+    }
 }
 
 void set_window_layout_api_for_testing(const WindowLayoutApi &api)
@@ -3436,6 +3989,13 @@ void __fastcall restore_application_display(ApplicationState *state)
     if((state->flags & 0x80) == 0)
     {
         state->flags |= 0x20;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(!modern_windows_presentation_state.fullscreen)
+        {
+            // Preserve the latest framed position even when the application is later closed while fullscreen is active.
+            save_window_position(state);
+        }
+#endif
     }
     window_layout_api.set_window_position(state->capture_window, nullptr, -state->width, -state->height, 0, 0, 0x105);
     switch_display_mode_if_enabled(state, (state->flags & 0x80) == 0);
@@ -3530,10 +4090,9 @@ void __fastcall save_application_state_interactive(ApplicationState *state, void
 {
     void *memory;
     std::uint32_t script_state;
-    std::uint32_t captured_size;
     if((state->flags & 0x80000) == 0)
     {
-        memory = save_state_api.capture_state(state->game_context, &captured_size, 1);
+        memory = save_state_api.capture_state(state->game_context, nullptr, 1);
         script_state = save_state_api.get_script_state();
         state->script_state = script_state;
     }
@@ -3661,6 +4220,10 @@ void __fastcall switch_display_mode_if_enabled(ApplicationState *state, int rest
     if((state->flags & 0x4020) == 0x4020)
     {
         state->flags |= 0x80000000;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility: fullscreen is a borderless window and never changes the physical display mode.
+        (void)restore_current;
+#else
         if(restore_current != 0)
         {
             display_switch_api.select_mode(state->display_mode_iterator);
@@ -3669,6 +4232,7 @@ void __fastcall switch_display_mode_if_enabled(ApplicationState *state, int rest
         {
             display_switch_api.restore_current_mode();
         }
+#endif
         state->flags &= 0x7fffffff;
     }
 }
@@ -3679,7 +4243,7 @@ void enable_runtime_subsystem()
     if((graphics_host_flags & 2) == 0)
     {
         graphics_host_flags |= 2;
-        runtime_subsystem_callback();
+        toggle_runtime_sound_state();
     }
 }
 
@@ -3689,16 +4253,16 @@ void disable_runtime_subsystem()
     if((graphics_host_flags & 2) != 0)
     {
         graphics_host_flags &= 0xfffffffd;
-        runtime_subsystem_callback();
+        toggle_runtime_sound_state();
     }
 }
 
 // GAG.EXE: 0x00404980
 void __fastcall set_active_object_field_0824(std::uint32_t value)
 {
-    if(active_object != nullptr)
+    if(script_runtime_root != nullptr)
     {
-        *reinterpret_cast<std::uint32_t *>(active_object + 0x824) = value;
+        script_runtime_root->state_value_0824 = value;
     }
 }
 
@@ -4104,7 +4668,16 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
 // GAG.EXE: 0x00420910
 void __fastcall enqueue_runtime_pair(std::uint32_t first, std::uint32_t second)
 {
-    if((graphics_host_flags & 0x100400) == 0x100400)
+    bool input_enabled = (graphics_host_flags & 0x100400) == 0x100400;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    // A borderless transition temporarily clears the original queue-enable bit while the capture child remains interactive. Retain the physical release, but not resize-generated moves that would
+    // change the active game region before that release is applied.
+    if(modern_windows_presentation_state.fullscreen && (graphics_host_flags & 0x400) != 0 && first == WM_LBUTTONUP)
+    {
+        input_enabled = true;
+    }
+#endif
+    if(input_enabled)
     {
         runtime_queue_api.enter_pair_lock();
         runtime_display_context.pair_available = 1;
@@ -4230,11 +4803,11 @@ RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing()
 }
 
 // GAG.EXE: 0x00426560
-RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *creation_context, void *)
+RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
 {
     runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0xf0000000, 0);
     RuntimeGenericResourceNode *resource = runtime_tree_activation_api.find_or_load_resource(resource_name);
-    RuntimeTreeNode *node = runtime_tree_activation_api.create_tree_node(resource, creation_context, tree_name, creation_context);
+    RuntimeTreeNode *node = runtime_tree_activation_api.create_tree_node(resource, parent_selector, tree_name, creation_context);
     if(node != nullptr)
     {
         if((node->flags & 0x1000) != 0 || node->name[0] == 0)
@@ -4455,6 +5028,25 @@ void set_runtime_script_executor_api_for_testing(const RuntimeScriptExecutorApi 
     runtime_script_executor_api = api;
 }
 
+bool should_send_runtime_script_message(std::int32_t command)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    // The modern transition can release ReplyMessage's script caller before the UI thread finishes the original callback. Suppress another synchronous 2010 send from that same physical press at
+    // the sending boundary, where it cannot block waiting for the still-busy UI thread.
+    if(command == 0x7da)
+    {
+        if(modern_windows_fullscreen_toggle_latched)
+        {
+            return false;
+        }
+        modern_windows_fullscreen_toggle_latched = true;
+    }
+#else
+    (void)command;
+#endif
+    return true;
+}
+
 // Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
 RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, std::uint32_t opcode,
     std::int32_t random_value, std::uint32_t saved_cursor)
@@ -4526,7 +5118,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             }
             state->runtime_tree_identity = deactivated;
             refresh_runtime_pointer_region();
-            return RuntimeScriptOpcodeDisposition::restart_outer;
+            // GAG.EXE reaches 0x0042317D directly after replacing this root, so the released link/parser is not touched by the common tail.
+            return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
         }
 
         destroy_runtime_tree_resources(target);
@@ -4552,7 +5145,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         }
         rebuild_runtime_pointer_resources();
         refresh_runtime_pointer_region();
-        return continuation == nullptr ? RuntimeScriptOpcodeDisposition::restart_outer : RuntimeScriptOpcodeDisposition::complete;
+        // A missing continuation branches directly to 0x0042317D because deactivation may have released the current link.
+        return continuation == nullptr ? RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor : RuntimeScriptOpcodeDisposition::complete;
     }
 
     case 0xa0000000:
@@ -4811,7 +5405,10 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 }
                 parameter = reinterpret_cast<LPARAM>(&snapshot);
             }
-            result = static_cast<std::uint32_t>(SendMessageA(runtime_display_context.window, 0x7ffd, static_cast<WPARAM>(command), parameter));
+            if(should_send_runtime_script_message(command))
+            {
+                result = static_cast<std::uint32_t>(SendMessageA(runtime_display_context.window, 0x7ffd, static_cast<WPARAM>(command), parameter));
+            }
         }
         if(result != 0)
         {
@@ -4824,7 +5421,9 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             }
         }
         state->external_command_pending = 0;
-        return result == 0 ? RuntimeScriptOpcodeDisposition::complete : RuntimeScriptOpcodeDisposition::restart_outer;
+        // GAG.EXE: 0x00422188 jumps directly to 0x0042317D when the modal/external command changed runtime state. That bypasses the common saved-cursor restore at 0x00422E5A, so execution must resume
+        // after this /MESSAGE rather than issue it again.
+        return result == 0 ? RuntimeScriptOpcodeDisposition::complete : RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
     }
 
     case 0x400:
@@ -5300,7 +5899,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         reset_runtime_session();
         SendMessageA(runtime_display_context.window, 0x7ffd, 0x10000000, 0);
         state->flags &= 0xffefffff;
-        return RuntimeScriptOpcodeDisposition::restart_outer;
+        // GAG.EXE jumps directly to 0x0042317D after the session reset rather than restoring the old parser cursor.
+        return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
 
     case 0xe0000:
         if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
@@ -5452,7 +6052,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         }
         state->runtime_tree_identity = published_identity;
         refresh_runtime_pointer_region();
-        return RuntimeScriptOpcodeDisposition::restart_outer;
+        // GAG.EXE jumps directly to 0x0042317D, bypassing the common saved-cursor restore at 0x00422E5A.
+        return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
     }
 
     case 0x60000:
@@ -5549,6 +6150,13 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
                             else if(disposition == RuntimeScriptOpcodeDisposition::commit_cursor)
                             {
                                 saved_cursor = parser->cursor;
+                            }
+                            else if(disposition == RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor)
+                            {
+                                // GAG.EXE branches directly to the outer loop for this disposition. The command may have destroyed the current tree/link, so neither parser read nor write is valid
+                                // here.
+                                restart_outer = true;
+                                break;
                             }
                             parser->cursor = saved_cursor;
                             if(disposition == RuntimeScriptOpcodeDisposition::restart_outer)
@@ -7554,8 +8162,6 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
     display_pending_rectangle = {};
     display_width = 0;
     display_height = 0;
-    display_scene_surface_state.width = 0;
-    display_scene_surface_state.height = 0;
     display_scene_sync_api.synchronize = nullptr;
     display_scene_sync_context = nullptr;
     display_scene_worker_interval = 0;
@@ -7581,8 +8187,6 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
 
     display_width = width;
     display_height = height;
-    display_scene_surface_state.width = width;
-    display_scene_surface_state.height = height;
     display_lock_flags = 1;
     display_scene_root_primary_position = primary_position;
     display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
@@ -8011,8 +8615,6 @@ int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRec
             {
                 display_width = geometry.right;
                 display_height = geometry.bottom;
-                display_scene_surface_state.width = geometry.right;
-                display_scene_surface_state.height = geometry.bottom;
             }
             queue_display_rectangle(&geometry);
             display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
@@ -8196,29 +8798,7 @@ void shutdown_display_mode_host()
     display_palette_flags &= 0x7fffffff;
     display_mode_host_shutdown_api.delete_critical_section(&display_host_critical_section);
 
-    display_palette_flags = 0;
-    std::memset(&display_host_critical_section, 0, sizeof(display_host_critical_section));
-    current_display_mode = nullptr;
-    display_direct_draw = nullptr;
-    display_direct_draw_primary_surface = nullptr;
-    display_direct_draw_secondary_surface = nullptr;
-    display_mode_head = nullptr;
-    display_mode_tail = nullptr;
-    display_mode_iterator = nullptr;
-    display_mode_count = 0;
-    display_palette_bits_per_pixel = 0;
-    display_palette_surface_bits_per_pixel = 0;
-    display_palette_dc = nullptr;
-    display_palette_dib_dc = nullptr;
-    display_palette = nullptr;
-    display_palette_bitmap = nullptr;
-    display_palette_window = nullptr;
-    display_palette_previous_palette = nullptr;
-    display_palette_previous_bitmap = nullptr;
-    display_palette_pixels = nullptr;
-    display_palette_width = 0;
-    display_palette_height = 0;
-    std::memset(display_palette_entries, 0, sizeof(display_palette_entries));
+    std::memset(&display_mode_host_state, 0, sizeof(display_mode_host_state));
 }
 
 void set_display_mode_host_shutdown_api_for_testing(const DisplayModeHostShutdownApi &api)
@@ -8329,21 +8909,30 @@ std::uint32_t restore_active_display_mode()
 // GAG.EXE: 0x0041F9C0
 std::uint32_t __fastcall set_active_display_mode_if_graphics_ready(DisplayMode *mode)
 {
+#if defined(FREEGAG_WINDOWS_FIXES)
+    (void)mode;
+    return 0;
+#else
     if((graphics_host_flags & 0x800) != 0)
     {
         return set_active_display_mode(mode);
     }
     return 0x200000;
+#endif
 }
 
 // GAG.EXE: 0x0041F9E0
 std::uint32_t restore_active_display_mode_if_graphics_ready()
 {
+#if defined(FREEGAG_WINDOWS_FIXES)
+    return 0;
+#else
     if((graphics_host_flags & 0x800) != 0)
     {
         return restore_active_display_mode();
     }
     return 0x200000;
+#endif
 }
 
 // GAG.EXE: 0x00413590
@@ -8412,11 +9001,31 @@ void __fastcall operate_display_surface(std::int32_t x, std::int32_t y, std::int
     }
     else if(mode == 1)
     {
-        display_surface_operation_api.bit_blt(display_palette_dc, x, y, width, height, display_palette_dib_dc, x, y, SRCCOPY);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(modern_windows_presentation_is_scaled())
+        {
+            display_surface_operation_api.stretch_blt(display_palette_dc, 0, 0, modern_windows_presentation_state.viewport_width, modern_windows_presentation_state.viewport_height,
+                display_palette_dib_dc, 0, 0, display_palette_width, display_palette_height, SRCCOPY);
+        }
+        else
+#endif
+        {
+            display_surface_operation_api.bit_blt(display_palette_dc, x, y, width, height, display_palette_dib_dc, x, y, SRCCOPY);
+        }
     }
     else if(mode == 2)
     {
-        display_surface_operation_api.pat_blt(display_palette_dc, x, y, width, height, BLACKNESS);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(modern_windows_presentation_is_scaled())
+        {
+            const RECT rectangle = map_modern_windows_presentation_rectangle(x, y, x + width, y + height, display_palette_width, display_palette_height);
+            display_surface_operation_api.pat_blt(display_palette_dc, rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top, BLACKNESS);
+        }
+        else
+#endif
+        {
+            display_surface_operation_api.pat_blt(display_palette_dc, x, y, width, height, BLACKNESS);
+        }
     }
     display_palette_api.leave_lock();
 }
@@ -8456,8 +9065,19 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
     }
     else if(mode == 1)
     {
-        const BOOL result = display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top,
-            display_palette_dib_dc, rectangle->left, rectangle->top, SRCCOPY);
+        BOOL result;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(modern_windows_presentation_is_scaled())
+        {
+            result = display_region_synchronization_api.stretch_blt(display_palette_dc, 0, 0, modern_windows_presentation_state.viewport_width, modern_windows_presentation_state.viewport_height,
+                display_palette_dib_dc, 0, 0, display_palette_width, display_palette_height, SRCCOPY);
+        }
+        else
+#endif
+        {
+            result = display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top,
+                display_palette_dib_dc, rectangle->left, rectangle->top, SRCCOPY);
+        }
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
         static std::uint32_t traced_presentations = 0;
         if(traced_presentations < 8)
@@ -8484,7 +9104,17 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
     }
     else if(mode == 2)
     {
-        display_region_synchronization_api.pat_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, BLACKNESS);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(modern_windows_presentation_is_scaled())
+        {
+            const RECT destination = map_modern_windows_presentation_rectangle(rectangle->left, rectangle->top, rectangle->right, rectangle->bottom, display_palette_width, display_palette_height);
+            display_region_synchronization_api.pat_blt(display_palette_dc, destination.left, destination.top, destination.right - destination.left, destination.bottom - destination.top, BLACKNESS);
+        }
+        else
+#endif
+        {
+            display_region_synchronization_api.pat_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, BLACKNESS);
+        }
     }
     display_region_synchronization_api.leave_critical_section(&display_host_critical_section);
 }
@@ -8647,6 +9277,9 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
     else
     {
         display_palette_dc = display_surface_creation_api.get_dc(display_palette_window);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        display_surface_creation_api.set_stretch_blt_mode(display_palette_dc, COLORONCOLOR);
+#endif
         display_palette_dib_dc = display_surface_creation_api.create_compatible_dc(display_palette_dc);
         if(display_palette_dib_dc == nullptr)
         {
@@ -8669,13 +9302,9 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                 if(format->bits_per_pixel == 8)
                 {
                     std::memset(display_palette_entries, 0, sizeof(display_palette_entries));
-                    struct Palette256
-                    {
-                        WORD version;
-                        WORD count;
-                        PALETTEENTRY entries[0x100];
-                    } palette{ 0x300, 0x100, {} };
-                    display_palette = display_surface_creation_api.create_palette(reinterpret_cast<const LOGPALETTE *>(&palette));
+                    display_mode_host_state.palette_version = 0x300;
+                    display_mode_host_state.palette_count = 0x100;
+                    display_palette = display_surface_creation_api.create_palette(reinterpret_cast<const LOGPALETTE *>(&display_mode_host_state.palette_version));
                     if(display_palette != nullptr)
                     {
                         display_palette_previous_palette = display_surface_creation_api.select_palette(display_palette_dc, display_palette, FALSE);
@@ -8857,7 +9486,7 @@ UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::
     UINT result = 0;
     if((display_palette_flags & 0x100002) != 0 && display_palette_bits_per_pixel == 8)
     {
-        if(display_palette_surface_bits_per_pixel == 8)
+        if(current_display_mode->bits_per_pixel == 8)
         {
             if((display_palette_flags & 0x10000) == 0)
             {
@@ -9241,8 +9870,6 @@ void set_display_lock_acquire_state_for_testing(HANDLE gate_event, std::uint32_t
     display_pending_rectangle = pending_rectangle;
     display_width = width;
     display_height = height;
-    display_scene_surface_state.width = width;
-    display_scene_surface_state.height = height;
     display_scene_head = scene_head;
     display_scene_count = 0;
     for(DisplaySceneNode *node = scene_head; node != nullptr; node = node->next)
@@ -9325,9 +9952,11 @@ void set_display_surface_creation_api_for_testing(const DisplaySurfaceCreationAp
 void set_display_palette_state_for_testing(std::uint32_t flags, std::int32_t display_bits_per_pixel, std::int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette,
     std::int32_t width, std::int32_t height)
 {
+    static DisplayMode surface_mode;
     display_palette_flags = flags;
     display_palette_bits_per_pixel = display_bits_per_pixel;
-    display_palette_surface_bits_per_pixel = surface_bits_per_pixel;
+    surface_mode.bits_per_pixel = surface_bits_per_pixel;
+    current_display_mode = &surface_mode;
     display_palette_dc = palette_dc;
     display_palette_dib_dc = dib_dc;
     display_palette = palette;
@@ -9489,6 +10118,11 @@ void set_settings_registry_api_for_testing(const SettingsRegistryApi &api)
     settings_registry_api = api;
 }
 
+void set_window_position_persistence_api_for_testing(const WindowPositionPersistenceApi &api)
+{
+    window_position_persistence_api = api;
+}
+
 void set_cursor_visibility_api_for_testing(const CursorVisibilityApi &api)
 {
     cursor_visibility_api = api;
@@ -9499,19 +10133,9 @@ void set_finish_credits_callback_for_testing(void (*callback)())
     finish_credits_callback = callback;
 }
 
-void set_runtime_subsystem_callback_for_testing(void (*callback)())
-{
-    runtime_subsystem_callback = callback;
-}
-
 void set_display_switch_api_for_testing(const DisplaySwitchApi &api)
 {
     display_switch_api = api;
-}
-
-void set_active_object_for_testing(void *object)
-{
-    active_object = static_cast<std::uint8_t *>(object);
 }
 
 std::uint32_t get_graphics_host_flags_for_testing()
@@ -9702,10 +10326,10 @@ void __fastcall append_script_text_property(ScriptTextBuffer *buffer, std::uint3
         name = "section";
         break;
     case 0x0f:
-        name = "font";
+        name = "time";
         break;
     case 0x10:
-        name = "time";
+        name = "font";
         break;
     case 0x20:
         name = "language";
@@ -10930,13 +11554,16 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
     if(fixed_dword_memory_equal(token, "PARAM", 4))
     {
         parse_script_value_token(parser, token, sizeof(token));
+        // The evaluator materializes the parameter before checking its type, so
+        // the original supplies enough temporary storage for any typed value.
+        std::uint32_t parameter_value[8];
         std::uint32_t value_type = 2;
-        if(script_integer_expression_api.evaluate_parameter(parser, token, &result, &value_type) == 0)
+        if(script_integer_expression_api.evaluate_parameter(parser, token, parameter_value, &value_type) == 0)
         {
             parser->cursor = saved_cursor;
             return 0x7fffffff;
         }
-        return result;
+        return static_cast<std::int32_t>(parameter_value[0]);
     }
     if(fixed_dword_memory_equal(token, "RAND", 4))
     {
@@ -11056,7 +11683,7 @@ std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, cha
         char parameter_name[0x20];
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
         std::uint32_t value_type = 4;
-        result = script_value_parse_api.evaluate_parameter(parser, parameter_name, value, &value_type) == 0 ? 0 : 0x20;
+        result = script_value_parse_api.evaluate_parameter(parser, parameter_name, value, &value_type) == 0 ? 0xffffffff : 0x20;
     }
     if(fixed_dword_memory_equal(value, "SVALUE", 4))
     {
@@ -11064,7 +11691,7 @@ std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, cha
         char field_name[0x20];
         parse_script_value_token(parser, object_name, sizeof(object_name));
         parse_script_value_token(parser, field_name, sizeof(field_name));
-        result = get_script_object_string(object_name, field_name, value) == 0 ? 0 : 0x20;
+        result = get_script_object_string(object_name, field_name, value) == 0 ? 0xffffffff : 0x20;
     }
     return result;
 }
@@ -11095,13 +11722,15 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
     {
         char parameter_name[0x20];
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
+        // Match the original 0x20-byte temporary: a mismatched parameter may
+        // be a string, and the evaluator writes it before reporting mismatch.
+        std::uint32_t parameter_value[8];
         std::uint32_t value_type = 1;
-        std::uint32_t value;
-        if(script_value_parse_api.evaluate_parameter(parser, parameter_name, &value, &value_type) == 0)
+        if(script_value_parse_api.evaluate_parameter(parser, parameter_name, parameter_value, &value_type) == 0)
         {
             return 0xffffffff;
         }
-        return value;
+        return parameter_value[0];
     }
 
     struct ImageFlagMapping
@@ -11503,9 +12132,9 @@ std::uint32_t __fastcall parse_script_property_code(ScriptParserState *parser)
         { "sublocation", 0x0a },
         { "section",     0x0e },
         { "source",      0x0d },
-        { "font",        0x0f },
+        { "font",        0x10 },
         { "fademask",    0x0b },
-        { "time",        0x10 },
+        { "time",        0x0f },
         { "text",        0x30 },
         { "language",    0x20 },
         { "inventory",   0x40 },
@@ -15130,8 +15759,8 @@ void __fastcall process_available_runtime_generic_children(std::uint32_t maximum
             {
                 context[1] = runtime_generic_child_scene_api.find_scene_index(0x80000);
             }
-            std::int32_t x = static_cast<std::int32_t>(state[2]);
-            std::int32_t y = static_cast<std::int32_t>(state[3]);
+            std::int32_t x = static_cast<std::int32_t>(state[5]);
+            std::int32_t y = static_cast<std::int32_t>(state[6]);
             if((runtime_pointer_event_record[14] & 1) != 0)
             {
                 x = 10000;
@@ -15730,6 +16359,8 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
                 }
             }
             break;
+        case '[':
+            goto release;
         case '\\':
             if(end - 1 <= cursor)
             {
@@ -16512,7 +17143,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
         std::uint32_t candidate = 1;
         do
         {
-            if(runtime_sound_slots[candidate].active == 0)
+            if(runtime_sound_slots[candidate].active != 0)
             {
                 break;
             }
@@ -16604,14 +17235,6 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
         slot.conversion_flags = conversion_flags;
         slot.transition_flags = 0;
         slot.active = 1;
-        if(handle == 0x400)
-        {
-            runtime_sound_fault = slot.playing;
-            runtime_sound_output_initialized = slot.playback_state;
-            runtime_sound_thread_id = slot.loop_value_1;
-            const std::uintptr_t window_value = reinterpret_cast<std::uintptr_t>(runtime_sound_window);
-            runtime_sound_window = reinterpret_cast<HWND>((window_value & 0x0000ff00u) | (static_cast<std::uintptr_t>(slot.conversion_flags) << 16) | slot.volume);
-        }
         if(runtime_sound_maximum_handle <= handle)
         {
             runtime_sound_maximum_handle = handle;
@@ -17053,7 +17676,7 @@ DWORD WINAPI run_runtime_sound_thread(LPVOID)
 {
     runtime_sound_window_creation_failed = 0;
     runtime_sound_window =
-        runtime_sound_thread_api.create_window_ex(0, "SoundClassName", nullptr, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 0x244, 0x1e0, nullptr, nullptr, runtime_sound_instance, nullptr);
+        runtime_sound_thread_api.create_window_ex(0, runtime_sound_window_class_name, nullptr, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 0x244, 0x1e0, nullptr, nullptr, runtime_sound_instance, nullptr);
     if(runtime_sound_window == nullptr)
     {
         runtime_sound_window_creation_failed = 1;
@@ -17549,7 +18172,7 @@ void __fastcall initialize_runtime_sound_class(HINSTANCE instance)
     WNDCLASSA window_class{};
     window_class.lpfnWndProc = runtime_sound_window_procedure;
     window_class.hInstance = instance;
-    window_class.lpszClassName = "SoundClassName";
+    window_class.lpszClassName = runtime_sound_window_class_name;
     runtime_sound_instance = instance;
     if(runtime_sound_class_api.register_class(&window_class) != 0)
     {
@@ -17832,8 +18455,8 @@ void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scen
             {
                 RuntimeSoundSlot *slot = runtime_resource_construction_api.get_sound_slot(sound);
                 auto *wave = static_cast<std::uint8_t *>(data) + 0x24;
-                const std::uint32_t marker = 1;
-                while(!fixed_dword_memory_equal(wave, &marker, 4))
+                constexpr char wave_data_chunk_id[4]{ 'd', 'a', 't', 'a' };
+                while(!fixed_dword_memory_equal(wave, wave_data_chunk_id, sizeof(wave_data_chunk_id)))
                 {
                     ++wave;
                 }
@@ -18408,14 +19031,37 @@ void __fastcall update_runtime_pointer_position(std::int32_t x, std::int32_t y)
 // GAG.EXE: 0x004231E0
 LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(message == WM_LBUTTONDOWN)
+    {
+        modern_windows_fullscreen_toggle_latched = false;
+    }
+#endif
+    const auto input_lparam = [&]() -> LPARAM
+    {
+#if defined(FREEGAG_WINDOWS_FIXES)
+        if(modern_windows_presentation_is_scaled()
+            && (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN
+                || message == WM_MBUTTONUP))
+        {
+            const std::int32_t x =
+                map_modern_windows_presentation_coordinate(static_cast<std::uint16_t>(LOWORD(lparam)), modern_windows_presentation_state.viewport_width, runtime_game_host_context.width);
+            const std::int32_t y =
+                map_modern_windows_presentation_coordinate(static_cast<std::uint16_t>(HIWORD(lparam)), modern_windows_presentation_state.viewport_height, runtime_game_host_context.height);
+            return static_cast<LPARAM>(MAKELONG(x, y));
+        }
+#endif
+        return lparam;
+    };
     const auto translated_lparam = [&]() -> LPARAM
     {
-        const std::uint16_t x = static_cast<std::uint16_t>(static_cast<std::uint16_t>(LOWORD(lparam)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_0038));
-        const std::uint16_t y = static_cast<std::uint16_t>(static_cast<std::uint16_t>(HIWORD(lparam)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_003c));
+        const LPARAM input = input_lparam();
+        const std::uint16_t x = static_cast<std::uint16_t>(static_cast<std::uint16_t>(LOWORD(input)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_0038));
+        const std::uint16_t y = static_cast<std::uint16_t>(static_cast<std::uint16_t>(HIWORD(input)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_003c));
         return static_cast<LPARAM>(MAKELONG(x, y));
     };
 
-    if((runtime_scene_control_flags & 0x10) != 0 && reinterpret_cast<RuntimeGameDllWindowProcedure>(runtime_game_dll_window_procedure)(window, message, wparam, lparam) == 0x10000)
+    if((runtime_scene_control_flags & 0x10) != 0 && reinterpret_cast<RuntimeGameDllWindowProcedure>(runtime_game_dll_window_procedure)(window, message, wparam, input_lparam()) == 0x10000)
     {
         if(message == 0x30f)
         {
@@ -18439,6 +19085,12 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
         {
             PAINTSTRUCT paint;
             runtime_game_window_api.begin_paint(window, &paint);
+#if defined(FREEGAG_WINDOWS_FIXES)
+            if(modern_windows_presentation_is_scaled())
+            {
+                rectangle = { 0, 0, runtime_game_host_context.width, runtime_game_host_context.height };
+            }
+#endif
             runtime_game_window_api.queue_display_rectangle(reinterpret_cast<DisplayRectangle *>(&rectangle));
             runtime_game_window_api.end_paint(window, &paint);
             return 0;
@@ -18452,10 +19104,11 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     {
         if(message == WM_MOUSEMOVE)
         {
-            runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(lparam)), static_cast<std::uint16_t>(HIWORD(lparam)));
+            const LPARAM input = input_lparam();
+            runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(input)), static_cast<std::uint16_t>(HIWORD(input)));
         }
         runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
-        runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(lparam));
+        runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(input_lparam()));
         return 0;
     }
     else if(message == 0x30f)
@@ -21026,7 +21679,7 @@ std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region
         return -1;
     }
     region->current_scene_bit = region->first_scene_bit != 0 ? region->first_scene_bit : 1;
-    std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->active_field_mask : 0;
+    std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
     for(std::int32_t attempts = 0; attempts < 32; ++attempts)
     {
         std::uint32_t bit = region->current_scene_bit;
@@ -21037,7 +21690,7 @@ std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region
             {
                 ++index;
             }
-            if((runtime_scene_slots[index].flags & 0x20) == 0 || (bit & state_mask) != 0)
+            if((runtime_scene_slots[index].flags & 0x200000) == 0 || (bit & state_mask) != 0)
             {
                 return index;
             }
@@ -21496,7 +22149,7 @@ std::uint32_t handle_runtime_left_button_up()
                     ++scene_index;
                 }
             }
-            if(scene_index != -1 && (runtime_scene_slots[scene_index].flags & 0x20) == 0)
+            if(scene_index != -1 && (runtime_scene_slots[scene_index].flags & 0x200000) == 0)
             {
                 runtime_pointer_state_mask = region->current_scene_bit;
                 runtime_pointer_event_record[11] |= 1;
@@ -21571,7 +22224,7 @@ std::uint32_t handle_runtime_left_button_down()
                     {
                         ++scene_index;
                     }
-                } while(attempts < 32 && (region->current_scene_bit & state_mask) == 0 && (runtime_scene_slots[scene_index].flags & 0x20) != 0);
+                } while(attempts < 32 && (region->current_scene_bit & state_mask) == 0 && (runtime_scene_slots[scene_index].flags & 0x200000) != 0);
                 if(attempts < 33)
                 {
                     const bool is_view = strings_equal(runtime_scene_slots[scene_index].name, "IView");
@@ -21682,7 +22335,7 @@ std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t l
         {
             return 0;
         }
-        const std::uint32_t slot_flags = *reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(&runtime_scene_slots[scene_index]) + 4);
+        const std::uint32_t slot_flags = runtime_scene_slots[scene_index].flags;
         if((slot_flags & 0x200000) == 0)
         {
             runtime_pointer_state_mask = region->current_scene_bit;
@@ -21720,8 +22373,7 @@ std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t l
             {
                 switch_runtime_scene(visual->scene_identity);
             }
-            const char empty_name[0x20]{};
-            void *descendant = find_runtime_tree_descendant_identity_by_name(runtime_pointer_root_identity, empty_name);
+            void *descendant = find_runtime_drag_cleanup_descendant();
             if(descendant != nullptr)
             {
                 destroy_runtime_tree_resources(descendant);
@@ -21839,7 +22491,7 @@ std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int3
             std::uint32_t mask = selected->scene_mask;
             if(selected->state_object != nullptr)
             {
-                mask |= selected->state_object->active_field_mask;
+                mask |= selected->state_object->command_mask;
             }
             runtime_pointer_event_record[11] = 8;
             runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selected));
@@ -22176,6 +22828,12 @@ void *__fastcall find_runtime_tree_descendant_identity_by_name(void *root_identi
         }
     }
     return nullptr;
+}
+
+// Non-original helper preserving GAG's direct reference to ScriptRuntimeRoot +0x848 at 0x00423E8A.
+void *find_runtime_drag_cleanup_descendant()
+{
+    return script_runtime_root == nullptr ? nullptr : find_runtime_tree_descendant_identity_by_name(runtime_pointer_root_identity, script_runtime_root->parser_value_0848);
 }
 
 // GAG.EXE: 0x00406720
@@ -27321,6 +27979,12 @@ void set_runtime_sound_destroy_state_for_testing(std::int32_t enabled, HANDLE mu
     runtime_sound_maximum_handle = maximum_handle;
 }
 
+RuntimeSoundSlot *use_runtime_sound_backing_storage_for_testing()
+{
+    runtime_sound_slots = runtime_sound_backing_storage.slots;
+    return runtime_sound_slots;
+}
+
 std::uint32_t get_runtime_sound_maximum_handle_for_testing()
 {
     return runtime_sound_maximum_handle;
@@ -28021,9 +28685,31 @@ std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *s
                         }
                     }
 
-                    data_size = sizeof(std::uint32_t);
-                    std::uint32_t settings;
-                    if(api.query_value(key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD)
+                    bool settings_loaded = false;
+                    std::uint32_t settings = 0;
+#if defined(FREEGAG_WINDOWS_FIXES)
+                    // Non-original modern-Windows compatibility: prefer the per-user settings store. If it has not been created yet, retain the original HKLM value as a migration fallback.
+                    HKEY user_key;
+                    if(api.open_key(HKEY_CURRENT_USER, registry_key, 0, KEY_QUERY_VALUE, &user_key) == ERROR_SUCCESS)
+                    {
+                        data_size = sizeof(settings);
+                        if(api.query_value(user_key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD
+                            && data_size == sizeof(settings))
+                        {
+                            settings_loaded = true;
+                        }
+                        api.close_key(user_key);
+                    }
+#endif
+                    if(!settings_loaded)
+                    {
+                        data_size = sizeof(settings);
+                        if(api.query_value(key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD && data_size == sizeof(settings))
+                        {
+                            settings_loaded = true;
+                        }
+                    }
+                    if(settings_loaded)
                     {
                         state->flags |= settings & 0x02001020;
                     }

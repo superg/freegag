@@ -245,6 +245,13 @@ bool render_initial_scene(const SceneDescription &scene, const std::map<std::str
     return homes.size() == 1 && render_node(*homes[0], bitmaps, framebuffer, 0, 0);
 }
 
+std::int32_t map_scaled_cursor_coordinate(std::int32_t value, std::int32_t client_extent, std::int32_t framebuffer_extent)
+{
+    if(value < 0 || value >= client_extent || client_extent <= 0 || framebuffer_extent <= 0 || client_extent == framebuffer_extent)
+        return value;
+    return (std::int32_t)((std::int64_t)value * framebuffer_extent / client_extent);
+}
+
 int hit_test_sprite_collection(const SceneNode &collection, const std::map<std::string, IndexedBitmap> &bitmaps, std::int32_t x, std::int32_t y)
 {
     for(std::size_t reverse_index = collection.children.size(); reverse_index != 0; --reverse_index)

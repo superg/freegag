@@ -481,12 +481,30 @@ void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api
 struct SettingsRegistryApi
 {
     LSTATUS(WINAPI *open_key)(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result);
+    LSTATUS(WINAPI *create_key)
+    (HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM desired_access, const LPSECURITY_ATTRIBUTES security_attributes, PHKEY result, LPDWORD disposition);
     LSTATUS(WINAPI *set_value)(HKEY key, LPCSTR value_name, DWORD reserved, DWORD type, const BYTE *data, DWORD data_size);
     LSTATUS(WINAPI *close_key)(HKEY key);
 };
 
+struct WindowPositionPersistenceApi
+{
+    LSTATUS(WINAPI *open_key)(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result);
+    LSTATUS(WINAPI *create_key)
+    (HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM desired_access, const LPSECURITY_ATTRIBUTES security_attributes, PHKEY result, LPDWORD disposition);
+    LSTATUS(WINAPI *query_value)(HKEY key, LPCSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD data_size);
+    LSTATUS(WINAPI *set_value)(HKEY key, LPCSTR value_name, DWORD reserved, DWORD type, const BYTE *data, DWORD data_size);
+    LSTATUS(WINAPI *close_key)(HKEY key);
+    BOOL(WINAPI *get_window_rect)(HWND window, LPRECT rectangle);
+    BOOL(WINAPI *get_window_placement)(HWND window, WINDOWPLACEMENT *placement);
+    HMONITOR(WINAPI *monitor_from_rect)(LPCRECT rectangle, DWORD flags);
+};
+
 // GAG.EXE: 0x0041D060
 void __fastcall save_runtime_settings(ApplicationState *state);
+bool load_saved_window_position(std::int32_t width, std::int32_t height, POINT *position);
+bool load_saved_window_rectangle(std::int32_t minimum_width, std::int32_t minimum_height, RECT *rectangle);
+void save_window_position(ApplicationState *state);
 
 struct CursorVisibilityApi
 {
@@ -499,6 +517,7 @@ struct CursorVisibilityApi
 void __fastcall set_game_cursor_active(ApplicationState *state, int active);
 
 void set_settings_registry_api_for_testing(const SettingsRegistryApi &api);
+void set_window_position_persistence_api_for_testing(const WindowPositionPersistenceApi &api);
 void set_cursor_visibility_api_for_testing(const CursorVisibilityApi &api);
 
 struct StateFieldReference
@@ -549,9 +568,16 @@ struct WindowLayoutApi
     BOOL(WINAPI *get_client_rect)(HWND window, LPRECT rect);
     HWND(WINAPI *set_focus)(HWND window);
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    BOOL(WINAPI *get_window_rect)(HWND window, LPRECT rect);
+    HMONITOR(WINAPI *monitor_from_window)(HWND window, DWORD flags);
+    BOOL(WINAPI *get_monitor_info)(HMONITOR monitor, LPMONITORINFO info);
+    BOOL(WINAPI *invalidate_rect)(HWND window, const RECT *rect, BOOL erase);
+#endif
 };
 
 // GAG.EXE: 0x0041CE60
+void update_modern_windows_windowed_viewport(ApplicationState *state);
 void __fastcall update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout);
 
 void set_window_layout_api_for_testing(const WindowLayoutApi &api);
@@ -1039,16 +1065,15 @@ static_assert(offsetof(RuntimePointerRegion, previous_owner_identity) == 0x60);
 
 struct RuntimeSceneSlot
 {
-    RuntimeVisualObject *visual_object;
-    std::uint16_t unknown_0004;
-    std::uint8_t flags;
-    std::uint8_t unknown_0007;
     char name[0x20];
+    RuntimeVisualObject *visual_object;
+    std::uint32_t flags;
 };
 
 static_assert(sizeof(RuntimeSceneSlot) == 0x28);
-static_assert(offsetof(RuntimeSceneSlot, flags) == 6);
-static_assert(offsetof(RuntimeSceneSlot, name) == 8);
+static_assert(offsetof(RuntimeSceneSlot, name) == 0);
+static_assert(offsetof(RuntimeSceneSlot, visual_object) == 0x20);
+static_assert(offsetof(RuntimeSceneSlot, flags) == 0x24);
 
 struct RuntimeNamedNode
 {
@@ -2946,10 +2971,10 @@ static_assert(offsetof(ScriptRuntimeRoot, get_property) == 0x818);
 static_assert(offsetof(ScriptRuntimeRoot, generic_resources) == 0xf74);
 static_assert(offsetof(ScriptRuntimeRoot, command_definition_count) == 0xa70);
 static_assert(offsetof(ScriptRuntimeRoot, command_definitions) == 0xa74);
-static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, visual_object) == 0x1444 + offsetof(RuntimeSceneSlot, visual_object));
-static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, flags) + 2 == 0x1444 + offsetof(RuntimeSceneSlot, flags));
-static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + sizeof(RuntimeCommandDefinition) == 0x1444 + offsetof(RuntimeSceneSlot, name));
-static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, generic_resources) == 0x1444 + 31 * sizeof(RuntimeSceneSlot) + offsetof(RuntimeSceneSlot, name));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, name) == 0x1424 + offsetof(RuntimeSceneSlot, name));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, visual_object) == 0x1424 + offsetof(RuntimeSceneSlot, visual_object));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, command_definitions) + offsetof(RuntimeCommandDefinition, flags) == 0x1424 + offsetof(RuntimeSceneSlot, flags));
+static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, generic_resources) == 0x1424 + 32 * sizeof(RuntimeSceneSlot));
 static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, global_link_0084_head) == 0x1944);
 static_assert(0x9b0 + offsetof(ScriptRuntimeRoot, serialized_script) + sizeof(ScriptTextBuffer *) == 0x1978);
 
@@ -3813,6 +3838,7 @@ struct DisplayRegionSynchronizationApi
     HRESULT(WINAPI *blt_fast)(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags);
     HRESULT(WINAPI *blt)(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects);
     BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
+    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
     BOOL(WINAPI *pat_blt)(HDC destination, int x, int y, int width, int height, DWORD operation);
 };
 
@@ -4013,6 +4039,7 @@ void *__fastcall find_runtime_tree_identity_by_name_recursive(void *start_identi
 
 // GAG.EXE: 0x004066C0
 void *__fastcall find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name);
+void *find_runtime_drag_cleanup_descendant();
 
 // GAG.EXE: 0x00406720
 void *__fastcall find_runtime_tree_root_identity_by_name(const void *name);
@@ -4211,6 +4238,7 @@ void set_runtime_generic_backend_create_state_for_testing(std::uint32_t enabled)
 RuntimeGenericBackend *get_runtime_generic_backend_head_for_testing();
 void set_runtime_sound_destroy_api_for_testing(const RuntimeSoundDestroyApi &api);
 void set_runtime_sound_destroy_state_for_testing(std::int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, std::uint32_t maximum_handle);
+RuntimeSoundSlot *use_runtime_sound_backing_storage_for_testing();
 std::uint32_t get_runtime_sound_maximum_handle_for_testing();
 void set_runtime_sound_create_api_for_testing(const RuntimeSoundCreateApi &api);
 void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEFORMATEX *output_format, WAVEHDR *header_1, WAVEHDR *header_2, HWND window, HANDLE thread,
@@ -4396,6 +4424,7 @@ void set_display_bootstrap_api_for_testing(const DisplayBootstrapApi &api);
 void set_display_bootstrap_state_for_testing(std::uint32_t flags, DisplayMode *head, DisplayMode *tail, std::uint32_t count, void *display);
 std::uint32_t get_display_bootstrap_error_for_testing();
 std::uint32_t get_display_mode_count_for_testing();
+DisplayMode *get_display_mode_tail_for_testing();
 
 struct DisplayHostInitializationApi
 {
@@ -4479,9 +4508,7 @@ void disable_runtime_subsystem();
 // GAG.EXE: 0x00404980
 void __fastcall set_active_object_field_0824(std::uint32_t value);
 
-void set_runtime_subsystem_callback_for_testing(void (*callback)());
 void set_display_switch_api_for_testing(const DisplaySwitchApi &api);
-void set_active_object_for_testing(void *object);
 std::uint32_t get_graphics_host_flags_for_testing();
 
 struct DriveDiscoveryApi
@@ -4653,7 +4680,7 @@ struct RuntimeTreeActivationApi
 };
 
 // GAG.EXE: 0x00426560
-RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *creation_context, void *unused);
+RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context);
 
 void set_runtime_tree_activation_api_for_testing(const RuntimeTreeActivationApi &api);
 
@@ -5010,8 +5037,20 @@ struct DisplaySurfaceOperationApi
     HRESULT(WINAPI *blt_fast)(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags);
     HRESULT(WINAPI *blt)(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects);
     BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
+    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
     BOOL(WINAPI *pat_blt)(HDC destination, int x, int y, int width, int height, DWORD operation);
 };
+
+#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
+RECT calculate_modern_windows_fullscreen_viewport_for_testing(std::int32_t monitor_width, std::int32_t monitor_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    std::int32_t scaling);
+RECT calculate_modern_windows_windowed_viewport_for_testing(std::int32_t client_width, std::int32_t client_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
+    std::int32_t scaling);
+std::int32_t map_modern_windows_fullscreen_coordinate_for_testing(std::int32_t value, std::int32_t destination_extent, std::int32_t source_extent);
+void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, std::int32_t viewport_width, std::int32_t viewport_height);
+void reset_modern_windows_presentation_for_testing();
+bool get_modern_windows_windowed_rectangle_for_testing(RECT *rectangle);
+#endif
 
 struct LegacyDisplayPixelFormat
 {
@@ -5081,6 +5120,7 @@ struct DisplaySurfaceCreationApi
     UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
     UINT(WINAPI *realize_palette)(HDC dc);
     UINT(WINAPI *set_dib_color_table)(HDC dc, UINT start, UINT count, const RGBQUAD *colors);
+    int(WINAPI *set_stretch_blt_mode)(HDC dc, int mode);
 };
 
 // GAG.EXE: 0x00413340
@@ -5640,12 +5680,14 @@ enum class RuntimeScriptOpcodeDisposition : std::uint32_t
     pause,
     commit_cursor,
     finish_link,
-    restart_outer
+    restart_outer,
+    restart_outer_commit_cursor
 };
 
 // Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
 RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, std::uint32_t opcode,
     std::int32_t random_value = 0, std::uint32_t saved_cursor = 0xffffffff);
+bool should_send_runtime_script_message(std::int32_t command);
 
 struct RuntimeScriptExecutorApi
 {

@@ -108,7 +108,7 @@ FallingFigurine select_falling_figurine(std::uint32_t family_random, std::uint32
         result.first_family = true;
     family_balance += result.first_family ? 1 : -1;
     result.shape_index = (std::uint8_t)(shape_random % (result.first_family ? 5 : 10));
-    result.orientation = (orientation_random & 1) != 0 ? -3 : -1;
+    result.orientation = (orientation_random & 1) != 0 ? 1 : -1;
     result.column = board_width == 0 ? 0 : (std::int8_t)((board_width - 1) / 2);
     result.row = 2;
     return result;

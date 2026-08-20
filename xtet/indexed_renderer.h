@@ -38,6 +38,7 @@ bool blit_rli_frame_canvas(const RliFrameRecord &frame, std::uint32_t canvas_wid
     bool flip_y = false);
 bool render_score(std::uint32_t score, const IndexedBitmap &digit_atlas, IndexedFramebuffer destination);
 bool render_initial_scene(const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer);
+std::int32_t map_scaled_cursor_coordinate(std::int32_t value, std::int32_t client_extent, std::int32_t framebuffer_extent);
 int hit_test_sprite_collection(const SceneNode &collection, const std::map<std::string, IndexedBitmap> &bitmaps, std::int32_t x, std::int32_t y);
 bool render_figurine_sprite(const FigurineSpriteSelection &selection, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer,
     FigurineRenderRegion &region);

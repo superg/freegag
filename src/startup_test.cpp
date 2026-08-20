@@ -32,9 +32,16 @@ bool registry_open_succeeds;
 bool version_query_succeeds;
 bool path_query_succeeds;
 bool settings_query_succeeds;
+#if defined(FREEGAG_WINDOWS_FIXES)
+bool user_settings_open_succeeds;
+bool user_settings_query_succeeds;
+#endif
 const char *registry_version;
 const char *registry_path;
 std::uint32_t registry_settings;
+#if defined(FREEGAG_WINDOWS_FIXES)
+std::uint32_t user_registry_settings;
+#endif
 int close_count;
 int callback_palette_select_count;
 BOOL callback_palette_select_background;
@@ -132,6 +139,7 @@ int rectangle_transition_region_count;
 std::int32_t rectangle_transition_surfaces[4][5];
 int rectangle_transition_surface_count;
 int display_region_event_count;
+bool display_region_scaled_operation;
 int display_region_events[12];
 bool display_region_set_busy_on_enter;
 gag::DisplayRectangle display_region_observed_rectangle;
@@ -207,7 +215,6 @@ unsigned int script_random_seed;
 int script_random_seed_count;
 int script_random_value;
 int display_switch_event;
-int runtime_subsystem_count;
 std::uint32_t cdf_seek_offset;
 std::uint32_t cdf_read_size;
 std::uint32_t cdf_bytes_to_report;
@@ -306,6 +313,20 @@ HWND procedure_last_target;
 UINT procedure_last_message;
 std::uint32_t saved_runtime_settings;
 int saved_settings_close_count;
+bool persisted_window_position_available;
+bool persisted_window_position_visible;
+POINT persisted_window_position;
+bool persisted_window_rectangle_available;
+RECT persisted_window_rectangle;
+POINT written_window_position;
+RECT written_window_rectangle;
+bool saved_window_placement_available;
+RECT saved_window_placement_rectangle;
+int window_position_open_count;
+int window_position_create_count;
+int window_position_query_count;
+int window_position_write_count;
+int window_position_close_count;
 int cursor_visibility_value;
 int cursor_hidden_callback_count;
 int cursor_shown_callback_count;
@@ -325,6 +346,13 @@ int layout_send_count;
 bool layout_windowed;
 int layout_style_count;
 LONG layout_last_style;
+#if defined(FREEGAG_WINDOWS_FIXES)
+RECT layout_window_rectangle{ 100, 120, 748, 634 };
+RECT layout_monitor_rectangle{ 0, 0, 1920, 1080 };
+bool layout_client_rectangle_override;
+RECT layout_client_rectangle;
+int layout_invalidate_count;
+#endif
 int runtime_state_transition_count;
 std::uint32_t runtime_state_transition_value;
 std::uint32_t state_activation_status;
@@ -560,7 +588,9 @@ HRESULT cooperative_result;
 int surface_blt_fast_count;
 int surface_blt_count;
 int surface_bit_blt_count;
+int surface_stretch_blt_count;
 int surface_pat_blt_count;
+bool surface_scaled_operation;
 RECT surface_operation_rectangle;
 int surface_creation_scenario;
 int surface_creation_call_count;
@@ -749,6 +779,11 @@ BOOL runtime_game_window_update_result;
 UINT runtime_game_window_last_message;
 WPARAM runtime_game_window_last_wparam;
 LPARAM runtime_game_window_last_lparam;
+LPARAM runtime_game_window_sent_lparam;
+LPARAM runtime_game_window_pair_lparam;
+LPARAM runtime_game_window_dll_lparam;
+std::int32_t runtime_game_window_pointer_x;
+std::int32_t runtime_game_window_pointer_y;
 LRESULT runtime_game_window_default_result;
 gag::RuntimeNamedNode runtime_pointer_position_node;
 gag::RuntimeSceneRecord runtime_pointer_position_record;
@@ -941,11 +976,6 @@ std::uint32_t restore_current_mode()
 {
     display_switch_event = 2;
     return 0;
-}
-
-void initialize_runtime_subsystem()
-{
-    ++runtime_subsystem_count;
 }
 
 void enter_runtime_coordinate_lock()
@@ -1931,7 +1961,7 @@ gag::RuntimeScriptOpcodeDisposition dispatch_test_script_executor(gag::RuntimeCo
 {
     require(state_value == script_executor_state && tree == script_executor_tree && opcode == 0x12345678 && saved_cursor + 4 == link->parser.cursor);
     script_executor_events[script_executor_event_count++] = 17;
-    if(script_executor_disposition == gag::RuntimeScriptOpcodeDisposition::commit_cursor)
+    if(script_executor_disposition == gag::RuntimeScriptOpcodeDisposition::commit_cursor || script_executor_disposition == gag::RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor)
     {
         link->parser.cursor += 7;
     }
@@ -3634,9 +3664,25 @@ BOOL WINAPI bit_blt_test_display_region(HDC destination, int x, int y, int width
     return TRUE;
 }
 
+BOOL WINAPI stretch_blt_test_display_region(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation)
+{
+    require(destination == reinterpret_cast<HDC>(3) && source == reinterpret_cast<HDC>(4) && operation == SRCCOPY);
+    require(x == 0 && y == 0 && width == 1280 && height == 960 && source_x == 0 && source_y == 0 && source_width == 640 && source_height == 480);
+    display_region_events[display_region_event_count++] = 8;
+    return TRUE;
+}
+
 BOOL WINAPI pat_blt_test_display_region(HDC destination, int x, int y, int width, int height, DWORD operation)
 {
-    require(destination == reinterpret_cast<HDC>(3) && x == 2 && y == 3 && width == 6 && height == 7 && operation == BLACKNESS);
+    require(destination == reinterpret_cast<HDC>(3) && operation == BLACKNESS);
+    if(display_region_scaled_operation)
+    {
+        require(x == 4 && y == 6 && width == 12 && height == 14);
+    }
+    else
+    {
+        require(x == 2 && y == 3 && width == 6 && height == 7);
+    }
     display_region_events[display_region_event_count++] = 7;
     return TRUE;
 }
@@ -4048,8 +4094,8 @@ std::uint32_t __fastcall find_test_generic_child_scene_index(std::uint32_t flags
 gag::DisplaySceneNode *__fastcall acquire_test_generic_child_scene(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags,
     std::int32_t owner, gag::DisplaySceneDescriptor *descriptor, const gag::DisplayPixelFormatDescriptor *format)
 {
-    const std::int32_t expected_x = generic_child_scene_hidden ? 10000 : static_cast<std::int32_t>(generic_child_scene_state[2]);
-    const std::int32_t expected_y = generic_child_scene_hidden ? 10000 : static_cast<std::int32_t>(generic_child_scene_state[3]);
+    const std::int32_t expected_x = generic_child_scene_hidden ? 10000 : static_cast<std::int32_t>(generic_child_scene_state[5]);
+    const std::int32_t expected_y = generic_child_scene_hidden ? 10000 : static_cast<std::int32_t>(generic_child_scene_state[6]);
     require(index == 55 && x == expected_x && y == expected_y && width == 100 && height == 90 && flags == 0x20000 && owner == 66 && descriptor != nullptr && format == nullptr);
     generic_child_scene_events[generic_child_scene_event_count++] = 4;
     return reinterpret_cast<gag::DisplaySceneNode *>(71);
@@ -4760,6 +4806,7 @@ std::uint32_t __fastcall window_test_runtime_game_dll(HWND window, UINT message,
     runtime_game_window_last_message = message;
     runtime_game_window_last_wparam = wparam;
     runtime_game_window_last_lparam = lparam;
+    runtime_game_window_dll_lparam = lparam;
     return runtime_game_window_dll_result;
 }
 
@@ -4770,6 +4817,7 @@ LRESULT WINAPI send_test_runtime_game_window(HWND window, UINT message, WPARAM w
     runtime_game_window_last_message = message;
     runtime_game_window_last_wparam = wparam;
     runtime_game_window_last_lparam = lparam;
+    runtime_game_window_sent_lparam = lparam;
     return 0;
 }
 
@@ -4806,6 +4854,8 @@ BOOL WINAPI end_paint_test_runtime_game_window(HWND window, const PAINTSTRUCT *p
 void __fastcall update_pointer_test_runtime_game_window(std::int32_t x, std::int32_t y)
 {
     runtime_game_window_events[runtime_game_window_event_count++] = 7;
+    runtime_game_window_pointer_x = x;
+    runtime_game_window_pointer_y = y;
     runtime_game_window_last_wparam = static_cast<WPARAM>(x);
     runtime_game_window_last_lparam = y;
 }
@@ -4821,6 +4871,7 @@ void __fastcall enqueue_pair_test_runtime_game_window(std::uint32_t first, std::
     runtime_game_window_events[runtime_game_window_event_count++] = 9;
     runtime_game_window_last_message = first;
     runtime_game_window_last_lparam = second;
+    runtime_game_window_pair_lparam = second;
 }
 
 void __fastcall enqueue_message_test_runtime_game_window(std::uint32_t message)
@@ -5280,9 +5331,25 @@ BOOL WINAPI test_surface_bit_blt(HDC destination, int x, int y, int width, int h
     return TRUE;
 }
 
+BOOL WINAPI test_surface_stretch_blt(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation)
+{
+    require(destination == reinterpret_cast<HDC>(40) && source == reinterpret_cast<HDC>(41) && operation == SRCCOPY);
+    require(x == 0 && y == 0 && width == 1280 && height == 960 && source_x == 0 && source_y == 0 && source_width == 640 && source_height == 480);
+    ++surface_stretch_blt_count;
+    return TRUE;
+}
+
 BOOL WINAPI test_surface_pat_blt(HDC destination, int x, int y, int width, int height, DWORD operation)
 {
-    require(destination == reinterpret_cast<HDC>(40) && x == 2 && y == 3 && width == 5 && height == 7 && operation == BLACKNESS);
+    require(destination == reinterpret_cast<HDC>(40) && operation == BLACKNESS);
+    if(surface_scaled_operation)
+    {
+        require(x == 4 && y == 6 && width == 10 && height == 14);
+    }
+    else
+    {
+        require(x == 2 && y == 3 && width == 5 && height == 7);
+    }
     ++surface_pat_blt_count;
     return TRUE;
 }
@@ -5334,6 +5401,12 @@ HDC WINAPI create_test_surface_dc(HDC dc)
 {
     require(dc == reinterpret_cast<HDC>(40));
     return reinterpret_cast<HDC>(41);
+}
+
+int WINAPI set_test_surface_stretch_mode(HDC dc, int mode)
+{
+    require(dc == reinterpret_cast<HDC>(40) && mode == COLORONCOLOR);
+    return 0;
 }
 
 HANDLE WINAPI get_test_surface_heap()
@@ -6027,8 +6100,7 @@ void on_state_activation_cursor_outside()
 
 void *__fastcall capture_save_state_memory(void *game_context, std::uint32_t *size, int mode)
 {
-    require(game_context != nullptr && size != nullptr && mode == 1);
-    *size = 8;
+    require(game_context != nullptr && size == nullptr && mode == 1);
     return HeapAlloc(GetProcessHeap(), 0, 8);
 }
 
@@ -6791,6 +6863,7 @@ WPARAM main_procedure_last_wparam;
 LPARAM main_procedure_last_lparam;
 HWND main_procedure_last_window;
 int main_procedure_post_count;
+int main_procedure_send_count;
 int main_procedure_quit_count;
 int main_procedure_reply_count;
 int main_procedure_destroy_count;
@@ -6823,6 +6896,7 @@ LRESULT WINAPI send_main_procedure_message(HWND window, UINT message, WPARAM wpa
     main_procedure_last_message = message;
     main_procedure_last_wparam = wparam;
     main_procedure_last_lparam = lparam;
+    ++main_procedure_send_count;
     return 0x4567;
 }
 
@@ -7063,12 +7137,11 @@ int WINAPI get_layout_metric(int index)
 BOOL WINAPI adjust_layout_rect(LPRECT rect, DWORD style, BOOL menu)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
-    if(menu != FALSE)
+    if(style == 0x02cf0000)
     {
-        require(style == 0x02ca0000);
+        require(menu == FALSE);
         require(rect->left == 0 && rect->top == 0 && rect->right == 640 && rect->bottom == 480);
-        *rect = { -4, -50, 644, 484 };
-        layout_windowed = true;
+        *rect = { -4, -30, 644, 484 };
         return TRUE;
     }
 #endif
@@ -7099,6 +7172,13 @@ BOOL WINAPI set_layout_position(HWND window, HWND insert_after, int x, int y, in
 BOOL WINAPI get_layout_client_rect(HWND window, LPRECT rect)
 {
     require(window == reinterpret_cast<HWND>(60));
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(layout_client_rectangle_override)
+    {
+        *rect = layout_client_rectangle;
+        return TRUE;
+    }
+#endif
     *rect = layout_windowed ? RECT{ 0, 0, 640, 480 } : RECT{ 0, 0, 640, 530 };
     return TRUE;
 }
@@ -7117,14 +7197,48 @@ LRESULT WINAPI send_layout_message(HWND window, UINT message, WPARAM wparam, LPA
     return 0;
 }
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+BOOL WINAPI get_layout_window_rect(HWND window, LPRECT rect)
+{
+    require(window == reinterpret_cast<HWND>(60));
+    *rect = layout_window_rectangle;
+    return TRUE;
+}
+
+HMONITOR WINAPI get_layout_window_monitor(HWND window, DWORD flags)
+{
+    require(window == reinterpret_cast<HWND>(60) && flags == MONITOR_DEFAULTTONEAREST);
+    return reinterpret_cast<HMONITOR>(62);
+}
+
+BOOL WINAPI get_layout_monitor_info(HMONITOR monitor, LPMONITORINFO info)
+{
+    require(monitor == reinterpret_cast<HMONITOR>(62) && info->cbSize == sizeof(MONITORINFO));
+    info->rcMonitor = layout_monitor_rectangle;
+    info->rcWork = layout_monitor_rectangle;
+    return TRUE;
+}
+
+BOOL WINAPI invalidate_layout_rect(HWND window, const RECT *rect, BOOL erase)
+{
+    require((window == reinterpret_cast<HWND>(60) || window == reinterpret_cast<HWND>(61)) && rect == nullptr && erase != FALSE);
+    ++layout_invalidate_count;
+    return TRUE;
+}
+#endif
+
 LSTATUS WINAPI open_settings_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM access, PHKEY result)
 {
     require(key == HKEY_LOCAL_MACHINE && std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0);
-#if defined(FREEGAG_WINDOWS_FIXES)
-    require(options == 0 && access == KEY_SET_VALUE);
-#else
     require(options == 0 && access == KEY_ALL_ACCESS);
-#endif
+    *result = reinterpret_cast<HKEY>(40);
+    return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI create_settings_key(HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM access, const LPSECURITY_ATTRIBUTES security, PHKEY result, LPDWORD disposition)
+{
+    require(key == HKEY_CURRENT_USER && std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0 && reserved == 0 && class_name == nullptr);
+    require(options == REG_OPTION_NON_VOLATILE && access == KEY_SET_VALUE && security == nullptr && disposition == nullptr);
     *result = reinterpret_cast<HKEY>(40);
     return ERROR_SUCCESS;
 }
@@ -7142,6 +7256,106 @@ LSTATUS WINAPI close_settings_key(HKEY key)
     require(key == reinterpret_cast<HKEY>(40));
     ++saved_settings_close_count;
     return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI open_window_position_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM access, PHKEY result)
+{
+    require(key == HKEY_CURRENT_USER && std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0 && options == 0 && access == KEY_QUERY_VALUE);
+    ++window_position_open_count;
+    if(!persisted_window_position_available && !persisted_window_rectangle_available)
+    {
+        return ERROR_FILE_NOT_FOUND;
+    }
+    *result = reinterpret_cast<HKEY>(41);
+    return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI create_window_position_key(HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM access, const LPSECURITY_ATTRIBUTES security, PHKEY result,
+    LPDWORD disposition)
+{
+    require(key == HKEY_CURRENT_USER && std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0 && reserved == 0 && class_name == nullptr);
+    require(options == REG_OPTION_NON_VOLATILE && access == KEY_SET_VALUE && security == nullptr && disposition == nullptr);
+    ++window_position_create_count;
+    *result = reinterpret_cast<HKEY>(42);
+    return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI query_window_position(HKEY key, LPCSTR name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD size)
+{
+    require(key == reinterpret_cast<HKEY>(41) && reserved == nullptr);
+    ++window_position_query_count;
+    if(std::strcmp(name, "WindowRectangle") == 0)
+    {
+        require(*size == sizeof(RECT));
+        if(!persisted_window_rectangle_available)
+        {
+            return ERROR_FILE_NOT_FOUND;
+        }
+        *type = REG_BINARY;
+        *size = sizeof(RECT);
+        std::memcpy(data, &persisted_window_rectangle, sizeof(persisted_window_rectangle));
+        return ERROR_SUCCESS;
+    }
+    require(std::strcmp(name, "WindowPosition") == 0 && *size == sizeof(POINT));
+    *type = REG_BINARY;
+    *size = sizeof(POINT);
+    std::memcpy(data, &persisted_window_position, sizeof(persisted_window_position));
+    return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI write_window_position(HKEY key, LPCSTR name, DWORD reserved, DWORD type, const BYTE *data, DWORD size)
+{
+    require(key == reinterpret_cast<HKEY>(42) && reserved == 0 && type == REG_BINARY);
+    ++window_position_write_count;
+    if(std::strcmp(name, "WindowRectangle") == 0)
+    {
+        require(size == sizeof(RECT));
+        std::memcpy(&written_window_rectangle, data, sizeof(written_window_rectangle));
+        return ERROR_SUCCESS;
+    }
+    require(std::strcmp(name, "WindowPosition") == 0 && size == sizeof(POINT));
+    std::memcpy(&written_window_position, data, sizeof(written_window_position));
+    return ERROR_SUCCESS;
+}
+
+LSTATUS WINAPI close_window_position_key(HKEY key)
+{
+    require(key == reinterpret_cast<HKEY>(41) || key == reinterpret_cast<HKEY>(42));
+    ++window_position_close_count;
+    return ERROR_SUCCESS;
+}
+
+BOOL WINAPI get_saved_window_rect(HWND window, LPRECT rectangle)
+{
+    require(window == reinterpret_cast<HWND>(41));
+    *rectangle = { 135, 246, 783, 780 };
+    return TRUE;
+}
+
+BOOL WINAPI get_saved_window_placement(HWND window, WINDOWPLACEMENT *placement)
+{
+    require(window == reinterpret_cast<HWND>(41) && placement->length == sizeof(WINDOWPLACEMENT));
+    if(!saved_window_placement_available)
+    {
+        return FALSE;
+    }
+    placement->rcNormalPosition = saved_window_placement_rectangle;
+    return TRUE;
+}
+
+HMONITOR WINAPI find_saved_window_monitor(LPCRECT rectangle, DWORD flags)
+{
+    require(flags == MONITOR_DEFAULTTONULL);
+    if(persisted_window_rectangle_available && rectangle->left == persisted_window_rectangle.left && rectangle->top == persisted_window_rectangle.top)
+    {
+        require(rectangle->right == persisted_window_rectangle.right && rectangle->bottom == persisted_window_rectangle.bottom);
+    }
+    else
+    {
+        require(rectangle->left == persisted_window_position.x && rectangle->top == persisted_window_position.y);
+        require(rectangle->right == persisted_window_position.x + 648 && rectangle->bottom == persisted_window_position.y + 514);
+    }
+    return persisted_window_position_visible ? reinterpret_cast<HMONITOR>(43) : nullptr;
 }
 
 int WINAPI show_test_cursor(BOOL show)
@@ -7235,11 +7449,20 @@ gag::StartupApi api(gag::InitializeApplication initializer)
 
 LSTATUS WINAPI open_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result)
 {
-    require(key == HKEY_LOCAL_MACHINE);
     require(std::strcmp(sub_key, "SOFTWARE\\ZES't Corp.\\GAG") == 0);
 #if defined(FREEGAG_WINDOWS_FIXES)
-    require(options == 0 && desired_access == KEY_QUERY_VALUE);
+    require((key == HKEY_LOCAL_MACHINE || key == HKEY_CURRENT_USER) && options == 0 && desired_access == KEY_QUERY_VALUE);
+    if(key == HKEY_CURRENT_USER)
+    {
+        if(!user_settings_open_succeeds)
+        {
+            return ERROR_FILE_NOT_FOUND;
+        }
+        *result = reinterpret_cast<HKEY>(2);
+        return ERROR_SUCCESS;
+    }
 #else
+    require(key == HKEY_LOCAL_MACHINE);
     require(options == 0 && desired_access == KEY_ALL_ACCESS);
 #endif
     if(!registry_open_succeeds)
@@ -7250,7 +7473,7 @@ LSTATUS WINAPI open_key(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_
     return ERROR_SUCCESS;
 }
 
-LSTATUS WINAPI query_value(HKEY, LPCSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD data_size)
+LSTATUS WINAPI query_value(HKEY key, LPCSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD data_size)
 {
     require(reserved == nullptr);
     if(std::strcmp(value_name, "version") == 0)
@@ -7278,6 +7501,20 @@ LSTATUS WINAPI query_value(HKEY, LPCSTR value_name, LPDWORD reserved, LPDWORD ty
         return ERROR_SUCCESS;
     }
     require(std::strcmp(value_name, "set") == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(key == reinterpret_cast<HKEY>(2))
+    {
+        if(!user_settings_query_succeeds)
+        {
+            return ERROR_FILE_NOT_FOUND;
+        }
+        require(*data_size == sizeof(user_registry_settings));
+        *type = REG_DWORD;
+        std::memcpy(data, &user_registry_settings, sizeof(user_registry_settings));
+        return ERROR_SUCCESS;
+    }
+#endif
+    require(key == reinterpret_cast<HKEY>(1));
     if(!settings_query_succeeds)
     {
         return ERROR_FILE_NOT_FOUND;
@@ -7310,12 +7547,18 @@ void reset()
     version_query_succeeds = true;
     path_query_succeeds = true;
     settings_query_succeeds = true;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    user_settings_open_succeeds = true;
+    user_settings_query_succeeds = true;
+#endif
     registry_version = "Russian Edition Version 2.51";
     registry_path = "C:\\GAG";
     registry_settings = 0xffffffff;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    user_registry_settings = 0x1000;
+#endif
     close_count = 0;
     display_switch_event = 0;
-    runtime_subsystem_count = 0;
     cdf_seek_offset = 0;
     cdf_read_size = 0;
     cdf_bytes_to_report = 0;
@@ -7371,6 +7614,20 @@ void reset()
     procedure_last_message = 0;
     saved_runtime_settings = 0;
     saved_settings_close_count = 0;
+    persisted_window_position_available = false;
+    persisted_window_position_visible = true;
+    persisted_window_position = {};
+    persisted_window_rectangle_available = false;
+    persisted_window_rectangle = {};
+    written_window_position = {};
+    written_window_rectangle = {};
+    saved_window_placement_available = false;
+    saved_window_placement_rectangle = {};
+    window_position_open_count = 0;
+    window_position_create_count = 0;
+    window_position_query_count = 0;
+    window_position_write_count = 0;
+    window_position_close_count = 0;
     cursor_visibility_value = -1;
     cursor_hidden_callback_count = 0;
     cursor_shown_callback_count = 0;
@@ -7598,11 +7855,10 @@ BOOL WINAPI initialization_adjust_window_rect(LPRECT rectangle, DWORD style, BOO
 {
     record_initialization_event(initialization_event_adjust);
 #if defined(FREEGAG_WINDOWS_FIXES)
-    if((initialization_initial_flags & 0x80) != 0)
+    if(style == 0x02cf0000)
     {
-        require(style == 0x02ca0000);
-        require(menu != FALSE && rectangle->right == 640 && rectangle->bottom == 480);
-        *rectangle = { -4, -50, 644, 484 };
+        require(menu == FALSE && rectangle->right == 640 && rectangle->bottom == 480);
+        *rectangle = { -4, -30, 644, 484 };
         return TRUE;
     }
 #endif
@@ -7622,8 +7878,10 @@ HWND WINAPI initialization_create_window(DWORD extended_style, LPCSTR class_name
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((initialization_initial_flags & 0x80) != 0)
     {
-        require(style == 0x02ca0000);
-        require(x == CW_USEDEFAULT && y == CW_USEDEFAULT && width == 648 && height == 534 && instance == reinterpret_cast<HINSTANCE>(0x102) && parameter == &initialization_state);
+        require(style == 0x02cf0000);
+        const int expected_x = persisted_window_position_available && persisted_window_position_visible ? persisted_window_position.x : 188;
+        const int expected_y = persisted_window_position_available && persisted_window_position_visible ? persisted_window_position.y : 127;
+        require(x == expected_x && y == expected_y && width == 648 && height == 514 && instance == reinterpret_cast<HINSTANCE>(0x102) && parameter == &initialization_state);
     }
     else
 #endif
@@ -7712,6 +7970,9 @@ gag::ApplicationInitializationApi make_application_initialization_test_api()
 
 void test_application_initialization()
 {
+    gag::WindowPositionPersistenceApi position_api{ open_window_position_key, create_window_position_key, query_window_position, write_window_position, close_window_position_key,
+        get_saved_window_rect, get_saved_window_placement, find_saved_window_monitor };
+    gag::set_window_position_persistence_api_for_testing(position_api);
     gag::set_application_initialization_api_for_testing(make_application_initialization_test_api());
     for(initialization_failure_stage = 1; initialization_failure_stage <= 7; ++initialization_failure_stage)
     {
@@ -7735,6 +7996,11 @@ void test_application_initialization()
     initialization_has_archive = true;
     initialization_installed_version = "Version.cfg";
     require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("ignored"), 7) == &initialization_state);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    RECT fallback_windowed_rectangle;
+    require(gag::get_modern_windows_windowed_rectangle_for_testing(&fallback_windowed_rectangle));
+    require(fallback_windowed_rectangle.left == 188 && fallback_windowed_rectangle.top == 127 && fallback_windowed_rectangle.right == 836 && fallback_windowed_rectangle.bottom == 641);
+#endif
     require(initialization_state.width == 640 && initialization_state.height == 480 && (initialization_state.flags & 2) != 0);
     const char *expected_messages[] = { "GAG", "File", "Options", "View", "Load Game", "Save Game", "New Game", "Resume Game", "Credits", "Exit", "Comments", "Mute Sound", "Full Screen", "Window",
         "Application initialization error !", "Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!",
@@ -7778,15 +8044,68 @@ void test_application_initialization()
     require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_set_active) == initialization_events + initialization_event_count);
 
 #if defined(FREEGAG_WINDOWS_FIXES)
+    window_position_open_count = 0;
+    window_position_query_count = 0;
+    window_position_close_count = 0;
+    persisted_window_position_available = false;
+    persisted_window_position_visible = true;
     initialization_event_count = 0;
     initialization_validation_count = 0;
     initialization_copy_count = 0;
     initialization_initial_flags = 0x80;
     require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), nullptr, 7) == &initialization_state);
-    require(initialization_state.desktop_window_rect.left == -4 && initialization_state.desktop_window_rect.top == -50);
-    require(initialization_state.desktop_window_rect.right == 644 && initialization_state.desktop_window_rect.bottom == 484);
+    require(initialization_state.desktop_window_rect.left == 188 && initialization_state.desktop_window_rect.top == 127);
+    require(initialization_state.desktop_window_rect.right == 836 && initialization_state.desktop_window_rect.bottom == 641);
     require(initialization_state.window_top_adjustment == 0);
     require(initialization_state.content_left == 0 && initialization_state.content_top == 0 && initialization_state.content_right == 640 && initialization_state.content_bottom == 480);
+    require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_set_position) == initialization_events + initialization_event_count);
+    require(window_position_open_count == 1 && window_position_query_count == 0 && window_position_close_count == 0);
+
+    initialization_event_count = 0;
+    initialization_validation_count = 0;
+    initialization_copy_count = 0;
+    persisted_window_position_available = true;
+    persisted_window_position_visible = true;
+    persisted_window_position = { 120, 80 };
+    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), nullptr, 7) == &initialization_state);
+    require(window_position_open_count == 2 && window_position_query_count == 2 && window_position_close_count == 1);
+
+    initialization_event_count = 0;
+    initialization_validation_count = 0;
+    initialization_copy_count = 0;
+    persisted_window_position_visible = false;
+    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), nullptr, 7) == &initialization_state);
+    require(window_position_open_count == 3 && window_position_query_count == 4 && window_position_close_count == 2);
+
+    initialization_event_count = 0;
+    initialization_validation_count = 0;
+    initialization_copy_count = 0;
+    initialization_initial_flags = 0;
+    persisted_window_position_visible = true;
+    persisted_window_position = { 120, 80 };
+    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), nullptr, 7) == &initialization_state);
+    RECT persisted_fullscreen_windowed_rectangle;
+    require(gag::get_modern_windows_windowed_rectangle_for_testing(&persisted_fullscreen_windowed_rectangle));
+    require(persisted_fullscreen_windowed_rectangle.left == 120 && persisted_fullscreen_windowed_rectangle.top == 80 && persisted_fullscreen_windowed_rectangle.right == 768
+            && persisted_fullscreen_windowed_rectangle.bottom == 594);
+
+    persisted_window_rectangle_available = true;
+    persisted_window_rectangle = { 50, 60, 1330, 1020 };
+    RECT restored_rectangle{ 0, 0, 648, 514 };
+    require(gag::load_saved_window_rectangle(648, 514, &restored_rectangle));
+    require(restored_rectangle.left == 50 && restored_rectangle.top == 60 && restored_rectangle.right == 1330 && restored_rectangle.bottom == 1020);
+
+    persisted_window_rectangle = { 50, 60, 600, 400 };
+    restored_rectangle = { 0, 0, 648, 514 };
+    require(gag::load_saved_window_rectangle(648, 514, &restored_rectangle));
+    require(restored_rectangle.left == 120 && restored_rectangle.top == 80 && restored_rectangle.right == 768 && restored_rectangle.bottom == 594);
+
+    persisted_window_rectangle = { 50, 60, 1330, 1020 };
+    persisted_window_position_visible = false;
+    restored_rectangle = { 0, 0, 648, 514 };
+    require(!gag::load_saved_window_rectangle(648, 514, &restored_rectangle));
+    persisted_window_rectangle_available = false;
+    persisted_window_position_visible = true;
 #endif
 }
 
@@ -9292,7 +9611,7 @@ void test_runtime_left_button_up()
     require(gag::handle_runtime_left_button_up() == 0 && root.transient_index_2 == 3);
     require(root.event_records[2][0] == 2 && root.event_records[2][2] == reinterpret_cast<std::uint32_t>(&state_object) && root.event_records[2][14] == 0x1000000d);
 
-    slots[1].flags = 0x20;
+    slots[1].flags = 0x200000;
     gag::set_runtime_scene_slots_for_testing(slots);
     region.current_scene_bit = 2;
     require(gag::handle_runtime_left_button_up() == 0 && root.transient_index_2 == 4);
@@ -9396,7 +9715,7 @@ void test_runtime_left_button_up()
     require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 1);
     require(root.event_records[0][0] == 2 && root.event_records[0][3] == reinterpret_cast<std::uint32_t>(&region) && root.event_records[0][14] == 9);
 
-    slots[1].flags = 0x20;
+    slots[1].flags = 0x200000;
     gag::set_runtime_scene_slots_for_testing(slots);
     root.transient_index_2 = 0;
     require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 0);
@@ -9511,6 +9830,14 @@ void test_script_image_flags()
     script_parameter_result = 0;
     parameter = make_script_parser("PARAM option");
     require(gag::parse_image_flag(&parameter) == 0xffffffff);
+    gag::set_script_value_parse_api_for_testing({ gag::evaluate_script_parameter });
+    char mismatched_flag_parameter_names[] = "option";
+    char mismatched_flag_parameter_values[] = "non_flag_parameter_value";
+    parameter = make_script_parser("PARAM option");
+    parameter.scratch_text = mismatched_flag_parameter_names;
+    parameter.creation_text = mismatched_flag_parameter_values;
+    require(gag::parse_image_flag(&parameter) == 0xffffffff);
+    gag::set_script_value_parse_api_for_testing({ evaluate_test_script_parameter });
 
     gag::ScriptRuntimeRoot root{};
     gag::ScriptObjectState object{};
@@ -9530,7 +9857,7 @@ void test_script_image_flags()
     gag::ScriptParserState stored_value = make_script_parser("SVALUE OBJECT FIELD");
     require(gag::parse_script_value_token(&stored_value, value, sizeof(value)) == 0x20 && std::strcmp(value, "stored") == 0);
     gag::ScriptParserState missing_value = make_script_parser("SVALUE OBJECT MISSING");
-    require(gag::parse_script_value_token(&missing_value, value, sizeof(value)) == 0);
+    require(gag::parse_script_value_token(&missing_value, value, sizeof(value)) == 0xffffffff);
     gag::ScriptParserState exhausted_value = make_script_parser("");
     require(gag::parse_script_value_token(&exhausted_value, value, sizeof(value)) == 0xffffffff);
     script_parameter_result = 1;
@@ -9538,6 +9865,9 @@ void test_script_image_flags()
     script_parameter_expected_type = 4;
     gag::ScriptParserState evaluated_value = make_script_parser("PARAM option");
     require(gag::parse_script_value_token(&evaluated_value, value, sizeof(value)) == 0x20 && std::memcmp(value, "DCBA", 4) == 0);
+    script_parameter_result = 0;
+    gag::ScriptParserState missing_parameter = make_script_parser("PARAM omitted");
+    require(gag::parse_script_value_token(&missing_parameter, value, sizeof(value)) == 0xffffffff);
 
     gag::RuntimeTreeNode owner{};
     root.flags = 0x10;
@@ -9616,6 +9946,16 @@ void test_script_image_flags()
     script_parameter_result = 0;
     parameter_expression = make_script_parser("PARAM score");
     require(gag::parse_script_integer_expression(&parameter_expression) == 0x7fffffff && parameter_expression.cursor == 0);
+    gag::set_script_integer_expression_api_for_testing({ gag::evaluate_script_parameter, select_test_integer_expression_random, find_test_integer_expression_link_0084,
+        find_test_integer_expression_primary_link, get_test_integer_expression_object, query_test_integer_expression_runtime });
+    char mismatched_integer_parameter_names[] = "score";
+    char mismatched_integer_parameter_values[] = "non_integer_parameter_value";
+    parameter_expression = make_script_parser("PARAM score");
+    parameter_expression.scratch_text = mismatched_integer_parameter_names;
+    parameter_expression.creation_text = mismatched_integer_parameter_values;
+    require(gag::parse_script_integer_expression(&parameter_expression) == 0x7fffffff && parameter_expression.cursor == 0);
+    gag::set_script_integer_expression_api_for_testing({ evaluate_test_script_parameter, select_test_integer_expression_random, find_test_integer_expression_link_0084,
+        find_test_integer_expression_primary_link, get_test_integer_expression_object, query_test_integer_expression_runtime });
     script_parameter_result = 1;
     script_parameter_value = 654;
     parameter_expression = make_script_parser("PARAM");
@@ -10960,10 +11300,11 @@ void test_runtime_resource_construction()
 
     reset_test_construction();
     *reinterpret_cast<std::uint32_t *>(data + 0x24) = 1;
-    *reinterpret_cast<std::uint32_t *>(data + 0x28) = 12;
+    std::memcpy(data + 0x2c, "data", 4);
+    *reinterpret_cast<std::uint32_t *>(data + 0x30) = 12;
     construction_type = 2;
     auto *sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 3, 0x200, 0));
-    require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == data + 0x2c && construction_queued_size == 12
+    require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == data + 0x34 && construction_queued_size == 12
             && construction_sound_loop == 3 && construction_sound_slot.playback_state == 0xffffffff && construction_register_count == 1);
     HeapFree(GetProcessHeap(), 0, sound);
 
@@ -12270,6 +12611,9 @@ void test_zlib_cdf_adapters()
     require(archive->entry_count == 1088);
     require(archive->entries[0] != nullptr);
     require(archive->entries[0]->name[0] != '\0');
+    require(gag::get_cdf_entry_flags(archive, "NewGame.cfg") == 0x14);
+    require(gag::get_cdf_entry_flags(archive, "NEWGAME.CFG") == 0x14);
+    require(gag::get_cdf_entry_flags(archive, "NEWGAME") == 0);
     require(gag::close_cdf_archive(archive) == 1);
 }
 
@@ -12745,8 +13089,8 @@ int main()
         { 0x0c, "load"       },
         { 0x0d, "source"     },
         { 0x0e, "section"    },
-        { 0x0f, "font"       },
-        { 0x10, "time"       },
+        { 0x0f, "time"       },
+        { 0x10, "font"       },
         { 0x20, "language"   },
         { 0x40, "inventory"  },
         { 0x50, "flags"      },
@@ -13027,9 +13371,9 @@ int main()
         { "sublocation", 0x0a },
         { "section",     0x0e },
         { "source",      0x0d },
-        { "font",        0x0f },
+        { "font",        0x10 },
         { "fademask",    0x0b },
-        { "time",        0x10 },
+        { "time",        0x0f },
         { "text",        0x30 },
         { "language",    0x20 },
         { "inventory",   0x40 },
@@ -13217,9 +13561,14 @@ int main()
     display_modes[1].next = &display_modes[2];
     display_modes[2].flags = 0x20000;
     gag::set_display_mode_list_for_testing(display_modes);
+    gag::set_display_bootstrap_state_for_testing(0, display_modes, &display_modes[2], 3, nullptr);
+    require(gag::get_display_mode_tail_for_testing() == &display_modes[2]);
     require(gag::begin_display_mode_enumeration(0x10000) == &display_modes[0]);
+    require(gag::get_display_mode_tail_for_testing() == &display_modes[0]);
     require(gag::get_next_display_mode(0x10000) == nullptr);
+    require(gag::get_display_mode_tail_for_testing() == nullptr);
     require(gag::begin_display_mode_enumeration(0x20000) == &display_modes[2]);
+    require(gag::get_display_mode_tail_for_testing() == &display_modes[2]);
 
     gag::set_graphics_host_flags_for_testing(0);
     require(gag::get_current_display_mode() == nullptr);
@@ -13257,16 +13606,8 @@ int main()
     state.flags = 0;
 #if defined(FREEGAG_WINDOWS_FIXES)
     state.display_bits_per_pixel = display_modes[0].bits_per_pixel;
-    if(state.display_bits_per_pixel > 16)
-    {
-        require(gag::detect_alternate_display_mode(&state) == 0);
-        require(state.display_mode_iterator == nullptr && (state.flags & 0x4000) == 0);
-    }
-    else
-    {
-        require(gag::detect_alternate_display_mode(&state) == 0x4000);
-        require(state.display_mode_iterator == &display_modes[1]);
-    }
+    require(gag::detect_alternate_display_mode(&state) == 0x4000);
+    require(state.display_mode_iterator == nullptr && (state.flags & 0x4000) != 0);
 
     gag::DisplayMode virtual_mode{};
     gag::build_modern_windows_virtual_display_mode_for_testing(&virtual_mode, 1920, 1080, true);
@@ -13278,6 +13619,25 @@ int main()
     require(virtual_mode.bits_per_pixel == 16 && virtual_mode.pixel_value_count == 0x10000);
     require(virtual_mode.red_mask == 0xf800 && virtual_mode.green_mask == 0x07e0 && virtual_mode.blue_mask == 0x001f);
     require(gag::get_modern_windows_color_depth_for_testing() == 16);
+    RECT viewport = gag::calculate_modern_windows_fullscreen_viewport_for_testing(1920, 1080, 640, 480, 2);
+    require(viewport.left == 320 && viewport.top == 60 && viewport.right == 1600 && viewport.bottom == 1020);
+    viewport = gag::calculate_modern_windows_fullscreen_viewport_for_testing(1920, 1080, 640, 480, 0);
+    require(viewport.left == 240 && viewport.top == 0 && viewport.right == 1680 && viewport.bottom == 1080);
+    viewport = gag::calculate_modern_windows_fullscreen_viewport_for_testing(1920, 1080, 640, 480, 1);
+    require(viewport.left == 0 && viewport.top == 0 && viewport.right == 1920 && viewport.bottom == 1080);
+    viewport = gag::calculate_modern_windows_fullscreen_viewport_for_testing(320, 240, 640, 480, 2);
+    require(viewport.left == 0 && viewport.top == 0 && viewport.right == 320 && viewport.bottom == 240);
+    viewport = gag::calculate_modern_windows_windowed_viewport_for_testing(1279, 959, 640, 480, 1);
+    require(viewport.left == 319 && viewport.top == 239 && viewport.right == 959 && viewport.bottom == 719);
+    viewport = gag::calculate_modern_windows_windowed_viewport_for_testing(1280, 960, 640, 480, 1);
+    require(viewport.left == 0 && viewport.top == 0 && viewport.right == 1280 && viewport.bottom == 960);
+    viewport = gag::calculate_modern_windows_windowed_viewport_for_testing(1400, 1000, 640, 480, 1);
+    require(viewport.left == 60 && viewport.top == 20 && viewport.right == 1340 && viewport.bottom == 980);
+    viewport = gag::calculate_modern_windows_windowed_viewport_for_testing(1000, 1000, 640, 480, 0);
+    require(viewport.left == 0 && viewport.top == 125 && viewport.right == 1000 && viewport.bottom == 875);
+    require(gag::map_modern_windows_fullscreen_coordinate_for_testing(-1, 1280, 640) == 0);
+    require(gag::map_modern_windows_fullscreen_coordinate_for_testing(640, 1280, 640) == 320);
+    require(gag::map_modern_windows_fullscreen_coordinate_for_testing(1279, 1280, 640) == 639);
 #else
     require(gag::detect_alternate_display_mode(&state) == 0x4000);
     require(state.display_mode_iterator == &display_modes[1]);
@@ -13287,10 +13647,18 @@ int main()
     gag::set_display_switch_api_for_testing(display_switch_api);
     state.flags = 0x4020;
     gag::switch_display_mode_if_enabled(&state, 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(display_switch_event == 0);
+#else
     require(display_switch_event == 2);
+#endif
     require(state.flags == 0x4020);
     gag::switch_display_mode_if_enabled(&state, 1);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(display_switch_event == 0);
+#else
     require(display_switch_event == 1);
+#endif
     state.flags = 0x4000;
     display_switch_event = 0;
     gag::switch_display_mode_if_enabled(&state, 0);
@@ -13363,22 +13731,36 @@ int main()
 
     gag::set_graphics_host_flags_for_testing(0);
     display_mode_change_event_count = 0;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(gag::set_active_display_mode_if_graphics_ready(&display_modes[1]) == 0 && gag::restore_active_display_mode_if_graphics_ready() == 0 && display_mode_change_event_count == 0);
+#else
     require(gag::set_active_display_mode_if_graphics_ready(&display_modes[1]) == 0x200000 && gag::restore_active_display_mode_if_graphics_ready() == 0x200000 && display_mode_change_event_count == 0);
+#endif
     gag::set_graphics_host_flags_for_testing(0x800);
     display_mode_change_event_count = 0;
     gag::set_display_mode_change_state_for_testing(0x1000, reinterpret_cast<void *>(9), &display_modes[0]);
     require(gag::set_active_display_mode_if_graphics_ready(&display_modes[1]) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(display_mode_change_event_count == 0);
+#else
     require(display_mode_change_event_count == 3 && std::memcmp(display_mode_change_events, retained_cooperative_mode_events, sizeof(retained_cooperative_mode_events)) == 0);
+#endif
 
     gag::set_graphics_host_flags_for_testing(0);
-    gag::set_runtime_subsystem_callback_for_testing(initialize_runtime_subsystem);
+    gag::set_runtime_sound_pause_resume_state_for_testing(0x12345678, 0, 0, 0, nullptr, 0, nullptr, 0);
     gag::enable_runtime_subsystem();
     gag::enable_runtime_subsystem();
-    require(runtime_subsystem_count == 1);
-    require((gag::get_graphics_host_flags_for_testing() & 2) != 0);
+    std::uint32_t subsystem_toggle_state;
+    std::uint32_t subsystem_mixing_suppressed;
+    std::uint32_t subsystem_output_initialized;
+    HANDLE subsystem_thread;
+    DWORD subsystem_thread_id;
+    gag::get_runtime_sound_pause_resume_state_for_testing(&subsystem_toggle_state, &subsystem_mixing_suppressed, &subsystem_output_initialized, &subsystem_thread, &subsystem_thread_id);
+    require(subsystem_toggle_state == 0xedcba987 && (gag::get_graphics_host_flags_for_testing() & 2) != 0);
     gag::disable_runtime_subsystem();
     gag::disable_runtime_subsystem();
-    require(runtime_subsystem_count == 2 && (gag::get_graphics_host_flags_for_testing() & 2) == 0);
+    gag::get_runtime_sound_pause_resume_state_for_testing(&subsystem_toggle_state, &subsystem_mixing_suppressed, &subsystem_output_initialized, &subsystem_thread, &subsystem_thread_id);
+    require(subsystem_toggle_state == 0x12345678 && (gag::get_graphics_host_flags_for_testing() & 2) == 0);
     gag::set_credits_runtime_flag();
     gag::set_credits_runtime_flag();
     require((gag::get_graphics_host_flags_for_testing() & 0x40000000) != 0);
@@ -13421,12 +13803,12 @@ int main()
     gag::set_application_inactive_flags(&state);
     require(state.flags == 0x49000022);
 
-    std::uint8_t active_object[0x828]{};
-    gag::set_active_object_for_testing(nullptr);
+    gag::ScriptRuntimeRoot active_root{};
+    gag::set_script_runtime_root_for_testing(nullptr);
     gag::set_active_object_field_0824(0x12345678);
-    gag::set_active_object_for_testing(active_object);
+    gag::set_script_runtime_root_if_valid(&active_root);
     gag::set_active_object_field_0824(0x12345678);
-    require(*reinterpret_cast<std::uint32_t *>(active_object + 0x824) == 0x12345678);
+    require(active_root.state_value_0824 == 0x12345678);
 
     reset();
     const std::uint32_t equal_words[] = { 1, 2, 3 };
@@ -14949,6 +15331,11 @@ int main()
     std::memset(glyph_destination_pixels, 0, sizeof(glyph_destination_pixels));
     gag::draw_runtime_generic_text("\\nA", 3, generic_text_state, &font_backend, &glyph_destination, 0);
     require(glyph_destination_pixels[0] == 0 && glyph_destination_pixels[4] == 7 && font_backend.recursion_count == 0);
+    std::memset(glyph_destination_pixels, 0, sizeof(glyph_destination_pixels));
+    font_atlas[182] = 9;
+    gag::draw_runtime_generic_text("A[END]", 6, generic_text_state, &font_backend, &glyph_destination, 0);
+    require(glyph_destination_pixels[0] == 7 && glyph_destination_pixels[1] == 0 && font_backend.recursion_count == 0);
+    font_atlas[182] = 0;
 
     gag::RuntimeMediaBackend media_lock_backend{};
     gag::release_runtime_media_backend_lock(nullptr);
@@ -15474,14 +15861,30 @@ int main()
     {
         create_slots[handle].active = 1;
     }
-    gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(441), create_slots, 0x3ff);
-    require(gag::create_runtime_sound_handle(&create_source) == 0x400 && create_slots[0x400].active == 1 && create_slots[0x400].conversion_flags == 0x2101);
+    gag::RuntimeSoundSlot *backing_sound_slots = gag::use_runtime_sound_backing_storage_for_testing();
+    std::memcpy(backing_sound_slots, create_slots, sizeof(gag::RuntimeSoundSlot) * 1024);
+    runtime_sound_create_slots = backing_sound_slots;
+    gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(441), backing_sound_slots, 0x3ff);
+    gag::set_runtime_sound_create_state_for_testing(reinterpret_cast<HANDLE>(440), reinterpret_cast<HWAVEOUT>(442), &create_output, reinterpret_cast<WAVEHDR *>(443), reinterpret_cast<WAVEHDR *>(444),
+        reinterpret_cast<HWND>(445), nullptr, 0, 0, 0, 0);
+    require(gag::create_runtime_sound_handle(&create_source) == 0x400 && backing_sound_slots[0x400].active == 1 && backing_sound_slots[0x400].conversion_flags == 0x2101);
     HWND overflow_sound_window = nullptr;
     std::uint32_t overflow_window_failure = 0;
     gag::get_runtime_sound_thread_state_for_testing(&overflow_sound_window, &overflow_window_failure);
     require(overflow_sound_window == reinterpret_cast<HWND>(0x21010164));
+    std::uint32_t overflow_toggle_state = 0;
+    std::uint32_t overflow_mixing_suppressed = 0;
+    std::uint32_t overflow_output_initialized = 0;
+    HANDLE overflow_thread = nullptr;
+    DWORD overflow_thread_id = 0;
+    gag::get_runtime_sound_pause_resume_state_for_testing(&overflow_toggle_state, &overflow_mixing_suppressed, &overflow_output_initialized, &overflow_thread, &overflow_thread_id);
+    require(overflow_mixing_suppressed == 1 && overflow_output_initialized == 0 && overflow_thread_id == 0);
+    gag::get_runtime_wave_mixer_initialize_state_for_testing(&mixer_fault, &mixer_buffer, &mixer_data_size, &selected_mixer);
+    require(mixer_data_size == 0);
     const int conversion_create_events[] = { 1, 2, 3, 4, 15, 20, 21 };
     require(runtime_sound_create_event_count == 7 && std::memcmp(runtime_sound_create_events, conversion_create_events, sizeof(conversion_create_events)) == 0);
+    runtime_sound_create_slots = create_slots;
+    gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(441), create_slots, 0x400);
     runtime_sound_create_event_count = 0;
     runtime_sound_create_conversion_result = 0;
     create_slots[0x400].active = 0;
@@ -15505,9 +15908,6 @@ int main()
     require(created_sound_thread == reinterpret_cast<HANDLE>(446) && created_sound_thread_id == 447 && created_output_initialized == 0 && created_sound_ready == 1);
     runtime_sound_create_event_count = 0;
     std::memset(create_slots, 0, sizeof(create_slots));
-    create_slots[1].active = 1;
-    create_slots[2].active = 1;
-    create_slots[3].active = 1;
     gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(441), create_slots, 4);
     gag::set_runtime_sound_create_state_for_testing(reinterpret_cast<HANDLE>(440), reinterpret_cast<HWAVEOUT>(442), &create_output, reinterpret_cast<WAVEHDR *>(443), reinterpret_cast<WAVEHDR *>(444),
         reinterpret_cast<HWND>(445), reinterpret_cast<HANDLE>(446), 448, 1, 1, 0);
@@ -15515,6 +15915,17 @@ int main()
     const int ready_rebuild_create_events[] = { 1, 2, 3, 4, 5, 6, 7, 5, 8, 20, 9, 10, 11, 101, 102, 103, 3, 12, 13, 14, 20, 21 };
     require(runtime_sound_create_event_count == 22 && std::memcmp(runtime_sound_create_events, ready_rebuild_create_events, sizeof(ready_rebuild_create_events)) == 0);
     require(create_slots[1].active == 1 && create_slots[2].active == 0 && create_slots[3].active == 0 && gag::get_runtime_sound_maximum_handle_for_testing() == 1);
+    runtime_sound_create_event_count = 0;
+    runtime_sound_create_conversion_result = 1;
+    runtime_sound_create_conversion_flags = 0x1001;
+    std::memset(create_slots, 0, sizeof(create_slots));
+    create_slots[1].active = 1;
+    gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(441), create_slots, 1);
+    gag::set_runtime_sound_create_state_for_testing(reinterpret_cast<HANDLE>(440), reinterpret_cast<HWAVEOUT>(442), &create_output, reinterpret_cast<WAVEHDR *>(443), reinterpret_cast<WAVEHDR *>(444),
+        reinterpret_cast<HWND>(445), reinterpret_cast<HANDLE>(446), 448, 1, 1, 0);
+    require(gag::create_runtime_sound_handle(&create_source) == 2);
+    require(create_slots[1].active == 1 && create_slots[2].active == 1 && create_slots[2].conversion_flags == 0x1001);
+    require(runtime_sound_create_event_count == 7 && std::memcmp(runtime_sound_create_events, conversion_create_events, sizeof(conversion_create_events)) == 0);
     runtime_sound_create_event_count = 0;
     runtime_sound_create_thread_failure = true;
     std::memset(create_slots, 0, sizeof(create_slots));
@@ -15817,6 +16228,11 @@ int main()
         runtime_game_window_last_message = 0;
         runtime_game_window_last_wparam = 0;
         runtime_game_window_last_lparam = 0;
+        runtime_game_window_sent_lparam = 0;
+        runtime_game_window_pair_lparam = 0;
+        runtime_game_window_dll_lparam = 0;
+        runtime_game_window_pointer_x = 0;
+        runtime_game_window_pointer_y = 0;
         runtime_game_window_default_result = 0x1234;
         runtime_game_window_update_result = FALSE;
     };
@@ -15858,6 +16274,25 @@ int main()
     const int runtime_game_window_mouse_events[] = { 1, 7, 2, 9 };
     require(runtime_game_window_event_count == 4 && std::memcmp(runtime_game_window_events, runtime_game_window_mouse_events, sizeof(runtime_game_window_mouse_events)) == 0
             && runtime_game_window_last_message == WM_MOUSEMOVE && runtime_game_window_last_lparam == MAKELPARAM(5, 6));
+#if defined(FREEGAG_WINDOWS_FIXES)
+    reset_runtime_game_window();
+    gag::set_modern_windows_fullscreen_presentation_for_testing(true, 1280, 960);
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MOUSEMOVE, 4, MAKELPARAM(1279, 959)) == 0);
+    require(runtime_game_window_dll_lparam == MAKELPARAM(639, 479));
+    require(runtime_game_window_pointer_x == 639 && runtime_game_window_pointer_y == 479);
+    require(runtime_game_window_sent_lparam == MAKELPARAM(649, 499) && runtime_game_window_pair_lparam == MAKELPARAM(639, 479));
+    reset_runtime_game_window();
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(640, 480)) == 0);
+    require(runtime_game_window_sent_lparam == MAKELPARAM(330, 260) && runtime_game_window_pair_lparam == MAKELPARAM(320, 240));
+    reset_runtime_game_window();
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_LBUTTONUP, 0, MAKELPARAM(640, 480)) == 0);
+    require(runtime_game_window_sent_lparam == MAKELPARAM(330, 260) && runtime_game_window_pair_lparam == MAKELPARAM(320, 240));
+    reset_runtime_game_window();
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 1280, 960);
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MOUSEMOVE, 0, MAKELPARAM(1279, 959)) == 0);
+    require(runtime_game_window_pointer_x == 639 && runtime_game_window_pointer_y == 479 && runtime_game_window_pair_lparam == MAKELPARAM(639, 479));
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 640, 480);
+#endif
     reset_runtime_game_window();
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MBUTTONDOWN, 4, 5) == 0x1234);
     require(runtime_game_window_event_count == 2 && runtime_game_window_events[0] == 1 && runtime_game_window_events[1] == 16);
@@ -16094,18 +16529,19 @@ int main()
     require(gag::select_pointer_region_scene(&pointer_region) == -1 && pointer_region.current_scene_bit == 0);
     pointer_region.scene_mask = 0x0a;
     require(gag::select_pointer_region_scene(&pointer_region) == 1 && pointer_region.current_scene_bit == 2);
-    runtime_scene_slots[1].flags = 0x20;
+    runtime_scene_slots[1].flags = 0x200000;
     gag::set_runtime_scene_slots_for_testing(runtime_scene_slots);
     require(gag::select_pointer_region_scene(&pointer_region) == 3 && pointer_region.current_scene_bit == 8);
     gag::ScriptObjectState pointer_region_state{};
-    pointer_region_state.active_field_mask = 2;
+    pointer_region_state.command_mask = 2;
     pointer_region.state_object = &pointer_region_state;
     require(gag::select_pointer_region_scene(&pointer_region) == 1 && pointer_region.current_scene_bit == 2);
     pointer_region.first_scene_bit = 8;
     require(gag::select_pointer_region_scene(&pointer_region) == 3 && pointer_region.current_scene_bit == 8);
     pointer_region.first_scene_bit = 0;
     pointer_region.scene_mask = 2;
-    pointer_region_state.active_field_mask = 0;
+    pointer_region_state.command_mask = 0;
+    pointer_region_state.active_field_mask = 2;
     require(gag::select_pointer_region_scene(&pointer_region) == -1 && pointer_region.current_scene_bit == 0);
     gag::RuntimeTreeNode enumeration_root{};
     gag::RuntimeTreeNode enumeration_a{};
@@ -17148,15 +17584,18 @@ int main()
     require(script_root.transient_index_2 == 1 && script_root.event_records[0][0] == 0
             && script_root.event_records[0][3] == static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(&pointer_region_2)));
     require(gag::get_current_runtime_scene_identity_for_testing() == reinterpret_cast<void *>(302));
+
     gag::ScriptObjectState pointer_state{};
-    pointer_state.active_field_mask = 4;
+    pointer_state.command_mask = 4;
     pointer_region_2.state_object = &pointer_state;
     pointer_region_2.scene_mask = 2;
-    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(500), &pointer_region_1, nullptr, 6, reinterpret_cast<void *>(999));
+    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(500), &pointer_region_1, nullptr, 4, reinterpret_cast<void *>(999));
     gag::set_runtime_scene_control_state_for_testing(0x130000, nullptr);
     gag::update_runtime_pointer_region(10, 10);
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x8000) == 0 && gag::get_active_runtime_pointer_region_for_testing() == &pointer_region_2);
-    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(500), &pointer_region_1, nullptr, 0, reinterpret_cast<void *>(999));
+    pointer_state.command_mask = 0;
+    pointer_state.active_field_mask = 4;
+    gag::set_runtime_pointer_region_state_for_testing(reinterpret_cast<void *>(500), &pointer_region_1, nullptr, 4, reinterpret_cast<void *>(999));
     gag::set_runtime_scene_control_state_for_testing(0x130000, nullptr);
     gag::update_runtime_pointer_region(10, 10);
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x8000) != 0);
@@ -17572,11 +18011,24 @@ int main()
     require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8780, 0) == 0);
     procedure_state = &state;
 
-    std::uint8_t main_game_context[0x9b8]{};
+    alignas(4) std::uint8_t main_game_context[0x9b8]{};
     *reinterpret_cast<HWND *>(main_game_context + 4) = reinterpret_cast<HWND>(42);
     state.game_context = main_game_context;
     require(gag::gag_main_window_procedure(main_window, WM_KEYDOWN, 3, 4) == 0x4567);
     require(main_procedure_last_window == reinterpret_cast<HWND>(42) && main_procedure_last_message == WM_KEYDOWN && main_procedure_last_wparam == 3 && main_procedure_last_lparam == 4);
+
+    auto *main_script_root = reinterpret_cast<gag::ScriptRuntimeRoot *>(main_game_context + 0x9b0);
+    gag::set_script_runtime_root_for_testing(main_script_root);
+    state.flags = 0x02000000;
+    main_script_root->flags = 1;
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8820, 0) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require((state.flags & 0x02000000) == 0 && (main_script_root->flags & 1) != 0);
+#else
+    require((state.flags & 0x02000000) != 0 && (main_script_root->flags & 1) == 0);
+#endif
+    require((state.flags & 0x40000) != 0);
+    gag::set_script_runtime_root_for_testing(&script_root);
 
     gag::ApplicationStateFieldQuery main_query{};
     strcpy_s(main_query.object_name, "OBJECT");
@@ -17610,6 +18062,18 @@ int main()
     require(main_procedure_reply_count == 1 && main_procedure_last_window == main_window && main_procedure_last_message == WM_COMMAND && main_procedure_last_wparam == 0x8780);
     state.flags = 0x20;
     require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7da, 0) == 0 && main_procedure_last_wparam == 0x8910);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(gag::gag_main_window_procedure(main_window, WM_LBUTTONDOWN, 0, 0) == 0x1234);
+    require(gag::should_send_runtime_script_message(0x7da));
+    require(!gag::should_send_runtime_script_message(0x7da));
+    require(gag::should_send_runtime_script_message(0x7e4));
+    require(gag::gag_main_window_procedure(main_window, WM_LBUTTONDOWN, 0, 0) == 0x1234);
+    require(gag::should_send_runtime_script_message(0x7da));
+    require(gag::gag_main_window_procedure(main_window, WM_LBUTTONDOWN, 0, 0) == 0x1234);
+#else
+    require(gag::should_send_runtime_script_message(0x7da));
+    require(gag::should_send_runtime_script_message(0x7da));
+#endif
 
     state.flags = 0x80000 | 0x100000 | 0x200000;
     state.saved_flags = 0;
@@ -17646,7 +18110,7 @@ int main()
     main_procedure_operation_count = 0;
     require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8860, 0) == 0);
     const int new_game_events[] = { 1, 2, 3, 4, 5 };
-    require(std::strcmp(state.startup_config, "NEWGAME") == 0 && (state.flags & 0x200000) != 0 && main_procedure_operation_count == 5
+    require(std::strcmp(state.startup_config, "NewGame.cfg") == 0 && (state.flags & 0x200000) != 0 && main_procedure_operation_count == 5
             && std::memcmp(main_procedure_operation_events, new_game_events, sizeof(new_game_events)) == 0);
 
     state = {};
@@ -17654,7 +18118,7 @@ int main()
     procedure_state = &state;
     main_procedure_operation_count = 0;
     require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8870, 0) == 0);
-    require(std::strcmp(state.startup_config, "START.CFG") == 0 && std::strcmp(state.installed_version, "D:\\GAG\\CREDITS") == 0 && main_procedure_operation_count == 5
+    require(std::strcmp(state.startup_config, "START.CFG") == 0 && std::strcmp(state.installed_version, "D:\\GAG\\AutoSave.cdf") == 0 && main_procedure_operation_count == 5
             && std::memcmp(main_procedure_operation_events, new_game_events, sizeof(new_game_events)) == 0);
 
     state = {};
@@ -17724,15 +18188,30 @@ int main()
     const int destruction_events[] = { 5, 3, 9, 8, 10, 11, 12 };
     require(custom_gdi_background == FALSE && custom_gdi_event_count == 7 && std::memcmp(custom_gdi_events, destruction_events, sizeof(destruction_events)) == 0);
 
-    gag::SettingsRegistryApi settings_api{ open_settings_key, set_settings_value, close_settings_key };
+    gag::SettingsRegistryApi settings_api{ open_settings_key, create_settings_key, set_settings_value, close_settings_key };
     gag::set_settings_registry_api_for_testing(settings_api);
+    window_position_create_count = 0;
+    window_position_write_count = 0;
+    window_position_close_count = 0;
     state.archive_context = nullptr;
     state.flags = 0xffffffff;
+    state.window = reinterpret_cast<HWND>(41);
     gag::save_runtime_settings(&state);
     require(saved_runtime_settings == 0x02001020 && saved_settings_close_count == 1);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(window_position_create_count == 1 && window_position_write_count == 2 && window_position_close_count == 1);
+    require(written_window_rectangle.left == 135 && written_window_rectangle.top == 246 && written_window_rectangle.right == 783 && written_window_rectangle.bottom == 780);
+    require(written_window_position.x == 135 && written_window_position.y == 246);
+#endif
     state.archive_context = &state;
+    saved_window_placement_available = true;
+    saved_window_placement_rectangle = { 25, 35, 1305, 995 };
     gag::save_runtime_settings(&state);
     require(saved_settings_close_count == 1);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(window_position_create_count == 2 && window_position_write_count == 4 && window_position_close_count == 2);
+    require(written_window_rectangle.left == 25 && written_window_rectangle.top == 35 && written_window_rectangle.right == 1305 && written_window_rectangle.bottom == 995);
+#endif
 
     gag::CursorVisibilityApi visibility_api{ show_test_cursor, on_test_cursor_hidden, on_test_cursor_shown };
     gag::set_cursor_visibility_api_for_testing(visibility_api);
@@ -17975,6 +18454,19 @@ int main()
     require(gag::dequeue_runtime_pair(&runtime_pair) == 1 && runtime_pair.first == 3 && runtime_pair.second == 4);
     require(gag::dequeue_runtime_pair(&runtime_pair) == 0);
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::reset_runtime_pair_queue_for_testing();
+    gag::set_modern_windows_fullscreen_presentation_for_testing(true, 1280, 960);
+    gag::set_graphics_host_flags_for_testing(0x400);
+    gag::enqueue_runtime_pair(WM_MOUSEMOVE, 0x009c0117);
+    gag::enqueue_runtime_pair(WM_LBUTTONUP, 0x009c0117);
+    gag::enqueue_runtime_pair(WM_MOUSEMOVE, 0x009c0117);
+    gag::set_graphics_host_flags_for_testing(0x100400);
+    require(gag::dequeue_runtime_pair(&runtime_pair) == 1 && runtime_pair.first == WM_LBUTTONUP && runtime_pair.second == 0x009c0117);
+    require(gag::dequeue_runtime_pair(&runtime_pair) == 0);
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 640, 480);
+#endif
+
     gag::RuntimePlanModeSyncApi runtime_plan_sync_api{ set_test_runtime_plans_inactive, clear_test_runtime_plans_inactive, rebuild_test_runtime_plans };
     gag::set_runtime_plan_mode_sync_api_for_testing(runtime_plan_sync_api);
     gag::RuntimeCommandLoopState runtime_plan_state{};
@@ -18121,7 +18613,7 @@ int main()
     require(gag::get_runtime_pointer_event_record_for_testing(14) == 0 && gag::get_runtime_pointer_event_record_for_testing(15) == 0);
     require(gag::get_runtime_session_reset_storage_for_testing(0) == 0 && gag::get_runtime_session_reset_storage_for_testing(0x1d2) == 0);
     const auto *reset_scene_slot_bytes = reinterpret_cast<const std::uint8_t *>(gag::get_runtime_scene_slots_for_testing());
-    require(reset_scene_slot_bytes[0] == 0 && reset_scene_slot_bytes[0x4df] == 0 && reset_scene_slot_bytes[0x4e0] == 0xff && reset_scene_slot_bytes[0x4ff] == 0xff);
+    require(reset_scene_slot_bytes[0] == 0 && reset_scene_slot_bytes[0x4df] == 0 && reset_scene_slot_bytes[0x4e0] == 0 && reset_scene_slot_bytes[0x4ff] == 0);
     gag::AsyncFileHost *reset_host;
     gag::CdfArchive *reset_archive;
     std::int32_t reset_mode;
@@ -18787,7 +19279,7 @@ int main()
     runtime_serialization_operation_count = 0;
     gag::ScriptTextBuffer *current_serialization = gag::serialize_current_runtime_state();
     require(current_serialization == reinterpret_cast<gag::ScriptTextBuffer *>(script_text_allocation));
-    const char expected_current_serialization[]{ "[CFG]\r\n\r\nfont=11;\r\ndrivespeed=22;\r\nfademask=33 PALFADE:44 FRAMEFADE:55;\r\nflags=NOSAVE;\r\nsource=SOURCE.CFG;\r\n\r\n\r\n[END]" };
+    const char expected_current_serialization[]{ "[CFG]\r\n\r\ntime=11;\r\ndrivespeed=22;\r\nfademask=33 PALFADE:44 FRAMEFADE:55;\r\nflags=NOSAVE;\r\nsource=SOURCE.CFG;\r\n\r\n\r\n[END]" };
     require(current_serialization->length == sizeof(expected_current_serialization) - 1
             && std::memcmp(current_serialization->data, expected_current_serialization, sizeof(expected_current_serialization) - 1) == 0);
     const std::uint32_t expected_serialization_operations[]{ 8, 12, 4, 1, 2, 5 };
@@ -18878,7 +19370,7 @@ int main()
     fixed_serialization_1.next = &fixed_serialization_2;
     serialization_root.fixed_name_nodes = &fixed_serialization_1;
     gag::serialize_runtime_fixed_name_nodes(&runtime_serialization);
-    const char expected_fixed_serialization[]{ "\r\ntime=CLOCK /FILE:VALUE1;\r\ntime=ALARM /FILE:VALUE2;\r\n" };
+    const char expected_fixed_serialization[]{ "\r\nfont=CLOCK /FILE:VALUE1;\r\nfont=ALARM /FILE:VALUE2;\r\n" };
     require(runtime_serialization.length == sizeof(expected_fixed_serialization) - 1
             && std::memcmp(runtime_serialization.data, expected_fixed_serialization, sizeof(expected_fixed_serialization) - 1) == 0);
 
@@ -19426,6 +19918,17 @@ int main()
     const char empty_link7c_text[]{ '\0' };
     link7c_parser.text = empty_link7c_text;
     require(gag::parse_runtime_tree_link_007c(&link7c_parser) == 0 && parsed_link7c_owner.link_007c_head == nullptr);
+    const std::uint32_t saved_link7c_parameter_result = script_parameter_result;
+    const std::uint32_t saved_link7c_parameter_expected_type = script_parameter_expected_type;
+    script_parameter_result = 0;
+    script_parameter_expected_type = 4;
+    const char omitted_template_event_text[]{ "PARAM p_clsZ /ZONE: PARAM p_clsZ" };
+    link7c_parser.text = omitted_template_event_text;
+    link7c_parser.text_length = sizeof(omitted_template_event_text) - 1;
+    link7c_parser.cursor = 0;
+    require(gag::parse_runtime_tree_link_007c(&link7c_parser) == 0 && parsed_link7c_owner.link_007c_head == nullptr && serialization_root.global_link_007c_head == nullptr);
+    script_parameter_result = saved_link7c_parameter_result;
+    script_parameter_expected_type = saved_link7c_parameter_expected_type;
     serialization_root.heap = reinterpret_cast<HANDLE>(72);
     display_scene_allocation_count = 0;
     display_scene_allocation_fail_at = 0;
@@ -19846,19 +20349,19 @@ int main()
     gag::use_embedded_script_runtime_root_for_testing();
     gag::clear_runtime_command_definitions();
     const auto *command_overlap_bytes = reinterpret_cast<const std::uint8_t *>(gag::get_runtime_scene_slots_for_testing());
-    require(command_overlap_bytes[0] == 0 && command_overlap_bytes[0x4df] == 0 && command_overlap_bytes[0x4e0] == 0xff && command_overlap_bytes[0x4ff] == 0xff);
+    require(command_overlap_bytes[0] == 0 && command_overlap_bytes[0x4df] == 0 && command_overlap_bytes[0x4e0] == 0 && command_overlap_bytes[0x4ff] == 0);
     gag::get_embedded_script_runtime_root_for_testing()->visual_objects = &command_visual;
     command_parser.text = command_text;
     command_parser.text_length = sizeof(command_text) - 1;
     command_parser.cursor = 0;
     require(gag::parse_runtime_command_definition(&command_parser) == 1);
     const gag::RuntimeSceneSlot *embedded_command_slots = gag::get_runtime_scene_slots_for_testing();
-    require(embedded_command_slots[0].visual_object == &command_visual && embedded_command_slots[0].flags == 0x20);
+    require(std::strcmp(embedded_command_slots[0].name, "ACTION") == 0 && embedded_command_slots[0].visual_object == &command_visual && embedded_command_slots[0].flags == 0x200000);
     const char second_command_text[]{ "SECOND" };
     command_parser.text = second_command_text;
     command_parser.text_length = sizeof(second_command_text) - 1;
     command_parser.cursor = 0;
-    require(gag::parse_runtime_command_definition(&command_parser) == 2 && std::strcmp(embedded_command_slots[0].name, "SECOND") == 0);
+    require(gag::parse_runtime_command_definition(&command_parser) == 2 && std::strcmp(embedded_command_slots[0].name, "ACTION") == 0 && std::strcmp(embedded_command_slots[1].name, "SECOND") == 0);
     gag::RuntimePointerRegion embedded_pointer_region_1{};
     gag::RuntimePointerRegion embedded_pointer_region_2{};
     gag::set_runtime_pointer_region_state_for_testing(nullptr, &embedded_pointer_region_1, nullptr, 0, nullptr);
@@ -20048,25 +20551,28 @@ int main()
     char activation_resource_name[]{ "RESOURCE" };
     char activation_tree_name[]{ "TREE" };
     int activation_resource;
-    int activation_creation_context;
     int activation_parent_selector;
+    int activation_creation_context;
     runtime_tree_activation_resource = &activation_resource;
     runtime_tree_activation_node = nullptr;
     runtime_tree_activation_event_count = 0;
-    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_creation_context, &activation_parent_selector) == nullptr);
+    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_parent_selector, &activation_creation_context) == nullptr);
     require(runtime_tree_activation_event_count == 3 && runtime_tree_activation_events[0] == 1 && runtime_tree_activation_events[1] == 2 && runtime_tree_activation_events[2] == 3);
     require(runtime_tree_activation_resource_name == activation_resource_name && runtime_tree_activation_tree_name == activation_tree_name);
-    require(runtime_tree_activation_creation_context == &activation_creation_context && runtime_tree_activation_parent_selector == &activation_creation_context);
+    require(runtime_tree_activation_creation_context == &activation_creation_context && runtime_tree_activation_parent_selector == &activation_parent_selector);
+    runtime_tree_activation_event_count = 0;
+    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, reinterpret_cast<void *>(0xffffffff), nullptr) == nullptr);
+    require(runtime_tree_activation_creation_context == nullptr && runtime_tree_activation_parent_selector == reinterpret_cast<void *>(0xffffffff));
     gag::RuntimeTreeNode activation_node{};
     std::memcpy(activation_node.name, "TREE", 5);
     runtime_tree_activation_node = &activation_node;
     runtime_tree_activation_event_count = 0;
-    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_creation_context, &activation_parent_selector) == &activation_node);
+    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_parent_selector, &activation_creation_context) == &activation_node);
     require(runtime_tree_activation_event_count == 4 && runtime_tree_activation_events[3] == 7);
     activation_node.name[0] = 0;
     activation_node.flags = 0x800;
     runtime_tree_activation_event_count = 0;
-    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_creation_context, &activation_parent_selector) == &activation_node);
+    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_parent_selector, &activation_creation_context) == &activation_node);
     const int expected_activation_events[]{ 1, 2, 3, 4, 5, 6, 7 };
     require(runtime_tree_activation_event_count == 7);
     for(int index = 0; index < 7; ++index)
@@ -20076,7 +20582,7 @@ int main()
     std::memcpy(activation_node.name, "TREE", 5);
     activation_node.flags = 0x1000;
     runtime_tree_activation_event_count = 0;
-    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_creation_context, &activation_parent_selector) == &activation_node);
+    require(gag::activate_runtime_tree_with_notifications(activation_resource_name, activation_tree_name, &activation_parent_selector, &activation_creation_context) == &activation_node);
     require(runtime_tree_activation_event_count == 6 && runtime_tree_activation_events[3] == 4 && runtime_tree_activation_events[4] == 5 && runtime_tree_activation_events[5] == 7);
 
     gag::RuntimeTreeDeactivateApi runtime_tree_deactivate_api{ resolve_test_runtime_deactivate, send_test_runtime_deactivate, request_test_runtime_deactivate_resource,
@@ -20918,6 +21424,9 @@ int main()
     std::uint32_t *display_host_flags =
         gag::initialize_display_scene_host(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(root_primary_pixels)), &allocation_format, 10, 8, nullptr, nullptr, 0);
     require(display_host_flags != nullptr && *display_host_flags == 1 && display_host_create_event_count == 2 && display_scene_allocation_count == 1);
+    auto *display_host_root = reinterpret_cast<gag::DisplaySceneNode *>(display_scene_allocations[0]);
+    require(display_host_root->surface == reinterpret_cast<gag::DisplaySceneSurface *>(display_host_flags));
+    require(display_host_root->surface->width == 10 && display_host_root->surface->height == 8);
     require(gag::shutdown_display_scene_host() == 0 && display_host_close_count == 2 && display_host_delete_count == 2);
 
     display_host_create_event_count = 0;
@@ -21261,13 +21770,15 @@ int main()
     require(gag::set_display_cooperative_mode(0) == 0 && cooperative_set_count == 2 && (gag::get_display_palette_flags_for_testing() & 0x1000) != 0);
     cooperative_result = 0;
     require(gag::set_display_cooperative_mode(0) == 0 && cooperative_set_count == 3 && cooperative_last_flags == 8 && (gag::get_display_palette_flags_for_testing() & 0x1000) == 0);
-    gag::DisplaySurfaceOperationApi surface_operation_api{ sleep_surface_operation, test_surface_blt_fast, test_surface_blt, test_surface_bit_blt, test_surface_pat_blt };
+    gag::DisplaySurfaceOperationApi surface_operation_api{ sleep_surface_operation, test_surface_blt_fast, test_surface_blt, test_surface_bit_blt, test_surface_stretch_blt, test_surface_pat_blt };
     gag::set_display_surface_operation_api_for_testing(surface_operation_api);
     gag::set_display_surface_operation_state_for_testing(reinterpret_cast<void *>(52), reinterpret_cast<void *>(53));
     surface_blt_fast_count = 0;
     surface_blt_count = 0;
     surface_bit_blt_count = 0;
+    surface_stretch_blt_count = 0;
     surface_pat_blt_count = 0;
+    surface_scaled_operation = false;
     gag::set_display_palette_state_for_testing(0, 8, 8, reinterpret_cast<HDC>(40), reinterpret_cast<HDC>(41), reinterpret_cast<HPALETTE>(42), 640, 480);
     gag::operate_display_surface(2, 3, 5, 7, 1);
     require(surface_blt_fast_count == 1 && surface_operation_rectangle.left == 2 && surface_operation_rectangle.top == 3 && surface_operation_rectangle.right == 6
@@ -21281,10 +21792,19 @@ int main()
     gag::operate_display_surface(2, 3, 5, 7, 2);
     gag::operate_display_surface(2, 3, 5, 7, 3);
     require(surface_bit_blt_count == 1 && surface_pat_blt_count == 1);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::set_modern_windows_fullscreen_presentation_for_testing(true, 1280, 960);
+    surface_scaled_operation = true;
+    gag::operate_display_surface(2, 3, 5, 7, 1);
+    gag::operate_display_surface(2, 3, 5, 7, 2);
+    require(surface_stretch_blt_count == 1 && surface_pat_blt_count == 2);
+    surface_scaled_operation = false;
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 640, 480);
+#endif
     gag::DisplaySurfaceCreationApi surface_creation_api{ sleep_surface_operation, teardown_test_surface_creation, set_test_surface_creation_cooperative, create_test_direct_draw_surface,
         get_test_attached_surface, release_test_surface, get_test_surface_dc, create_test_surface_dc, release_test_surface_dc, delete_test_surface_dc, get_test_surface_heap,
         allocate_test_surface_info, free_test_surface_info, create_test_surface_palette, select_test_palette, delete_object_teardown, create_test_dib_section, select_test_surface_bitmap,
-        set_test_palette_entries, realize_test_palette, set_test_dib_colors };
+        set_test_palette_entries, realize_test_palette, set_test_dib_colors, set_test_surface_stretch_mode };
     gag::set_display_surface_creation_api_for_testing(surface_creation_api);
     gag::LegacyDisplayPixelFormat surface_format{ 0x40, 0, 8, 0, 0, 0 };
     gag::set_display_cooperative_state_for_testing(reinterpret_cast<HWND>(47), reinterpret_cast<void *>(49));
@@ -21478,7 +21998,12 @@ int main()
     gag::clear_credits_runtime_flag();
     require(gag::get_graphics_host_flags_for_testing() == 0x80000000);
 
-    gag::WindowLayoutApi layout_api{ get_layout_metric, adjust_layout_rect, set_layout_window_long, set_layout_position, get_layout_client_rect, set_layout_focus, send_layout_message };
+    gag::WindowLayoutApi layout_api{ get_layout_metric, adjust_layout_rect, set_layout_window_long, set_layout_position, get_layout_client_rect, set_layout_focus, send_layout_message
+#if defined(FREEGAG_WINDOWS_FIXES)
+        ,
+        get_layout_window_rect, get_layout_window_monitor, get_layout_monitor_info, invalidate_layout_rect
+#endif
+    };
     gag::set_window_layout_api_for_testing(layout_api);
     std::uint8_t layout_game_context[0x498]{};
     state = {};
@@ -21487,43 +22012,93 @@ int main()
     state.window = reinterpret_cast<HWND>(60);
     state.capture_window = reinterpret_cast<HWND>(61);
     state.game_context = layout_game_context;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::reset_modern_windows_presentation_for_testing();
+    state.flags = 0x80;
+    procedure_state = &state;
+    MINMAXINFO minimum_information{};
+    require(gag::gag_main_window_procedure(state.window, WM_GETMINMAXINFO, 0, reinterpret_cast<LPARAM>(&minimum_information)) == 0);
+    require(minimum_information.ptMinTrackSize.x == 648 && minimum_information.ptMinTrackSize.y == 514);
+    state.flags = 0;
+#endif
+    layout_position_count = 0;
+    layout_focus_count = 0;
+    layout_send_count = 0;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    layout_invalidate_count = 0;
+#endif
     layout_style_count = 0;
     gag::update_application_window_layout(&state, nullptr);
-    require(state.desktop_window_rect.left == -4 && state.desktop_window_rect.top == -50 && state.desktop_window_rect.right == 804 && state.desktop_window_rect.bottom == 604);
-    require(state.window_top_adjustment == 51 && state.content_left == 0 && state.content_top == 49 && state.content_right == 640 && state.content_bottom == 529);
 #if defined(FREEGAG_WINDOWS_FIXES)
+    require(state.desktop_window_rect.left == 0 && state.desktop_window_rect.top == 0 && state.desktop_window_rect.right == 1920 && state.desktop_window_rect.bottom == 1080);
+    require(state.window_top_adjustment == 0 && state.content_left == 320 && state.content_top == 60 && state.content_right == 1600 && state.content_bottom == 1020);
     require(layout_position_count == 2 && layout_windows[0] == state.window && layout_position_flags[0] == 0x120);
     require(layout_style_count == 1 && layout_last_style == 0x92000000);
+    require(layout_positions[0].left == 0 && layout_positions[0].top == 0 && layout_positions[0].right == 1920 && layout_positions[0].bottom == 1080);
+    require(layout_windows[1] == state.capture_window && layout_positions[1].left == 320 && layout_positions[1].top == 60 && layout_positions[1].right == 1280 && layout_positions[1].bottom == 960
+            && layout_position_flags[1] == 0x104);
+    require(layout_invalidate_count == 2);
+    require(*reinterpret_cast<std::int32_t *>(layout_game_context + 0x490) == 320 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x494) == 60);
 #else
+    require(state.desktop_window_rect.left == -4 && state.desktop_window_rect.top == -50 && state.desktop_window_rect.right == 804 && state.desktop_window_rect.bottom == 604);
+    require(state.window_top_adjustment == 51 && state.content_left == 0 && state.content_top == 49 && state.content_right == 640 && state.content_bottom == 529);
     require(layout_position_count == 2 && layout_windows[0] == state.window && layout_position_flags[0] == 0x100);
     require(layout_style_count == 0);
-#endif
     require(layout_positions[0].left == -4 && layout_positions[0].top == -50 && layout_positions[0].right == 808 && layout_positions[0].bottom == 654);
     require(layout_windows[1] == state.capture_window && layout_positions[1].left == 0 && layout_positions[1].top == 49 && layout_position_flags[1] == 0x105);
-    require(layout_focus_count == 1 && layout_send_count == 1);
     require(*reinterpret_cast<std::int32_t *>(layout_game_context + 0x490) == 0 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x494) == 49);
+#endif
+    require(layout_focus_count == 1 && layout_send_count == 1);
 
     gag::SecondaryWindowLayout secondary_layout{ 0, 7, 0, 0, 0, 0, 0xffffffff };
     layout_position_count = 0;
     gag::update_application_window_layout(&state, &secondary_layout);
     require(secondary_layout.state == 0 && secondary_layout.flags == 0xfffffff8);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(secondary_layout.x == 0 && secondary_layout.y == 0 && secondary_layout.width == 1920 && secondary_layout.height == 1080);
+    require(layout_position_count == 1 && layout_windows[0] == state.capture_window && layout_positions[0].left == 320 && layout_positions[0].top == 60 && layout_positions[0].right == 1280
+            && layout_positions[0].bottom == 960 && layout_position_flags[0] == 0x104);
+#else
     require(secondary_layout.x == -4 && secondary_layout.y == -50 && secondary_layout.width == 808 && secondary_layout.height == 654);
     require(layout_position_count == 1 && layout_windows[0] == state.capture_window && layout_positions[0].left == state.content_left && layout_positions[0].top == state.content_top);
+#endif
 
 #if defined(FREEGAG_WINDOWS_FIXES)
     state.flags = 0x80;
     layout_position_count = 0;
     layout_focus_count = 0;
     layout_send_count = 0;
+    layout_invalidate_count = 0;
     layout_style_count = 0;
     gag::update_application_window_layout(&state, nullptr);
-    require(state.desktop_window_rect.left == 76 && state.desktop_window_rect.top == 33 && state.desktop_window_rect.right == 724 && state.desktop_window_rect.bottom == 567);
-    require(state.window_top_adjustment == 0 && state.content_left == 0 && state.content_top == 0 && state.content_right == 640 && state.content_bottom == 480);
-    require(layout_position_count == 2 && layout_windows[0] == state.window && layout_position_flags[0] == 0x120);
-    require(layout_style_count == 1 && layout_last_style == 0x12ca0000);
-    require(layout_positions[0].left == 76 && layout_positions[0].top == 33 && layout_positions[0].right == 648 && layout_positions[0].bottom == 534);
-    require(layout_windows[1] == state.capture_window && layout_positions[1].left == 0 && layout_positions[1].top == 0 && layout_position_flags[1] == 0x105);
+    require(state.desktop_window_rect.left == 100 && state.desktop_window_rect.top == 120 && state.desktop_window_rect.right == 748 && state.desktop_window_rect.bottom == 634);
+    require(state.window_top_adjustment == 0 && state.content_left == 0 && state.content_top == 25 && state.content_right == 640 && state.content_bottom == 505);
+    require(layout_position_count == 2);
+    require(layout_style_count == 1 && layout_last_style == 0x12cf0000);
+    require(layout_windows[0] == state.window && layout_positions[0].left == 100 && layout_positions[0].top == 120 && layout_positions[0].right == 648 && layout_positions[0].bottom == 514
+            && layout_position_flags[0] == 0x120);
+    require(layout_windows[1] == state.capture_window && layout_positions[1].left == 0 && layout_positions[1].top == 25 && layout_positions[1].right == 640 && layout_positions[1].bottom == 480
+            && layout_position_flags[1] == 0x104);
+    require(layout_invalidate_count == 2);
     require(layout_focus_count == 1 && layout_send_count == 1);
+
+    secondary_layout = { 0, 7, 123, 456, 0, 0, 0xffffffff };
+    layout_position_count = 0;
+    gag::update_application_window_layout(&state, &secondary_layout);
+    require(secondary_layout.state == 0 && secondary_layout.flags == 0xffffffff);
+    require(secondary_layout.x == 123 && secondary_layout.y == 456 && secondary_layout.width == 0 && secondary_layout.height == 0);
+    require(layout_position_count == 0);
+
+    layout_client_rectangle_override = true;
+    layout_client_rectangle = { 0, 0, 1400, 1000 };
+    layout_position_count = 0;
+    layout_invalidate_count = 0;
+    gag::update_modern_windows_windowed_viewport(&state);
+    require(state.content_left == 60 && state.content_top == 20 && state.content_right == 1340 && state.content_bottom == 980);
+    require(layout_position_count == 1 && layout_windows[0] == state.capture_window && layout_positions[0].left == 60 && layout_positions[0].top == 20 && layout_positions[0].right == 1280
+            && layout_positions[0].bottom == 960);
+    require(layout_invalidate_count == 2);
+    layout_client_rectangle_override = false;
 #endif
 
     state.window = nullptr;
@@ -21533,7 +22108,11 @@ int main()
     state.content_top = 13;
     layout_position_count = 0;
     gag::update_application_window_layout(&state, nullptr);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(layout_position_count == 0 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x490) == 80 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x494) == 60);
+#else
     require(layout_position_count == 0 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x490) == 12 && *reinterpret_cast<std::int32_t *>(layout_game_context + 0x494) == 13);
+#endif
 
     std::uint8_t restore_game_context[0x7ec]{};
     state = {};
@@ -21547,13 +22126,21 @@ int main()
     gag::set_graphics_host_flags_for_testing(0x01000000);
     gag::restore_application_display(&state);
     require(state.flags == 0x4020 && layout_position_count == 1 && layout_positions[0].left == -640 && layout_positions[0].top == -480);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(display_switch_event == 0 && (gag::get_graphics_host_flags_for_testing() & 0x01000000) == 0);
+#else
     require(display_switch_event == 1 && (gag::get_graphics_host_flags_for_testing() & 0x01000000) == 0);
+#endif
 
     state.flags = 0x40a0;
     layout_position_count = 0;
     display_switch_event = 0;
     gag::restore_application_display(&state);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(state.flags == 0x4080 && layout_position_count == 1 && display_switch_event == 0);
+#else
     require(state.flags == 0x4080 && layout_position_count == 1 && display_switch_event == 2);
+#endif
 
     gag::set_display_lock_state_for_testing(0, 0, 0, reinterpret_cast<HANDLE>(70));
     require(gag::blit_bitmap_with_optional_palette_remap(reinterpret_cast<gag::DisplaySceneNode *>(1), 2, 3, reinterpret_cast<gag::DisplaySceneNode *>(4), nullptr, 0) == 0x80000000);
@@ -22436,7 +23023,7 @@ int main()
             && rectangle_transition_regions[0].bottom == 12);
 
     gag::DisplayRegionSynchronizationApi display_region_api{ enter_test_display_region, leave_test_display_region, sleep_test_display_region, blt_fast_test_display_region, blt_test_display_region,
-        bit_blt_test_display_region, pat_blt_test_display_region };
+        bit_blt_test_display_region, stretch_blt_test_display_region, pat_blt_test_display_region };
     gag::set_display_region_synchronization_api_for_testing(display_region_api);
     gag::DisplayRectangle synchronized_region{ 2, 3, 8, 10 };
     gag::set_display_region_synchronization_state_for_testing(0, reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<HDC>(3), reinterpret_cast<HDC>(4));
@@ -22455,6 +23042,7 @@ int main()
     require(display_region_event_count == 2 && std::memcmp(display_region_events, ignored_display_region_events, sizeof(ignored_display_region_events)) == 0);
 
     gag::set_display_region_synchronization_state_for_testing(2, reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<HDC>(3), reinterpret_cast<HDC>(4));
+    display_region_scaled_operation = false;
     display_region_event_count = 0;
     gag::synchronize_display_region(&synchronized_region, 1);
     const int gdi_copy_region_events[] = { 1, 6, 2 };
@@ -22463,6 +23051,24 @@ int main()
     gag::synchronize_display_region(&synchronized_region, 2);
     const int gdi_fill_region_events[] = { 1, 7, 2 };
     require(display_region_event_count == 3 && std::memcmp(display_region_events, gdi_fill_region_events, sizeof(gdi_fill_region_events)) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::set_display_palette_state_for_testing(2, 8, 8, reinterpret_cast<HDC>(3), reinterpret_cast<HDC>(4), nullptr, 640, 480);
+    gag::set_modern_windows_fullscreen_presentation_for_testing(true, 1280, 960);
+    display_region_scaled_operation = true;
+    display_region_event_count = 0;
+    gag::synchronize_display_region(&synchronized_region, 1);
+    const int scaled_gdi_copy_region_events[] = { 1, 8, 2 };
+    require(display_region_event_count == 3 && std::memcmp(display_region_events, scaled_gdi_copy_region_events, sizeof(scaled_gdi_copy_region_events)) == 0);
+    display_region_event_count = 0;
+    gag::synchronize_display_region(&synchronized_region, 2);
+    require(display_region_event_count == 3 && std::memcmp(display_region_events, gdi_fill_region_events, sizeof(gdi_fill_region_events)) == 0);
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 1280, 960);
+    display_region_event_count = 0;
+    gag::synchronize_display_region(&synchronized_region, 1);
+    require(display_region_event_count == 3 && std::memcmp(display_region_events, scaled_gdi_copy_region_events, sizeof(scaled_gdi_copy_region_events)) == 0);
+    display_region_scaled_operation = false;
+    gag::set_modern_windows_fullscreen_presentation_for_testing(false, 640, 480);
+#endif
 
     gag::set_display_region_synchronization_state_for_testing(0x40000000, reinterpret_cast<void *>(1), reinterpret_cast<void *>(2), reinterpret_cast<HDC>(3), reinterpret_cast<HDC>(4));
     display_region_event_count = 0;
@@ -22613,8 +23219,20 @@ int main()
     gag::RegistryApi test_registry_api = registry_api();
     require(gag::load_installation_registry_settings(&state, test_registry_api) == 2);
     require(std::strcmp(state.installation_path, "C:\\GAG\\") == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(state.flags == 0x1080);
+    require(close_count == 2);
+
+    reset();
+    user_settings_open_succeeds = false;
+    test_registry_api = registry_api();
+    require(gag::load_installation_registry_settings(&state, test_registry_api) == 2);
     require(state.flags == 0x02001020);
     require(close_count == 1);
+#else
+    require(state.flags == 0x02001020);
+    require(close_count == 1);
+#endif
 
     reset();
     registry_open_succeeds = false;
@@ -22734,6 +23352,8 @@ int main()
     std::memset(generic_child_scene_state, 0, sizeof(generic_child_scene_state));
     generic_child_scene_state[2] = 12;
     generic_child_scene_state[3] = 14;
+    generic_child_scene_state[5] = 31;
+    generic_child_scene_state[6] = 37;
     generic_child_scene_state[13] = 80;
     generic_child_scene_state[14] = 60;
     generic_child_scene_descriptor = {};
@@ -22826,6 +23446,11 @@ int main()
     require(gag::find_runtime_tree_identity_by_name_recursive(&tree_child, tree_child_name) == &tree_child);
     require(gag::find_runtime_tree_descendant_identity_by_name(&tree_root, tree_root_name) == nullptr);
     require(gag::find_runtime_tree_descendant_identity_by_name(&tree_root, tree_second_child_name) == &tree_second_child);
+    std::memcpy(tree_runtime.parser_value_0848, tree_second_child_name, sizeof(tree_runtime.parser_value_0848));
+    gag::set_runtime_pointer_region_state_for_testing(&tree_root, nullptr, nullptr, 0, nullptr);
+    require(gag::find_runtime_drag_cleanup_descendant() == &tree_second_child);
+    std::memset(tree_runtime.parser_value_0848, 0, sizeof(tree_runtime.parser_value_0848));
+    require(gag::find_runtime_drag_cleanup_descendant() == nullptr);
     require(gag::find_runtime_tree_root_identity_by_name(tree_top_name) == &tree_top && gag::find_runtime_tree_root_identity_by_name(tree_child_name) == nullptr);
     gag::set_runtime_pointer_region_state_for_testing(&tree_root, nullptr, nullptr, 0, nullptr);
     tree_child.flags = 0;
@@ -24399,8 +25024,8 @@ int main()
     simple_opcode_link.next = nullptr;
     const int script_executor_link_events[]{ 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 3, 4, 5, 14, 6, 7, 15, 16, 17, 8, 18, 9 };
     const gag::RuntimeScriptOpcodeDisposition dispositions[]{ gag::RuntimeScriptOpcodeDisposition::pause, gag::RuntimeScriptOpcodeDisposition::commit_cursor,
-        gag::RuntimeScriptOpcodeDisposition::finish_link, gag::RuntimeScriptOpcodeDisposition::restart_outer };
-    const std::uint32_t expected_cursors[]{ 20, 31, 5, 20 };
+        gag::RuntimeScriptOpcodeDisposition::finish_link, gag::RuntimeScriptOpcodeDisposition::restart_outer, gag::RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor };
+    const std::uint32_t expected_cursors[]{ 20, 31, 5, 20, 31 };
     for(std::size_t index = 0; index < std::size(dispositions); ++index)
     {
         simple_opcode_state.flags = 0x100000;
