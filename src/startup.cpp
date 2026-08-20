@@ -2699,7 +2699,7 @@ bool command_line_has_gagboy_argument(const char *command_line)
             }
             ++cursor;
         }
-        if(argument == "--gagboy")
+        if(argument == "--xtet")
         {
             return true;
         }
