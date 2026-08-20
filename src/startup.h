@@ -223,7 +223,7 @@ void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *forma
 
 struct RuntimeScriptPropertySetApi
 {
-    void (*select_resource)(char *path, std::int32_t loop_animation);
+    void(__fastcall *select_resource)(char *path);
     BOOL(__fastcall *release_memory_resource)(const char *path);
     void(__fastcall *set_property_value)(std::uint32_t value);
     void (*enter_state_1000)();
@@ -1535,10 +1535,6 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint3
 void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
     std::uint32_t flags);
 
-// Non-original deterministic entry used by constructor tests; the final legacy argument is ignored.
-void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-    std::uint32_t flags, std::int32_t animation_loop_stack_value);
-
 void set_runtime_resource_construction_api_for_testing(const RuntimeResourceConstructionApi &api);
 
 struct RuntimeResourceVisibilityCallbackContext
@@ -1614,9 +1610,6 @@ struct RuntimeResourceSelectionApi
 // GAG.EXE: 0x004244E0
 void __fastcall select_runtime_resource(char *path);
 
-// Non-original compatibility entry retained for focused caller tests.
-void select_runtime_resource_with_loop_register(char *path, std::int32_t loop_animation);
-
 void set_runtime_resource_selection_api_for_testing(const RuntimeResourceSelectionApi &api);
 
 struct RuntimeGameDllUnloadApi
@@ -1670,6 +1663,7 @@ struct RuntimeGameDllLoadApi
     void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
     void(__fastcall *update_resource_host)(const char *path, std::int32_t reset);
     void(__fastcall *build_resource_path)(char *destination, const char *source);
+    DWORD(WINAPI *get_module_file_name)(HMODULE module, LPSTR path, DWORD size);
     std::int32_t(__fastcall *activate_comment_scene)(const char *name);
     HMODULE(WINAPI *load_library)(LPCSTR path);
     FARPROC(WINAPI *get_proc_address)(HMODULE module, LPCSTR name);
@@ -3945,16 +3939,10 @@ void set_runtime_generic_child_attachment_scene_for_testing(std::int32_t identif
 // GAG.EXE: 0x004268B0
 void __fastcall rebuild_runtime_tree_resources(void *identity);
 
-// Non-original compatibility entry retained for focused rebuild tests.
-void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity, std::int32_t loop_animation);
-
 void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api);
 
 // GAG.EXE: 0x00426700
 void rebuild_runtime_pointer_resources();
-
-// Non-original compatibility entry retained for focused rebuild tests.
-void rebuild_runtime_pointer_resources_with_loop_register(std::int32_t loop_animation);
 
 void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerResourceRebuildApi &api);
 
@@ -3966,9 +3954,6 @@ std::uint32_t handle_runtime_left_button_down();
 
 // GAG.EXE: 0x00423CA0
 std::uint32_t handle_runtime_right_button_down();
-
-// Non-original helper exposing the original hidden EDI input for deterministic testing.
-std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t loop_animation);
 
 // GAG.EXE: 0x00423FA0
 std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int32_t y);

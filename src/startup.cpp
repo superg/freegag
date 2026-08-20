@@ -488,17 +488,6 @@ RuntimeTreeDestructionApi runtime_tree_destruction_api{ find_runtime_tree_node_b
     find_last_runtime_primary_resource_link_by_identity, find_last_runtime_secondary_resource_link_by_identity, find_last_runtime_scene_link_by_identity, query_runtime_scene_flags,
     finalize_runtime_resource_destruction, request_runtime_resource_destruction, release_display_scene_node, set_runtime_tree_comment_mode, wait_for_runtime_resource_count };
 
-// Non-original adapter preserving injectable constructor callbacks in recovered callers.
-void *invoke_runtime_resource_constructor(RuntimeResourceConstructor constructor, char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height,
-    std::uint32_t scale_or_loop, std::uint32_t flags, std::int32_t)
-{
-    if(constructor == construct_runtime_resource)
-    {
-        return construct_runtime_resource_with_stack_value(path, scene_identifier, x, y, width, height, scale_or_loop, flags, 0);
-    }
-    return constructor(path, scene_identifier, x, y, width, height, scale_or_loop, flags);
-}
-
 RuntimeResourceSelectionApi runtime_resource_selection_api{ EnterCriticalSection, close_cdf_archive, LeaveCriticalSection, SendMessageA, construct_runtime_resource };
 RuntimePointerResourceRebuildApi runtime_pointer_resource_rebuild_api{ find_runtime_tree_node_by_identity, synchronize_runtime_pointer_owner_slots, query_runtime_scene_flags,
     finalize_runtime_resource_destruction, request_runtime_resource_destruction, construct_runtime_resource, update_runtime_scene_position, set_runtime_tree_comment_mode, SendMessageA,
@@ -703,8 +692,8 @@ GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_ba
     set_runtime_named_node_enabled, InitializeCriticalSection, ShowWindow };
 GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
     shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
-RuntimeGameDllLoadApi runtime_game_dll_load_api{ EnterCriticalSection, update_runtime_resource_host, build_runtime_resource_path, activate_default_comment_scene, LoadLibraryA, GetProcAddress,
-    deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue, LeaveCriticalSection };
+RuntimeGameDllLoadApi runtime_game_dll_load_api{ EnterCriticalSection, update_runtime_resource_host, build_runtime_resource_path, GetModuleFileNameA, activate_default_comment_scene, LoadLibraryA,
+    GetProcAddress, deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue, LeaveCriticalSection };
 RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ timeGetTime, Sleep };
 HWND &runtime_game_main_window = runtime_display_context.window;
 RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, GetUpdateRect, BeginPaint, queue_display_rectangle, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte, enqueue_runtime_pair,
@@ -1116,23 +1105,14 @@ void set_runtime_flag_40()
 
 } // namespace
 
-RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_resource_with_loop_register, release_runtime_memory_resource, set_runtime_property_value, enter_runtime_state_1000,
-    leave_runtime_state_1000, SendMessageA, destroy_runtime_tree_resources };
+RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_resource, release_runtime_memory_resource, set_runtime_property_value, enter_runtime_state_1000, leave_runtime_state_1000,
+    SendMessageA, destroy_runtime_tree_resources };
 RuntimeScriptPropertyGetApi runtime_script_property_get_api{ SendMessageA, copy_string, load_runtime_resource, get_runtime_property_value, query_runtime_resource_frame_number };
 
 // GAG.EXE: 0x004202D0
 void __fastcall set_runtime_script_property(std::uint32_t property, void *, void *value)
 {
-    std::int32_t loop_animation;
-#if defined(_MSC_VER) && defined(_M_IX86)
-    __asm mov loop_animation, esi
-#elif defined(__GNUC__) && defined(__i386__)
-    __asm__ volatile("movl %%esi, %0" : "=m"(loop_animation));
-#else
-#error GAG requires a 32-bit x86 compiler
-#endif
-
-        switch(property)
+    switch(property)
     {
     case 1:
         graphics_host_value_1 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value));
@@ -1144,7 +1124,7 @@ void __fastcall set_runtime_script_property(std::uint32_t property, void *, void
         graphics_host_value_3 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value)) & 0xf;
         break;
     case 5:
-        runtime_script_property_set_api.select_resource(static_cast<char *>(value), loop_animation);
+        runtime_script_property_set_api.select_resource(static_cast<char *>(value));
         break;
     case 7:
         runtime_script_property_set_api.release_memory_resource(static_cast<char *>(value));
@@ -2519,7 +2499,32 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
 
     if((stages & 4) != 0 && state->archive_context == nullptr)
     {
-        validation_api.locate_drive(state, requested_archive);
+        bool found_archive = false;
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility: prefer a portable CDF pack beside the executable before consulting the installed/CD locations.
+        char executable_archive[MAX_PATH];
+        const DWORD executable_length = validation_api.get_module_file_name(nullptr, executable_archive, sizeof(executable_archive));
+        if(executable_length != 0 && executable_length < sizeof(executable_archive))
+        {
+            copy_directory_from_path(executable_archive, executable_archive);
+            if(std::strlen(executable_archive) + std::strlen(requested_archive) < sizeof(executable_archive))
+            {
+                append_string(executable_archive, requested_archive);
+                WIN32_FIND_DATAA find_data{};
+                HANDLE find = validation_api.find_first_file(executable_archive, &find_data);
+                if(find != INVALID_HANDLE_VALUE)
+                {
+                    validation_api.find_close(find);
+                    copy_string(state->installed_version, executable_archive);
+                    found_archive = true;
+                }
+            }
+        }
+#endif
+        if(!found_archive)
+        {
+            validation_api.locate_drive(state, requested_archive);
+        }
         if(state->installed_version[0] == '\0')
         {
             if((stages & 0x20) != 0)
@@ -18328,9 +18333,9 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint3
     return plan;
 }
 
-// Non-original deterministic entry used by constructor tests. The final legacy argument is ignored.
-void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-    std::uint32_t flags, std::int32_t)
+// GAG.EXE: 0x00424EC0
+void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
+    std::uint32_t flags)
 {
     const RuntimeResourceConstructionPlan plan = prepare_runtime_resource_construction(scene_identifier, x, y, flags);
     flags = plan.flags;
@@ -18693,13 +18698,6 @@ void *construct_runtime_resource_with_stack_value(char *path, std::uint32_t scen
     return result;
 }
 
-// GAG.EXE: 0x00424EC0
-void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-    std::uint32_t flags)
-{
-    return construct_runtime_resource_with_stack_value(path, scene_identifier, x, y, width, height, scale_or_loop, flags, 0);
-}
-
 // GAG.EXE: 0x00428160
 std::uint32_t __fastcall update_runtime_resource_visibility(DisplayTraversalState *state)
 {
@@ -18817,8 +18815,8 @@ std::uint16_t __fastcall query_runtime_resource_frame_number(void *identity)
     return result;
 }
 
-// Non-original compatibility entry retained for focused caller tests.
-void select_runtime_resource_with_loop_register(char *path, std::int32_t loop_animation)
+// GAG.EXE: 0x004244E0
+void __fastcall select_runtime_resource(char *path)
 {
     runtime_resource_selection_api.enter_critical_section(&runtime_resource_critical_section);
     if((runtime_scene_control_flags & 0x10000000) != 0)
@@ -18832,14 +18830,8 @@ void select_runtime_resource_with_loop_register(char *path, std::int32_t loop_an
     if(path != nullptr)
     {
         runtime_resource_selection_api.send_message(reinterpret_cast<HWND>(graphics_host_state.unknown_0000), 0x7ffd, 0xa0000000, reinterpret_cast<LPARAM>(path));
-        invoke_runtime_resource_constructor(runtime_resource_selection_api.construct_resource, path, 0, 0, 0, 0, 0, 0, 0x200, loop_animation);
+        runtime_resource_selection_api.construct_resource(path, 0, 0, 0, 0, 0, 0, 0x200);
     }
-}
-
-// GAG.EXE: 0x004244E0
-void __fastcall select_runtime_resource(char *path)
-{
-    select_runtime_resource_with_loop_register(path, 0);
 }
 
 // GAG.EXE: 0x00425FF0
@@ -18906,7 +18898,36 @@ bool __fastcall load_and_initialize_runtime_game_dll(const char *path)
         runtime_game_dll_load_api.build_resource_path(full_path, path);
         static constexpr char loading_scene[] = "m_DEF_LOAD";
         runtime_game_dll_load_api.activate_comment_scene(loading_scene);
+#if defined(FREEGAG_WINDOWS_FIXES)
+        // Non-original modern-Windows compatibility: prefer a portable game DLL beside the executable, then retain the original active-resource-directory lookup.
+        char executable_dll[MAX_PATH];
+        const DWORD executable_length = runtime_game_dll_load_api.get_module_file_name(nullptr, executable_dll, sizeof(executable_dll));
+        if(executable_length != 0 && executable_length < sizeof(executable_dll))
+        {
+            char file_name[MAX_PATH];
+            copy_file_name_from_path(file_name, path);
+            copy_directory_from_path(executable_dll, executable_dll);
+            if(std::strlen(executable_dll) + std::strlen(file_name) < sizeof(executable_dll))
+            {
+                append_string(executable_dll, file_name);
+                runtime_game_dll_module = runtime_game_dll_load_api.load_library(executable_dll);
+            }
+            else
+            {
+                runtime_game_dll_module = nullptr;
+            }
+        }
+        else
+        {
+            runtime_game_dll_module = nullptr;
+        }
+        if(runtime_game_dll_module == nullptr)
+        {
+            runtime_game_dll_module = runtime_game_dll_load_api.load_library(full_path);
+        }
+#else
         runtime_game_dll_module = runtime_game_dll_load_api.load_library(full_path);
+#endif
         if(runtime_game_dll_module == nullptr)
         {
             result = false;
@@ -21856,8 +21877,8 @@ void set_runtime_generic_child_attachment_scene_for_testing(std::int32_t identif
     runtime_display_scene_identifier = identifier;
 }
 
-// Non-original compatibility entry retained for focused rebuild tests.
-void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity, std::int32_t loop_animation)
+// GAG.EXE: 0x004268B0
+void __fastcall rebuild_runtime_tree_resources(void *identity)
 {
     RuntimeTreeNode *root = runtime_tree_resource_rebuild_api.resolve_tree(identity);
     if(root == nullptr)
@@ -21880,7 +21901,7 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
     {
         if(link->resource_identity == nullptr)
         {
-            link->resource_identity = invoke_runtime_resource_constructor(runtime_tree_resource_rebuild_api.construct_resource, link->file_name, 0, 0, 0, 0, 0, 0, 0x10200, loop_animation);
+            link->resource_identity = runtime_tree_resource_rebuild_api.construct_resource(link->file_name, 0, 0, 0, 0, 0, 0, 0x10200);
         }
     }
 
@@ -21903,8 +21924,8 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
     }
     if(first_primary != nullptr && first_primary->resource_identity == nullptr)
     {
-        first_primary->resource_identity = invoke_runtime_resource_constructor(runtime_tree_resource_rebuild_api.construct_resource, first_primary->file_name, first_primary->source_value,
-            first_primary->x, first_primary->y, first_primary->ratio_x, first_primary->ratio_y, first_primary->loop_count, first_primary->image_flags, loop_animation);
+        first_primary->resource_identity = runtime_tree_resource_rebuild_api.construct_resource(first_primary->file_name, first_primary->source_value, first_primary->x, first_primary->y,
+            first_primary->ratio_x, first_primary->ratio_y, first_primary->loop_count, first_primary->image_flags);
         const std::uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(first_primary->resource_identity);
         if(flags == 0)
         {
@@ -21925,8 +21946,7 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
         }
         if(node->resource_identity == nullptr)
         {
-            node->resource_identity =
-                invoke_runtime_resource_constructor(runtime_tree_resource_rebuild_api.construct_resource, node->serialized_value, 0, 0, 0, 0, 0, 0, node->resource_flags | 4, loop_animation);
+            node->resource_identity = runtime_tree_resource_rebuild_api.construct_resource(node->serialized_value, 0, 0, 0, 0, 0, 0, node->resource_flags | 4);
         }
     }
 
@@ -21939,8 +21959,8 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
         }
         if((visual->flags & 0x100000) != 0)
         {
-            visual->scene_identity = invoke_runtime_resource_constructor(runtime_tree_resource_rebuild_api.construct_resource, visual->file_name, 0, 0, 0,
-                static_cast<std::uint32_t>(visual->position_x), static_cast<std::uint32_t>(visual->position_y), 0, visual->palette_flags | 2, loop_animation);
+            visual->scene_identity = runtime_tree_resource_rebuild_api.construct_resource(visual->file_name, 0, 0, 0, static_cast<std::uint32_t>(visual->position_x),
+                static_cast<std::uint32_t>(visual->position_y), 0, visual->palette_flags | 2);
             visual->flags &= 0xffefffff;
         }
     }
@@ -21955,8 +21975,8 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
         if(link->resource_identity == nullptr)
         {
             created = true;
-            link->resource_identity = invoke_runtime_resource_constructor(runtime_tree_resource_rebuild_api.construct_resource, link->file_name, link->source_value, link->x, link->y, link->ratio_x,
-                link->ratio_y, link->loop_count, link->image_flags, loop_animation);
+            link->resource_identity =
+                runtime_tree_resource_rebuild_api.construct_resource(link->file_name, link->source_value, link->x, link->y, link->ratio_x, link->ratio_y, link->loop_count, link->image_flags);
         }
         const std::uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(link->resource_identity);
         if(flags == 0)
@@ -21996,19 +22016,13 @@ void __fastcall rebuild_runtime_tree_resources_with_loop_register(void *identity
     runtime_tree_resource_rebuild_api.send_message(runtime_display_context.window, 0x7ffd, 0x40000000, reinterpret_cast<LPARAM>(root));
 }
 
-// GAG.EXE: 0x004268B0
-void __fastcall rebuild_runtime_tree_resources(void *identity)
-{
-    rebuild_runtime_tree_resources_with_loop_register(identity, 0);
-}
-
 void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api)
 {
     runtime_tree_resource_rebuild_api = api;
 }
 
-// Non-original compatibility entry retained for focused rebuild tests.
-void rebuild_runtime_pointer_resources_with_loop_register(std::int32_t loop_animation)
+// GAG.EXE: 0x00426700
+void rebuild_runtime_pointer_resources()
 {
     RuntimeTreeNode *root = runtime_pointer_resource_rebuild_api.resolve_tree(runtime_pointer_root_identity);
     std::uint32_t count = runtime_resource_count;
@@ -22062,8 +22076,8 @@ void rebuild_runtime_pointer_resources_with_loop_register(std::int32_t loop_anim
             {
                 if(link->resource_identity == nullptr)
                 {
-                    link->resource_identity = invoke_runtime_resource_constructor(runtime_pointer_resource_rebuild_api.construct_resource, link->file_name, link->source_value, link->x, link->y,
-                        link->ratio_x, link->ratio_y, link->loop_count, link->image_flags, loop_animation);
+                    link->resource_identity = runtime_pointer_resource_rebuild_api.construct_resource(link->file_name, link->source_value, link->x, link->y, link->ratio_x, link->ratio_y,
+                        link->loop_count, link->image_flags);
                     const std::uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->resource_identity);
                     if(scene_flags == 0)
                     {
@@ -22110,12 +22124,6 @@ void rebuild_runtime_pointer_resources_with_loop_register(std::int32_t loop_anim
     runtime_pointer_resource_rebuild_api.set_comment_mode(root, 1);
     runtime_pointer_resource_rebuild_api.send_message(runtime_display_context.window, 0x7ffd, 0x01000000, 0);
     runtime_pointer_resource_rebuild_api.wait_for_count(count);
-}
-
-// GAG.EXE: 0x00426700
-void rebuild_runtime_pointer_resources()
-{
-    rebuild_runtime_pointer_resources_with_loop_register(0);
 }
 
 void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerResourceRebuildApi &api)
@@ -22294,8 +22302,8 @@ std::uint32_t handle_runtime_left_button_down()
     return 0;
 }
 
-// Non-original compatibility entry retained for focused input tests.
-std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t loop_animation)
+// GAG.EXE: 0x00423CA0
+std::uint32_t handle_runtime_right_button_down()
 {
     if((runtime_scene_control_flags & 0x100000) == 0)
     {
@@ -22365,8 +22373,7 @@ std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t l
             {
                 visual = static_cast<RuntimeVisualObject *>(create_or_update_runtime_visual_object(object, object->mouse_visual_name, 0, 0, 0, object->image_flags));
                 visual->flags &= 0xffefffff;
-                visual->scene_identity =
-                    invoke_runtime_resource_constructor(runtime_resource_selection_api.construct_resource, visual->file_name, 0, 0, 0, 0, 0, 0, visual->palette_flags | 2, loop_animation);
+                visual->scene_identity = runtime_resource_selection_api.construct_resource(visual->file_name, 0, 0, 0, 0, 0, 0, visual->palette_flags | 2);
                 object->visual_object = visual;
             }
             if(current_runtime_scene_identity != visual->scene_identity)
@@ -22409,12 +22416,6 @@ std::uint32_t handle_runtime_right_button_down_with_loop_register(std::int32_t l
         }
     }
     return 0;
-}
-
-// GAG.EXE: 0x00423CA0
-std::uint32_t handle_runtime_right_button_down()
-{
-    return handle_runtime_right_button_down_with_loop_register(0);
 }
 
 // GAG.EXE: 0x00423FA0

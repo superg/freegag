@@ -286,11 +286,13 @@ int cursor_position_calls;
 HWND validation_existing_window;
 std::uint32_t validation_registry_result;
 bool validation_files_exist;
+bool validation_executable_archive_exists;
 int validation_message_count;
 std::ptrdiff_t validation_message_offset;
 UINT validation_message_type;
 int validation_message_result;
 bool validation_locate_success;
+int validation_locate_count;
 std::uint32_t validation_speed;
 int validation_bits_per_pixel;
 int validation_detect_count;
@@ -764,6 +766,7 @@ int runtime_game_dll_unload_event_count;
 int runtime_game_dll_load_events[16];
 int runtime_game_dll_load_event_count;
 int runtime_game_dll_load_failure_stage;
+bool runtime_game_dll_executable_load_succeeds;
 gag::RuntimeGameHostContext *runtime_game_dll_init_context;
 void **runtime_game_dll_init_callbacks;
 std::uint32_t runtime_game_dll_commands[8];
@@ -3001,7 +3004,7 @@ void *__fastcall construct_test_resource_selection(char *path, std::uint32_t sce
     return reinterpret_cast<void *>(702);
 }
 
-void select_test_script_property(char *path, std::int32_t)
+void __fastcall select_test_script_property(char *path)
 {
     script_property_value = path;
     script_property_events[script_property_event_count++] = 1;
@@ -4718,6 +4721,12 @@ void __fastcall build_test_runtime_game_dll_path(char *destination, const char *
     runtime_game_dll_load_events[runtime_game_dll_load_event_count++] = 3;
 }
 
+DWORD WINAPI get_test_runtime_game_dll_module_path(HMODULE module, LPSTR path, DWORD size)
+{
+    require(module == nullptr && size == MAX_PATH);
+    return static_cast<DWORD>(strcpy_s(path, size, "C:\\Portable\\gag.exe") == 0 ? std::strlen(path) : 0);
+}
+
 std::int32_t __fastcall activate_test_runtime_game_dll_scene(const char *name)
 {
     require(std::strcmp(name, "m_DEF_LOAD") == 0);
@@ -4727,8 +4736,14 @@ std::int32_t __fastcall activate_test_runtime_game_dll_scene(const char *name)
 
 HMODULE WINAPI load_test_runtime_game_dll(LPCSTR path)
 {
-    require(std::strcmp(path, "ROOT\\XTETDLL.DLL") == 0);
     runtime_game_dll_load_events[runtime_game_dll_load_event_count++] = 5;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(std::strcmp(path, "C:\\Portable\\XTETDLL.DLL") == 0)
+    {
+        return runtime_game_dll_executable_load_succeeds ? reinterpret_cast<HMODULE>(314) : nullptr;
+    }
+#endif
+    require(std::strcmp(path, "ROOT\\XTETDLL.DLL") == 0);
     return runtime_game_dll_load_failure_stage == 1 ? nullptr : reinterpret_cast<HMODULE>(314);
 }
 
@@ -6671,13 +6686,17 @@ int WINAPI show_validation_message(HWND, LPCSTR text, LPCSTR caption, UINT type)
 
 HANDLE WINAPI find_validation_file(LPCSTR path, LPWIN32_FIND_DATAA)
 {
+    if(std::strcmp(path, "C:\\Games\\GAG\\Gag01.cdf") == 0)
+    {
+        return validation_executable_archive_exists ? reinterpret_cast<HANDLE>(16) : INVALID_HANDLE_VALUE;
+    }
     require(std::strstr(path, "AutoSave.cdf") != nullptr || std::strstr(path, "*.GSF") != nullptr);
     return validation_files_exist ? reinterpret_cast<HANDLE>(6) : INVALID_HANDLE_VALUE;
 }
 
 BOOL WINAPI close_validation_find(HANDLE find)
 {
-    require(find == reinterpret_cast<HANDLE>(6));
+    require(find == reinterpret_cast<HANDLE>(6) || find == reinterpret_cast<HANDLE>(16));
     return TRUE;
 }
 
@@ -6718,6 +6737,7 @@ std::uint32_t __fastcall load_validation_registry(gag::ApplicationState *applica
 void __fastcall locate_validation_drive(gag::ApplicationState *application, const char *requested)
 {
     require(std::strcmp(requested, "Gag01.cdf") == 0);
+    ++validation_locate_count;
     if(validation_locate_success)
     {
         strcpy_s(application->installed_version, "D:\\Gag01.cdf");
@@ -7587,11 +7607,13 @@ void reset()
     validation_existing_window = nullptr;
     validation_registry_result = 2;
     validation_files_exist = true;
+    validation_executable_archive_exists = false;
     validation_message_count = 0;
     validation_message_offset = 0;
     validation_message_type = 0;
     validation_message_result = IDYES;
     validation_locate_success = true;
+    validation_locate_count = 0;
     validation_speed = 0x226;
     validation_bits_per_pixel = 8;
     validation_detect_count = 0;
@@ -9377,7 +9399,7 @@ void test_runtime_left_button_up()
     gag::set_runtime_pointer_resource_rebuild_api_for_testing(rebuild_api);
     pointer_rebuild_root = nullptr;
     pointer_rebuild_comment_count = 0;
-    gag::rebuild_runtime_pointer_resources_with_loop_register(0x11223344);
+    gag::rebuild_runtime_pointer_resources();
     require(pointer_rebuild_comment_count == 0);
 
     gag::RuntimeTreePrimaryResourceLink rebuild_links[5]{};
@@ -9426,7 +9448,7 @@ void test_runtime_left_button_up()
     pointer_rebuild_comment_count = 0;
     pointer_rebuild_send_count = 0;
     pointer_rebuild_wait_count = 0;
-    gag::rebuild_runtime_pointer_resources_with_loop_register(0x11223344);
+    gag::rebuild_runtime_pointer_resources();
     require(pointer_rebuild_sync_count == 1 && pointer_rebuild_sync_owner == reinterpret_cast<void *>(601));
     require(rebuild_regions[0].previous_owner_identity == nullptr && rebuild_regions[1].previous_owner_identity == nullptr);
     require(pointer_rebuild_finalize_count == 2 && pointer_rebuild_finalized[0] == reinterpret_cast<void *>(101) && pointer_rebuild_finalized[1] == reinterpret_cast<void *>(203));
@@ -9447,7 +9469,7 @@ void test_runtime_left_button_up()
     gag::set_runtime_tree_resource_rebuild_api_for_testing(tree_rebuild_api);
     pointer_rebuild_root = nullptr;
     tree_rebuild_send_count = 0;
-    gag::rebuild_runtime_tree_resources_with_loop_register(reinterpret_cast<void *>(0x501), 0x12345678);
+    gag::rebuild_runtime_tree_resources(reinterpret_cast<void *>(0x501));
     require(tree_rebuild_send_count == 0);
 
     gag::RuntimeTreeNode tree_rebuild_root{};
@@ -9501,7 +9523,7 @@ void test_runtime_left_button_up()
     tree_rebuild_state_count = 0;
     tree_rebuild_send_count = 0;
     tree_rebuild_scene_count = 0;
-    gag::rebuild_runtime_tree_resources_with_loop_register(reinterpret_cast<void *>(0x501), 0x12345678);
+    gag::rebuild_runtime_tree_resources(reinterpret_cast<void *>(0x501));
     require(tree_rebuild_scene_count == 1 && tree_rebuild_scene.scene_identifier == 0x700);
     require(pointer_rebuild_sync_count == 1 && pointer_rebuild_sync_owner == reinterpret_cast<void *>(0xa01));
     require(tree_rebuild_construct_count == 4 && std::strcmp(tree_rebuild_construct_paths[0], "SECONDARY") == 0 && std::strcmp(tree_rebuild_construct_paths[1], "PRIMARY") == 0
@@ -9695,13 +9717,13 @@ void test_runtime_left_button_up()
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x38000) == 0);
 
     gag::set_runtime_scene_control_state_for_testing(0, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0);
+    require(gag::handle_runtime_right_button_down() == 0);
     runtime_comment_node_count = 1;
     gag::set_runtime_scene_control_state_for_testing(0x100000, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 1);
+    require(gag::handle_runtime_right_button_down() == 1);
     runtime_comment_node_count = 0;
     gag::set_runtime_scene_control_state_for_testing(0x100080, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0);
+    require(gag::handle_runtime_right_button_down() == 0);
 
     root.transient_index_1 = 0;
     root.transient_index_2 = 0;
@@ -9712,13 +9734,13 @@ void test_runtime_left_button_up()
     gag::set_runtime_scene_slots_for_testing(slots);
     gag::set_runtime_pointer_region_state_for_testing(&pointer_root, nullptr, &region, 0, nullptr);
     gag::set_runtime_scene_control_state_for_testing(0x110000, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 1);
+    require(gag::handle_runtime_right_button_down() == 0 && root.transient_index_2 == 1);
     require(root.event_records[0][0] == 2 && root.event_records[0][3] == reinterpret_cast<std::uint32_t>(&region) && root.event_records[0][14] == 9);
 
     slots[1].flags = 0x200000;
     gag::set_runtime_scene_slots_for_testing(slots);
     root.transient_index_2 = 0;
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 0);
+    require(gag::handle_runtime_right_button_down() == 0 && root.transient_index_2 == 0);
 
     gag::ScriptObjectState right_state{};
     gag::RuntimeVisualObject right_visual{};
@@ -9728,7 +9750,7 @@ void test_runtime_left_button_up()
     region.state_object = &right_state;
     gag::set_runtime_scene_switch_state_for_testing(reinterpret_cast<void *>(402), 0, 0);
     gag::set_runtime_scene_control_state_for_testing(0x110000, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0);
+    require(gag::handle_runtime_right_button_down() == 0);
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x28000) == 0x28000);
 
     gag::set_runtime_named_node_memory_api_for_testing({ HeapAlloc, HeapFree });
@@ -9742,7 +9764,7 @@ void test_runtime_left_button_up()
     right_button_construct_flags = 0;
     gag::set_runtime_scene_switch_state_for_testing(reinterpret_cast<void *>(404), 0, 0);
     gag::set_runtime_scene_control_state_for_testing(0x110000, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0);
+    require(gag::handle_runtime_right_button_down() == 0);
     require(right_state.visual_object != nullptr && right_state.visual_object->scene_identity == reinterpret_cast<void *>(404));
     require(std::strcmp(right_button_construct_path, "CURSOR.FLC") == 0 && right_button_construct_flags == 0x42);
     require((right_state.visual_object->flags & 0x100000) == 0);
@@ -9753,7 +9775,7 @@ void test_runtime_left_button_up()
     gag::set_runtime_scene_switch_state_for_testing(nullptr, 0, 0);
     gag::set_runtime_pointer_region_state_for_testing(&pointer_root, nullptr, &region, 0, nullptr);
     gag::set_runtime_scene_control_state_for_testing(0x130000, nullptr);
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 1);
+    require(gag::handle_runtime_right_button_down() == 0 && root.transient_index_2 == 1);
     require(root.event_records[0][3] == reinterpret_cast<std::uint32_t>(&region) && root.event_records[0][14] == 11);
     require(gag::get_active_runtime_pointer_region_for_testing() == nullptr && (gag::get_runtime_scene_control_flags_for_testing() & 0x38000) == 0);
 
@@ -9762,7 +9784,7 @@ void test_runtime_left_button_up()
     gag::set_runtime_scene_control_state_for_testing(0x130000, nullptr);
     root.transient_index_1 = 0;
     root.transient_index_2 = 0;
-    require(gag::handle_runtime_right_button_down_with_loop_register(0x12345678) == 0 && root.transient_index_2 == 1);
+    require(gag::handle_runtime_right_button_down() == 0 && root.transient_index_2 == 1);
     require(root.event_records[0][2] == reinterpret_cast<std::uint32_t>(&right_state) && root.event_records[0][14] == 15);
 }
 
@@ -11264,7 +11286,7 @@ void test_runtime_resource_construction()
     construction_bitmap.format_data = bitmap_format;
     construction_bitmap.media_flags = 0x01000000;
     construction_type = 1;
-    auto *bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 5, 6, 7, 8, 9, 10, 0x10, 0));
+    auto *bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 5, 6, 7, 8, 9, 10, 0x10));
     require(bitmap != nullptr && bitmap->type_flags == 0x1010 && bitmap->backend == &construction_bitmap && bitmap->data == data && bitmap->scene_identifier == 0x77 && bitmap->x == 6 && bitmap->y == 7
             && bitmap->output_width == 40 && bitmap->output_height == 30 && bitmap->requested_width == 8 && bitmap->requested_height == 9 && bitmap->callback_position == 0x12345678
             && construction_configure_count == 1 && construction_finalize_count == 0 && construction_register_count == 1);
@@ -11274,20 +11296,20 @@ void test_runtime_resource_construction()
     construction_bitmap.format_data = bitmap_format;
     construction_scene_success = false;
     construction_type = 1;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_media_count == 1 && construction_release_memory_count == 1 && construction_register_count == 0);
 
     reset_test_construction();
     construction_bitmap.format_data = bitmap_format;
     construction_allocation_success = false;
     construction_type = 1;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_media_count == 1 && construction_release_memory_count == 0 && construction_register_count == 0);
 
     reset_test_construction();
     construction_bitmap.format_data = bitmap_format;
     construction_type = 1;
-    auto *primary_bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 9, 1, 2, 0, 0, 0, 1, 0));
+    auto *primary_bitmap = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 9, 1, 2, 0, 0, 0, 1));
     require(primary_bitmap != nullptr && (primary_bitmap->type_flags & 0xff) == 0x81 && construction_begin_count == 1 && construction_finalize_count == 1 && construction_palette_count == 1
             && construction_end_count == 1 && construction_register_count == 1);
     HeapFree(GetProcessHeap(), 0, primary_bitmap);
@@ -11295,7 +11317,7 @@ void test_runtime_resource_construction()
     reset_test_construction();
     construction_bitmap_success = false;
     construction_type = 1;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_media_count == 0 && construction_release_memory_count == 0);
 
     reset_test_construction();
@@ -11303,7 +11325,7 @@ void test_runtime_resource_construction()
     std::memcpy(data + 0x2c, "data", 4);
     *reinterpret_cast<std::uint32_t *>(data + 0x30) = 12;
     construction_type = 2;
-    auto *sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 3, 0x200, 0));
+    auto *sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 3, 0x200));
     require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == data + 0x34 && construction_queued_size == 12
             && construction_sound_loop == 3 && construction_sound_slot.playback_state == 0xffffffff && construction_register_count == 1);
     HeapFree(GetProcessHeap(), 0, sound);
@@ -11311,18 +11333,18 @@ void test_runtime_resource_construction()
     reset_test_construction();
     construction_allocation_success = false;
     construction_type = 2;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_sound_count == 1 && construction_release_memory_count == 1);
 
     reset_test_construction();
     construction_sound_success = false;
     construction_type = 2;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_sound_count == 0 && construction_release_memory_count == 1);
 
     reset_test_construction();
     construction_type = 2;
-    auto *looping_sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x400, 0));
+    auto *looping_sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0x400));
     require(looping_sound != nullptr && construction_sound_loop == 0xffffffff && construction_stop_sound_count == 1);
     HeapFree(GetProcessHeap(), 0, looping_sound);
 
@@ -11333,7 +11355,7 @@ void test_runtime_resource_construction()
     construction_animation.base.format_data = animation_format;
     construction_animation.base.media_flags = 0x02000000;
     construction_type = 3;
-    auto *animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 4, 2, 3, 2, 3, 5, 0x10, 1));
+    auto *animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 4, 2, 3, 2, 3, 5, 0x10));
     require(animation != nullptr && animation->type_flags == 0x2010 && animation->backend_flags == 0x02000400 && animation->output_width == 40 && animation->output_height == 30
             && animation->frame_limit == 4 && animation->frames_remaining == 4 && construction_animation.base.scale_x == 2 && construction_animation.base.scale_y == 3
             && construction_configure_count == 1 && construction_finalize_count == 0 && construction_register_count == 1);
@@ -11344,13 +11366,13 @@ void test_runtime_resource_construction()
     construction_animation.base.media_flags = 0x02000000;
     construction_scene_success = false;
     construction_type = 3;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 1, 1, 0, 0) == nullptr);
     require(construction_destroy_media_count == 1 && construction_release_stream_count == 1 && construction_release_memory_count == 0);
 
     reset_test_construction();
     construction_animation.base.format_data = animation_format;
     construction_type = 3;
-    auto *half_animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x12, 0));
+    auto *half_animation = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0x12));
     require(half_animation != nullptr && half_animation->requested_width == 10 && half_animation->requested_height == 5 && half_animation->output_width == 20 && half_animation->output_height == 10
             && half_animation->frame_limit == 0xffffffff && construction_animation.base.scale_x == 0 && construction_animation.base.scale_y == 0 && construction_callback_count == 1);
     HeapFree(GetProcessHeap(), 0, half_animation);
@@ -11360,7 +11382,7 @@ void test_runtime_resource_construction()
     construction_animation.base.media_flags = 0x01000000;
     construction_scene_success = false;
     construction_type = 3;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 1, 1, 0, 0) == nullptr);
     require(construction_destroy_media_count == 1 && construction_release_memory_count == 1 && construction_release_stream_count == 0);
 
     reset_test_construction();
@@ -11368,49 +11390,49 @@ void test_runtime_resource_construction()
     construction_animation.base.media_flags = 0;
     construction_allocation_success = false;
     construction_type = 3;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 1, 1, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 1, 1, 0, 0) == nullptr);
     require(construction_destroy_media_count == 1 && construction_release_memory_count == 0 && construction_release_stream_count == 0);
 
     reset_test_construction();
     construction_type = 4;
     construction_generic_resource = reinterpret_cast<void *>(0x501);
     construction_tree = reinterpret_cast<void *>(0x502);
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == construction_generic_resource);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == construction_generic_resource);
     require(construction_activate_count == 1 && construction_rebuild_count == 1 && construction_register_count == 0);
 
     reset_test_construction();
     construction_type = 4;
     construction_generic_resource = reinterpret_cast<void *>(0x501);
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x200, 0) == construction_generic_resource);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0x200) == construction_generic_resource);
     require(construction_activate_count == 0 && construction_rebuild_count == 0);
 
     reset_test_construction();
     construction_type = 4;
     construction_generic_resource = nullptr;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_activate_count == 0 && construction_rebuild_count == 0 && construction_register_count == 0);
 
     reset_test_construction();
     construction_type = 0;
-    auto *generic = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0));
+    auto *generic = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0));
     require(generic != nullptr && generic->type_flags == 0x10000 && generic->backend == &construction_generic && generic->data == data && construction_register_count == 1);
     HeapFree(GetProcessHeap(), 0, generic);
 
     reset_test_construction();
     construction_generic_success = false;
     construction_type = 0;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_generic_count == 0 && construction_release_memory_count == 1);
 
     reset_test_construction();
     construction_allocation_success = false;
     construction_type = 0;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_destroy_generic_count == 1 && construction_release_memory_count == 1 && construction_register_count == 0);
 
     reset_test_construction();
     construction_type = 4;
-    auto *generic_fallthrough = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x10000, 0));
+    auto *generic_fallthrough = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0x10000));
     require(generic_fallthrough != nullptr && generic_fallthrough->type_flags == 0x10000);
     HeapFree(GetProcessHeap(), 0, generic_fallthrough);
 
@@ -11418,25 +11440,25 @@ void test_runtime_resource_construction()
     construction_type = 5;
     construction_archive = reinterpret_cast<gag::CdfArchive *>(0x601);
     gag::set_runtime_resource_host_state_for_testing(reinterpret_cast<gag::AsyncFileHost *>(0x603), nullptr, 0, 0);
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0x200, 0) == construction_archive);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0x200) == construction_archive);
     require(std::strcmp(construction_built_path, "built.cdf") == 0 && construction_archive_stream == 0x603 && construction_activate_count == 0 && construction_register_count == 0);
 
     reset_test_construction();
     construction_type = 5;
     construction_archive = reinterpret_cast<gag::CdfArchive *>(0x601);
     construction_tree = reinterpret_cast<void *>(0x602);
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == construction_tree);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == construction_tree);
     require(construction_activate_count == 1 && construction_rebuild_count == 1);
 
     reset_test_construction();
     construction_type = 5;
     construction_archive = nullptr;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr);
     require(construction_activate_count == 0 && construction_rebuild_count == 0 && construction_register_count == 0);
 
     reset_test_construction();
     construction_type = 6;
-    require(gag::construct_runtime_resource_with_stack_value(path, 0, 0, 0, 0, 0, 0, 0, 0) == nullptr && construction_register_count == 0);
+    require(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 0, 0) == nullptr && construction_register_count == 0);
 }
 
 std::uint8_t runtime_text_input_value;
@@ -16113,10 +16135,11 @@ int main()
     require(runtime_game_dll_unload_event_count == 4 && std::memcmp(runtime_game_dll_unload_events, runtime_game_dll_state_events, sizeof(runtime_game_dll_state_events)) == 0
             && gag::get_runtime_scene_control_flags_for_testing() == 0x80001020);
 
-    gag::RuntimeGameDllLoadApi runtime_game_dll_load_api{ enter_test_runtime_game_dll_load, update_test_runtime_game_dll_host, build_test_runtime_game_dll_path, activate_test_runtime_game_dll_scene,
-        load_test_runtime_game_dll, get_test_runtime_game_dll_proc, deactivate_test_runtime_game_dll_scene, reset_test_runtime_game_dll_byte_queue, reset_test_runtime_game_dll_pair_queue,
-        leave_test_runtime_game_dll_load };
+    gag::RuntimeGameDllLoadApi runtime_game_dll_load_api{ enter_test_runtime_game_dll_load, update_test_runtime_game_dll_host, build_test_runtime_game_dll_path, get_test_runtime_game_dll_module_path,
+        activate_test_runtime_game_dll_scene, load_test_runtime_game_dll, get_test_runtime_game_dll_proc, deactivate_test_runtime_game_dll_scene, reset_test_runtime_game_dll_byte_queue,
+        reset_test_runtime_game_dll_pair_queue, leave_test_runtime_game_dll_load };
     gag::set_runtime_game_dll_load_api_for_testing(runtime_game_dll_load_api);
+    runtime_game_dll_executable_load_succeeds = false;
     gag::RuntimeGameHostContext runtime_game_host_context{};
     runtime_game_host_context.window = reinterpret_cast<HWND>(315);
     runtime_game_host_context.bits_per_pixel = 8;
@@ -16135,12 +16158,26 @@ int main()
     require(!gag::load_and_initialize_runtime_game_dll("XTETDLL.DLL"));
     const int runtime_game_dll_already_loaded_events[] = { 1, 13 };
     require(runtime_game_dll_load_event_count == 2 && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_already_loaded_events, sizeof(runtime_game_dll_already_loaded_events)) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    runtime_game_dll_load_event_count = 0;
+    runtime_game_dll_executable_load_succeeds = true;
+    gag::set_runtime_game_dll_state_for_testing(nullptr, 0x80000020);
+    require(gag::load_and_initialize_runtime_game_dll("XTETDLL.DLL"));
+    const int runtime_game_dll_executable_success_events[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+    require(runtime_game_dll_load_event_count == 13 && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_executable_success_events, sizeof(runtime_game_dll_executable_success_events)) == 0);
+    runtime_game_dll_executable_load_succeeds = false;
+#endif
     runtime_game_dll_load_event_count = 0;
     runtime_game_dll_load_failure_stage = 1;
     gag::set_runtime_game_dll_state_for_testing(nullptr, 0x80000020);
     require(!gag::load_and_initialize_runtime_game_dll("XTETDLL.DLL"));
-    const int runtime_game_dll_load_failed_events[] = { 1, 2, 3, 4, 5, 10, 11, 12, 13 };
-    require(runtime_game_dll_load_event_count == 9 && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_load_failed_events, sizeof(runtime_game_dll_load_failed_events)) == 0
+    const int runtime_game_dll_load_failed_events[] = { 1, 2, 3, 4, 5,
+#if defined(FREEGAG_WINDOWS_FIXES)
+        5,
+#endif
+        10, 11, 12, 13 };
+    require(runtime_game_dll_load_event_count == static_cast<int>(std::size(runtime_game_dll_load_failed_events))
+            && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_load_failed_events, sizeof(runtime_game_dll_load_failed_events)) == 0
             && gag::get_runtime_scene_control_flags_for_testing() == 0x80000020);
     for(int failure_stage = 2; failure_stage <= 4; ++failure_stage)
     {
@@ -16148,8 +16185,13 @@ int main()
         runtime_game_dll_load_failure_stage = failure_stage;
         gag::set_runtime_game_dll_state_for_testing(nullptr, 0x80000020);
         require(!gag::load_and_initialize_runtime_game_dll("XTETDLL.DLL"));
-        const int runtime_game_dll_ordinal_failed_events[] = { 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13 };
-        require(runtime_game_dll_load_event_count == 12 && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_ordinal_failed_events, sizeof(runtime_game_dll_ordinal_failed_events)) == 0
+        const int runtime_game_dll_ordinal_failed_events[] = { 1, 2, 3, 4, 5,
+#if defined(FREEGAG_WINDOWS_FIXES)
+            5,
+#endif
+            6, 7, 8, 10, 11, 12, 13 };
+        require(runtime_game_dll_load_event_count == static_cast<int>(std::size(runtime_game_dll_ordinal_failed_events))
+                && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_ordinal_failed_events, sizeof(runtime_game_dll_ordinal_failed_events)) == 0
                 && gag::get_runtime_scene_control_flags_for_testing() == 0x80000020);
     }
     runtime_game_dll_load_event_count = 0;
@@ -16158,8 +16200,13 @@ int main()
     runtime_game_dll_init_callbacks = nullptr;
     gag::set_runtime_game_dll_state_for_testing(nullptr, 0x80000020);
     require(gag::load_and_initialize_runtime_game_dll("XTETDLL.DLL"));
-    const int runtime_game_dll_success_events[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
-    require(runtime_game_dll_load_event_count == 13 && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_success_events, sizeof(runtime_game_dll_success_events)) == 0
+    const int runtime_game_dll_success_events[] = { 1, 2, 3, 4, 5,
+#if defined(FREEGAG_WINDOWS_FIXES)
+        5,
+#endif
+        6, 7, 8, 9, 10, 11, 12, 13 };
+    require(runtime_game_dll_load_event_count == static_cast<int>(std::size(runtime_game_dll_success_events))
+            && std::memcmp(runtime_game_dll_load_events, runtime_game_dll_success_events, sizeof(runtime_game_dll_success_events)) == 0
             && gag::get_runtime_scene_control_flags_for_testing() == 0x80000010 && runtime_game_dll_init_context != nullptr && runtime_game_dll_init_callbacks != nullptr);
     require(runtime_game_dll_init_context->window == reinterpret_cast<HWND>(315) && runtime_game_dll_init_context->width == 640
             && runtime_game_dll_init_context->framebuffer == reinterpret_cast<void *>(316));
@@ -17817,6 +17864,14 @@ int main()
     reset();
     require(gag::validate_startup_environment(&state, "Gag01.cdf", 4) == 1);
     require(std::strcmp(state.installed_version, "D:\\Gag01.cdf") == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(validation_locate_count == 1);
+    reset();
+    validation_executable_archive_exists = true;
+    validation_locate_success = false;
+    require(gag::validate_startup_environment(&state, "Gag01.cdf", 4) == 1);
+    require(std::strcmp(state.installed_version, "C:\\Games\\GAG\\Gag01.cdf") == 0 && validation_locate_count == 0);
+#endif
 
     reset();
     require(gag::validate_startup_environment(&state, "Gag01.cdf", 0x80) == 1);
@@ -22393,7 +22448,7 @@ int main()
     gag::set_runtime_resource_selection_api_for_testing(selection_api);
     resource_selection_event_count = 0;
     gag::set_runtime_scene_control_state_for_testing(0x800, nullptr);
-    gag::select_runtime_resource_with_loop_register(nullptr, 77);
+    gag::select_runtime_resource(nullptr);
     require(resource_selection_event_count == 2 && resource_selection_events[0] == 1 && resource_selection_events[1] == 3);
 
     char selected_resource[] = "selected.flc";
@@ -22401,7 +22456,7 @@ int main()
     resource_selection_event_count = 0;
     gag::set_runtime_resource_host_state_for_testing(nullptr, reinterpret_cast<gag::CdfArchive *>(701), 0, 1);
     gag::set_runtime_scene_control_state_for_testing(0x10000800, nullptr);
-    gag::select_runtime_resource_with_loop_register(selected_resource, 0x1234);
+    gag::select_runtime_resource(selected_resource);
     const int selection_events[] = { 1, 2, 3, 4, 5 };
     require(resource_selection_event_count == 5 && std::memcmp(resource_selection_events, selection_events, sizeof(selection_events)) == 0);
     gag::AsyncFileHost *observed_resource_host;

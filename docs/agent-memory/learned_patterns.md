@@ -1,5 +1,15 @@
 # Learned patterns
 
+# 2026-08-20 - Pin FetchContent archives by cryptographic hash
+
+- For a small upstream dependency with working CMake support, prefer an official immutable release archive plus `URL_HASH` over a floating Git branch/tag or a hand-maintained source manifest. Disable the dependency's unrelated shared-library, test, and install targets before `FetchContent_MakeAvailable`, then consume its exported target so generated headers and usage requirements propagate correctly.
+- Do not delete an existing untracked vendored source tree merely because the build no longer needs it; confirm ownership or leave it as user-local data.
+
+# 2026-08-20 - Portable resource precedence belongs at each recovered resolver boundary
+
+- When a legacy application resolves archive packs through startup/drive validation but resolves plugin DLLs through an active resource directory, adding one process-wide search-path mutation does not reliably cover both and can affect unrelated file access. Under a compatibility guard, prepend the executable-directory candidate independently at each recovered resolver and fall back through the untouched original path.
+- Build sibling candidates from `GetModuleFileName`, use only the requested DLL's filename for the executable-directory probe, reject truncated or overflowing `MAX_PATH` results, and load DLLs by absolute path. Opposing fixes-on/fixes-off tests should prove both precedence and original fallback behavior.
+
 # 2026-08-19 - Decode a save before diagnosing a missing conditional scene object
 
 - GAG save slots are CDF archives whose embedded `START.CFG` records object fields, inventory membership, and the active scene. When an original binary and the reconstruction both hide an object from the same save, extract that state and evaluate the scene's `local` condition conjunction before changing runtime code.
@@ -2186,3 +2196,17 @@ do not replace prior entries without correcting a demonstrated error.
 # Size parameter-evaluation temporaries for every materializable type
 
 - A typed parameter evaluator may parse and write the actual value before comparing its type with the caller's expected type. Therefore, even scalar-only consumers must provide storage large enough for the widest materializable value and read the scalar member only after successful validation. In GAG, both integer-expression PARAM and image-flag PARAM callers use 0x20-byte temporaries because a mismatched string is written before the evaluator reports failure; reducing either temporary to one DWORD corrupts the caller's stack.
+
+# Audit content with the shipped interpreter grammar, not a conventional grammar
+
+- GAG's script lexer is deliberately permissive: an unknown extracted property, scope, opcode, or image flag maps to zero and scanning continues, and scope arguments may follow whitespace without a colon. Consequently a strict parser can report many malformed scripts that the shipped interpreter treats as harmless skipped text. Classify each anomaly by its original runtime cursor effect before attributing a mechanic to it.
+- A misspelled structured-control terminator can still appear harmless when the scanner reaches the next section boundary, but inspect all text between the typo and that boundary: commands after the typo may be swallowed. Separately validate that any apparently exhaustive conditions really cover every reachable entry state.
+- For large generated navigation scripts, validate every static transition target and compare reciprocal/structurally analogous cells. This distinguishes an actual missing live target from unresolved names in abandoned prototype blocks.
+- When auditing orphaned archive assets, distinguish four categories: no script reference, references only on disabled comment lines, references in unreachable sections, and executable/implicit loading. Search embedded executable strings before calling a script-unreferenced metadata file unused, and inspect active commands that still name a resource whose declaration was disabled.
+- Build section reachability with the runtime's actual identity rules: GAG resource filenames are case-insensitive, section names are exact, and duplicate section names resolve to the first definition. Count every conditional edge to keep the result conservative, treat leading-`*` property continuations as disabled, seed executable roots separately from external installer/config roots, and report later duplicate definitions as shadowed rather than ordinary graph nodes.
+- Missing targets from reachable sections still require semantic classification. A zero-area zone, an intentionally empty transition operand, an empty visual-state placeholder, or a story-state-incompatible copy on the other disc is not equivalent to a live navigation failure. Strong typo evidence comes from an adjacent near-identical definition and a repeated structural pattern, such as `MZ.CIN::09012xy` versus shipped `[0901xy]` among the maze's special map-position helpers.
+
+# Saved registers beyond a callee's stack cleanup are not hidden arguments
+
+- When a wrapper saves a nonvolatile register and later pushes arguments for another call, calculate the callee's formal stack extent from its calling convention and return cleanup before assigning meaning to the saved word. A value physically adjacent to pushed arguments is not an argument if it lies beyond that extent.
+- Do not preserve unexplained register residue with inline assembly merely to make a reconstruction look instruction-identical. First prove that the callee reads it or that behavior changes with it. In GAG, `SelectRuntimeResource` saves ESI, but the called constructor consumes only ECX, EDX, and six stack DWORDs (`RET 0x18`); propagating ESI as a ninth `loop_animation` parameter created a compiler-specific false ABI with no observable semantics.

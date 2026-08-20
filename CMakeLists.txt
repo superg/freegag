@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(freegag LANGUAGES C CXX RC)
 
 include(CTest)
+include(FetchContent)
 
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
   message(FATAL_ERROR "freegag reconstructs 32-bit Win32 binaries; configure with -A Win32")
@@ -40,30 +41,20 @@ set(GAG_LOCAL_RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/gag-resources")
 if(NOT GAG_RESOURCE_DIR AND EXISTS "${GAG_LOCAL_RESOURCE_DIR}/gag_resources.rc")
   set(GAG_RESOURCE_DIR "${GAG_LOCAL_RESOURCE_DIR}" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets" FORCE)
 endif()
-set(FREEGAG_ZLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib-1.3.2" CACHE PATH "Directory containing the zlib source tree used by freegag")
 option(FREEGAG_WINDOWS_FIXES "Enable compatibility fixes for modern Windows" ON)
 
-set(FREEGAG_ZLIB_SOURCES
-  adler32.c
-  crc32.c
-  deflate.c
-  inflate.c
-  inffast.c
-  inftrees.c
-  trees.c
-  zutil.c
-)
-foreach(ZLIB_REQUIRED_FILE zlib.h zconf.h ${FREEGAG_ZLIB_SOURCES})
-  if(NOT EXISTS "${FREEGAG_ZLIB_DIR}/${ZLIB_REQUIRED_FILE}")
-    message(FATAL_ERROR "FREEGAG_ZLIB_DIR must point to a zlib source tree containing ${ZLIB_REQUIRED_FILE}")
-  endif()
-endforeach()
-list(TRANSFORM FREEGAG_ZLIB_SOURCES PREPEND "${FREEGAG_ZLIB_DIR}/")
-add_library(freegag_zlib STATIC ${FREEGAG_ZLIB_SOURCES})
-target_include_directories(freegag_zlib PUBLIC "${FREEGAG_ZLIB_DIR}")
-if(MSVC)
-  target_compile_definitions(freegag_zlib PRIVATE _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
 endif()
+set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(zlib
+  URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
+  URL_HASH SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+)
+FetchContent_MakeAvailable(zlib)
 
 set(GAG_SOURCES
   src/cdf_archive.cpp
@@ -83,8 +74,8 @@ target_compile_definitions(gag PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(FREEGAG_WINDOWS_FIXES)
   target_compile_definitions(gag PRIVATE FREEGAG_WINDOWS_FIXES=1)
 endif()
-target_include_directories(gag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${FREEGAG_ZLIB_DIR}")
-target_link_libraries(gag PRIVATE freegag_zlib user32 gdi32 winmm advapi32 comdlg32)
+target_include_directories(gag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(gag PRIVATE ZLIB::ZLIBSTATIC user32 gdi32 winmm advapi32 comdlg32)
 
 add_executable(gag_startup_test
   src/cdf_archive.cpp
@@ -93,8 +84,8 @@ add_executable(gag_startup_test
 )
 target_compile_features(gag_startup_test PRIVATE cxx_std_17)
 target_compile_definitions(gag_startup_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX GAG_TESTING FREEGAG_ORIGINAL_GAG01_CDF="${CMAKE_CURRENT_SOURCE_DIR}/data/orig/Gag01.cdf")
-target_include_directories(gag_startup_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${FREEGAG_ZLIB_DIR}")
-target_link_libraries(gag_startup_test PRIVATE freegag_zlib user32 gdi32 winmm advapi32 comdlg32)
+target_include_directories(gag_startup_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(gag_startup_test PRIVATE ZLIB::ZLIBSTATIC user32 gdi32 winmm advapi32 comdlg32)
 add_test(NAME gag_startup_test COMMAND gag_startup_test)
 
 add_executable(gag_startup_windows_fixes_test
@@ -104,8 +95,8 @@ add_executable(gag_startup_windows_fixes_test
 )
 target_compile_features(gag_startup_windows_fixes_test PRIVATE cxx_std_17)
 target_compile_definitions(gag_startup_windows_fixes_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX GAG_TESTING FREEGAG_WINDOWS_FIXES=1 FREEGAG_ORIGINAL_GAG01_CDF="${CMAKE_CURRENT_SOURCE_DIR}/data/orig/Gag01.cdf")
-target_include_directories(gag_startup_windows_fixes_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${FREEGAG_ZLIB_DIR}")
-target_link_libraries(gag_startup_windows_fixes_test PRIVATE freegag_zlib user32 gdi32 winmm advapi32 comdlg32)
+target_include_directories(gag_startup_windows_fixes_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(gag_startup_windows_fixes_test PRIVATE ZLIB::ZLIBSTATIC user32 gdi32 winmm advapi32 comdlg32)
 add_test(NAME gag_startup_windows_fixes_test COMMAND gag_startup_windows_fixes_test)
 
 if(GAG_RESOURCE_DIR)
