@@ -4,7 +4,7 @@
 namespace xtet
 {
 
-std::uint32_t dispatch_game_window_message(std::uint32_t gameplay_state, std::uint32_t message, std::uint32_t wparam, const GameWindowMessageCallbacks &callbacks)
+uint32_t dispatch_game_window_message(uint32_t gameplay_state, uint32_t message, uint32_t wparam, const GameWindowMessageCallbacks &callbacks)
 {
     if(gameplay_state < 1 || gameplay_state > 4)
         return 1;
@@ -30,12 +30,12 @@ std::uint32_t dispatch_game_window_message(std::uint32_t gameplay_state, std::ui
     return 0;
 }
 
-std::uint32_t calculate_result_input_deadline(std::uint32_t current_time)
+uint32_t calculate_result_input_deadline(uint32_t current_time)
 {
     return current_time + 2000;
 }
 
-void handle_game_key_down(std::uint32_t &gameplay_state, std::uint32_t key, std::uint32_t current_time, std::uint32_t result_input_deadline, std::uint32_t score, const GameKeyDownCallbacks &callbacks)
+void handle_game_key_down(uint32_t &gameplay_state, uint32_t key, uint32_t current_time, uint32_t result_input_deadline, uint32_t score, const GameKeyDownCallbacks &callbacks)
 {
     if(gameplay_state == 2 || gameplay_state == 3)
     {
@@ -68,7 +68,7 @@ void handle_game_key_down(std::uint32_t &gameplay_state, std::uint32_t key, std:
         callbacks.gameplay_key(key);
 }
 
-bool set_game_paused(std::uint32_t &gameplay_state, bool paused, const std::function<bool(bool)> &loop_playing_callback)
+bool set_game_paused(uint32_t &gameplay_state, bool paused, const std::function<bool(bool)> &loop_playing_callback)
 {
     if(gameplay_state == 1 && paused)
     {
@@ -85,7 +85,7 @@ bool set_game_paused(std::uint32_t &gameplay_state, bool paused, const std::func
     return true;
 }
 
-bool GameplayRuntime::initialize(std::size_t board_width, std::size_t last_scene_slot, const GameProgress &progress)
+bool GameplayRuntime::initialize(size_t board_width, size_t last_scene_slot, const GameProgress &progress)
 {
     RuntimeTables board;
     if(last_scene_slot < 3 || !board.initialize(board_width))
@@ -101,11 +101,11 @@ bool GameplayRuntime::initialize(std::size_t board_width, std::size_t last_scene
     return true;
 }
 
-bool GameplayRuntime::updateTick(std::uint32_t family_random, std::uint32_t shape_random, std::uint32_t orientation_random, std::uint32_t current_time, const FigurineGeometryTables &geometry,
+bool GameplayRuntime::updateTick(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, uint32_t current_time, const FigurineGeometryTables &geometry,
     const std::vector<ActionDefinition> &definitions, const std::function<bool(const FallingFigurine &, const FallingFigurine &, const ActionDefinition &)> &match_callback,
     const FigurineBoardChangeCallback &board_change_callback, GameTickResult &tick_result, CascadeResult &cascade_result, const ProgressUpdateCallback &progress_callback)
 {
-    const std::uint32_t previous_state = progress_.gameplay_state;
+    const uint32_t previous_state = progress_.gameplay_state;
     const auto spawn_callback = [&]() -> void *
     {
         std::unique_ptr<FallingFigurine> figurine = std::make_unique<FallingFigurine>();
@@ -159,7 +159,7 @@ void *GameplayRuntime::activeValue() const
     return active_value_;
 }
 
-std::int32_t GameplayRuntime::familyBalance() const
+int32_t GameplayRuntime::familyBalance() const
 {
     return family_balance_;
 }
@@ -174,7 +174,7 @@ const GameProgress &GameplayRuntime::progress() const
     return progress_;
 }
 
-std::uint32_t GameplayRuntime::resultInputDeadline() const
+uint32_t GameplayRuntime::resultInputDeadline() const
 {
     return result_input_deadline_;
 }

@@ -1,17 +1,17 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
+#include <stdint.h>
 
 namespace xtet
 {
 
-using FigurineTemplate = std::array<std::uint8_t, 25>;
+using FigurineTemplate = std::array<uint8_t, 25>;
 
 struct FigurineOffset
 {
-    std::int8_t x{};
-    std::int8_t y{};
+    int8_t x{};
+    int8_t y{};
 
     bool operator==(const FigurineOffset &other) const
     {
@@ -26,6 +26,6 @@ struct FigurineGeometryTables
 };
 
 FigurineGeometryTables build_figurine_geometry_tables();
-bool get_oriented_figurine_template(bool first_family, std::uint8_t shape_index, std::int8_t orientation, FigurineTemplate &result);
+bool get_oriented_figurine_template(bool first_family, uint8_t shape_index, int8_t orientation, FigurineTemplate &result);
 
 } // namespace xtet

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
 #include <functional>
+#include <stddef.h>
+#include <stdint.h>
 #include <vector>
 #include "action_definitions.h"
 #include "game_progress.h"
@@ -11,20 +11,20 @@
 namespace xtet
 {
 
-inline constexpr std::size_t kInvalidFigurineSceneSlot = (std::size_t)-1;
+inline constexpr size_t kInvalidFigurineSceneSlot = (size_t)-1;
 
 struct FigurineGeometryTables;
 
 struct FallingFigurine
 {
     bool first_family{};
-    std::uint8_t shape_index{};
-    std::int8_t orientation{};
-    std::int8_t column{};
-    std::int8_t row{};
-    std::int8_t previous_orientation{};
-    std::int8_t previous_column{};
-    std::int8_t previous_row{};
+    uint8_t shape_index{};
+    int8_t orientation{};
+    int8_t column{};
+    int8_t row{};
+    int8_t previous_orientation{};
+    int8_t previous_column{};
+    int8_t previous_row{};
 };
 
 enum class FigurineSpriteFamily
@@ -36,7 +36,7 @@ enum class FigurineSpriteFamily
 struct FigurineSpriteSelection
 {
     FigurineSpriteFamily family{};
-    std::uint8_t frame_index{};
+    uint8_t frame_index{};
     bool mirror_horizontal{};
     bool mirror_vertical{};
     int x{};
@@ -56,7 +56,7 @@ struct FigurineBoardEntry
 {
     void *value{};
     FallingFigurine *figurine{};
-    std::size_t scene_slot{ kInvalidFigurineSceneSlot };
+    size_t scene_slot{ kInvalidFigurineSceneSlot };
 };
 
 struct FigurineMatch
@@ -84,8 +84,8 @@ enum class GameplayInput
 
 struct CascadeResult
 {
-    std::uint32_t moves{};
-    std::uint32_t matches{};
+    uint32_t moves{};
+    uint32_t matches{};
 };
 
 enum class GameTickResult
@@ -109,15 +109,15 @@ enum class GameplayInputResult
 struct GameplayInputOutcome
 {
     GameplayInputResult result{};
-    std::uint32_t moves{};
+    uint32_t moves{};
 };
 
 using FigurineBoardChangeCallback = std::function<void(const FallingFigurine &, bool)>;
 
-FallingFigurine select_falling_figurine(std::uint32_t family_random, std::uint32_t shape_random, std::uint32_t orientation_random, std::int32_t &family_balance, std::size_t board_width);
-bool find_free_figurine_scene_slot(std::size_t last_slot, const std::vector<FigurineBoardEntry> &entries, std::size_t &slot);
-bool spawn_falling_figurine(std::uint32_t family_random, std::uint32_t shape_random, std::uint32_t orientation_random, std::int32_t &family_balance, RuntimeTables &board,
-    std::vector<FigurineBoardEntry> &entries, FallingFigurine &figurine, void *value, std::size_t last_scene_slot, const FigurineBoardChangeCallback &board_change_callback = {});
+FallingFigurine select_falling_figurine(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, int32_t &family_balance, size_t board_width);
+bool find_free_figurine_scene_slot(size_t last_slot, const std::vector<FigurineBoardEntry> &entries, size_t &slot);
+bool spawn_falling_figurine(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, int32_t &family_balance, RuntimeTables &board, std::vector<FigurineBoardEntry> &entries,
+    FallingFigurine &figurine, void *value, size_t last_scene_slot, const FigurineBoardChangeCallback &board_change_callback = {});
 bool can_place_figurine(const FallingFigurine &figurine, const RuntimeTables &board, const void *self = nullptr, const void *paired_object = nullptr);
 bool select_figurine_sprite(const FallingFigurine &figurine, FigurineSpriteSelection &selection);
 bool place_figurine_on_board(const FallingFigurine &figurine, RuntimeTables &board, void *value);
@@ -128,7 +128,7 @@ FigurineMatch find_match_candidate(FallingFigurine &figurine, FigurineMove move,
     const void *value);
 GameplayMoveResult process_falling_move(FallingFigurine &figurine, FigurineMove move, const FigurineGeometryTables &geometry, const std::vector<ActionDefinition> &definitions, RuntimeTables &board,
     std::vector<FigurineBoardEntry> &entries, void *value, FigurineMatch &match, const FigurineBoardChangeCallback &board_change_callback = {});
-GameplayInput translate_gameplay_key(std::uint32_t virtual_key);
+GameplayInput translate_gameplay_key(uint32_t virtual_key);
 bool remove_matched_pair(void *source_value, const FigurineMatch &match, RuntimeTables &board, std::vector<FigurineBoardEntry> &entries, GameProgress &progress,
     const ProgressUpdateCallback &progress_callback = {});
 bool settle_board_after_match(const FigurineGeometryTables &geometry, const std::vector<ActionDefinition> &definitions, RuntimeTables &board, std::vector<FigurineBoardEntry> &entries,

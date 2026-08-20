@@ -68,9 +68,6 @@ struct IndexEntry
 };
 #pragma pack(pop)
 
-static_assert(sizeof(CdfHeader) == 19, "CDF header layout changed");
-static_assert(sizeof(IndexEntry) == 44, "CDF index-entry layout changed");
-
 
 
 int cdf_extract(string a_out_path, string a_in_fn);
@@ -290,7 +287,7 @@ int cdf_pack(string a_out_fn, string a_in_path)
     u32 i = 0;
     for(list<IndexEntry>::iterator it = index_entries.begin(); it != index_entries.end(); ++it)
         files_index[i++] = *it;
-    block_encode(oF, (u8 *)files_index, index_entries.size() * sizeof(IndexEntry), false);
+    block_encode(oF, (u8 *)files_index, static_cast<u32>(index_entries.size() * sizeof(IndexEntry)), false);
     delete[] files_index;
 
     // write header

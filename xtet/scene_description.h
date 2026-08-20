@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <optional>
+#include <stdint.h>
 #include <string>
 #include <vector>
 #include "sfs_archive.h"
@@ -20,8 +20,8 @@ enum class SceneNodeType
 
 struct ScenePoint
 {
-    std::int32_t x{};
-    std::int32_t y{};
+    int32_t x{};
+    int32_t y{};
 };
 
 struct SceneNode
@@ -35,7 +35,7 @@ struct SceneNode
     std::optional<bool> shown;
     std::optional<bool> viewed;
     std::optional<bool> transparent;
-    std::optional<std::uint8_t> fill_index;
+    std::optional<uint8_t> fill_index;
     std::string loaded_path;
     std::optional<ScenePoint> created_size;
     std::vector<SceneNode> children;

@@ -10,29 +10,29 @@ namespace xtet
 namespace
 {
 
-constexpr std::size_t kHeaderSize = 0x100;
-constexpr std::size_t kDirectoryEntrySize = 0x20;
-constexpr std::uint32_t kVersion = 200;
-constexpr std::uint32_t kAllocationBlockSize = 0x8000;
-constexpr std::array<std::uint32_t, 8> kHashBasisA{ 0x23788d5e, 0x46f11abc, 0x0de23578, 0x38bce7ae, 0x7179cf5c, 0x62f39eb8, 0x669fb02e, 0x6e47ed02 };
-constexpr std::array<std::uint32_t, 8> kHashBasisB{ 0x1434182e, 0x3c5c2872, 0x6c8c48ca, 0x4d2c89ba, 0x1a591374, 0x20863ec6, 0x553865a2, 0x3e44d36a };
+constexpr size_t kHeaderSize = 0x100;
+constexpr size_t kDirectoryEntrySize = 0x20;
+constexpr uint32_t kVersion = 200;
+constexpr uint32_t kAllocationBlockSize = 0x8000;
+constexpr std::array<uint32_t, 8> kHashBasisA{ 0x23788d5e, 0x46f11abc, 0x0de23578, 0x38bce7ae, 0x7179cf5c, 0x62f39eb8, 0x669fb02e, 0x6e47ed02 };
+constexpr std::array<uint32_t, 8> kHashBasisB{ 0x1434182e, 0x3c5c2872, 0x6c8c48ca, 0x4d2c89ba, 0x1a591374, 0x20863ec6, 0x553865a2, 0x3e44d36a };
 
-std::uint32_t read_u32(const ResourceView &resource, std::size_t offset)
+uint32_t read_u32(const ResourceView &resource, size_t offset)
 {
-    std::uint32_t value{};
+    uint32_t value{};
     std::memcpy(&value, resource.data + offset, sizeof(value));
     return value;
 }
 
-bool contains(const ResourceView &resource, std::uint64_t offset, std::uint64_t size)
+bool contains(const ResourceView &resource, uint64_t offset, uint64_t size)
 {
     return offset <= resource.size && size <= resource.size - offset;
 }
 
-std::uint32_t hash_table_value(std::uint8_t index, const std::array<std::uint32_t, 8> &basis)
+uint32_t hash_table_value(uint8_t index, const std::array<uint32_t, 8> &basis)
 {
-    std::uint32_t value = 0;
-    for(std::size_t bit = 0; bit < basis.size(); ++bit)
+    uint32_t value = 0;
+    for(size_t bit = 0; bit < basis.size(); ++bit)
     {
         if((index & (1u << bit)) != 0)
             value ^= basis[bit];
@@ -40,24 +40,24 @@ std::uint32_t hash_table_value(std::uint8_t index, const std::array<std::uint32_
     return value;
 }
 
-std::array<std::uint32_t, 2> hash_path(std::string_view path)
+std::array<uint32_t, 2> hash_path(std::string_view path)
 {
-    std::array<std::uint32_t, 2> hash{};
+    std::array<uint32_t, 2> hash{};
     for(unsigned char character : path)
     {
-        const std::uint8_t upper = (std::uint8_t)std::toupper(character);
-        hash[0] = (hash[0] << 8 | upper) ^ hash_table_value((std::uint8_t)(hash[0] >> 24), kHashBasisA);
-        hash[1] = (hash[1] << 8 | upper) ^ hash_table_value((std::uint8_t)(hash[1] >> 24), kHashBasisB);
+        const uint8_t upper = (uint8_t)std::toupper(character);
+        hash[0] = (hash[0] << 8 | upper) ^ hash_table_value((uint8_t)(hash[0] >> 24), kHashBasisA);
+        hash[1] = (hash[1] << 8 | upper) ^ hash_table_value((uint8_t)(hash[1] >> 24), kHashBasisB);
     }
     return hash;
 }
 
-bool decode_lzss(const std::uint8_t *source, std::size_t source_size, std::vector<std::uint8_t> &output)
+bool decode_lzss(const uint8_t *source, size_t source_size, std::vector<uint8_t> &output)
 {
-    std::array<std::uint8_t, 4096> window{};
-    std::size_t window_position = 0xfee;
-    std::size_t source_position = 0;
-    std::uint32_t control = 0;
+    std::array<uint8_t, 4096> window{};
+    size_t window_position = 0xfee;
+    size_t source_position = 0;
+    uint32_t control = 0;
     output.clear();
     output.reserve(kAllocationBlockSize);
     while(source_position < source_size)
@@ -71,7 +71,7 @@ bool decode_lzss(const std::uint8_t *source, std::size_t source_size, std::vecto
                 return true;
             if(output.size() >= kAllocationBlockSize)
                 return false;
-            const std::uint8_t value = source[source_position++];
+            const uint8_t value = source[source_position++];
             output.push_back(value);
             window[window_position] = value;
             window_position = (window_position + 1) & 0xfff;
@@ -80,14 +80,14 @@ bool decode_lzss(const std::uint8_t *source, std::size_t source_size, std::vecto
         {
             if(source_size - source_position < 2)
                 return true;
-            std::size_t copy_position = source[source_position] | (std::size_t)(source[source_position + 1] & 0xf0) << 4;
-            const std::size_t copy_size = (source[source_position + 1] & 0x0f) + 3;
+            size_t copy_position = source[source_position] | (size_t)(source[source_position + 1] & 0xf0) << 4;
+            const size_t copy_size = (source[source_position + 1] & 0x0f) + 3;
             source_position += 2;
             if(copy_size > kAllocationBlockSize - output.size())
                 return false;
-            for(std::size_t index = 0; index < copy_size; ++index)
+            for(size_t index = 0; index < copy_size; ++index)
             {
-                const std::uint8_t value = window[copy_position];
+                const uint8_t value = window[copy_position];
                 copy_position = (copy_position + 1) & 0xfff;
                 output.push_back(value);
                 window[window_position] = value;
@@ -121,8 +121,8 @@ bool SfsArchive::mount(ResourceView resource)
     if(header.version != kVersion)
         return false;
 
-    std::uint32_t checksum = 0;
-    for(std::size_t offset = 0; offset < kHeaderSize; ++offset)
+    uint32_t checksum = 0;
+    for(size_t offset = 0; offset < kHeaderSize; ++offset)
     {
         if(offset < 0x08 || offset >= 0x0c)
             checksum += resource.data[offset];
@@ -130,24 +130,24 @@ bool SfsArchive::mount(ResourceView resource)
     if(checksum != header.checksum)
         return false;
 
-    const std::uint64_t directory_size = (std::uint64_t)header.entry_count * kDirectoryEntrySize;
-    const std::uint64_t allocation_word_count = ((std::uint64_t)header.virtual_size + kAllocationBlockSize - 1) / kAllocationBlockSize + 1;
-    const std::uint64_t allocation_map_size = allocation_word_count * sizeof(std::uint32_t);
+    const uint64_t directory_size = (uint64_t)header.entry_count * kDirectoryEntrySize;
+    const uint64_t allocation_word_count = ((uint64_t)header.virtual_size + kAllocationBlockSize - 1) / kAllocationBlockSize + 1;
+    const uint64_t allocation_map_size = allocation_word_count * sizeof(uint32_t);
     if(header.directory_offset < kHeaderSize || !contains(resource, header.directory_offset, directory_size) || !contains(resource, header.allocation_map_offset, allocation_map_size)
-        || header.allocation_map_offset < (std::uint64_t)header.directory_offset + directory_size || header.data_offset < (std::uint64_t)header.allocation_map_offset + allocation_map_size
+        || header.allocation_map_offset < (uint64_t)header.directory_offset + directory_size || header.data_offset < (uint64_t)header.allocation_map_offset + allocation_map_size
         || header.data_offset > resource.size || header.maximum_path_length == 0)
         return false;
 
     entries_.reserve(header.entry_count);
-    for(std::uint32_t index = 0; index < header.entry_count; ++index)
+    for(uint32_t index = 0; index < header.entry_count; ++index)
     {
-        const std::size_t offset = header.directory_offset + (std::size_t)index * kDirectoryEntrySize;
+        const size_t offset = header.directory_offset + (size_t)index * kDirectoryEntrySize;
         entries_.push_back({ read_u32(resource, offset), read_u32(resource, offset + 4), read_u32(resource, offset + 8), read_u32(resource, offset + 12), read_u32(resource, offset + 16),
             read_u32(resource, offset + 20), read_u32(resource, offset + 24), read_u32(resource, offset + 28) });
     }
-    allocation_map_.reserve((std::size_t)allocation_word_count);
-    for(std::size_t index = 0; index < allocation_word_count; ++index)
-        allocation_map_.push_back(read_u32(resource, header.allocation_map_offset + index * sizeof(std::uint32_t)));
+    allocation_map_.reserve((size_t)allocation_word_count);
+    for(size_t index = 0; index < allocation_word_count; ++index)
+        allocation_map_.push_back(read_u32(resource, header.allocation_map_offset + index * sizeof(uint32_t)));
     if(!std::is_sorted(entries_.begin(), entries_.end(),
            [](const SfsEntry &left, const SfsEntry &right) { return left.hash_a < right.hash_a || (left.hash_a == right.hash_a && left.hash_b < right.hash_b); })
         || !std::is_sorted(allocation_map_.begin(), allocation_map_.end()) || allocation_map_.back() > resource.size)
@@ -176,22 +176,22 @@ const SfsEntry *SfsArchive::find(std::string_view path) const
 {
     if(!valid() || path.empty() || path.size() > header_.maximum_path_length)
         return nullptr;
-    const std::array<std::uint32_t, 2> hash = hash_path(path);
+    const std::array<uint32_t, 2> hash = hash_path(path);
     const auto iterator = std::lower_bound(entries_.begin(), entries_.end(), hash,
-        [](const SfsEntry &entry, const std::array<std::uint32_t, 2> &value) { return entry.hash_a < value[0] || (entry.hash_a == value[0] && entry.hash_b < value[1]); });
+        [](const SfsEntry &entry, const std::array<uint32_t, 2> &value) { return entry.hash_a < value[0] || (entry.hash_a == value[0] && entry.hash_b < value[1]); });
     return iterator != entries_.end() && iterator->hash_a == hash[0] && iterator->hash_b == hash[1] ? &*iterator : nullptr;
 }
 
-bool SfsArchive::decode_block(std::size_t block_index, std::vector<std::uint8_t> &bytes) const
+bool SfsArchive::decode_block(size_t block_index, std::vector<uint8_t> &bytes) const
 {
     if(block_index + 1 >= allocation_map_.size())
         return false;
-    const std::uint32_t begin = allocation_map_[block_index];
-    const std::uint32_t end = allocation_map_[block_index + 1];
+    const uint32_t begin = allocation_map_[block_index];
+    const uint32_t end = allocation_map_[block_index + 1];
     if(end < begin || !contains(resource_, begin, end - begin) || end == begin || end - begin > kAllocationBlockSize)
         return false;
-    const std::uint8_t *source = resource_.data + begin;
-    const std::size_t source_size = end - begin;
+    const uint8_t *source = resource_.data + begin;
+    const size_t source_size = end - begin;
     if(source_size == kAllocationBlockSize)
     {
         bytes.assign(source, source + source_size);
@@ -203,7 +203,7 @@ bool SfsArchive::decode_block(std::size_t block_index, std::vector<std::uint8_t>
         return decode_lzss(source + 1, source_size - 1, bytes);
     if(source_size < 3)
         return false;
-    const std::uint16_t encoding = (std::uint16_t)(source[1] | source[2] << 8);
+    const uint16_t encoding = (uint16_t)(source[1] | source[2] << 8);
     if(encoding == 0)
     {
         bytes.assign(source + 3, source + source_size);
@@ -213,7 +213,7 @@ bool SfsArchive::decode_block(std::size_t block_index, std::vector<std::uint8_t>
         return false;
     bytes.resize(kAllocationBlockSize);
     int ok = 0;
-    const std::uint32_t decoded_size = inflate_data_bounded(bytes.data(), (std::uint32_t)bytes.size(), (std::uint8_t *)source + 3, (std::uint32_t)source_size - 3, &ok);
+    const uint32_t decoded_size = inflate_data_bounded(bytes.data(), (uint32_t)bytes.size(), (uint8_t *)source + 3, (uint32_t)source_size - 3, &ok);
     // Some full SFS blocks end exactly at the 32 KiB output boundary before the
     // generic inflater can consume an end marker. The original cache accepts
     // that complete logical block; partial output still requires a clean end.
@@ -223,30 +223,30 @@ bool SfsArchive::decode_block(std::size_t block_index, std::vector<std::uint8_t>
     return true;
 }
 
-bool SfsArchive::read(const SfsEntry &entry, std::vector<std::uint8_t> &bytes) const
+bool SfsArchive::read(const SfsEntry &entry, std::vector<uint8_t> &bytes) const
 {
     bytes.clear();
     if(!valid() || entry.virtual_offset > header_.virtual_size || entry.size > header_.virtual_size - entry.virtual_offset)
         return false;
     bytes.reserve(entry.size);
-    std::uint64_t position = entry.virtual_offset;
-    std::uint32_t remaining = entry.size;
-    std::vector<std::uint8_t> block;
+    uint64_t position = entry.virtual_offset;
+    uint32_t remaining = entry.size;
+    std::vector<uint8_t> block;
     while(remaining != 0)
     {
-        const std::size_t block_index = (std::size_t)(position / kAllocationBlockSize);
-        const std::size_t block_offset = (std::size_t)(position % kAllocationBlockSize);
+        const size_t block_index = (size_t)(position / kAllocationBlockSize);
+        const size_t block_offset = (size_t)(position % kAllocationBlockSize);
         if(!decode_block(block_index, block) || block_offset >= block.size())
             return false;
-        const std::size_t copy_size = std::min<std::size_t>(remaining, block.size() - block_offset);
-        bytes.insert(bytes.end(), block.begin() + (std::ptrdiff_t)block_offset, block.begin() + (std::ptrdiff_t)(block_offset + copy_size));
+        const size_t copy_size = std::min<size_t>(remaining, block.size() - block_offset);
+        bytes.insert(bytes.end(), block.begin() + (ptrdiff_t)block_offset, block.begin() + (ptrdiff_t)(block_offset + copy_size));
         position += copy_size;
-        remaining -= (std::uint32_t)copy_size;
+        remaining -= (uint32_t)copy_size;
     }
     return true;
 }
 
-bool SfsArchive::read(std::string_view path, std::vector<std::uint8_t> &bytes) const
+bool SfsArchive::read(std::string_view path, std::vector<uint8_t> &bytes) const
 {
     const SfsEntry *entry = find(path);
     return entry && read(*entry, bytes);

@@ -1,17 +1,17 @@
 #include <windows.h>
 #include <array>
-#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <stdint.h>
 
 namespace
 {
 
 struct ResourceIdentity
 {
-    std::uint16_t type;
-    std::uint16_t name;
-    std::uint16_t language;
+    uint16_t type;
+    uint16_t name;
+    uint16_t language;
 };
 
 constexpr std::array<ResourceIdentity, 9> resources{

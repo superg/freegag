@@ -30,15 +30,15 @@ bool parse_line(std::string_view line, std::array<int, 10> &values)
 
 } // namespace
 
-bool parse_action_definitions(const std::vector<std::uint8_t> &bytes, std::vector<ActionDefinition> &definitions)
+bool parse_action_definitions(const std::vector<uint8_t> &bytes, std::vector<ActionDefinition> &definitions)
 {
     definitions.clear();
     const std::string_view text((const char *)bytes.data(), bytes.size());
-    std::size_t position = 0;
+    size_t position = 0;
     while(position < text.size())
     {
-        const std::size_t newline = text.find('\n', position);
-        const std::size_t line_end = newline == std::string_view::npos ? text.size() : newline;
+        const size_t newline = text.find('\n', position);
+        const size_t line_end = newline == std::string_view::npos ? text.size() : newline;
         const std::string_view line = text.substr(position, line_end - position);
         position = newline == std::string_view::npos ? text.size() : newline + 1;
         if(line.empty() || line == "\r")
@@ -50,8 +50,8 @@ bool parse_action_definitions(const std::vector<std::uint8_t> &bytes, std::vecto
         if(values[0] < 0 || values[0] >= 5 || values[1] < 0 || values[1] >= 10 || values[2] <= -5 || values[2] >= 5 || values[2] == 0)
             continue;
         ActionDefinition definition;
-        for(std::size_t index = 0; index < values.size(); ++index)
-            definition.values[index] = (std::int8_t)values[index];
+        for(size_t index = 0; index < values.size(); ++index)
+            definition.values[index] = (int8_t)values[index];
         definitions.push_back(definition);
     }
     return true;

@@ -41,7 +41,7 @@ bool AudioCoordinator::initialize(const SceneDescription &scene, const std::map<
                 return false;
             }
             const auto wave = waves.find(node->loaded_path);
-            if(wave == waves.end() || wave->second.samples.empty() || wave->second.samples.size() > (std::numeric_limits<std::uint32_t>::max)()
+            if(wave == waves.end() || wave->second.samples.empty() || wave->second.samples.size() > (std::numeric_limits<uint32_t>::max)()
                 || (!group.waves.empty() && !formats_equal(group.waves[0]->format, wave->second.format)))
             {
                 destroy();
@@ -66,23 +66,23 @@ bool AudioCoordinator::initializeLoopQueue()
     if(found == groups_.end() || found->second.waves.size() != 8 || !callbacks_.stop(found->second.handle, false))
         return false;
     const SoundGroup &group = found->second;
-    const auto queue_wave = [&](const WavePcm &wave, bool replace) { return callbacks_.queue(group.handle, wave.samples.data(), (std::uint32_t)wave.samples.size(), replace); };
+    const auto queue_wave = [&](const WavePcm &wave, bool replace) { return callbacks_.queue(group.handle, wave.samples.data(), (uint32_t)wave.samples.size(), replace); };
     if(!queue_wave(*group.waves[0], true) || !queue_wave(*group.waves[0], false))
         return false;
-    for(std::uint32_t pass = 0; pass < 300; ++pass)
+    for(uint32_t pass = 0; pass < 300; ++pass)
         for(const WavePcm *wave : group.waves)
             if(!queue_wave(*wave, false))
                 return false;
     return true;
 }
 
-bool AudioCoordinator::queueRandom(const std::string &link, std::uint32_t random_value)
+bool AudioCoordinator::queueRandom(const std::string &link, uint32_t random_value)
 {
     const auto found = groups_.find(link);
     if(found == groups_.end() || found->second.waves.empty())
         return false;
     const WavePcm &wave = *found->second.waves[random_value % found->second.waves.size()];
-    return callbacks_.queue(found->second.handle, wave.samples.data(), (std::uint32_t)wave.samples.size(), true);
+    return callbacks_.queue(found->second.handle, wave.samples.data(), (uint32_t)wave.samples.size(), true);
 }
 
 bool AudioCoordinator::queueFirst(const std::string &link)

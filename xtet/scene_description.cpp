@@ -8,10 +8,10 @@ namespace xtet
 namespace
 {
 
-bool tokenize(const std::vector<std::uint8_t> &bytes, std::vector<std::string> &tokens)
+bool tokenize(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
 {
     tokens.clear();
-    std::size_t offset = 0;
+    size_t offset = 0;
     while(offset < bytes.size())
     {
         while(offset < bytes.size() && (bytes[offset] == 0x1a || std::isspace((unsigned char)bytes[offset]) != 0))
@@ -29,7 +29,7 @@ bool tokenize(const std::vector<std::uint8_t> &bytes, std::vector<std::string> &
             tokens.emplace_back(1, (char)bytes[offset++]);
             continue;
         }
-        const std::size_t start = offset;
+        const size_t start = offset;
         while(offset < bytes.size() && bytes[offset] != 0x1a && std::isspace((unsigned char)bytes[offset]) == 0 && bytes[offset] != '{' && bytes[offset] != '}' && bytes[offset] != ';')
             ++offset;
         if(start == offset)
@@ -39,27 +39,27 @@ bool tokenize(const std::vector<std::uint8_t> &bytes, std::vector<std::string> &
     return true;
 }
 
-bool parse_integer(const std::string &token, std::int32_t &value)
+bool parse_integer(const std::string &token, int32_t &value)
 {
     if(token.empty())
         return false;
-    std::size_t offset = token[0] == '-' ? 1 : 0;
+    size_t offset = token[0] == '-' ? 1 : 0;
     if(offset == token.size())
         return false;
-    std::int64_t parsed = 0;
+    int64_t parsed = 0;
     for(; offset < token.size(); ++offset)
     {
         if(token[offset] < '0' || token[offset] > '9')
             return false;
         parsed = parsed * 10 + token[offset] - '0';
-        if(parsed > (std::int64_t)(std::numeric_limits<std::int32_t>::max)() + 1)
+        if(parsed > (int64_t)(std::numeric_limits<int32_t>::max)() + 1)
             return false;
     }
     if(token[0] == '-')
         parsed = -parsed;
-    if(parsed < (std::numeric_limits<std::int32_t>::min)() || parsed > (std::numeric_limits<std::int32_t>::max)())
+    if(parsed < (std::numeric_limits<int32_t>::min)() || parsed > (std::numeric_limits<int32_t>::max)())
         return false;
-    value = (std::int32_t)parsed;
+    value = (int32_t)parsed;
     return true;
 }
 
@@ -96,12 +96,12 @@ private:
     {
         if(std::find(active_scripts_.begin(), active_scripts_.end(), path) != active_scripts_.end())
             return false;
-        std::vector<std::uint8_t> bytes;
+        std::vector<uint8_t> bytes;
         std::vector<std::string> tokens;
         if(!archive_.read(path, bytes) || !tokenize(bytes, tokens))
             return false;
         active_scripts_.push_back(path);
-        std::size_t offset = 0;
+        size_t offset = 0;
         while(offset < tokens.size())
         {
             SceneNode node;
@@ -113,21 +113,21 @@ private:
         return true;
     }
 
-    bool parsePoint(const std::vector<std::string> &tokens, std::size_t &offset, ScenePoint &point)
+    bool parsePoint(const std::vector<std::string> &tokens, size_t &offset, ScenePoint &point)
     {
         return offset + 2 <= tokens.size() && parse_integer(tokens[offset++], point.x) && parse_integer(tokens[offset++], point.y);
     }
 
-    bool parseFlag(const std::vector<std::string> &tokens, std::size_t &offset, std::optional<bool> &flag)
+    bool parseFlag(const std::vector<std::string> &tokens, size_t &offset, std::optional<bool> &flag)
     {
-        std::int32_t value = 0;
+        int32_t value = 0;
         if(offset >= tokens.size() || !parse_integer(tokens[offset++], value) || (value != 0 && value != 1))
             return false;
         flag = value != 0;
         return true;
     }
 
-    bool parseNode(const std::vector<std::string> &tokens, std::size_t &offset, const std::string &source_script, SceneNode &node)
+    bool parseNode(const std::vector<std::string> &tokens, size_t &offset, const std::string &source_script, SceneNode &node)
     {
         if(offset >= tokens.size() || tokens[offset++] != "{" || offset >= tokens.size())
             return false;
@@ -192,10 +192,10 @@ private:
             }
             else if(property == "FILL")
             {
-                std::int32_t value = 0;
+                int32_t value = 0;
                 if(offset >= tokens.size() || !parse_integer(tokens[offset++], value) || value < 0 || value > 255)
                     return false;
-                node.fill_index = (std::uint8_t)value;
+                node.fill_index = (uint8_t)value;
             }
             else if(property == "item" || property == "map")
             {
@@ -236,7 +236,7 @@ private:
         return parseLinks(tokens, offset, node);
     }
 
-    bool parseLinks(const std::vector<std::string> &tokens, std::size_t &offset, SceneNode &node)
+    bool parseLinks(const std::vector<std::string> &tokens, size_t &offset, SceneNode &node)
     {
         while(offset < tokens.size() && tokens[offset] != "{" && tokens[offset] != "}" && !is_body_keyword(tokens[offset]))
             node.links.push_back(tokens[offset++]);

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
+#include <stdint.h>
 #include "action_definitions.h"
 #include "gameplay_state.h"
 
@@ -19,14 +19,14 @@ enum class MatchAnimationResource
 struct MatchAnimationParticipant
 {
     MatchAnimationResource resource{};
-    std::uint8_t first_frame{};
-    std::uint8_t frame_count{};
+    uint8_t first_frame{};
+    uint8_t frame_count{};
     bool mirror_horizontal{};
     bool mirror_vertical{};
     int x{};
     int y{};
-    std::array<std::uint8_t, 4> temporary_slots{};
-    std::uint8_t temporary_slot_count{};
+    std::array<uint8_t, 4> temporary_slots{};
+    uint8_t temporary_slot_count{};
 };
 
 struct MatchAnimationPlan

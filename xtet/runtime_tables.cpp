@@ -5,7 +5,7 @@
 namespace xtet
 {
 
-bool RuntimeTables::initialize(std::size_t slot_count)
+bool RuntimeTables::initialize(size_t slot_count)
 {
     clear();
     try
@@ -31,7 +31,7 @@ void RuntimeTables::clear()
     slot_count_ = 0;
 }
 
-std::size_t RuntimeTables::slotCount() const
+size_t RuntimeTables::slotCount() const
 {
     return slot_count_;
 }
@@ -41,7 +41,7 @@ const std::array<std::vector<void *>, kRuntimeTableCount> &RuntimeTables::tables
     return tables_;
 }
 
-bool RuntimeTables::set(std::size_t table_index, std::size_t slot_index, void *value)
+bool RuntimeTables::set(size_t table_index, size_t slot_index, void *value)
 {
     if(table_index >= tables_.size() || slot_index >= slot_count_)
         return false;

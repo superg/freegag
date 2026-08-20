@@ -7,19 +7,19 @@ namespace xtet
 namespace
 {
 
-std::int8_t rotate_orientation(std::int8_t orientation, int quarter_turns)
+int8_t rotate_orientation(int8_t orientation, int quarter_turns)
 {
     while(quarter_turns-- > 0)
     {
         if(orientation > 0)
-            orientation = orientation == 4 ? 1 : (std::int8_t)(orientation + 1);
+            orientation = orientation == 4 ? 1 : (int8_t)(orientation + 1);
         else
-            orientation = orientation == -4 ? -1 : (std::int8_t)(orientation - 1);
+            orientation = orientation == -4 ? -1 : (int8_t)(orientation - 1);
     }
     return orientation;
 }
 
-std::int8_t mirror_orientation(std::int8_t orientation)
+int8_t mirror_orientation(int8_t orientation)
 {
     switch(orientation)
     {
@@ -32,7 +32,7 @@ std::int8_t mirror_orientation(std::int8_t orientation)
     case -2:
         return 4;
     default:
-        return (std::int8_t)-orientation;
+        return (int8_t)-orientation;
     }
 }
 
@@ -65,13 +65,13 @@ bool path_crosses_matching_cells(const FallingFigurine &figurine, const RuntimeT
         for(int shape_row = 0; shape_row < 5; ++shape_row)
             for(int shape_column = 0; shape_column < 5; ++shape_column)
             {
-                if(shape[(std::size_t)shape_row * 5 + shape_column] != 2)
+                if(shape[(size_t)shape_row * 5 + shape_column] != 2)
                     continue;
                 const int board_column = center_column + shape_column - 2;
                 const int board_row = center_row + shape_row - 2;
                 if(board_row < 0 || board_row >= (int)kRuntimeTableCount || board_column < 0 || board_column >= (int)board.slotCount())
                     continue;
-                const void *occupant = board.tables()[(std::size_t)board_row][(std::size_t)board_column];
+                const void *occupant = board.tables()[(size_t)board_row][(size_t)board_column];
                 if(occupant == nullptr || occupant == value)
                     continue;
                 const FigurineBoardEntry *entry = nullptr;
@@ -86,7 +86,7 @@ bool path_crosses_matching_cells(const FallingFigurine &figurine, const RuntimeT
                 {
                     const int relative_column = board_column - entry->figurine->column + 2;
                     const int relative_row = board_row - entry->figurine->row + 2;
-                    if(relative_column >= 0 && relative_column < 5 && relative_row >= 0 && relative_row < 5 && occupant_shape[(std::size_t)relative_row * 5 + relative_column] == 2)
+                    if(relative_column >= 0 && relative_column < 5 && relative_row >= 0 && relative_row < 5 && occupant_shape[(size_t)relative_row * 5 + relative_column] == 2)
                         return true;
                 }
             }
@@ -98,7 +98,7 @@ bool path_crosses_matching_cells(const FallingFigurine &figurine, const RuntimeT
 
 } // namespace
 
-FallingFigurine select_falling_figurine(std::uint32_t family_random, std::uint32_t shape_random, std::uint32_t orientation_random, std::int32_t &family_balance, std::size_t board_width)
+FallingFigurine select_falling_figurine(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, int32_t &family_balance, size_t board_width)
 {
     FallingFigurine result;
     result.first_family = (family_random & 1) != 0;
@@ -107,19 +107,19 @@ FallingFigurine select_falling_figurine(std::uint32_t family_random, std::uint32
     else if(!result.first_family && family_balance <= -3)
         result.first_family = true;
     family_balance += result.first_family ? 1 : -1;
-    result.shape_index = (std::uint8_t)(shape_random % (result.first_family ? 5 : 10));
+    result.shape_index = (uint8_t)(shape_random % (result.first_family ? 5 : 10));
     result.orientation = (orientation_random & 1) != 0 ? 1 : -1;
-    result.column = board_width == 0 ? 0 : (std::int8_t)((board_width - 1) / 2);
+    result.column = board_width == 0 ? 0 : (int8_t)((board_width - 1) / 2);
     result.row = 2;
     return result;
 }
 
-bool find_free_figurine_scene_slot(std::size_t last_slot, const std::vector<FigurineBoardEntry> &entries, std::size_t &slot)
+bool find_free_figurine_scene_slot(size_t last_slot, const std::vector<FigurineBoardEntry> &entries, size_t &slot)
 {
-    constexpr std::size_t first_slot = 3;
+    constexpr size_t first_slot = 3;
     if(last_slot < first_slot)
         return false;
-    for(std::size_t candidate = first_slot; candidate <= last_slot; ++candidate)
+    for(size_t candidate = first_slot; candidate <= last_slot; ++candidate)
     {
         const bool used = std::any_of(entries.begin(), entries.end(), [candidate](const FigurineBoardEntry &entry) { return entry.scene_slot == candidate; });
         if(!used)
@@ -131,19 +131,19 @@ bool find_free_figurine_scene_slot(std::size_t last_slot, const std::vector<Figu
     return false;
 }
 
-bool spawn_falling_figurine(std::uint32_t family_random, std::uint32_t shape_random, std::uint32_t orientation_random, std::int32_t &family_balance, RuntimeTables &board,
-    std::vector<FigurineBoardEntry> &entries, FallingFigurine &figurine, void *value, std::size_t last_scene_slot, const FigurineBoardChangeCallback &board_change_callback)
+bool spawn_falling_figurine(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, int32_t &family_balance, RuntimeTables &board, std::vector<FigurineBoardEntry> &entries,
+    FallingFigurine &figurine, void *value, size_t last_scene_slot, const FigurineBoardChangeCallback &board_change_callback)
 {
     if(value == nullptr || find_board_entry(entries, value) != nullptr)
         return false;
     FallingFigurine spawned = select_falling_figurine(family_random, shape_random, orientation_random, family_balance, board.slotCount());
     while(!can_place_figurine(spawned, board))
-        spawned.row = (std::int8_t)(spawned.row - 1);
+        spawned.row = (int8_t)(spawned.row - 1);
     if(spawned.row < 1)
         return false;
     if(!place_figurine_on_board(spawned, board, value))
         return false;
-    std::size_t scene_slot = kInvalidFigurineSceneSlot;
+    size_t scene_slot = kInvalidFigurineSceneSlot;
     find_free_figurine_scene_slot(last_scene_slot, entries, scene_slot);
     figurine = spawned;
     entries.push_back({ value, &figurine, scene_slot });
@@ -163,7 +163,7 @@ bool can_place_figurine(const FallingFigurine &figurine, const RuntimeTables &bo
     for(int shape_row = 0; shape_row < 5; ++shape_row)
         for(int shape_column = 0; shape_column < 5; ++shape_column)
         {
-            if(shape[(std::size_t)shape_row * 5 + shape_column] == 0)
+            if(shape[(size_t)shape_row * 5 + shape_column] == 0)
                 continue;
             const int board_row = figurine.row + shape_row - 2;
             if(board_row < 0)
@@ -171,7 +171,7 @@ bool can_place_figurine(const FallingFigurine &figurine, const RuntimeTables &bo
             const int board_column = figurine.column + shape_column - 2;
             if(board_row >= (int)kRuntimeTableCount || board_column < 0 || board_column >= (int)board.slotCount())
                 return false;
-            const void *occupant = board.tables()[(std::size_t)board_row][(std::size_t)board_column];
+            const void *occupant = board.tables()[(size_t)board_row][(size_t)board_column];
             if(occupant != nullptr && occupant != self && occupant != paired_object)
                 return false;
         }
@@ -229,11 +229,11 @@ bool place_figurine_on_board(const FallingFigurine &figurine, RuntimeTables &boa
         return false;
     for(int shape_row = 0; shape_row < 5; ++shape_row)
         for(int shape_column = 0; shape_column < 5; ++shape_column)
-            if(shape[(std::size_t)shape_row * 5 + shape_column] != 0)
+            if(shape[(size_t)shape_row * 5 + shape_column] != 0)
             {
                 const int board_row = figurine.row + shape_row - 2;
                 if(board_row >= 0)
-                    board.set((std::size_t)board_row, (std::size_t)(figurine.column + shape_column - 2), value);
+                    board.set((size_t)board_row, (size_t)(figurine.column + shape_column - 2), value);
             }
     return true;
 }
@@ -254,26 +254,26 @@ bool try_move_falling_figurine(FallingFigurine &figurine, FigurineMove move, con
         else if(figurine.orientation == -4)
             figurine.orientation = -1;
         else if(figurine.orientation < 0)
-            figurine.orientation = (std::int8_t)(figurine.orientation - 1);
+            figurine.orientation = (int8_t)(figurine.orientation - 1);
         else
-            figurine.orientation = (std::int8_t)(figurine.orientation + 1);
+            figurine.orientation = (int8_t)(figurine.orientation + 1);
         const int offset_index = figurine.orientation < 1 ? 3 - figurine.orientation : figurine.orientation - 1;
         const FigurineOffset offset = figurine.first_family ? geometry.first_family[figurine.shape_index][offset_index] : geometry.second_family[figurine.shape_index][offset_index];
-        figurine.column = (std::int8_t)(figurine.column + offset.x);
-        figurine.row = (std::int8_t)(figurine.row + offset.y);
+        figurine.column = (int8_t)(figurine.column + offset.x);
+        figurine.row = (int8_t)(figurine.row + offset.y);
         break;
     }
     case FigurineMove::up:
-        figurine.row = (std::int8_t)(figurine.row - 1);
+        figurine.row = (int8_t)(figurine.row - 1);
         break;
     case FigurineMove::right:
-        figurine.column = (std::int8_t)(figurine.column + 1);
+        figurine.column = (int8_t)(figurine.column + 1);
         break;
     case FigurineMove::down:
-        figurine.row = (std::int8_t)(figurine.row + 1);
+        figurine.row = (int8_t)(figurine.row + 1);
         break;
     case FigurineMove::left:
-        figurine.column = (std::int8_t)(figurine.column - 1);
+        figurine.column = (int8_t)(figurine.column - 1);
         break;
     }
 
@@ -314,7 +314,7 @@ const ActionDefinition *find_matching_action(const FallingFigurine &first, const
 
     int relative_x = woman.column - man.column;
     int relative_y = woman.row - man.row;
-    std::int8_t relative_orientation = woman.orientation;
+    int8_t relative_orientation = woman.orientation;
     const int quarter_turns = man.orientation < 0 ? -man.orientation : man.orientation;
     if(quarter_turns == 4)
     {
@@ -343,7 +343,7 @@ const ActionDefinition *find_matching_action(const FallingFigurine &first, const
     }
 
     for(const ActionDefinition &definition : definitions)
-        if(definition.values[0] == (std::int8_t)man.shape_index && definition.values[1] == (std::int8_t)woman.shape_index && definition.values[2] == relative_orientation
+        if(definition.values[0] == (int8_t)man.shape_index && definition.values[1] == (int8_t)woman.shape_index && definition.values[2] == relative_orientation
             && definition.values[3] == relative_x + 2 && definition.values[4] == relative_y + 2)
             return &definition;
     return nullptr;
@@ -379,14 +379,14 @@ FigurineMatch find_match_candidate(FallingFigurine &figurine, FigurineMove move,
     for(int center_row = first_row; center_row <= last_row; ++center_row)
         for(int center_column = first_column; center_column <= last_column; ++center_column)
         {
-            figurine.column = (std::int8_t)center_column;
-            figurine.row = (std::int8_t)center_row;
+            figurine.column = (int8_t)center_column;
+            figurine.row = (int8_t)center_row;
             for(int board_row = center_row - 2; board_row <= center_row + 2; ++board_row)
                 for(int board_column = center_column - 2; board_column <= center_column + 2; ++board_column)
                 {
                     if(board_row < 0 || board_row >= (int)kRuntimeTableCount || board_column < 0 || board_column >= (int)board.slotCount())
                         continue;
-                    void *occupant = board.tables()[(std::size_t)board_row][(std::size_t)board_column];
+                    void *occupant = board.tables()[(size_t)board_row][(size_t)board_column];
                     if(occupant == nullptr || occupant == value)
                         continue;
                     FigurineBoardEntry *candidate = find_board_entry(entries, occupant);
@@ -417,7 +417,7 @@ GameplayMoveResult process_falling_move(FallingFigurine &figurine, FigurineMove 
     return GameplayMoveResult::rejected;
 }
 
-GameplayInput translate_gameplay_key(std::uint32_t virtual_key)
+GameplayInput translate_gameplay_key(uint32_t virtual_key)
 {
     switch(virtual_key)
     {
@@ -470,9 +470,9 @@ bool settle_board_after_match(const FigurineGeometryTables &geometry, const std:
     {
         restart = false;
         for(int row = (int)kRuntimeTableCount - 1; row >= 0 && !restart; --row)
-            for(std::size_t column = 0; column < board.slotCount() && !restart; ++column)
+            for(size_t column = 0; column < board.slotCount() && !restart; ++column)
             {
-                void *value = board.tables()[(std::size_t)row][column];
+                void *value = board.tables()[(size_t)row][column];
                 if(value == nullptr)
                     continue;
                 FigurineBoardEntry *entry = find_board_entry(entries, value);

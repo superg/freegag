@@ -11,10 +11,10 @@ add_executable(cdf_extractor
 # <cstdlib>/<cstring> and is exposed through an extern "C" header).
 set_source_files_properties(inflate.c PROPERTIES LANGUAGE CXX)
 
-target_compile_features(cdf_extractor PRIVATE cxx_std_17)
+target_compile_features(cdf_extractor PRIVATE cxx_std_23)
 
 if(MSVC)
-  target_compile_options(cdf_extractor PRIVATE /W4 /permissive-)
+  target_compile_options(cdf_extractor PRIVATE /W4 /permissive- /EHsc)
 else()
   target_compile_options(cdf_extractor PRIVATE -Wall -Wextra -Wpedantic)
 endif()

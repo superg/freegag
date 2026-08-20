@@ -1,17 +1,17 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
+#include <stdint.h>
 
 namespace xtet
 {
 
 struct GameProgress
 {
-    std::uint32_t score{};
-    std::uint32_t base_level{};
-    std::uint32_t level{};
-    std::uint32_t gameplay_state{};
+    uint32_t score{};
+    uint32_t base_level{};
+    uint32_t level{};
+    uint32_t gameplay_state{};
 };
 
 struct ProgressUpdate

@@ -1,18 +1,19 @@
 #pragma once
 
-#include <windows.h>
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
+#include <string>
+#include <vector>
 
 namespace xtet
 {
 
 struct ResourceView
 {
-    const std::uint8_t *data{};
-    std::size_t size{};
+    const uint8_t *data{};
+    size_t size{};
 };
 
-ResourceView load_embedded_sfs(HMODULE module);
+bool load_executable_sfs(const char *sfs_name, std::vector<uint8_t> &bytes, std::string &error);
 
 } // namespace xtet

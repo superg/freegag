@@ -5,7 +5,7 @@ namespace xtet
 namespace
 {
 
-void transform_vector(std::int8_t orientation, int source_x, int source_y, int &x, int &y)
+void transform_vector(int8_t orientation, int source_x, int source_y, int &x, int &y)
 {
     switch(orientation)
     {
@@ -53,7 +53,7 @@ void expand_component(int &value)
     value += value < 0 ? -1 : 1;
 }
 
-void select_resource(std::int8_t orientation, bool man, MatchAnimationParticipant &participant)
+void select_resource(int8_t orientation, bool man, MatchAnimationParticipant &participant)
 {
     participant.resource = man ? ((orientation % 2) == 0 ? MatchAnimationResource::rotated_man : MatchAnimationResource::man)
                                : ((orientation % 2) == 0 ? MatchAnimationResource::rotated_woman : MatchAnimationResource::woman);
@@ -70,25 +70,25 @@ bool build_match_animation_plan(const FallingFigurine &first, const FallingFigur
     if(!man.first_family || woman.first_family || man.shape_index >= 5 || woman.shape_index >= 10 || man.orientation == 0 || woman.orientation == 0)
         return false;
 
-    constexpr std::array<std::uint8_t, 5> man_frames{ 0, 8, 16, 24, 32 };
-    constexpr std::array<std::uint8_t, 5> alternate_man_frames{ 4, 12, 20, 28, 36 };
-    constexpr std::array<std::uint8_t, 10> woman_frames{ 0, 6, 12, 18, 24, 30, 36, 39, 42, 48 };
-    constexpr std::array<std::uint8_t, 10> alternate_woman_frames{ 3, 9, 15, 21, 27, 33, 36, 39, 45, 48 };
-    constexpr std::array<std::uint8_t, 4> first_man_slots{ 1, 2, 5, 3 };
-    constexpr std::array<std::uint8_t, 4> second_man_slots{ 1, 2, 5, 4 };
-    constexpr std::array<std::uint8_t, 3> first_woman_slots{ 0, 4, 6 };
-    constexpr std::array<std::uint8_t, 3> second_woman_slots{ 0, 3, 6 };
+    constexpr std::array<uint8_t, 5> man_frames{ 0, 8, 16, 24, 32 };
+    constexpr std::array<uint8_t, 5> alternate_man_frames{ 4, 12, 20, 28, 36 };
+    constexpr std::array<uint8_t, 10> woman_frames{ 0, 6, 12, 18, 24, 30, 36, 39, 42, 48 };
+    constexpr std::array<uint8_t, 10> alternate_woman_frames{ 3, 9, 15, 21, 27, 33, 36, 39, 45, 48 };
+    constexpr std::array<uint8_t, 4> first_man_slots{ 1, 2, 5, 3 };
+    constexpr std::array<uint8_t, 4> second_man_slots{ 1, 2, 5, 4 };
+    constexpr std::array<uint8_t, 3> first_woman_slots{ 0, 4, 6 };
+    constexpr std::array<uint8_t, 3> second_woman_slots{ 0, 3, 6 };
 
     MatchAnimationPlan result;
-    const std::uint8_t flags = (std::uint8_t)action.values[5];
+    const uint8_t flags = (uint8_t)action.values[5];
     result.man.first_frame = (flags & 1) != 0 ? alternate_man_frames[man.shape_index] : man_frames[man.shape_index];
     result.man.frame_count = 4;
     result.woman.first_frame = (flags & 2) != 0 ? alternate_woman_frames[woman.shape_index] : woman_frames[woman.shape_index];
     result.woman.frame_count = 3;
     result.man.temporary_slots = (flags & 4) != 0 ? second_man_slots : first_man_slots;
     result.man.temporary_slot_count = 4;
-    const std::array<std::uint8_t, 3> &woman_slots = (flags & 4) != 0 ? second_woman_slots : first_woman_slots;
-    for(std::size_t index = 0; index < woman_slots.size(); ++index)
+    const std::array<uint8_t, 3> &woman_slots = (flags & 4) != 0 ? second_woman_slots : first_woman_slots;
+    for(size_t index = 0; index < woman_slots.size(); ++index)
         result.woman.temporary_slots[index] = woman_slots[index];
     result.woman.temporary_slot_count = 3;
 

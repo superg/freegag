@@ -1,14 +1,27 @@
 #include "startup.h"
 #include <algorithm>
-#include <cstddef>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mmsystem.h>
+#include <stddef.h>
+#include <stdexcept>
+#include <string>
 #include "cdf_archive.h"
+#include "xtet/api.h"
 
 namespace gag
 {
+static_assert(offsetof(RuntimeLockRecord, state_flags) == offsetof(RuntimeResourceObject, state_flags));
+static_assert(offsetof(RuntimeLockRecord, identity_context) == offsetof(RuntimeResourceObject, backend));
+static_assert(offsetof(RuntimeLockRecord, type_flags) == offsetof(RuntimeResourceObject, type_flags));
+static_assert(offsetof(RuntimeLockRecord, flags) == offsetof(RuntimeResourceObject, backend_flags));
+static_assert(offsetof(RuntimeLockRecord, data) == offsetof(RuntimeResourceObject, data));
+static_assert(offsetof(RuntimeLockRecord, owner_thread) == offsetof(RuntimeResourceObject, owner_thread));
+static_assert(offsetof(RuntimeLockRecord, recursion_count) == offsetof(RuntimeResourceObject, recursion_count));
+static_assert(offsetof(RuntimeLockRecord, scene_identifier) == offsetof(RuntimeResourceObject, scene_identifier));
+
 namespace
 {
 
@@ -16,25 +29,25 @@ namespace
 
 struct DisplayModeHostState
 {
-    std::uint32_t flags;
-    std::uint32_t bootstrap_error;
+    uint32_t flags;
+    uint32_t bootstrap_error;
     DisplayMode *current_mode;
-    std::uint32_t unknown_000c;
-    std::uint32_t platform_id;
+    uint32_t unknown_000c;
+    uint32_t platform_id;
     HMODULE direct_draw_module;
     void *direct_draw;
     void *direct_draw_primary_surface;
     void *direct_draw_secondary_surface;
     HWND window;
     HDC dc;
-    std::uint8_t unknown_002c[0x10];
-    std::uint32_t mode_count;
+    uint8_t unknown_002c[0x10];
+    uint32_t mode_count;
     DisplayMode *mode_tail;
     DisplayMode *mode_head;
     HDC dib_dc;
-    std::int32_t width;
-    std::int32_t height;
-    std::int32_t bits_per_pixel;
+    int32_t width;
+    int32_t height;
+    int32_t bits_per_pixel;
     void *pixels;
     HBITMAP bitmap;
     HBITMAP previous_bitmap;
@@ -46,31 +59,26 @@ struct DisplayModeHostState
     PALETTEENTRY palette_entries[0x100];
 };
 
-static_assert(sizeof(DisplayModeHostState) == 0x488);
-static_assert(offsetof(DisplayModeHostState, current_mode) == 0x08);
-static_assert(offsetof(DisplayModeHostState, mode_count) == 0x3c);
-static_assert(offsetof(DisplayModeHostState, critical_section) == 0x6c);
-static_assert(offsetof(DisplayModeHostState, palette_entries) == 0x88);
 
 DisplayModeHostState display_mode_host_state;
-std::uint32_t &display_palette_flags = display_mode_host_state.flags;
-std::uint32_t &display_bootstrap_error = display_mode_host_state.bootstrap_error;
+uint32_t &display_palette_flags = display_mode_host_state.flags;
+uint32_t &display_bootstrap_error = display_mode_host_state.bootstrap_error;
 DisplayMode *&current_display_mode = display_mode_host_state.current_mode;
-std::uint32_t &display_platform_id = display_mode_host_state.platform_id;
+uint32_t &display_platform_id = display_mode_host_state.platform_id;
 HMODULE &direct_draw_module = display_mode_host_state.direct_draw_module;
 void *&display_direct_draw = display_mode_host_state.direct_draw;
 void *&display_direct_draw_primary_surface = display_mode_host_state.direct_draw_primary_surface;
 void *&display_direct_draw_secondary_surface = display_mode_host_state.direct_draw_secondary_surface;
 HWND &display_palette_window = display_mode_host_state.window;
 HDC &display_palette_dc = display_mode_host_state.dc;
-std::uint32_t &display_mode_count = display_mode_host_state.mode_count;
+uint32_t &display_mode_count = display_mode_host_state.mode_count;
 DisplayMode *&display_mode_tail = display_mode_host_state.mode_tail;
 DisplayMode *&display_mode_head = display_mode_host_state.mode_head;
 DisplayMode *&display_mode_iterator = display_mode_host_state.mode_tail;
 HDC &display_palette_dib_dc = display_mode_host_state.dib_dc;
-std::int32_t &display_palette_width = display_mode_host_state.width;
-std::int32_t &display_palette_height = display_mode_host_state.height;
-std::int32_t &display_palette_bits_per_pixel = display_mode_host_state.bits_per_pixel;
+int32_t &display_palette_width = display_mode_host_state.width;
+int32_t &display_palette_height = display_mode_host_state.height;
+int32_t &display_palette_bits_per_pixel = display_mode_host_state.bits_per_pixel;
 void *&display_palette_pixels = display_mode_host_state.pixels;
 HBITMAP &display_palette_bitmap = display_mode_host_state.bitmap;
 HBITMAP &display_palette_previous_bitmap = display_mode_host_state.previous_bitmap;
@@ -111,15 +119,14 @@ struct ModernWindowsPresentationState
     bool fullscreen;
     bool windowed_rectangle_valid;
     RECT windowed_rectangle;
-    std::int32_t viewport_width;
-    std::int32_t viewport_height;
+    int32_t viewport_width;
+    int32_t viewport_height;
 };
 
 ModernWindowsPresentationState modern_windows_presentation_state;
 bool modern_windows_fullscreen_toggle_latched;
 
-RECT calculate_modern_windows_fullscreen_viewport(std::int32_t monitor_width, std::int32_t monitor_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
-    ModernWindowsFullscreenScaling scaling)
+RECT calculate_modern_windows_fullscreen_viewport(int32_t monitor_width, int32_t monitor_height, int32_t framebuffer_width, int32_t framebuffer_height, ModernWindowsFullscreenScaling scaling)
 {
     RECT viewport{};
     if(monitor_width <= 0 || monitor_height <= 0 || framebuffer_width <= 0 || framebuffer_height <= 0)
@@ -127,11 +134,11 @@ RECT calculate_modern_windows_fullscreen_viewport(std::int32_t monitor_width, st
         return viewport;
     }
 
-    std::int32_t width = monitor_width;
-    std::int32_t height = monitor_height;
+    int32_t width = monitor_width;
+    int32_t height = monitor_height;
     if(scaling == ModernWindowsFullscreenScaling::integer)
     {
-        const std::int32_t factor = std::min(monitor_width / framebuffer_width, monitor_height / framebuffer_height);
+        const int32_t factor = std::min(monitor_width / framebuffer_width, monitor_height / framebuffer_height);
         if(factor > 0)
         {
             width = framebuffer_width * factor;
@@ -144,15 +151,15 @@ RECT calculate_modern_windows_fullscreen_viewport(std::int32_t monitor_width, st
     }
     if(scaling == ModernWindowsFullscreenScaling::preserve_aspect)
     {
-        if(static_cast<std::int64_t>(monitor_width) * framebuffer_height <= static_cast<std::int64_t>(monitor_height) * framebuffer_width)
+        if(static_cast<int64_t>(monitor_width) * framebuffer_height <= static_cast<int64_t>(monitor_height) * framebuffer_width)
         {
             width = monitor_width;
-            height = static_cast<std::int32_t>(static_cast<std::int64_t>(monitor_width) * framebuffer_height / framebuffer_width);
+            height = static_cast<int32_t>(static_cast<int64_t>(monitor_width) * framebuffer_height / framebuffer_width);
         }
         else
         {
             height = monitor_height;
-            width = static_cast<std::int32_t>(static_cast<std::int64_t>(monitor_height) * framebuffer_width / framebuffer_height);
+            width = static_cast<int32_t>(static_cast<int64_t>(monitor_height) * framebuffer_width / framebuffer_height);
         }
     }
 
@@ -163,8 +170,7 @@ RECT calculate_modern_windows_fullscreen_viewport(std::int32_t monitor_width, st
     return viewport;
 }
 
-RECT calculate_modern_windows_windowed_viewport(std::int32_t client_width, std::int32_t client_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
-    ModernWindowsWindowedScaling scaling)
+RECT calculate_modern_windows_windowed_viewport(int32_t client_width, int32_t client_height, int32_t framebuffer_width, int32_t framebuffer_height, ModernWindowsWindowedScaling scaling)
 {
     if(scaling == ModernWindowsWindowedScaling::preserve_aspect)
     {
@@ -179,32 +185,32 @@ bool modern_windows_presentation_is_scaled()
         && (modern_windows_presentation_state.viewport_width != display_palette_width || modern_windows_presentation_state.viewport_height != display_palette_height);
 }
 
-std::int32_t map_modern_windows_presentation_coordinate(std::int32_t value, std::int32_t destination_extent, std::int32_t source_extent)
+int32_t map_modern_windows_presentation_coordinate(int32_t value, int32_t destination_extent, int32_t source_extent)
 {
     if(destination_extent <= 0 || source_extent <= 0)
     {
         return 0;
     }
     value = std::max(0, std::min(value, destination_extent - 1));
-    return static_cast<std::int32_t>(static_cast<std::int64_t>(value) * source_extent / destination_extent);
+    return static_cast<int32_t>(static_cast<int64_t>(value) * source_extent / destination_extent);
 }
 
-RECT map_modern_windows_presentation_rectangle(std::int32_t left, std::int32_t top, std::int32_t right, std::int32_t bottom, std::int32_t source_width, std::int32_t source_height)
+RECT map_modern_windows_presentation_rectangle(int32_t left, int32_t top, int32_t right, int32_t bottom, int32_t source_width, int32_t source_height)
 {
     RECT rectangle{};
     if(source_width <= 0 || source_height <= 0 || modern_windows_presentation_state.viewport_width <= 0 || modern_windows_presentation_state.viewport_height <= 0)
     {
         return rectangle;
     }
-    rectangle.left = static_cast<std::int32_t>(static_cast<std::int64_t>(left) * modern_windows_presentation_state.viewport_width / source_width);
-    rectangle.top = static_cast<std::int32_t>(static_cast<std::int64_t>(top) * modern_windows_presentation_state.viewport_height / source_height);
-    rectangle.right = static_cast<std::int32_t>((static_cast<std::int64_t>(right) * modern_windows_presentation_state.viewport_width + source_width - 1) / source_width);
-    rectangle.bottom = static_cast<std::int32_t>((static_cast<std::int64_t>(bottom) * modern_windows_presentation_state.viewport_height + source_height - 1) / source_height);
+    rectangle.left = static_cast<int32_t>(static_cast<int64_t>(left) * modern_windows_presentation_state.viewport_width / source_width);
+    rectangle.top = static_cast<int32_t>(static_cast<int64_t>(top) * modern_windows_presentation_state.viewport_height / source_height);
+    rectangle.right = static_cast<int32_t>((static_cast<int64_t>(right) * modern_windows_presentation_state.viewport_width + source_width - 1) / source_width);
+    rectangle.bottom = static_cast<int32_t>((static_cast<int64_t>(bottom) * modern_windows_presentation_state.viewport_height + source_height - 1) / source_height);
     return rectangle;
 }
 
 // Non-original factory for an original-compatible framebuffer mode presented on a true-color desktop through GDI.
-void build_modern_windows_virtual_display_mode(DisplayMode *mode, std::int32_t width, std::int32_t height, ModernWindowsColorMode color_mode)
+void build_modern_windows_virtual_display_mode(DisplayMode *mode, int32_t width, int32_t height, ModernWindowsColorMode color_mode)
 {
     *mode = {};
     mode->flags = 0x10000;
@@ -244,67 +250,61 @@ bool script_random_seeded;
 ScriptValueParseApi script_value_parse_api{ evaluate_script_parameter };
 ScriptTypedValueApi script_typed_value_api{ parse_script_integer_expression, parse_image_flag, parse_script_value_token };
 RuntimeTreeCommandTargetApi runtime_tree_command_target_api{ parse_image_flag, parse_script_value_token };
-const std::uint8_t *compressor_input;
-std::uint32_t compressor_input_size;
-std::uint32_t compressor_input_position;
+const uint8_t *compressor_input;
+uint32_t compressor_input_size;
+uint32_t compressor_input_position;
 
 struct DisplaySceneHostState
 {
-    std::uint32_t lock_flags;
+    uint32_t lock_flags;
     CRITICAL_SECTION lock_critical_section;
     HANDLE lock_gate_event;
-    std::uint32_t lock_busy;
+    uint32_t lock_busy;
     HANDLE lock_release_event;
     DWORD lock_owner_thread;
-    std::uint32_t lock_recursion_count;
-    std::int32_t root_primary_position;
-    std::int32_t width;
-    std::int32_t height;
-    std::int32_t root_secondary_position;
+    uint32_t lock_recursion_count;
+    intptr_t root_primary_position;
+    int32_t width;
+    int32_t height;
+    int32_t root_secondary_position;
     DisplayRectangle clip_bounds;
     DisplayRectangle pending_rectangle;
-    std::uint32_t *palette_source_state;
+    DisplayPixelFormatDescriptor *palette_source_state;
     HANDLE worker_thread;
     DisplaySceneSyncApi sync_api;
     void *sync_context;
-    std::uint32_t worker_interval;
-    std::uint32_t worker_rate;
-    std::uint32_t scene_count;
+    uint32_t worker_interval;
+    uint32_t worker_rate;
+    uint32_t scene_count;
     DisplaySceneNode *root;
     DisplaySceneNode *head;
 };
 
-static_assert(sizeof(DisplaySceneHostState) == 0x84);
-static_assert(offsetof(DisplaySceneHostState, width) == 0x34);
-static_assert(offsetof(DisplaySceneHostState, height) == 0x38);
-static_assert(offsetof(DisplaySceneHostState, sync_api) == 0x68);
-static_assert(offsetof(DisplaySceneHostState, root) == 0x7c);
-static_assert(offsetof(DisplaySceneHostState, head) == 0x80);
 
 DisplaySceneHostState display_scene_host_state;
-std::uint32_t &display_lock_flags = display_scene_host_state.lock_flags;
+uint32_t &display_lock_flags = display_scene_host_state.lock_flags;
 CRITICAL_SECTION &display_lock_critical_section = display_scene_host_state.lock_critical_section;
 HANDLE &display_lock_gate_event = display_scene_host_state.lock_gate_event;
-std::uint32_t &display_lock_busy = display_scene_host_state.lock_busy;
+uint32_t &display_lock_busy = display_scene_host_state.lock_busy;
 HANDLE &display_lock_release_event = display_scene_host_state.lock_release_event;
 DWORD &display_lock_owner_thread = display_scene_host_state.lock_owner_thread;
-std::uint32_t &display_lock_recursion_count = display_scene_host_state.lock_recursion_count;
-std::int32_t &display_scene_root_primary_position = display_scene_host_state.root_primary_position;
-std::int32_t &display_width = display_scene_host_state.width;
-std::int32_t &display_height = display_scene_host_state.height;
-std::int32_t &display_scene_root_secondary_position = display_scene_host_state.root_secondary_position;
+uint32_t &display_lock_recursion_count = display_scene_host_state.lock_recursion_count;
+intptr_t &display_scene_root_primary_position = display_scene_host_state.root_primary_position;
+int32_t &display_width = display_scene_host_state.width;
+int32_t &display_height = display_scene_host_state.height;
+int32_t &display_scene_root_secondary_position = display_scene_host_state.root_secondary_position;
 DisplayRectangle &display_clip_bounds = display_scene_host_state.clip_bounds;
 DisplayRectangle &display_pending_rectangle = display_scene_host_state.pending_rectangle;
-std::uint32_t *&display_palette_source_state = display_scene_host_state.palette_source_state;
+DisplayPixelFormatDescriptor *&display_palette_source_state = display_scene_host_state.palette_source_state;
 HANDLE &display_scene_worker_thread = display_scene_host_state.worker_thread;
 DisplaySceneSyncApi &display_scene_sync_api = display_scene_host_state.sync_api;
 void *&display_scene_sync_context = display_scene_host_state.sync_context;
-std::uint32_t &display_scene_worker_interval = display_scene_host_state.worker_interval;
-std::uint32_t &display_scene_worker_rate = display_scene_host_state.worker_rate;
-std::uint32_t &display_scene_count = display_scene_host_state.scene_count;
+uint32_t &display_scene_worker_interval = display_scene_host_state.worker_interval;
+uint32_t &display_scene_worker_rate = display_scene_host_state.worker_rate;
+uint32_t &display_scene_count = display_scene_host_state.scene_count;
 DisplaySceneNode *&display_scene_root = display_scene_host_state.root;
 DisplaySceneNode *&display_scene_head = display_scene_host_state.head;
-DisplaySceneSurface &display_scene_surface_state = reinterpret_cast<DisplaySceneSurface &>(display_scene_host_state);
+DisplaySceneSurface display_scene_surface_state{};
 DisplaySceneCallbackApi display_scene_callback_api{ timeGetTime };
 DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
 void *display_backend;
@@ -312,25 +312,25 @@ void *display_backend_target;
 DisplaySwitchApi display_switch_api{ set_active_display_mode_if_graphics_ready, restore_active_display_mode_if_graphics_ready };
 
 // Non-original adapter for callers that store the scene identity in a 32-bit scalar.
-void __fastcall switch_runtime_scene_value(std::uint32_t value)
+void switch_runtime_scene_value(uint32_t value)
 {
-    switch_runtime_scene(reinterpret_cast<void *>(static_cast<std::uintptr_t>(value)));
+    switch_runtime_scene(reinterpret_cast<void *>(static_cast<uintptr_t>(value)));
 }
 
-void(__fastcall *runtime_state_transition_callback)(std::uint32_t) = switch_runtime_scene_value;
+void (*runtime_state_transition_callback)(uint32_t) = switch_runtime_scene_value;
 ScriptRuntimeRoot *script_runtime_root;
 
 // Non-original ABI adapter for the operation queries issued through script-root +0x818.
-void __fastcall query_script_runtime_value(std::uint32_t operation, const void *source, std::int32_t *value)
+void query_script_runtime_value(uint32_t operation, const void *source, int32_t *value)
 {
-    using QueryCallback = void(__fastcall *)(std::uint32_t operation, const void *source, std::int32_t *value);
+    using QueryCallback = void (*)(uint32_t operation, const void *source, int32_t *value);
     reinterpret_cast<QueryCallback>(script_runtime_root->get_property)(operation, source, value);
 }
 
 ScriptIntegerExpressionApi script_integer_expression_api{ evaluate_script_parameter, select_bounded_random_value, find_global_runtime_tree_link_0084_by_name,
     find_global_runtime_tree_primary_resource_link_by_name, get_script_object_integer, query_script_runtime_value };
 
-void __fastcall resolve_runtime_tree_auxiliary(std::uint32_t operation, void **identity, void **metadata)
+void resolve_runtime_tree_auxiliary(uint32_t operation, void **identity, void **metadata)
 {
     script_runtime_root->get_property(operation, identity, metadata);
 }
@@ -338,7 +338,7 @@ void __fastcall resolve_runtime_tree_auxiliary(std::uint32_t operation, void **i
 RuntimeTreeAuxiliaryCreateApi runtime_tree_auxiliary_create_api{ HeapAlloc, HeapFree, resolve_runtime_tree_auxiliary };
 
 // Non-original ABI adapter for the confirmed operation-0x30 callback invocation.
-void __fastcall activate_created_runtime_tree_node(RuntimeTreeNode *node)
+void activate_created_runtime_tree_node(RuntimeTreeNode *node)
 {
     script_runtime_root->set_property(0x30, 0, reinterpret_cast<RuntimeGenericResourceNode *>(node));
 }
@@ -348,7 +348,7 @@ RuntimeTreeCreationApi runtime_tree_creation_api{ find_runtime_tree_node_by_iden
     find_or_create_runtime_tree_parser_context, remove_runtime_generic_resource, dispatch_runtime_tree_parser, activate_created_runtime_tree_node };
 
 // Non-original adapter for callers that discard AddDefaultRuntimeTreeAuxiliaryNames' return value.
-void __fastcall add_default_runtime_tree_auxiliary_names_discard_result(RuntimeTreeNode *owner)
+void add_default_runtime_tree_auxiliary_names_discard_result(RuntimeTreeNode *owner)
 {
     add_default_runtime_tree_auxiliary_names(owner);
 }
@@ -356,11 +356,11 @@ void __fastcall add_default_runtime_tree_auxiliary_names_discard_result(RuntimeT
 RuntimeTreeJumpApi runtime_tree_jump_api{ parse_script_property_code, parse_script_value_token, add_default_runtime_tree_auxiliary_names_discard_result, find_or_load_runtime_generic_resource,
     create_runtime_tree_node };
 RuntimeTreeConditionalCreateApi runtime_tree_conditional_create_api{ compare_script_object_field, script_object_container_state_matches_by_name,
-    reinterpret_cast<RuntimeTreeNode *(__fastcall *)(void *, const void *)>(find_runtime_tree_descendant_identity_by_name), find_or_load_runtime_generic_resource, create_runtime_tree_node,
+    reinterpret_cast<RuntimeTreeNode *(*)(void *, const void *)>(find_runtime_tree_descendant_identity_by_name), find_or_load_runtime_generic_resource, create_runtime_tree_node,
     destroy_runtime_tree_node };
 
 RuntimeTreeParserResetApi runtime_tree_parser_reset_api{ parse_script_property_code, update_conditional_runtime_tree, find_runtime_tree_node_by_identity };
-bool __fastcall strings_equal(const char *left, const char *right);
+bool strings_equal(const char *left, const char *right);
 RuntimeTreeParserDirectDispatchApi runtime_tree_parser_direct_dispatch_api{ parse_script_property_code, parse_script_object_state, parse_runtime_tree_link_0084, parse_runtime_tree_link_007c,
     parse_runtime_visual_object, parse_runtime_tree_primary_resource_link, parse_script_object_container, parse_runtime_command_definition, parse_runtime_named_node, parse_runtime_tree_link_008c,
     create_conditional_runtime_tree, parse_runtime_tree_auxiliary_names, create_or_update_runtime_fixed_name_node, parse_runtime_language, parse_runtime_tree_secondary_resource_link,
@@ -373,7 +373,7 @@ RuntimeTreeSectionDispatchApi runtime_tree_section_dispatch_api{ find_runtime_tr
 RuntimeTreeBasicCommandApi runtime_tree_basic_command_api{ parse_script_value_token, extract_script_parenthesized_text, parse_script_scope_code, find_or_load_runtime_generic_resource,
     dispatch_runtime_tree_section, create_runtime_tree_node };
 
-void __fastcall notify_runtime_tree_auxiliary_release(std::uint32_t operation, std::uint32_t unused, RuntimeTreeAuxiliaryNode *node)
+void notify_runtime_tree_auxiliary_release(uint32_t operation, uint32_t unused, RuntimeTreeAuxiliaryNode *node)
 {
     script_runtime_root->set_property(operation, unused, reinterpret_cast<RuntimeGenericResourceNode *>(node));
 }
@@ -381,7 +381,7 @@ void __fastcall notify_runtime_tree_auxiliary_release(std::uint32_t operation, s
 RuntimeTreeAuxiliaryReleaseApi runtime_tree_auxiliary_release_api{ notify_runtime_tree_auxiliary_release, HeapFree };
 
 // Non-original adapter for the exact runtime-tree destruction callback ABI.
-void __fastcall notify_runtime_tree_destruction(std::uint32_t operation, std::uint32_t unused, void *value)
+void notify_runtime_tree_destruction(uint32_t operation, uint32_t unused, void *value)
 {
     script_runtime_root->set_property(operation, unused, reinterpret_cast<RuntimeGenericResourceNode *>(value));
 }
@@ -401,47 +401,47 @@ RuntimePointerRefreshApi runtime_pointer_refresh_api{ update_runtime_pointer_reg
 RuntimeCommentTreeCleanupApi runtime_comment_tree_cleanup_api{ begin_runtime_tree_enumeration, get_next_runtime_tree_node, destroy_runtime_tree_resources, deactivate_runtime_tree_and_visuals,
     reset_runtime_tree_parser_contexts, rebuild_runtime_pointer_resources };
 
-// Non-original ABI adapter preserving the original x86 pointer-valued return through the existing deactivation interface.
-std::uint32_t __fastcall destroy_runtime_tree_for_deactivation(void *identity, void *replacement_identity)
+intptr_t destroy_runtime_tree_for_deactivation(void *identity, void *replacement_identity)
 {
-    return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(destroy_runtime_tree_node(identity, replacement_identity)));
+    return reinterpret_cast<intptr_t>(destroy_runtime_tree_node(identity, replacement_identity));
 }
 
 RuntimeTreeDeactivateApi runtime_tree_deactivate_api{ find_runtime_tree_node_by_identity, SendMessageA, request_runtime_resource_destruction, remove_runtime_visual_object, set_script_runtime_flags,
     deactivate_runtime_tree_node_comment, destroy_runtime_tree_for_deactivation };
 RuntimeResourceLoopApi runtime_resource_loop_api{ acquire_runtime_lock_record, set_runtime_sound_loop_value, release_runtime_lock_record };
-alignas(4) std::uint8_t graphics_host_storage[0x1d7c];
-RuntimeCommandLoopState &runtime_display_context = *reinterpret_cast<RuntimeCommandLoopState *>(graphics_host_storage);
-ScriptRuntimeRoot &graphics_script_runtime_root = *reinterpret_cast<ScriptRuntimeRoot *>(graphics_host_storage + 0x9b0);
-RuntimeSceneSlot *runtime_scene_slots = reinterpret_cast<RuntimeSceneSlot *>(graphics_script_runtime_root.command_definitions);
+RuntimeCommandLoopState runtime_display_context{};
+HINSTANCE runtime_graphics_instance;
+char runtime_graphics_resource_directory[0x104]{};
+ScriptRuntimeRoot graphics_script_runtime_root{};
+RuntimeSceneSlot *runtime_scene_slots = graphics_script_runtime_root.command_definitions;
 RuntimePointerRegion *&runtime_pointer_regions = reinterpret_cast<RuntimePointerRegion *&>(graphics_script_runtime_root.global_link_0084_head);
-std::uint32_t &graphics_host_flags = runtime_display_context.flags;
-std::uint32_t &runtime_scene_control_flags = runtime_display_context.flags;
-std::uint32_t &runtime_resource_transition_flags = runtime_display_context.accumulated_tree_flags;
-std::uint32_t &runtime_command_state = runtime_display_context.external_command_pending;
-std::uint32_t &runtime_target_flags = runtime_display_context.target_flags;
-std::int32_t &runtime_scene_x = runtime_display_context.scene_x;
-std::int32_t &runtime_scene_y = runtime_display_context.scene_y;
+uint32_t &graphics_host_flags = runtime_display_context.flags;
+uint32_t &runtime_scene_control_flags = runtime_display_context.flags;
+uint32_t &runtime_resource_transition_flags = runtime_display_context.accumulated_tree_flags;
+uint32_t &runtime_command_state = runtime_display_context.external_command_pending;
+uint32_t &runtime_target_flags = runtime_display_context.target_flags;
+int32_t &runtime_scene_x = runtime_display_context.scene_x;
+int32_t &runtime_scene_y = runtime_display_context.scene_y;
 void *&deferred_runtime_scene_identity = runtime_display_context.deferred_scene_identity;
 void *&current_runtime_scene_identity = runtime_display_context.current_scene_identity;
-std::uint32_t &runtime_state_value = reinterpret_cast<std::uint32_t &>(runtime_display_context.deferred_scene_identity);
-std::uint32_t &saved_runtime_state_value = reinterpret_cast<std::uint32_t &>(runtime_display_context.current_scene_identity);
+uintptr_t &runtime_state_value = runtime_display_context.deferred_state_value;
+uintptr_t &saved_runtime_state_value = runtime_display_context.current_state_value;
 void *&saved_default_comment_scene_identity = runtime_display_context.saved_default_comment_scene_identity;
 void *&runtime_pointer_root_identity = runtime_display_context.runtime_tree_identity;
 RuntimePointerRegion *&active_runtime_pointer_region = runtime_display_context.active_pointer_region;
-std::uint32_t (&runtime_pointer_event_record)[16] = *reinterpret_cast<std::uint32_t (*)[16]>(graphics_host_storage + 0x97c);
-std::uint32_t &runtime_pointer_state_mask = *reinterpret_cast<std::uint32_t *>(graphics_host_storage + 0x970);
-void *&runtime_pointer_state_owner = *reinterpret_cast<void **>(graphics_host_storage + 0x974);
-void *&runtime_pointer_event_state_object = *reinterpret_cast<void **>(graphics_host_storage + 0x978);
+uintptr_t runtime_pointer_event_record[16]{};
+uint32_t runtime_pointer_state_mask;
+void *runtime_pointer_state_owner;
+void *runtime_pointer_event_state_object;
 
 // Non-original layout adapter for the contiguous original record at 0x0047F8D0.
 void enqueue_runtime_pointer_event()
 {
-    std::uint32_t record[16]{};
+    uintptr_t record[16]{};
     record[0] = runtime_pointer_state_mask;
-    record[1] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(runtime_pointer_state_owner));
-    record[2] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(runtime_pointer_event_state_object));
-    std::memcpy(record + 3, runtime_pointer_event_record, 13 * sizeof(std::uint32_t));
+    record[1] = reinterpret_cast<uintptr_t>(runtime_pointer_state_owner);
+    record[2] = reinterpret_cast<uintptr_t>(runtime_pointer_event_state_object);
+    std::memcpy(record + 3, runtime_pointer_event_record, 13 * sizeof(uintptr_t));
     enqueue_runtime_event_record(record);
 }
 RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text, acquire_display_scene_node, begin_display_scene_update, draw_runtime_standalone_text,
@@ -451,23 +451,20 @@ RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, GetTickC
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
     acknowledge_current_runtime_event_record, run_pending_runtime_external_command, activate_runtime_tree_link_007c, parse_script_opcode, execute_simple_runtime_script_opcode_for_testing,
     select_bounded_random_value };
-std::uint32_t &runtime_display_reset_value_1 = *reinterpret_cast<std::uint32_t *>(&runtime_display_context.input_scene_identifier);
-std::uint8_t &runtime_display_reset_byte = *reinterpret_cast<std::uint8_t *>(runtime_display_context.input_text);
-std::uint32_t &runtime_display_reset_value_2 = *reinterpret_cast<std::uint32_t *>(&runtime_display_context.saved_default_comment_scene_identity);
-std::uint32_t (&runtime_display_scene_state)[0x15] = *reinterpret_cast<std::uint32_t (*)[0x15]>(graphics_host_storage + 0x95c);
+uint8_t &runtime_display_reset_byte = *reinterpret_cast<uint8_t *>(runtime_display_context.input_text);
 RuntimeDisplayResetApi runtime_display_reset_api{ switch_runtime_scene, set_script_runtime_flags, reset_script_runtime_transient_indices, reset_runtime_byte_queue, reset_runtime_pair_queue,
     release_display_scene_node };
 HANDLE &runtime_display_thread = runtime_display_context.script_thread;
-std::int32_t &runtime_display_scene_identifier = runtime_display_context.input_alternate_scene_identifier;
+intptr_t &runtime_display_scene_identifier = runtime_display_context.input_alternate_scene_identifier;
 void *&runtime_display_host = runtime_display_context.display_scene_host;
 RuntimeBootstrapApi runtime_bootstrap_api{ find_current_display_mode, create_display_surface, get_display_palette_dc, get_display_palette_dib_dc, get_display_palette_handle,
     get_display_palette_bitmap, get_display_palette_entries, initialize_display_scene_host, acquire_display_scene_node, lock_display_scene_node, unlock_display_scene_node, acquire_display_lock,
     set_display_clip_rectangle, release_display_lock, operate_display_surface, reset_runtime_display_state, CreateThread, execute_script_commands };
 RuntimeDisplayShutdownApi runtime_display_shutdown_api{ get_or_create_runtime_named_node, WaitForSingleObject, CloseHandle, release_display_scene_node, shutdown_display_scene_host,
     teardown_display_palette_surface };
-std::uint32_t &runtime_resource_count = runtime_display_context.resource_wait_count;
-std::uint32_t &runtime_property_value = runtime_display_context.script_clock;
-std::uint32_t &runtime_resource_presentation_owner = runtime_display_context.script_clock;
+uint32_t &runtime_resource_count = runtime_display_context.resource_wait_count;
+uint32_t &runtime_property_value = runtime_display_context.script_clock;
+uint32_t &runtime_resource_presentation_owner = runtime_display_context.script_clock;
 RuntimeResourceStateApi runtime_resource_state_api{ acquire_runtime_lock_record, begin_display_scene_update, finalize_runtime_media_backend, configure_runtime_resource_palette,
     end_display_scene_update, clear_runtime_generic_backend_child_ready, enable_runtime_generic_backend_child_mode_200, disable_runtime_generic_backend_child_mode_200, select_runtime_scene_transition,
     get_runtime_sound_slot, queue_runtime_sound_data, start_runtime_sound, stop_runtime_sound, release_runtime_lock_record };
@@ -477,7 +474,7 @@ RuntimeSceneTransitionSelectionApi runtime_scene_transition_selection_api{ std::
     apply_rectangle_runtime_scene_transition };
 RuntimePaletteSceneTransitionApi runtime_palette_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock, apply_display_palette,
     operate_display_surface, set_display_clip_rectangle, dispatch_display_scene_update, release_display_lock, release_runtime_lock_record, timeGetTime, Sleep, invalidate_game_framebuffer_rect };
-PALETTEENTRY *runtime_transition_palette = reinterpret_cast<PALETTEENTRY *>(graphics_host_storage + 0x1978);
+PALETTEENTRY runtime_transition_palette[0x101]{};
 RuntimeRectangleSceneTransitionApi runtime_rectangle_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock, set_display_clip_rectangle,
     release_display_lock, operate_display_surface, synchronize_display_region, apply_display_palette, dispatch_display_scene_update, timeGetTime, GetTickCount, Sleep, release_runtime_lock_record };
 RuntimeResourceSceneRegionApi runtime_resource_scene_region_api{ lock_display_scene_node, acquire_runtime_lock_record, begin_display_scene_update, render_runtime_bitmap_backend_region,
@@ -502,9 +499,9 @@ RuntimeResourceFileOpenApi runtime_resource_file_open_api{ GetVersionExA, Create
 CRITICAL_SECTION &runtime_resource_critical_section = runtime_display_context.resource_critical_section;
 AsyncFileHost *&runtime_resource_host = runtime_display_context.async_file_host;
 CdfArchive *&runtime_resource_archive = runtime_display_context.active_archive;
-std::int32_t &runtime_resource_archive_alternate_stream = reinterpret_cast<std::int32_t &>(runtime_display_context.async_file_host);
-std::int32_t &runtime_resource_host_mode = runtime_display_context.resource_host_mode;
-std::uint8_t &runtime_resource_archive_state = runtime_display_context.resource_archive_state;
+intptr_t &runtime_resource_archive_alternate_stream = runtime_display_context.archive_alternate_stream;
+int32_t &runtime_resource_host_mode = runtime_display_context.resource_host_mode;
+uint8_t &runtime_resource_archive_state = runtime_display_context.resource_archive_state;
 RuntimeResourceHostApi runtime_resource_host_api{ EnterCriticalSection, LeaveCriticalSection, destroy_async_file_host, create_async_file_host, set_async_file_host_mode, close_cdf_archive };
 void *&runtime_resource_cache_parent_identity = runtime_display_context.resource_cache_parent_identity;
 HWND &runtime_resource_notification_window = runtime_display_context.window;
@@ -516,7 +513,7 @@ ArchiveCommentEnumerationApi archive_comment_enumeration_api{ FindFirstFileA, Fi
 ArchiveCommentDialogApi archive_comment_dialog_api{ GetDlgItem, SendMessageA, SetFocus, ShowWindow, EndDialog, GetProcessHeap, HeapFree, enumerate_archive_comments, MessageBoxA, Sleep };
 ArchiveCommentDialogLaunchApi archive_comment_dialog_launch_api{ _splitpath, DialogBoxParamA };
 HANDLE &runtime_resource_heap = runtime_display_context.resource_heap;
-std::uint32_t &runtime_resource_streamed_count = runtime_display_context.resource_count;
+uint32_t &runtime_resource_streamed_count = runtime_display_context.resource_count;
 RuntimeResourceLoadApi runtime_resource_load_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, open_async_file_record, get_async_file_size,
     activate_default_comment_scene, HeapAlloc, HeapFree, read_async_file_record, deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue,
     get_or_create_runtime_resource_cache_entry, SendMessageA, get_cdf_entry_flags, get_cdf_entry_size, open_runtime_cdf_entry_stream, read_cdf_entry, set_script_runtime_flags, Sleep };
@@ -538,7 +535,7 @@ RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ Wai
 RuntimeResourcePaletteConfigureApi runtime_resource_palette_configure_api{ set_display_scene_primary_owner, configure_display_scene_palette };
 RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface, SetPaletteEntries, RealizePalette, SetDIBColorTable, BitBlt };
 RuntimeAnimationFailureApi runtime_animation_failure_api{ PostMessageA };
-std::uint32_t runtime_animation_control_flags;
+uint32_t runtime_animation_control_flags;
 RuntimeAnimationControlApi runtime_animation_control_api{ destroy_runtime_sound_handle, start_runtime_sound, stop_runtime_sound, set_async_file_position, PostMessageA };
 RuntimeAnimationFrameAcquireApi runtime_animation_frame_acquire_api{ read_async_file_record, HeapAlloc, HeapReAlloc, fail_runtime_animation };
 RuntimeAnimationDecodeApi runtime_animation_decode_api{ decode_runtime_animation_palette, decode_runtime_animation_mvz5, decode_runtime_animation_delta_flc, decode_runtime_animation_mvz8,
@@ -597,7 +594,7 @@ RuntimeGenericChildSceneApi runtime_generic_child_scene_api{ find_available_runt
     get_runtime_generic_backend_child_context, destroy_runtime_generic_backend_child, query_display_scene_by_index, release_display_scene_node, enable_runtime_generic_backend_child_mode_200 };
 HANDLE runtime_generic_backend_mutex;
 RuntimeGenericBackend *runtime_generic_backend_head;
-std::uint32_t runtime_generic_backend_enabled;
+uint32_t runtime_generic_backend_enabled;
 RuntimeGenericBackendShutdownApi runtime_generic_backend_shutdown_api{ WaitForSingleObject, ReleaseMutex, destroy_runtime_generic_backend, CloseHandle };
 RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapCreate, CreateMutexA, initialize_runtime_sound_class, WaitForSingleObject, ReleaseMutex, InitializeCriticalSection };
 RuntimeSoundDestroyApi runtime_sound_destroy_api{ WaitForSingleObject, ReleaseMutex, GetProcessHeap, HeapAlloc, HeapFree };
@@ -605,54 +602,42 @@ HANDLE runtime_sound_mutex;
 
 struct RuntimeSoundBackingStorage
 {
-    RuntimeSoundSlot slots[1025];
-    std::uint8_t trailing_class_name[8];
-
-    RuntimeSoundBackingStorage()
-        : slots{}
-        , trailing_class_name{}
-    {
-        slots[1024].schedule_state = 0x600;
-        std::memcpy(&slots[1024].transition_flags, "SoundClassName", sizeof("SoundClassName"));
-    }
+    RuntimeSoundSlot slots[1024];
 };
 
-static_assert(offsetof(RuntimeSoundBackingStorage, slots[1024]) == 0xd000);
-static_assert(offsetof(RuntimeSoundBackingStorage, trailing_class_name) == 0xd034);
 
-RuntimeSoundBackingStorage runtime_sound_backing_storage;
+RuntimeSoundBackingStorage runtime_sound_backing_storage{};
 RuntimeSoundSlot *runtime_sound_slots = runtime_sound_backing_storage.slots;
-RuntimeSoundSlot &runtime_sound_overflow_slot = runtime_sound_backing_storage.slots[1024];
-std::uint32_t &runtime_sound_mixing_suppressed = runtime_sound_overflow_slot.active;
-std::uint32_t &runtime_sound_fault = runtime_sound_overflow_slot.playing;
-std::uint32_t &runtime_sound_base_state = runtime_sound_overflow_slot.base_state;
-std::uint32_t &runtime_sound_toggle_state = runtime_sound_overflow_slot.base_state;
-std::uint32_t &runtime_sound_output_initialized = runtime_sound_overflow_slot.playback_state;
-std::uint32_t &runtime_sound_mixer_data_size = runtime_sound_overflow_slot.schedule_state;
-std::uint32_t &runtime_sound_window_creation_failed = runtime_sound_overflow_slot.fade_block_index;
-std::int32_t &runtime_sound_enabled = reinterpret_cast<std::int32_t &>(runtime_sound_overflow_slot.fade_current);
-HANDLE &runtime_sound_thread = reinterpret_cast<HANDLE &>(runtime_sound_overflow_slot.fade_step);
-DWORD &runtime_sound_thread_id = reinterpret_cast<DWORD &>(runtime_sound_overflow_slot.loop_value_1);
-HWND &runtime_sound_window = reinterpret_cast<HWND &>(runtime_sound_overflow_slot.volume);
-char *runtime_sound_window_class_name = reinterpret_cast<char *>(&runtime_sound_overflow_slot.transition_flags);
-std::uint32_t runtime_sound_maximum_handle;
+uint32_t runtime_sound_mixing_suppressed;
+uint32_t runtime_sound_fault;
+uint32_t runtime_sound_base_state;
+uint32_t &runtime_sound_toggle_state = runtime_sound_base_state;
+uint32_t runtime_sound_output_initialized;
+uint32_t runtime_sound_mixer_data_size = 0x600;
+uint32_t runtime_sound_window_creation_failed;
+int32_t runtime_sound_enabled;
+HANDLE runtime_sound_thread;
+DWORD runtime_sound_thread_id;
+HWND runtime_sound_window;
+char runtime_sound_window_class_name[] = "SoundClassName";
+uint32_t runtime_sound_maximum_handle;
 RuntimeSoundFormatCleanupApi runtime_sound_format_cleanup_api{ GetProcessHeap, HeapFree };
 void *runtime_sound_format_buffer;
 WAVEFORMATEX *runtime_sound_output_format;
 RuntimeWaveOutCallbackApi runtime_wave_out_callback_api{ PostMessageA, timeGetTime };
-std::uint32_t runtime_sound_output_ready;
+uint32_t runtime_sound_output_ready;
 RuntimeSoundShutdownApi runtime_sound_shutdown_api{ WaitForSingleObject, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, destroy_runtime_sound_handle,
     cleanup_runtime_sound_format_buffer };
 HANDLE runtime_sound_lifecycle_mutex;
 HWAVEOUT runtime_sound_wave_out;
 WAVEHDR *runtime_sound_headers[2];
-std::uint32_t runtime_sound_ready;
+uint32_t runtime_sound_ready;
 HINSTANCE runtime_sound_instance;
 RuntimeSoundThreadApi runtime_sound_thread_api{ CreateWindowExA, ShowWindow, GetCurrentThread, SetThreadPriority, GetMessageA, DispatchMessageA, ExitThread };
 RuntimeSoundOutputBlock runtime_sound_output_storage[2];
 RuntimeSoundOutputBlock *runtime_sound_outputs = runtime_sound_output_storage;
-std::uint32_t runtime_sound_output_index;
-void(__fastcall *runtime_sound_mixer)(std::uint32_t marker);
+uint32_t runtime_sound_output_index;
+void (*runtime_sound_mixer)(uint32_t marker);
 RuntimeSoundWindowApi runtime_sound_window_api{ waveOutPrepareHeader, WaitForSingleObject, ReleaseMutex, waveOutWrite, PostQuitMessage, DestroyWindow, DefWindowProcA };
 RuntimeSoundClassApi runtime_sound_class_api{ RegisterClassA, CreateMutexA };
 RuntimeSoundPauseResumeApi runtime_sound_pause_resume_api{ WaitForSingleObject, ReleaseMutex, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, CreateThread, Sleep,
@@ -667,24 +652,21 @@ RuntimeResourceDestroyApi runtime_resource_destroy_api{ acquire_runtime_lock_rec
     release_display_scene_node, remove_runtime_named_child_by_identity, GetProcessHeap, HeapFree };
 RuntimeResourceControlApi runtime_resource_control_api{ acquire_runtime_lock_record, release_runtime_lock_record, destroy_runtime_resource, get_runtime_sound_slot };
 CRITICAL_SECTION &runtime_game_dll_critical_section = runtime_display_context.resource_critical_section;
-HMODULE &runtime_game_dll_module = runtime_display_context.game_dll_module;
-RuntimeGameDllUnloadApi runtime_game_dll_unload_api{ EnterCriticalSection, FreeLibrary, leave_runtime_state_1000, LeaveCriticalSection };
-FARPROC &runtime_game_dll_initialize = runtime_display_context.game_dll_initialize;
-FARPROC &runtime_game_dll_window_procedure = runtime_display_context.game_dll_window_procedure;
-FARPROC &runtime_game_dll_execute = runtime_display_context.game_dll_execute;
-GraphicsHostInitializationResult &graphics_host_state = *reinterpret_cast<GraphicsHostInitializationResult *>(graphics_host_storage);
-RuntimeGameHostContext &runtime_game_host_context = *reinterpret_cast<RuntimeGameHostContext *>(graphics_host_storage + 0x458);
-std::uint32_t &runtime_resource_palette_bits_per_pixel = runtime_game_host_context.bits_per_pixel;
-void *(&runtime_game_host_callbacks)[35] = *reinterpret_cast<void *(*)[35]>(graphics_host_storage + 0x498);
+RuntimeGameDllWindowProcedure &runtime_game_dll_window_procedure = runtime_display_context.game_dll_window_procedure;
+RuntimeGameDllExecute &runtime_game_dll_execute = runtime_display_context.game_dll_execute;
+GraphicsHostInitializationResult graphics_host_state{};
+RuntimeGameHostContext runtime_game_host_context{};
+uint32_t &runtime_resource_palette_bits_per_pixel = runtime_game_host_context.bits_per_pixel;
+void *runtime_game_host_callbacks[35]{};
 void *&runtime_media_objects_parent_identity = runtime_display_context.media_objects_parent_identity;
 CRITICAL_SECTION &runtime_named_lock_critical_section = runtime_display_context.path_critical_section;
 void *&runtime_named_lock_parent_identity = runtime_display_context.media_objects_parent_identity;
 RuntimeNamedLockApi runtime_named_lock_api{ GetCurrentThreadId, EnterCriticalSection, LeaveCriticalSection, Sleep };
-std::uint32_t &graphics_host_value_1 = runtime_display_context.reset_value_1;
-std::uint32_t &graphics_host_value_2 = runtime_display_context.reset_value_2;
-std::uint32_t &graphics_host_value_3 = runtime_display_context.reset_value_3;
-std::uint32_t &runtime_state_1000_count = runtime_display_context.nested_runtime_state_count;
-std::uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
+uint32_t &graphics_host_value_1 = runtime_display_context.reset_value_1;
+uint32_t &graphics_host_value_2 = runtime_display_context.reset_value_2;
+uint32_t &graphics_host_value_3 = runtime_display_context.reset_value_3;
+uint32_t &runtime_state_1000_count = runtime_display_context.nested_runtime_state_count;
+uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
 FramebufferInvalidateApi framebuffer_invalidate_api{ acquire_display_lock, dispatch_display_scene_update, release_display_lock };
 ClearRuntimeDisplayApi clear_runtime_display_api{ acquire_display_lock, set_display_clip_rectangle, operate_display_surface, release_display_lock, update_display_root_region };
 GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_backend, register_custom_control_class, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate,
@@ -692,15 +674,36 @@ GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_ba
     set_runtime_named_node_enabled, InitializeCriticalSection, ShowWindow };
 GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
     shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
-RuntimeGameDllLoadApi runtime_game_dll_load_api{ EnterCriticalSection, update_runtime_resource_host, build_runtime_resource_path, GetModuleFileNameA, activate_default_comment_scene, LoadLibraryA,
-    GetProcAddress, deactivate_default_comment_scene, reset_runtime_byte_queue, reset_runtime_pair_queue, LeaveCriticalSection };
+void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name)
+{
+    static_assert(sizeof(RuntimeGameHostContext) == sizeof(xtet::GameHostContext));
+    static_assert(offsetof(RuntimeGameHostContext, window) == offsetof(xtet::GameHostContext, window));
+    static_assert(offsetof(RuntimeGameHostContext, palette_dc) == offsetof(xtet::GameHostContext, palette_dc));
+    static_assert(offsetof(RuntimeGameHostContext, bits_per_pixel) == offsetof(xtet::GameHostContext, bits_per_pixel));
+    static_assert(offsetof(RuntimeGameHostContext, palette) == offsetof(xtet::GameHostContext, palette));
+    static_assert(offsetof(RuntimeGameHostContext, palette_dib_dc) == offsetof(xtet::GameHostContext, palette_dib_dc));
+    static_assert(offsetof(RuntimeGameHostContext, bitmap) == offsetof(xtet::GameHostContext, bitmap));
+    static_assert(offsetof(RuntimeGameHostContext, selected_bitmap) == offsetof(xtet::GameHostContext, selected_bitmap));
+    static_assert(offsetof(RuntimeGameHostContext, width) == offsetof(xtet::GameHostContext, width));
+    static_assert(offsetof(RuntimeGameHostContext, height) == offsetof(xtet::GameHostContext, height));
+    static_assert(offsetof(RuntimeGameHostContext, display_surface) == offsetof(xtet::GameHostContext, display_surface));
+    static_assert(offsetof(RuntimeGameHostContext, framebuffer) == offsetof(xtet::GameHostContext, framebuffer));
+    static_assert(offsetof(RuntimeGameHostContext, palette_entries) == offsetof(xtet::GameHostContext, palette_entries));
+    static_assert(offsetof(RuntimeGameHostContext, unknown_0038) == offsetof(xtet::GameHostContext, x));
+    static_assert(offsetof(RuntimeGameHostContext, unknown_003c) == offsetof(xtet::GameHostContext, y));
+    xtet::initialize_game(reinterpret_cast<xtet::GameHostContext *>(context), callbacks, sfs_name);
+}
+
+RuntimeGameLifecycleApi runtime_game_lifecycle_api{ EnterCriticalSection, update_runtime_resource_host, activate_default_comment_scene, deactivate_default_comment_scene, reset_runtime_byte_queue,
+    reset_runtime_pair_queue, leave_runtime_state_1000, LeaveCriticalSection };
+RuntimeGameIntegrationApi runtime_game_integration_api{ initialize_linked_xtet, xtet::dispatch_game_window_message, xtet::execute_game_command, xtet::shutdown_game };
 RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ timeGetTime, Sleep };
 HWND &runtime_game_main_window = runtime_display_context.window;
 RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, GetUpdateRect, BeginPaint, queue_display_rectangle, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte, enqueue_runtime_pair,
     enqueue_runtime_message, clear_runtime_flag_01000000, unload_runtime_game_dll, enter_runtime_state_1000, leave_runtime_state_1000, set_runtime_flag_01000000, DefWindowProcA };
 RuntimePointerPositionApi runtime_pointer_position_api{ GetCurrentThreadId, EnterCriticalSection, find_runtime_named_child, LeaveCriticalSection, Sleep, offset_display_scene_node };
-std::int32_t &runtime_pointer_x = runtime_display_context.scene_x;
-std::int32_t &runtime_pointer_y = runtime_display_context.scene_y;
+int32_t &runtime_pointer_x = runtime_display_context.scene_x;
+int32_t &runtime_pointer_y = runtime_display_context.scene_y;
 void *&current_runtime_resource = runtime_display_context.current_runtime_resource;
 bool async_file_enabled;
 AsyncFileShutdownApi async_file_shutdown_api{ destroy_async_file_host, EnterCriticalSection, LeaveCriticalSection, DeleteCriticalSection };
@@ -716,15 +719,20 @@ ArchiveReadSpeedApi archive_read_speed_api{ initialize_async_file_subsystem, ext
 ScreenshotApi screenshot_api{ GetSaveFileNameA, capture_game_bitmap, CreateFileA, WriteFile, CloseHandle };
 BitmapCaptureApi bitmap_capture_api{ GetProcessHeap, HeapAlloc };
 
-bool __fastcall strings_equal(const char *left, const char *right);
-void __fastcall copy_directory_from_path(char *destination, const char *source);
+bool strings_equal(const char *left, const char *right);
+void copy_directory_from_path(char *destination, const char *source);
 void set_runtime_flag_40();
+
+#if defined(FREEGAG_WINDOWS_FIXES)
+// The original 32-bit installer and prior Win32 fixes builds store their values in the 32-bit registry view.
+constexpr REGSAM modern_windows_registry_view = KEY_WOW64_32KEY;
+#endif
 
 DriveDiscoveryApi drive_discovery_api{ GetLogicalDriveStringsA, GetProcessHeap, HeapAlloc, HeapFree, GetDriveTypeA, FindFirstFileA, FindNextFileA, FindClose, open_cdf_archive, read_cdf_entry,
     close_cdf_archive, lstrcmpiA };
 CursorStateApi cursor_state_api{ GetCursorPos, GetSystemMetrics };
 
-std::uint32_t __fastcall load_registry_for_validation(ApplicationState *state)
+uint32_t load_registry_for_validation(ApplicationState *state)
 {
     return load_installation_registry_settings(state, make_win32_registry_api());
 }
@@ -733,21 +741,21 @@ ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClos
     measure_archive_read_speed, detect_alternate_display_mode };
 WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, RegisterClassA, MessageBoxA, gag_main_window_procedure, gag_capture_window_procedure,
     gag_custom_control_window_procedure };
-std::uint32_t custom_control_registered;
+uint32_t custom_control_registered;
 HINSTANCE custom_control_instance;
 
-WindowProcedureApi window_procedure_api{ GetWindowLongA, SetWindowLongA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem, SetMenu,
-    DestroyWindow, DefWindowProcA, SendMessageA, set_game_cursor_active };
-std::uint32_t get_serialized_script_state_value()
+WindowProcedureApi window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem,
+    SetMenu, DestroyWindow, DefWindowProcA, SendMessageA, set_game_cursor_active };
+uintptr_t get_serialized_script_state_value()
 {
-    return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(serialize_current_runtime_state()));
+    return reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
 }
-MainWindowProcedureApi main_window_procedure_api{ GetWindowLongA, SetWindowLongA, PostMessageA, PostQuitMessage, ReplyMessage, SendMessageA, DefWindowProcA, DestroyWindow,
+MainWindowProcedureApi main_window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, PostQuitMessage, ReplyMessage, SendMessageA, DefWindowProcA, DestroyWindow,
     get_serialized_script_state_value, resolve_state_field_reference, capture_game_bitmap, free_heap_memory, application_hook_no_op_1, set_application_lock_flag, clear_runtime_active_flag,
     validate_startup_environment, set_runtime_flag_40 };
 CustomControlGdiApi custom_control_gdi_api{ GetDC, CreateCompatibleDC, GetDeviceCaps, GetClientRect, SetSystemPaletteUse, CreatePalette, SelectPalette, SetStretchBltMode, UnrealizeObject,
     RealizePalette, StretchBlt, SelectObject, DeleteObject, ReleaseDC, DeleteDC, CreateDIBSection, SetPaletteEntries, SetDIBColorTable };
-CustomControlWindowApi custom_control_window_api{ GetUpdateRect, BeginPaint, EndPaint, GetWindowLongA, SetWindowLongA, DefWindowProcA, PatBlt, GetProcessHeap, HeapAlloc, HeapFree, FindResourceA,
+CustomControlWindowApi custom_control_window_api{ GetUpdateRect, BeginPaint, EndPaint, GetWindowLongPtrA, SetWindowLongPtrA, DefWindowProcA, PatBlt, GetProcessHeap, HeapAlloc, HeapFree, FindResourceA,
     GetModuleHandleA, LoadResource, LockResource, FreeResource, open_cdf_archive, get_cdf_entry_size, read_cdf_entry, close_cdf_archive, strings_equal, copy_string, initialize_custom_control_gdi,
     set_custom_control_bitmap, realize_and_present_custom_control, destroy_custom_control_gdi };
 SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegCreateKeyExA, RegSetValueExA, RegCloseKey };
@@ -808,7 +816,7 @@ void pause_runtime_game_dll_discard_result()
     pause_runtime_game_dll();
 }
 
-void __fastcall pause_runtime_sound_output_discard_result(int close_output)
+void pause_runtime_sound_output_discard_result(int close_output)
 {
     pause_runtime_sound_output(close_output);
 }
@@ -829,24 +837,24 @@ void resume_runtime_game_dll_discard_result()
 }
 
 // Non-original ABI adapter: RuntimeCommandBounds fields are output pointers for mode 0x10000.
-int __fastcall begin_runtime_target_from_bounds_fields(std::uint32_t pixels, std::uint32_t rectangle, std::uint32_t pitch)
+int begin_runtime_target_from_bounds_fields(uint32_t pixels, uint32_t rectangle, uint32_t pitch)
 {
-    return static_cast<int>(begin_display_target(reinterpret_cast<void **>(static_cast<std::uintptr_t>(pixels)), reinterpret_cast<DisplayRectangle *>(static_cast<std::uintptr_t>(rectangle)),
-        reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(pitch))));
+    return static_cast<int>(begin_display_target(reinterpret_cast<void **>(static_cast<uintptr_t>(pixels)), reinterpret_cast<DisplayRectangle *>(static_cast<uintptr_t>(rectangle)),
+        reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(pitch))));
 }
 
 // Non-original ABI adapter: mode 1 interprets the same four DWORDs as a DisplayRectangle.
-void __fastcall draw_runtime_bounds(RuntimeCommandBounds *bounds, int mode)
+void draw_runtime_bounds(RuntimeCommandBounds *bounds, int mode)
 {
-    synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), static_cast<std::uint32_t>(mode));
+    synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), static_cast<uint32_t>(mode));
 }
 
 // Non-original adapter for the original IDirectDrawSurface::Unlock vtable call at slot 0x80.
-void __fastcall release_display_backend_target(void *surface, void *pixels)
+void release_display_backend_target(void *surface, void *pixels)
 {
     using Unlock = HRESULT(WINAPI *)(void *, void *);
     auto **vtable = *static_cast<void ***>(surface);
-    reinterpret_cast<Unlock>(vtable[0x80 / sizeof(void *)])(surface, pixels);
+    reinterpret_cast<Unlock>(vtable[0x80 / sizeof(uint32_t)])(surface, pixels);
 }
 
 void enter_display_host_lock()
@@ -869,7 +877,7 @@ HWND get_display_palette_window()
     return display_palette_window;
 }
 
-void __fastcall present_display_palette(std::int32_t width, std::int32_t height, int mode)
+void present_display_palette(int32_t width, int32_t height, int mode)
 {
     operate_display_surface(0, 0, width, height, mode);
 }
@@ -882,7 +890,7 @@ RuntimeInputSessionApi runtime_input_session_api{ reset_runtime_byte_queue, time
     lock_display_scene_node, acquire_display_scene_node, begin_display_scene_update, draw_runtime_standalone_text, end_display_scene_update, unlock_display_scene_node, release_runtime_lock_record };
 RuntimeCommandLoopApi runtime_command_loop_api{ pause_runtime_game_dll_discard_result, pause_all_runtime_animations, pause_runtime_sound_output_discard_result, PostMessageA, process_runtime_message,
     get_serialized_runtime_state_lparam, Sleep, resume_runtime_sound_output_discard_result, resume_all_runtime_animations, resume_runtime_game_dll_discard_result, reset_runtime_session };
-std::uint32_t (&runtime_session_reset_storage)[0x1d3] = *reinterpret_cast<std::uint32_t (*)[0x1d3]>(graphics_host_storage + 0x11d8);
+uint32_t runtime_session_reset_storage[0x1d3]{};
 RuntimeSessionResetApi runtime_session_reset_api{ stop_runtime_game_dll, get_runtime_tree_root, destroy_runtime_tree_resources, deactivate_runtime_tree_and_visuals, reset_runtime_display_state,
     request_runtime_resource_destruction, destroy_runtime_fixed_name_list_nodes, purge_disabled_runtime_named_nodes, destroy_script_object_states, destroy_runtime_visual_objects,
     clear_runtime_command_definitions, remove_all_runtime_generic_resources, close_cdf_archive, destroy_async_file_host, operate_display_surface, get_or_create_runtime_named_node, timeGetTime,
@@ -907,7 +915,7 @@ HRESULT WINAPI set_direct_draw_cooperative_level(void *display, HWND window, DWO
 {
     using SetCooperativeLevel = HRESULT(WINAPI *)(void *, HWND, DWORD);
     auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<SetCooperativeLevel>(vtable[0x50 / sizeof(void *)])(display, window, flags);
+    return reinterpret_cast<SetCooperativeLevel>(vtable[0x50 / sizeof(uint32_t)])(display, window, flags);
 }
 
 DisplayCooperativeLevelApi display_cooperative_level_api{ GetWindowLongA, GetParent, set_direct_draw_cooperative_level };
@@ -917,7 +925,7 @@ HRESULT WINAPI enumerate_direct_draw_modes(void *display, DirectDrawModeCallback
 {
     using EnumerateModes = HRESULT(WINAPI *)(void *, DWORD, void *, void *, DirectDrawModeCallback);
     auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<EnumerateModes>(vtable[0x20 / sizeof(void *)])(display, 0, nullptr, nullptr, callback);
+    return reinterpret_cast<EnumerateModes>(vtable[0x20 / sizeof(uint32_t)])(display, 0, nullptr, nullptr, callback);
 }
 
 DisplayBootstrapApi display_bootstrap_api{ GetVersionExA, LoadLibraryA, GetProcAddress, GetProcessHeap, HeapAlloc, HeapFree, set_display_cooperative_mode, enumerate_direct_draw_modes };
@@ -930,49 +938,49 @@ HRESULT WINAPI direct_draw_blt_fast(void *surface, DWORD x, DWORD y, void *sourc
 {
     using BltFast = HRESULT(WINAPI *)(void *, DWORD, DWORD, void *, RECT *, DWORD);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<BltFast>(vtable[0x1c / sizeof(void *)])(surface, x, y, source, source_rectangle, flags);
+    return reinterpret_cast<BltFast>(vtable[0x1c / sizeof(uint32_t)])(surface, x, y, source, source_rectangle, flags);
 }
 
 HRESULT WINAPI direct_draw_blt(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects)
 {
     using Blt = HRESULT(WINAPI *)(void *, RECT *, void *, RECT *, DWORD, void *);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Blt>(vtable[0x14 / sizeof(void *)])(surface, destination_rectangle, source, source_rectangle, flags, effects);
+    return reinterpret_cast<Blt>(vtable[0x14 / sizeof(uint32_t)])(surface, destination_rectangle, source, source_rectangle, flags, effects);
 }
 
 HRESULT WINAPI is_direct_draw_surface_lost(void *surface)
 {
     using IsLost = HRESULT(WINAPI *)(void *);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<IsLost>(vtable[0x60 / sizeof(void *)])(surface);
+    return reinterpret_cast<IsLost>(vtable[0x60 / sizeof(uint32_t)])(surface);
 }
 
 HRESULT WINAPI restore_direct_draw_surface(void *surface)
 {
     using Restore = HRESULT(WINAPI *)(void *);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Restore>(vtable[0x6c / sizeof(void *)])(surface);
+    return reinterpret_cast<Restore>(vtable[0x6c / sizeof(uint32_t)])(surface);
 }
 
 HRESULT WINAPI lock_direct_draw_surface(void *surface, RECT *rectangle, LegacyDirectDrawSurfaceDescriptor *descriptor, DWORD flags, HANDLE event)
 {
     using Lock = HRESULT(WINAPI *)(void *, RECT *, LegacyDirectDrawSurfaceDescriptor *, DWORD, HANDLE);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Lock>(vtable[0x64 / sizeof(void *)])(surface, rectangle, descriptor, flags, event);
+    return reinterpret_cast<Lock>(vtable[0x64 / sizeof(uint32_t)])(surface, rectangle, descriptor, flags, event);
 }
 
 HRESULT WINAPI set_direct_draw_display_mode(void *display, DWORD width, DWORD height, DWORD bits_per_pixel)
 {
     using SetDisplayMode = HRESULT(WINAPI *)(void *, DWORD, DWORD, DWORD);
     auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<SetDisplayMode>(vtable[0x54 / sizeof(void *)])(display, width, height, bits_per_pixel);
+    return reinterpret_cast<SetDisplayMode>(vtable[0x54 / sizeof(uint32_t)])(display, width, height, bits_per_pixel);
 }
 
 HRESULT WINAPI restore_direct_draw_display_mode(void *display)
 {
     using RestoreDisplayMode = HRESULT(WINAPI *)(void *);
     auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<RestoreDisplayMode>(vtable[0x4c / sizeof(void *)])(display);
+    return reinterpret_cast<RestoreDisplayMode>(vtable[0x4c / sizeof(uint32_t)])(display);
 }
 
 DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
@@ -986,21 +994,21 @@ HRESULT WINAPI create_direct_draw_surface(void *display, LegacyDirectDrawSurface
 {
     using CreateSurface = HRESULT(WINAPI *)(void *, LegacyDirectDrawSurfaceDescriptor *, void **, void *);
     auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<CreateSurface>(vtable[0x18 / sizeof(void *)])(display, descriptor, surface, outer);
+    return reinterpret_cast<CreateSurface>(vtable[0x18 / sizeof(uint32_t)])(display, descriptor, surface, outer);
 }
 
-HRESULT WINAPI get_direct_draw_attached_surface(void *surface, std::uint32_t *caps, void **attached_surface)
+HRESULT WINAPI get_direct_draw_attached_surface(void *surface, uint32_t *caps, void **attached_surface)
 {
-    using GetAttachedSurface = HRESULT(WINAPI *)(void *, std::uint32_t *, void **);
+    using GetAttachedSurface = HRESULT(WINAPI *)(void *, uint32_t *, void **);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<GetAttachedSurface>(vtable[0x30 / sizeof(void *)])(surface, caps, attached_surface);
+    return reinterpret_cast<GetAttachedSurface>(vtable[0x30 / sizeof(uint32_t)])(surface, caps, attached_surface);
 }
 
 ULONG WINAPI release_direct_draw_surface(void *surface)
 {
     using Release = ULONG(WINAPI *)(void *);
     auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Release>(vtable[0x08 / sizeof(void *)])(surface);
+    return reinterpret_cast<Release>(vtable[0x08 / sizeof(uint32_t)])(surface);
 }
 
 DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
@@ -1014,22 +1022,22 @@ WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindow
 };
 
 // Non-original adapter preserving the original pointer-valued return in a 32-bit state slot.
-std::uint32_t get_serialized_script_state_for_application()
+uintptr_t get_serialized_script_state_for_application()
 {
-    return static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(serialize_current_runtime_state()));
+    return reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
 }
 
 StateActivationApi state_activation_api{ query_runtime_scene_flags, get_serialized_script_state_for_application, enter_runtime_state_1000 };
 
 // Non-original adapters preserving the callback shapes used by the recovered UI orchestrators.
-int __fastcall show_save_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, void *memory, char *first_path, char *second_path)
+int show_save_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, void *memory, char *first_path, char *second_path)
 {
     return run_synchronized_state_operation_175f0(dialog_context, installation_path, const_cast<char *>(dialog_data), memory, first_path, second_path);
 }
 
-void __fastcall write_selected_application_state(char *first_path, char *second_path, void *memory, std::uint32_t script_state)
+void write_selected_application_state(char *first_path, char *second_path, void *memory, uintptr_t script_state)
 {
-    run_synchronized_state_operation_176a0(first_path, second_path, memory, reinterpret_cast<void *>(static_cast<std::uintptr_t>(script_state)));
+    run_synchronized_state_operation_176a0(first_path, second_path, memory, reinterpret_cast<void *>(static_cast<uintptr_t>(script_state)));
 }
 
 void restore_application_scene_after_dialog()
@@ -1042,32 +1050,32 @@ SaveStateApi save_state_api{ capture_game_bitmap, get_serialized_script_state_fo
 const char *const save_dialog_data[] = { "GAG.GSF", "SOFTWARE\\ZES't Corp.\\GAG", "Russian Edition Version 2.51", "C:\\Zes't Corp\\Gag_Re\\" };
 constexpr char auto_save_file_name[] = "AutoSave.cdf";
 
-int __fastcall show_open_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, char *installed_version)
+int show_open_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, char *installed_version)
 {
     return run_synchronized_state_operation_17550(dialog_context, installation_path, const_cast<char *>(dialog_data), installed_version);
 }
 
-void __fastcall restore_application_scene_after_open(std::uint32_t flags)
+void restore_application_scene_after_open(uint32_t flags)
 {
     select_runtime_scene_transition(flags);
 }
 
 OpenStateApi open_state_api{ clear_runtime_display, show_open_state_dialog, restore_application_scene_after_open };
 
-int __fastcall run_archive_comment_dialog_adapter(void *first, void *second, void *third, void *fourth)
+int run_archive_comment_dialog_adapter(void *first, void *second, void *third, void *fourth)
 {
     return static_cast<int>(run_archive_comment_dialog(static_cast<HWND>(first), static_cast<const char *>(second), static_cast<const char *>(third), static_cast<char *>(fourth)));
 }
 
-int __fastcall run_archive_selection_dialog_adapter(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
+int run_archive_selection_dialog_adapter(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
 {
     return static_cast<int>(
         run_archive_selection_dialog(static_cast<HWND>(first), static_cast<const char *>(second), static_cast<const char *>(third), fourth, static_cast<char *>(fifth), static_cast<char *>(sixth)));
 }
 
-int __fastcall write_comment_cdf_package_adapter(void *first, void *second, void *third, void *fourth)
+int write_comment_cdf_package_adapter(void *first, void *second, void *third, void *fourth)
 {
-    return static_cast<int>(write_comment_cdf_package(static_cast<const char *>(first), second, third, static_cast<const std::uint32_t *>(fourth)));
+    return static_cast<int>(write_comment_cdf_package(static_cast<const char *>(first), second, third, static_cast<const ScriptTextBuffer *>(fourth)));
 }
 
 HWND get_synchronized_runtime_window()
@@ -1110,18 +1118,18 @@ RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_reso
 RuntimeScriptPropertyGetApi runtime_script_property_get_api{ SendMessageA, copy_string, load_runtime_resource, get_runtime_property_value, query_runtime_resource_frame_number };
 
 // GAG.EXE: 0x004202D0
-void __fastcall set_runtime_script_property(std::uint32_t property, void *, void *value)
+void set_runtime_script_property(uint32_t property, void *, void *value)
 {
     switch(property)
     {
     case 1:
-        graphics_host_value_1 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value));
+        graphics_host_value_1 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(value));
         break;
     case 2:
-        graphics_host_value_2 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value));
+        graphics_host_value_2 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(value));
         break;
     case 4:
-        graphics_host_value_3 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value)) & 0xf;
+        graphics_host_value_3 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(value)) & 0xf;
         break;
     case 5:
         runtime_script_property_set_api.select_resource(static_cast<char *>(value));
@@ -1130,10 +1138,10 @@ void __fastcall set_runtime_script_property(std::uint32_t property, void *, void
         runtime_script_property_set_api.release_memory_resource(static_cast<char *>(value));
         break;
     case 8:
-        runtime_script_property_set_api.set_property_value(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(value)));
+        runtime_script_property_set_api.set_property_value(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(value)));
         break;
     case 12:
-        runtime_resource_host_mode = static_cast<std::int32_t>(reinterpret_cast<std::intptr_t>(value));
+        runtime_resource_host_mode = static_cast<int32_t>(reinterpret_cast<intptr_t>(value));
         break;
     case 13:
         if(runtime_state_1000_count == 0)
@@ -1176,61 +1184,61 @@ void __fastcall set_runtime_script_property(std::uint32_t property, void *, void
         break;
     case 80:
     case 96:
-        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x04000000, 0);
+        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x04000000, 0);
         break;
     }
 }
 
 // GAG.EXE: 0x004204B0
-void __fastcall get_runtime_script_property(std::uint32_t property, void **value, void *result)
+void get_runtime_script_property(uint32_t property, void **value, void *result)
 {
     switch(property)
     {
     case 1:
-        *static_cast<std::uint32_t *>(result) = graphics_host_value_1;
+        *static_cast<uint32_t *>(result) = graphics_host_value_1;
         break;
     case 2:
-        *static_cast<std::uint32_t *>(result) = graphics_host_value_2;
+        *static_cast<uint32_t *>(result) = graphics_host_value_2;
         break;
     case 4:
-        *static_cast<std::uint32_t *>(result) = graphics_host_value_3;
+        *static_cast<uint32_t *>(result) = graphics_host_value_3;
         break;
     case 5:
     {
         char path[260];
-        runtime_script_property_get_api.copy_string(path, reinterpret_cast<char *>(graphics_host_storage + 0xc));
-        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
+        runtime_script_property_get_api.copy_string(path, runtime_graphics_resource_directory);
+        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
         runtime_script_property_get_api.copy_string(static_cast<char *>(result), path);
         break;
     }
     case 6:
     {
         void *data;
-        std::int32_t storage;
-        runtime_script_property_get_api.load_resource(static_cast<const char *>(*value), &data, static_cast<std::uint32_t *>(result), &storage, 0x20000000);
+        int32_t storage;
+        runtime_script_property_get_api.load_resource(static_cast<const char *>(*value), &data, static_cast<uint32_t *>(result), &storage, 0x20000000);
         *value = data;
         break;
     }
     case 8:
-        *static_cast<std::uint32_t *>(result) = runtime_script_property_get_api.get_property_value();
+        *static_cast<uint32_t *>(result) = runtime_script_property_get_api.get_property_value();
         break;
     case 9:
-        *static_cast<std::int32_t *>(result) = runtime_pointer_x;
+        *static_cast<int32_t *>(result) = runtime_pointer_x;
         break;
     case 10:
-        *static_cast<std::int32_t *>(result) = runtime_pointer_y;
+        *static_cast<int32_t *>(result) = runtime_pointer_y;
         break;
     case 11:
-        *static_cast<std::uint32_t *>(result) = runtime_script_property_get_api.query_frame_number(*value);
+        *static_cast<uint32_t *>(result) = runtime_script_property_get_api.query_frame_number(*value);
         break;
     case 12:
-        *static_cast<std::int32_t *>(result) = runtime_resource_host_mode;
+        *static_cast<int32_t *>(result) = runtime_resource_host_mode;
         break;
     }
 }
 
 // GAG.EXE: 0x0041FA00
-GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, std::int16_t width, std::uint16_t height, std::uint32_t flags)
+GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int16_t width, uint16_t height, uint32_t flags)
 {
     if((runtime_scene_control_flags & 0x800) != 0)
     {
@@ -1238,7 +1246,15 @@ GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE 
     }
 
     graphics_host_api.gdi_set_batch_limit(1);
-    std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+    runtime_display_context = {};
+    runtime_graphics_instance = nullptr;
+    std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
+    std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
+    std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
+    graphics_host_state = {};
+    runtime_game_host_context = {};
+    graphics_script_runtime_root = {};
+    std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
     bool initialized = graphics_host_api.initialize_media(instance) != 0;
     if(initialized)
     {
@@ -1261,12 +1277,13 @@ GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE 
     HWND child = nullptr;
     if(initialized)
     {
-        runtime_game_host_context.unknown_0038 = static_cast<std::uint32_t>(x);
-        runtime_game_host_context.unknown_003c = static_cast<std::uint32_t>(y);
-        runtime_game_host_context.width = static_cast<std::uint16_t>(width + 3) & 0xfffc;
-        runtime_game_host_context.height = static_cast<std::uint16_t>(height);
-        graphics_host_state.unknown_0000 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(parent));
-        *reinterpret_cast<HINSTANCE *>(graphics_host_storage + 8) = instance;
+        runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(x);
+        runtime_game_host_context.unknown_003c = static_cast<uint32_t>(y);
+        runtime_game_host_context.width = static_cast<uint16_t>(width + 3) & 0xfffc;
+        runtime_game_host_context.height = static_cast<uint16_t>(height);
+        graphics_host_state.unknown_0000 = reinterpret_cast<uintptr_t>(parent);
+        runtime_display_context.window = parent;
+        runtime_graphics_instance = instance;
 
         WNDCLASSA window_class{};
         window_class.style = CS_OWNDC;
@@ -1288,11 +1305,11 @@ GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE 
         POINT point;
         graphics_host_api.get_cursor_position(&point);
         graphics_host_api.screen_to_client(child, &point);
-        if(static_cast<std::int32_t>(runtime_game_host_context.width) < point.x)
+        if(static_cast<int32_t>(runtime_game_host_context.width) < point.x)
         {
             point.x = runtime_game_host_context.width - 1;
         }
-        if(static_cast<std::int32_t>(runtime_game_host_context.height) < point.y)
+        if(static_cast<int32_t>(runtime_game_host_context.height) < point.y)
         {
             point.y = runtime_game_host_context.height - 1;
         }
@@ -1383,16 +1400,16 @@ GraphicsHostInitializationResult *__fastcall initialize_graphics_host(HINSTANCE 
 }
 
 // GAG.EXE: 0x00420230
-std::uint32_t shutdown_graphics_host()
+uint32_t shutdown_graphics_host()
 {
-    const std::uint32_t display_result = graphics_host_shutdown_api.shutdown_display();
-    std::uint32_t result = 0;
+    const uint32_t display_result = graphics_host_shutdown_api.shutdown_display();
+    uint32_t result = 0;
     if(display_result != 0)
     {
-        const std::uint32_t generic_result = graphics_host_shutdown_api.shutdown_generic_backend();
-        const std::uint32_t async_result = graphics_host_shutdown_api.shutdown_async_files();
-        const std::uint32_t media_result = graphics_host_shutdown_api.shutdown_media_backend();
-        const std::uint32_t subsystem_result = display_result & generic_result & async_result & media_result;
+        const uint32_t generic_result = graphics_host_shutdown_api.shutdown_generic_backend();
+        const uint32_t async_result = graphics_host_shutdown_api.shutdown_async_files();
+        const uint32_t media_result = graphics_host_shutdown_api.shutdown_media_backend();
+        const uint32_t subsystem_result = display_result & generic_result & async_result & media_result;
         graphics_host_shutdown_api.shutdown_display_modes();
         if(subsystem_result != 0)
         {
@@ -1402,11 +1419,19 @@ std::uint32_t shutdown_graphics_host()
             {
                 graphics_host_shutdown_api.delete_critical_section(section);
             }
-            result = subsystem_result & static_cast<std::uint32_t>(graphics_host_shutdown_api.heap_destroy(runtime_resource_heap));
+            result = subsystem_result & static_cast<uint32_t>(graphics_host_shutdown_api.heap_destroy(runtime_resource_heap));
             graphics_host_shutdown_api.destroy_window(graphics_host_state.capture_window);
             if(result != 0)
             {
-                std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+                runtime_display_context = {};
+                runtime_graphics_instance = nullptr;
+                std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
+                std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
+                std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
+                graphics_host_state = {};
+                runtime_game_host_context = {};
+                graphics_script_runtime_root = {};
+                std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
                 runtime_scene_control_flags &= 0xfffff7ff;
             }
         }
@@ -1443,14 +1468,14 @@ void set_clear_runtime_display_api_for_testing(const ClearRuntimeDisplayApi &api
     clear_runtime_display_api = api;
 }
 
-void set_clear_runtime_display_size_for_testing(std::uint16_t width, std::uint16_t height)
+void set_clear_runtime_display_size_for_testing(uint16_t width, uint16_t height)
 {
     runtime_game_host_context.width = width;
     runtime_game_host_context.height = height;
 }
 
 // GAG.EXE: 0x0041FEA0
-GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const LegacyDisplayPixelFormat *requested_format)
+GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDisplayPixelFormat *requested_format)
 {
     if((runtime_scene_control_flags & 0x800) == 0)
     {
@@ -1478,18 +1503,17 @@ GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const L
         return nullptr;
     }
 
-    auto *context_bytes = reinterpret_cast<std::uint8_t *>(&runtime_game_host_context);
-    *reinterpret_cast<void **>(context_bytes + 0x24) = surface;
-    *reinterpret_cast<HDC *>(context_bytes + 4) = runtime_bootstrap_api.get_palette_dc();
-    *reinterpret_cast<HDC *>(context_bytes + 0x14) = runtime_bootstrap_api.get_palette_dib_dc();
-    *reinterpret_cast<HPALETTE *>(context_bytes + 0x0c) = runtime_bootstrap_api.get_palette_handle();
+    runtime_game_host_context.display_surface = surface;
+    runtime_game_host_context.palette_dc = runtime_bootstrap_api.get_palette_dc();
+    runtime_game_host_context.palette_dib_dc = runtime_bootstrap_api.get_palette_dib_dc();
+    runtime_game_host_context.palette = runtime_bootstrap_api.get_palette_handle();
     HBITMAP bitmap = runtime_bootstrap_api.get_palette_bitmap();
-    *reinterpret_cast<HBITMAP *>(context_bytes + 0x18) = bitmap;
-    *reinterpret_cast<HBITMAP *>(context_bytes + 0x1c) = runtime_bootstrap_api.get_palette_bitmap();
-    *reinterpret_cast<PALETTEENTRY **>(context_bytes + 0x34) = runtime_bootstrap_api.get_palette_entries();
+    runtime_game_host_context.bitmap = bitmap;
+    runtime_game_host_context.selected_bitmap = runtime_bootstrap_api.get_palette_bitmap();
+    runtime_game_host_context.palette_entries = runtime_bootstrap_api.get_palette_entries();
     runtime_game_host_context.window = graphics_host_state.capture_window;
 
-    auto *descriptor = reinterpret_cast<DisplayPixelFormatDescriptor *>(runtime_display_context.display_pixel_format);
+    auto *descriptor = &runtime_display_context.display_pixel_format;
     descriptor->bits_per_pixel = format->bits_per_pixel;
     descriptor->red_mask = format->red_mask;
     descriptor->green_mask = format->green_mask;
@@ -1509,16 +1533,17 @@ GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const L
     descriptor->palette_source = nullptr;
     descriptor->palette_entries = nullptr;
     runtime_game_host_context.bits_per_pixel = format->bits_per_pixel;
+    graphics_host_state.bits_per_pixel = format->bits_per_pixel;
 
-    runtime_display_host = runtime_bootstrap_api.initialize_scene_host(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(surface)), descriptor, runtime_game_host_context.width,
-        runtime_game_host_context.height, reinterpret_cast<int(__fastcall *)(void *, void *, std::uint32_t)>(&update_runtime_target), &runtime_game_host_context, 0x0f);
+    runtime_display_host = runtime_bootstrap_api.initialize_scene_host(reinterpret_cast<intptr_t>(surface), descriptor, runtime_game_host_context.width, runtime_game_host_context.height,
+        reinterpret_cast<int (*)(void *, void *, uint32_t)>(&update_runtime_target), &runtime_game_host_context, 0x0f);
     if(runtime_display_host == nullptr)
     {
         return nullptr;
     }
 
-    runtime_display_scene_identifier = static_cast<std::int32_t>(
-        reinterpret_cast<std::uintptr_t>(runtime_bootstrap_api.acquire_scene_node(0, 0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 0x20022, 0, nullptr, nullptr)));
+    runtime_display_scene_identifier =
+        reinterpret_cast<intptr_t>(runtime_bootstrap_api.acquire_scene_node(0, 0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 0x20022, 0, nullptr, nullptr));
     if(runtime_display_scene_identifier == 0)
     {
         return nullptr;
@@ -1529,9 +1554,9 @@ GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const L
     {
         return nullptr;
     }
-    *reinterpret_cast<std::int32_t *>(context_bytes + 0x28) = node->callback_first_position;
-    *reinterpret_cast<void **>(context_bytes + 0x2c) = reinterpret_cast<void *>(node->callback_first_position);
-    *reinterpret_cast<std::int32_t *>(context_bytes + 0x30) = node->callback_first_position;
+    runtime_game_host_context.unknown_0028 = node->callback_first_position;
+    runtime_game_host_context.framebuffer = reinterpret_cast<void *>(node->callback_first_position);
+    runtime_game_host_context.unknown_0030 = node->callback_first_position;
     runtime_bootstrap_api.unlock_scene_node(runtime_display_scene_identifier);
 
     if(runtime_bootstrap_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
@@ -1542,7 +1567,7 @@ GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const L
     runtime_bootstrap_api.operate_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
     runtime_bootstrap_api.reset_display_state();
     DWORD thread_id;
-    runtime_display_thread = runtime_bootstrap_api.create_thread(nullptr, 0, runtime_bootstrap_api.script_thread_entry, &graphics_host_state, 0, &thread_id);
+    runtime_display_thread = runtime_bootstrap_api.create_thread(nullptr, 0, runtime_bootstrap_api.script_thread_entry, &runtime_display_context, 0, &thread_id);
     if(runtime_display_thread == nullptr)
     {
         return nullptr;
@@ -1552,7 +1577,7 @@ GraphicsHostInitializationResult *__fastcall initialize_runtime_graphics(const L
 }
 
 // GAG.EXE: 0x00427830
-void __fastcall invalidate_game_framebuffer_rect(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
+void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32_t height)
 {
     DisplayRectangle rectangle{ x, y, x + width, y + height };
     if(framebuffer_invalidate_api.acquire_lock(nullptr, nullptr, nullptr) == 0)
@@ -1563,7 +1588,7 @@ void __fastcall invalidate_game_framebuffer_rect(std::int32_t x, std::int32_t y,
 }
 
 // GAG.EXE: 0x00417AB0
-void __fastcall initialize_custom_control_gdi(HWND window, CustomControlState *state)
+void initialize_custom_control_gdi(HWND window, CustomControlState *state)
 {
     state->destination_context = custom_control_gdi_api.get_context(window);
     state->source_context = custom_control_gdi_api.create_compatible_context(state->destination_context);
@@ -1591,7 +1616,7 @@ void __fastcall initialize_custom_control_gdi(HWND window, CustomControlState *s
 }
 
 // GAG.EXE: 0x00417B60
-void __fastcall set_custom_control_bitmap(CustomControlState *state, BITMAPINFO *bitmap, int present)
+void set_custom_control_bitmap(CustomControlState *state, BITMAPINFO *bitmap, int present)
 {
     if(bitmap->bmiHeader.biBitCount != 8)
     {
@@ -1607,8 +1632,8 @@ void __fastcall set_custom_control_bitmap(CustomControlState *state, BITMAPINFO 
     void *destination_bits;
     state->bitmap = custom_control_gdi_api.create_dib_section(state->destination_context, bitmap, DIB_PAL_COLORS, &destination_bits, nullptr, 0);
     state->previous_bitmap = custom_control_gdi_api.select_object(state->source_context, state->bitmap);
-    std::uint32_t pixel_count = static_cast<std::uint32_t>(bitmap->bmiHeader.biWidth * bitmap->bmiHeader.biHeight);
-    std::memcpy(destination_bits, reinterpret_cast<const std::uint8_t *>(bitmap) + 0x428, pixel_count);
+    uint32_t pixel_count = static_cast<uint32_t>(bitmap->bmiHeader.biWidth * bitmap->bmiHeader.biHeight);
+    std::memcpy(destination_bits, reinterpret_cast<const uint8_t *>(bitmap) + 0x428, pixel_count);
     if(state->bits_per_pixel == 8)
     {
         custom_control_gdi_api.unrealize_object(state->palette);
@@ -1632,7 +1657,7 @@ void __fastcall set_custom_control_bitmap(CustomControlState *state, BITMAPINFO 
 }
 
 // GAG.EXE: 0x00417CB0
-void __fastcall realize_and_present_custom_control(CustomControlState *state, BOOL background)
+void realize_and_present_custom_control(CustomControlState *state, BOOL background)
 {
     custom_control_gdi_api.unrealize_object(state->palette);
     custom_control_gdi_api.select_palette(state->destination_context, state->palette, background);
@@ -1642,7 +1667,7 @@ void __fastcall realize_and_present_custom_control(CustomControlState *state, BO
 }
 
 // GAG.EXE: 0x00417D10
-void __fastcall destroy_custom_control_gdi(HWND window, CustomControlState *state)
+void destroy_custom_control_gdi(HWND window, CustomControlState *state)
 {
     if(state->bits_per_pixel == 8)
     {
@@ -1715,11 +1740,12 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
     switch(wparam)
     {
     case 1:
-        custom_control_window_api.set_window_long(window, 0, static_cast<LONG>(lparam));
+        custom_control_window_api.set_window_long(window, 0, static_cast<LONG_PTR>(lparam));
         custom_control_window_api.initialize_gdi(window, reinterpret_cast<CustomControlState *>(lparam));
         return 1;
     case 2:
-        return custom_control_window_api.get_window_long(window, 0);
+        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
+        return state != nullptr && state->dialog_state != nullptr ? reinterpret_cast<LRESULT>(state->dialog_state) : reinterpret_cast<LRESULT>(state);
     case 4:
     {
         state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
@@ -1738,7 +1764,7 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
         {
             return 0;
         }
-        std::uint32_t size = custom_control_window_api.get_entry_size(archive, 0, "COMMENT.BMP");
+        uint32_t size = custom_control_window_api.get_entry_size(archive, 0, "COMMENT.BMP");
         if(size == 0)
         {
             custom_control_window_api.close_archive(archive);
@@ -1757,7 +1783,7 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
         custom_control_window_api.copy_string(state->comment_text, comment);
         custom_control_window_api.copy_string(state->archive_path, archive_path);
         custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<std::uint8_t *>(data) + 0xe), 1);
+        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<uint8_t *>(data) + 0xe), 1);
         state->bitmap_identity = nullptr;
         custom_control_window_api.heap_free(custom_control_window_api.get_process_heap(), 0, data);
         return 1;
@@ -1813,7 +1839,7 @@ LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, 
         }
         state->bitmap_identity = data;
         custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<std::uint8_t *>(static_cast<const std::uint8_t *>(data) + 0xe)), 1);
+        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<uint8_t *>(static_cast<const uint8_t *>(data) + 0xe)), 1);
         return 1;
     }
     default:
@@ -1833,11 +1859,11 @@ void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api
 
 // GAG.EXE: 0x00413650
 // GAG.EXE: 0x00412F40
-std::uint32_t initialize_direct_draw_runtime()
+uint32_t initialize_direct_draw_runtime()
 {
     OSVERSIONINFOA version;
     version.dwOSVersionInfoSize = sizeof(version);
-    std::uint32_t result = 0x10000;
+    uint32_t result = 0x10000;
     if(display_bootstrap_api.get_version(&version) != FALSE)
     {
         result = 1;
@@ -1951,9 +1977,9 @@ HRESULT WINAPI collect_direct_draw_display_mode(LegacyDirectDrawSurfaceDescripto
 }
 
 // GAG.EXE: 0x00412FE0
-std::uint32_t enumerate_direct_draw_display_modes()
+uint32_t enumerate_direct_draw_display_modes()
 {
-    std::uint32_t result = 0x200000;
+    uint32_t result = 0x200000;
     if((display_palette_flags & 1) != 0)
     {
         display_bootstrap_api.set_cooperative_mode(0x1000);
@@ -1972,7 +1998,7 @@ void set_display_bootstrap_api_for_testing(const DisplayBootstrapApi &api)
     display_bootstrap_api = api;
 }
 
-void set_display_bootstrap_state_for_testing(std::uint32_t flags, DisplayMode *head, DisplayMode *tail, std::uint32_t count, void *display)
+void set_display_bootstrap_state_for_testing(uint32_t flags, DisplayMode *head, DisplayMode *tail, uint32_t count, void *display)
 {
     display_palette_flags = flags;
     display_mode_head = head;
@@ -1984,12 +2010,12 @@ void set_display_bootstrap_state_for_testing(std::uint32_t flags, DisplayMode *h
     direct_draw_module = nullptr;
 }
 
-std::uint32_t get_display_bootstrap_error_for_testing()
+uint32_t get_display_bootstrap_error_for_testing()
 {
     return display_bootstrap_error;
 }
 
-std::uint32_t get_display_mode_count_for_testing()
+uint32_t get_display_mode_count_for_testing()
 {
     return display_mode_count;
 }
@@ -2000,9 +2026,9 @@ DisplayMode *get_display_mode_tail_for_testing()
 }
 
 // GAG.EXE: 0x00413030
-std::uint32_t enumerate_windows_display_modes()
+uint32_t enumerate_windows_display_modes()
 {
-    std::uint32_t result = 0x200000;
+    uint32_t result = 0x200000;
     if((display_palette_flags & 2) != 0)
     {
         HDC dc = windows_display_enumeration_api.get_dc(nullptr);
@@ -2021,10 +2047,10 @@ std::uint32_t enumerate_windows_display_modes()
                 {
                     mode->unknown_0008 = settings.dmFields;
                     mode->surface_caps = settings.dmDisplayFlags;
-                    mode->width = static_cast<std::int32_t>(settings.dmPelsWidth);
-                    mode->height = static_cast<std::int32_t>(settings.dmPelsHeight);
+                    mode->width = static_cast<int32_t>(settings.dmPelsWidth);
+                    mode->height = static_cast<int32_t>(settings.dmPelsHeight);
                     mode->unknown_0010 = settings.dmDisplayFrequency;
-                    mode->bits_per_pixel = static_cast<std::int32_t>(settings.dmBitsPerPel);
+                    mode->bits_per_pixel = static_cast<int32_t>(settings.dmBitsPerPel);
 
                     if((mode->unknown_0008 & 0x400000) != 0)
                     {
@@ -2034,7 +2060,7 @@ std::uint32_t enumerate_windows_display_modes()
                             {
                                 if(existing->unknown_0010 < mode->unknown_0010)
                                 {
-                                    std::memcpy(&existing->unknown_0004, &mode->unknown_0004, 7 * sizeof(std::uint32_t));
+                                    std::memcpy(&existing->unknown_0004, &mode->unknown_0004, 7 * sizeof(uint32_t));
                                 }
                                 rejected = true;
                                 break;
@@ -2068,7 +2094,7 @@ std::uint32_t enumerate_windows_display_modes()
                                     bitmap_info->bmiHeader.biBitCount = 16;
                                     bitmap_info->bmiHeader.biClrUsed = mode->green_mask == 0x7e0 ? 0x10000 : 0x8000;
                                     bitmap_info->bmiHeader.biCompression = mode->green_mask == 0x7e0 ? 3 : 0;
-                                    auto *masks = reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors);
+                                    auto *masks = reinterpret_cast<uint32_t *>(bitmap_info->bmiColors);
                                     masks[0] = mode->red_mask;
                                     masks[1] = mode->green_mask;
                                     masks[2] = mode->blue_mask;
@@ -2136,9 +2162,9 @@ void set_windows_display_enumeration_api_for_testing(const WindowsDisplayEnumera
 }
 
 // GAG.EXE: 0x00413380
-std::uint32_t __fastcall initialize_display_mode_host(HWND window, std::uint32_t options)
+uint32_t initialize_display_mode_host(HWND window, uint32_t options)
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if((display_palette_flags & 0x10) == 0)
     {
         display_palette_flags = (display_palette_flags & 0x80000003) | options;
@@ -2186,7 +2212,7 @@ void set_display_host_initialization_api_for_testing(const DisplayHostInitializa
     display_host_initialization_api = api;
 }
 
-void set_display_host_initialization_state_for_testing(std::uint32_t flags, HWND window)
+void set_display_host_initialization_state_for_testing(uint32_t flags, HWND window)
 {
     display_palette_flags = flags;
     display_palette_window = window;
@@ -2198,7 +2224,7 @@ HWND get_display_host_window_for_testing()
 }
 
 // GAG.EXE: 0x00413650
-DisplayMode *__fastcall begin_display_mode_enumeration(std::uint32_t mask)
+DisplayMode *begin_display_mode_enumeration(uint32_t mask)
 {
     display_mode_iterator = display_mode_head;
     while(display_mode_iterator != nullptr && (display_mode_iterator->flags & mask & 0x30000) == 0)
@@ -2209,7 +2235,7 @@ DisplayMode *__fastcall begin_display_mode_enumeration(std::uint32_t mask)
 }
 
 // GAG.EXE: 0x004136A0
-DisplayMode *__fastcall get_next_display_mode(std::uint32_t mask)
+DisplayMode *get_next_display_mode(uint32_t mask)
 {
     display_mode_iterator = display_mode_iterator->next;
     while(display_mode_iterator != nullptr && (display_mode_iterator->flags & mask & 0x30000) == 0)
@@ -2257,34 +2283,32 @@ DisplayMode *find_current_display_mode()
 }
 
 #if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
-void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, std::int32_t width, std::int32_t height, bool indexed)
+void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, int32_t width, int32_t height, bool indexed)
 {
     build_modern_windows_virtual_display_mode(mode, width, height, indexed ? ModernWindowsColorMode::indexed_8 : ModernWindowsColorMode::rgb565_16);
 }
 
-std::int32_t get_modern_windows_color_depth_for_testing()
+int32_t get_modern_windows_color_depth_for_testing()
 {
     return modern_windows_color_mode == ModernWindowsColorMode::indexed_8 ? 8 : 16;
 }
 
-RECT calculate_modern_windows_fullscreen_viewport_for_testing(std::int32_t monitor_width, std::int32_t monitor_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
-    std::int32_t scaling)
+RECT calculate_modern_windows_fullscreen_viewport_for_testing(int32_t monitor_width, int32_t monitor_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling)
 {
     return calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsFullscreenScaling>(scaling));
 }
 
-RECT calculate_modern_windows_windowed_viewport_for_testing(std::int32_t client_width, std::int32_t client_height, std::int32_t framebuffer_width, std::int32_t framebuffer_height,
-    std::int32_t scaling)
+RECT calculate_modern_windows_windowed_viewport_for_testing(int32_t client_width, int32_t client_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling)
 {
     return calculate_modern_windows_windowed_viewport(client_width, client_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsWindowedScaling>(scaling));
 }
 
-std::int32_t map_modern_windows_fullscreen_coordinate_for_testing(std::int32_t value, std::int32_t destination_extent, std::int32_t source_extent)
+int32_t map_modern_windows_fullscreen_coordinate_for_testing(int32_t value, int32_t destination_extent, int32_t source_extent)
 {
     return map_modern_windows_presentation_coordinate(value, destination_extent, source_extent);
 }
 
-void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, std::int32_t viewport_width, std::int32_t viewport_height)
+void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, int32_t viewport_width, int32_t viewport_height)
 {
     modern_windows_presentation_state.fullscreen = fullscreen;
     modern_windows_presentation_state.viewport_width = viewport_width;
@@ -2317,7 +2341,7 @@ DisplayMode *get_current_display_mode()
 }
 
 // GAG.EXE: 0x0041F980
-DisplayMode *__fastcall begin_available_display_modes(std::uint32_t mask)
+DisplayMode *begin_available_display_modes(uint32_t mask)
 {
     if((graphics_host_flags & 0x800) != 0)
     {
@@ -2327,7 +2351,7 @@ DisplayMode *__fastcall begin_available_display_modes(std::uint32_t mask)
 }
 
 // GAG.EXE: 0x0041F9A0
-DisplayMode *__fastcall get_next_available_display_mode(std::uint32_t mask)
+DisplayMode *get_next_available_display_mode(uint32_t mask)
 {
     if((graphics_host_flags & 0x800) != 0)
     {
@@ -2337,7 +2361,7 @@ DisplayMode *__fastcall get_next_available_display_mode(std::uint32_t mask)
 }
 
 // GAG.EXE: 0x0041EFA0
-std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
+uint32_t detect_alternate_display_mode(ApplicationState *state)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     // Non-original modern-Windows compatibility: expose borderless scaled fullscreen without selecting a physical 640x480 display mode.
@@ -2345,7 +2369,7 @@ std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
     state->flags |= 0x4000;
     return state->flags & 0x4000;
 #else
-    std::uint32_t remaining = 0x18;
+    uint32_t remaining = 0x18;
     DisplayMode *active_mode = get_current_display_mode();
     do
     {
@@ -2368,7 +2392,7 @@ std::uint32_t __fastcall detect_alternate_display_mode(ApplicationState *state)
 }
 
 // GAG.EXE: 0x0041EBD0
-void __fastcall locate_game_data_drive(ApplicationState *state, const char *requested_archive)
+void locate_game_data_drive(ApplicationState *state, const char *requested_archive)
 {
     state->installed_version[0] = '\0';
     char candidate_path[MAX_PATH]{};
@@ -2435,7 +2459,7 @@ void __fastcall locate_game_data_drive(ApplicationState *state, const char *requ
 }
 
 // GAG.EXE: 0x0041F040
-int __fastcall validate_startup_environment(ApplicationState *state, const char *requested_archive, std::uint32_t stages)
+int validate_startup_environment(ApplicationState *state, const char *requested_archive, uint32_t stages)
 {
     if((state->validation_flags & 0x80000000) == 0)
     {
@@ -2449,8 +2473,8 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
 
     if((stages & 2) != 0)
     {
-        std::uint32_t registry_result = validation_api.load_registry(state);
-        std::ptrdiff_t error_offset = 0;
+        uint32_t registry_result = validation_api.load_registry(state);
+        ptrdiff_t error_offset = 0;
         if(registry_result == 0x10000)
         {
             error_offset = 0x1144;
@@ -2548,7 +2572,7 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
 
     if((stages & 8) != 0 && state->archive_context == nullptr)
     {
-        std::uint32_t speed = validation_api.measure_read_speed(state->installed_version, 0x180000);
+        uint32_t speed = validation_api.measure_read_speed(state->installed_version, 0x180000);
         if(speed == 0)
         {
             if((stages & 0x20) != 0)
@@ -2600,7 +2624,7 @@ int __fastcall validate_startup_environment(ApplicationState *state, const char 
 }
 
 // GAG.EXE: 0x0041F4E0
-void __fastcall initialize_application_state_no_op(ApplicationState *) {}
+void initialize_application_state_no_op(ApplicationState *) {}
 
 // Exact initialized strings in the executable's writable 23-slot message block at 0x0043F178..0x004408D3. Each slot is 0x104 bytes and its unused tail is zero-filled.
 char application_message_table[23][0x104] = { "GAG", "File", "Options", "View", "Load Game", "Save Game", "New Game", "Resume Game", "Credits", "Exit", "Comments", "Mute Sound", "Full Screen",
@@ -2609,11 +2633,84 @@ char application_message_table[23][0x104] = { "GAG", "File", "Options", "View", 
     "Registry problem...\n\nInvalid registry information\nTry to run 'Setup' to reinstall the game!",
     "Registry problem...\n\nPrevious or demo version detected\nYou should run 'Setup' to reinstall the game!", "CD drive speed is not high enough for this application!\nRun anyway?",
     "This application requires minimum 256-color display mode...", "This application requires 256-color or HI-color display mode..." };
-static_assert(sizeof(application_message_table) == 0x175c);
+
+constexpr char gagboy_startup_script[] = R"([CFG]
+event=e_START /PRELOAD:GAGBOY;
+
+[GAGBOY]
+flags=NOSAVE NOCOMMENT PAL_NOADJUST;
+mouse=TET /FILE:K_ghand.256:0 /FILE:K_ukaz.bmp:1 /F:NOPAL /POS:7,11;
+mouse=TNM /FILE:K_gnone.256:0 /FILE:K_none.bmp:1 /F:NOPAL;
+command=Go;
+object=GAGBoy Score::0;
+image=Background /FILE:VE-GBNEW.BMP /F:NOPAL /INVERT_NOPAL /F:PRIMARY;
+zone=Global /RECT:0,0,639,479 /COMM:Go /MOUSE:TNM /P:10;
+zone=Start /POS:149,49,88,84 /COMM:Go /MOUSE:TET /P:20;
+zone=Action1 /POS:180,185,45,200 /COMM:Go /MOUSE:TET /P:20;
+zone=Action2 /POS:505,90,45,200 /COMM:Go /MOUSE:TET /P:20;
+zone=Exit /POS:478,426,66,54 /COMM:Go /MOUSE:TET /P:20;
+event=e_RUN /GAME:XTETDLL.DLL:GAGBoy::Score /QUIT;
+
+[END]
+)";
+bool gagboy_startup_mode;
+
+bool is_gagboy_startup_resource(const char *path)
+{
+    if(!gagboy_startup_mode || path == nullptr)
+    {
+        return false;
+    }
+    const char *name = path;
+    for(const char *cursor = path; *cursor != '\0'; ++cursor)
+    {
+        if(*cursor == '\\' || *cursor == '/')
+        {
+            name = cursor + 1;
+        }
+    }
+    return _stricmp(name, "GAGBOY.CFG") == 0;
+}
+
+bool command_line_has_gagboy_argument(const char *command_line)
+{
+    if(command_line == nullptr)
+    {
+        return false;
+    }
+    const char *cursor = command_line;
+    while(*cursor != '\0')
+    {
+        while(std::isspace(static_cast<unsigned char>(*cursor)) != 0)
+        {
+            ++cursor;
+        }
+        std::string argument;
+        bool quoted = false;
+        while(*cursor != '\0' && (quoted || std::isspace(static_cast<unsigned char>(*cursor)) == 0))
+        {
+            if(*cursor == '"')
+            {
+                quoted = !quoted;
+            }
+            else
+            {
+                argument.push_back(*cursor);
+            }
+            ++cursor;
+        }
+        if(argument == "--gagboy")
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 // GAG.EXE: 0x0041F4F0
-ApplicationState *__fastcall initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR, int show_command)
+ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR command_line, int show_command)
 {
+    gagboy_startup_mode = command_line_has_gagboy_argument(command_line);
     application_initialization_api.set_error_mode(0x8001);
     ApplicationState *state = static_cast<ApplicationState *>(application_initialization_api.heap_alloc(application_initialization_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(ApplicationState)));
     if(state == nullptr)
@@ -2651,15 +2748,15 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
         // Non-original modern-Windows compatibility: restore the complete framed window rectangle, with the legacy saved point used as a migration fallback.
         RECT windowed_rectangle{ 0, 0, width, height };
         application_initialization_api.adjust_window_rect(&windowed_rectangle, modern_windows_windowed_style, FALSE);
-        const std::int32_t minimum_width = windowed_rectangle.right - windowed_rectangle.left;
-        const std::int32_t minimum_height = windowed_rectangle.bottom - windowed_rectangle.top;
+        const int32_t minimum_width = windowed_rectangle.right - windowed_rectangle.left;
+        const int32_t minimum_height = windowed_rectangle.bottom - windowed_rectangle.top;
         windowed_rectangle = { 0, 0, minimum_width, minimum_height };
         if(!load_saved_window_rectangle(minimum_width, minimum_height, &windowed_rectangle))
         {
-            const std::int32_t screen_width = application_initialization_api.get_system_metrics(SM_CXSCREEN);
-            const std::int32_t screen_height = application_initialization_api.get_system_metrics(SM_CYSCREEN);
-            const std::int32_t left = (screen_width - minimum_width) / 2;
-            const std::int32_t top = (screen_height - minimum_height) / 2;
+            const int32_t screen_width = application_initialization_api.get_system_metrics(SM_CXSCREEN);
+            const int32_t screen_height = application_initialization_api.get_system_metrics(SM_CYSCREEN);
+            const int32_t left = (screen_width - minimum_width) / 2;
+            const int32_t top = (screen_height - minimum_height) / 2;
             windowed_rectangle = { left, top, left + minimum_width, top + minimum_height };
         }
         modern_windows_presentation_state.windowed_rectangle = windowed_rectangle;
@@ -2718,23 +2815,23 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
 
     RECT client_rectangle;
     application_initialization_api.get_client_rect(state->window, &client_rectangle);
-    state->content_left = static_cast<std::int32_t>(static_cast<std::uint32_t>(client_rectangle.right - width) >> 1);
+    state->content_left = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.right - width) >> 1);
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
         // Non-original modern-Windows compatibility: the framebuffer is centered only within the window's client coordinates.
-        state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>(client_rectangle.bottom - height) >> 1);
+        state->content_top = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.bottom - height) >> 1);
     }
     else
 #endif
     {
-        state->content_top = static_cast<std::int32_t>(static_cast<std::uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
+        state->content_top = static_cast<int32_t>(static_cast<uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
     }
     state->content_right = state->content_left + width;
     state->content_bottom = state->content_top + height;
 
-    GraphicsHostInitializationResult *graphics = application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top,
-        static_cast<std::int16_t>(width), static_cast<std::uint16_t>(height), 0x300000);
+    GraphicsHostInitializationResult *graphics =
+        application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top, static_cast<int16_t>(width), static_cast<uint16_t>(height), 0x300000);
     if(graphics == nullptr)
     {
         return nullptr;
@@ -2763,10 +2860,17 @@ ApplicationState *__fastcall initialize_gag_application(int width, int height, H
     {
         application_initialization_api.set_active_object_field(1);
     }
-    application_initialization_api.copy_string(state->startup_config, "Start.cfg");
-    if(state->archive_context != nullptr && application_initialization_api.detect_resource_type(state->installed_version) == 4)
+    if(gagboy_startup_mode)
     {
-        application_initialization_api.copy_string(state->startup_config, state->installed_version);
+        application_initialization_api.copy_string(state->startup_config, "GAGBOY.CFG");
+    }
+    else
+    {
+        application_initialization_api.copy_string(state->startup_config, "Start.cfg");
+        if(state->archive_context != nullptr && application_initialization_api.detect_resource_type(state->installed_version) == 4)
+        {
+            application_initialization_api.copy_string(state->startup_config, state->installed_version);
+        }
     }
     return state;
 }
@@ -2776,8 +2880,13 @@ void set_application_initialization_api_for_testing(const ApplicationInitializat
     application_initialization_api = api;
 }
 
+void set_gagboy_startup_mode_for_testing(bool enabled)
+{
+    gagboy_startup_mode = enabled;
+}
+
 // GAG.EXE: 0x00429DF0
-std::uint32_t __fastcall initialize_runtime_media_backend(HINSTANCE instance)
+uint32_t initialize_runtime_media_backend(HINSTANCE instance)
 {
     if(runtime_media_backend_initialized)
     {
@@ -2799,7 +2908,7 @@ std::uint32_t __fastcall initialize_runtime_media_backend(HINSTANCE instance)
 }
 
 // GAG.EXE: 0x00410B70
-std::uint32_t initialize_runtime_generic_backend()
+uint32_t initialize_runtime_generic_backend()
 {
     if(runtime_generic_backend_enabled != 0)
     {
@@ -2817,7 +2926,7 @@ std::uint32_t initialize_runtime_generic_backend()
 }
 
 // GAG.EXE: 0x00410BD0
-std::uint32_t shutdown_runtime_generic_backend()
+uint32_t shutdown_runtime_generic_backend()
 {
     if(runtime_generic_backend_enabled != 0)
     {
@@ -2846,7 +2955,7 @@ RuntimeMediaBackend *acquire_first_runtime_media_backend()
 }
 
 // GAG.EXE: 0x00429E50
-std::uint32_t shutdown_runtime_media_backend()
+uint32_t shutdown_runtime_media_backend()
 {
     if(!runtime_media_backend_initialized)
     {
@@ -2871,7 +2980,7 @@ void set_runtime_media_backend_shutdown_api_for_testing(const RuntimeMediaBacken
 }
 
 // GAG.EXE: 0x00414E10
-std::uint32_t initialize_async_file_subsystem()
+uint32_t initialize_async_file_subsystem()
 {
     if(async_file_enabled)
     {
@@ -2913,16 +3022,16 @@ HANDLE get_runtime_generic_backend_mutex_for_testing()
 }
 
 // GAG.EXE: 0x00404970
-void __fastcall set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
+void set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
 {
-    if(root != reinterpret_cast<ScriptRuntimeRoot *>(static_cast<std::uintptr_t>(0xffffffff)))
+    if(root != reinterpret_cast<ScriptRuntimeRoot *>(static_cast<intptr_t>(-1)))
     {
         script_runtime_root = root;
     }
 }
 
 // GAG.EXE: 0x00407EA0
-void __fastcall set_runtime_named_node_enabled(void *identity, int enabled)
+void set_runtime_named_node_enabled(void *identity, int enabled)
 {
     for(RuntimeNamedNode *node = script_runtime_root->runtime_nodes; node != nullptr; node = node->next)
     {
@@ -2942,13 +3051,13 @@ void __fastcall set_runtime_named_node_enabled(void *identity, int enabled)
 }
 
 // GAG.EXE: 0x0041F3D0
-bool __fastcall register_gag_window_classes(ApplicationState *state)
+bool register_gag_window_classes(ApplicationState *state)
 {
     HBRUSH background = window_class_api.create_solid_brush(0);
     WNDCLASSEXA window_class{};
     window_class.cbSize = sizeof(window_class);
     window_class.lpfnWndProc = window_class_api.primary_window_procedure;
-    window_class.cbWndExtra = 4;
+    window_class.cbWndExtra = sizeof(LONG_PTR);
     window_class.hInstance = state->instance;
     window_class.hIcon = window_class_api.load_icon(state->instance, MAKEINTRESOURCEA(105));
     window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
@@ -2959,7 +3068,7 @@ bool __fastcall register_gag_window_classes(ApplicationState *state)
     window_class = {};
     window_class.cbSize = sizeof(window_class);
     window_class.lpfnWndProc = window_class_api.capture_window_procedure;
-    window_class.cbWndExtra = 4;
+    window_class.cbWndExtra = sizeof(LONG_PTR);
     window_class.hInstance = state->instance;
     window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
     window_class.hbrBackground = background;
@@ -2975,7 +3084,7 @@ bool __fastcall register_gag_window_classes(ApplicationState *state)
 }
 
 // GAG.EXE: 0x004174B0
-std::uint32_t __fastcall register_custom_control_class(HINSTANCE instance)
+uint32_t register_custom_control_class(HINSTANCE instance)
 {
     if(custom_control_registered != 0)
     {
@@ -2985,7 +3094,7 @@ std::uint32_t __fastcall register_custom_control_class(HINSTANCE instance)
     WNDCLASSA window_class{};
     window_class.style = CS_OWNDC;
     window_class.lpfnWndProc = window_class_api.custom_control_procedure;
-    window_class.cbWndExtra = 0x10;
+    window_class.cbWndExtra = 4 * sizeof(LONG_PTR);
     window_class.hInstance = instance;
     window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
     window_class.hbrBackground = window_class_api.create_solid_brush(0);
@@ -3013,7 +3122,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
 
     if(message == WM_CREATE)
     {
-        main_window_procedure_api.set_window_long(window, 0, *reinterpret_cast<LONG *>(lparam));
+        main_window_procedure_api.set_window_long(window, 0, *reinterpret_cast<LONG_PTR *>(lparam));
         return 0;
     }
     if(message == WM_DESTROY)
@@ -3093,8 +3202,8 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     }
     else if(message == WM_MOUSEMOVE)
     {
-        const std::int32_t x = static_cast<std::uint16_t>(LOWORD(lparam));
-        const std::int32_t y = static_cast<std::uint16_t>(HIWORD(lparam));
+        const int32_t x = static_cast<uint16_t>(LOWORD(lparam));
+        const int32_t y = static_cast<uint16_t>(HIWORD(lparam));
 #if defined(FREEGAG_WINDOWS_FIXES)
         if(x < state->content_left || y < state->content_top || x >= state->content_right || y >= state->content_bottom)
 #else
@@ -3111,7 +3220,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     }
     else if(message == WM_SYSCOMMAND)
     {
-        const std::uint32_t command = static_cast<std::uint32_t>(wparam) & 0xfffffff0;
+        const uint32_t command = static_cast<uint32_t>(wparam) & 0xfffffff0;
         if(command == SC_MINIMIZE && state != nullptr)
         {
             state->flags |= 0x20000000;
@@ -3136,15 +3245,15 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     }
     else if(message == WM_KEYDOWN || message == WM_CHAR || (message >= 0x30f && message <= 0x311))
     {
-        if(state->game_context != nullptr)
+        if(state->capture_window != nullptr)
         {
-            return main_window_procedure_api.send_message(*reinterpret_cast<HWND *>(static_cast<std::uint8_t *>(state->game_context) + 4), message, wparam, lparam);
+            return main_window_procedure_api.send_message(state->capture_window, message, wparam, lparam);
         }
         return 0;
     }
     else if(message == WM_COMMAND)
     {
-        const std::uint32_t command = LOWORD(wparam);
+        const uint32_t command = LOWORD(wparam);
         if(command == 0x8790)
         {
             set_runtime_flag_01000000();
@@ -3251,7 +3360,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             set_script_runtime_flags(1, !comments_enabled);
 #else
-            const bool enabled = (*reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x9b4) & 1) == 0;
+            const bool enabled = script_runtime_root != nullptr && (script_runtime_root->flags & 1) == 0;
             if(enabled)
             {
                 state->flags &= 0xfdffffff;
@@ -3282,7 +3391,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8900)
         {
-            const std::uint32_t flags = state->flags;
+            const uint32_t flags = state->flags;
             if((flags & 0x80) != 0)
             {
                 state->flags = (flags & 0xffffff7f) | 0x40;
@@ -3303,16 +3412,16 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     }
     else if(message == 0x7ffd)
     {
-        auto *reference = reinterpret_cast<StateFieldReference *>(lparam);
+        auto *tree = reinterpret_cast<RuntimeTreeNode *>(lparam);
         auto *query = reinterpret_cast<ApplicationStateFieldQuery *>(lparam);
-        std::uint32_t value;
-        switch(static_cast<std::uint32_t>(wparam))
+        uint32_t value;
+        switch(static_cast<uint32_t>(wparam))
         {
         case 1:
             set_application_inactive_flags(state);
             return 0;
         case 0x3ea:
-            if(reference != nullptr)
+            if(query != nullptr)
             {
                 value = (state->saved_flags & 0x100000) != 0 ? 0x3000000 : 0x7000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
@@ -3321,15 +3430,15 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         case 0x3eb:
         case 0x3ec:
         case 0x3ed:
-            if(reference != nullptr)
+            if(query != nullptr)
             {
-                const std::uint32_t mask = static_cast<std::uint32_t>(wparam) == 0x3eb ? 0x800000 : (static_cast<std::uint32_t>(wparam) == 0x3ec ? 0x200000 : 0x400000);
+                const uint32_t mask = static_cast<uint32_t>(wparam) == 0x3eb ? 0x800000 : (static_cast<uint32_t>(wparam) == 0x3ec ? 0x200000 : 0x400000);
                 value = (state->saved_flags & mask) != 0 ? 0x3000000 : 0x7000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
             }
             return 0;
         case 0x3f2:
-            if((state->flags & 0x4000) != 0 && reference != nullptr)
+            if((state->flags & 0x4000) != 0 && query != nullptr)
             {
                 value = (state->flags & 0x20) != 0 ? 0x3000000 : 0x7000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
@@ -3337,15 +3446,15 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             return 0;
         case 0x3fc:
         case 0x406:
-            if(reference != nullptr)
+            if(query != nullptr)
             {
-                const std::uint32_t mask = static_cast<std::uint32_t>(wparam) == 0x3fc ? 0x1000 : 0x02000000;
+                const uint32_t mask = static_cast<uint32_t>(wparam) == 0x3fc ? 0x1000 : 0x02000000;
                 value = (state->flags & mask) != 0 ? 0x3000000 : 0x7000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
             }
             return 0;
         case 0x456:
-            if(reference != nullptr)
+            if(query != nullptr)
             {
                 value = (state->flags & 0x4000) != 0 ? 0x7000000 : 0x3000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
@@ -3406,7 +3515,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             return 0;
         case 0xbd6:
-            if(reference != nullptr)
+            if(query != nullptr)
             {
                 value = (state->flags & 0x40000) != 0 ? 0x3000000 : 0x7000000;
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
@@ -3417,10 +3526,10 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             main_window_procedure_api.post_message(window, WM_CLOSE, 0, 0);
             return 0;
         case 0x30000000:
-            finish_credits_state(state, reference);
+            finish_credits_state(state, tree);
             return 0;
         case 0x40000000:
-            process_state_activation(state, reference);
+            process_state_activation(state, tree);
             return 0;
         case 0x60000000:
             enter_runtime_state_1000();
@@ -3468,7 +3577,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             if((state->validation_flags & 0x100) != 0 && state->script_state != 0)
             {
                 append_string(state->installation_path, auto_save_file_name);
-                run_synchronized_state_operation_176a0(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
+                run_synchronized_state_operation_176a0(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(static_cast<uintptr_t>(state->script_state)));
             }
             save_runtime_settings(state);
             switch_display_mode_if_enabled(state, 0);
@@ -3513,7 +3622,7 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
     {
         auto *create = reinterpret_cast<CREATESTRUCTA *>(lparam);
         state = static_cast<ApplicationState *>(create->lpCreateParams);
-        window_procedure_api.set_window_long(window, 0, reinterpret_cast<LONG>(state));
+        window_procedure_api.set_window_long(window, 0, reinterpret_cast<LONG_PTR>(state));
         HMENU menu = window_procedure_api.get_system_menu(window, FALSE);
         window_procedure_api.delete_menu(menu, SC_RESTORE, 0);
         window_procedure_api.delete_menu(menu, SC_MAXIMIZE, 0);
@@ -3601,10 +3710,9 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
     }
     else if(message == WM_KEYDOWN || message == WM_CHAR)
     {
-        if(state->game_context != nullptr)
+        if(state->capture_window != nullptr)
         {
-            HWND target = *reinterpret_cast<HWND *>(static_cast<std::uint8_t *>(state->game_context) + 4);
-            return window_procedure_api.send_message(target, message, wparam, lparam);
+            return window_procedure_api.send_message(state->capture_window, message, wparam, lparam);
         }
     }
     else if(message == WM_COMMAND || message == WM_SYSCOMMAND)
@@ -3627,7 +3735,7 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
 }
 
 // GAG.EXE: 0x0041D060
-void __fastcall save_runtime_settings(ApplicationState *state)
+void save_runtime_settings(ApplicationState *state)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
@@ -3637,11 +3745,12 @@ void __fastcall save_runtime_settings(ApplicationState *state)
 #endif
     if(state->archive_context == nullptr)
     {
-        std::uint32_t settings = state->flags & 0x02001020;
+        uint32_t settings = state->flags & 0x02001020;
         HKEY key;
 #if defined(FREEGAG_WINDOWS_FIXES)
         // Non-original modern-Windows compatibility: the original HKLM write is not available to an unelevated manifested process, so persist mutable preferences per user.
-        if(settings_registry_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS)
+        if(settings_registry_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | modern_windows_registry_view, nullptr, &key, nullptr)
+            == ERROR_SUCCESS)
 #else
         if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
 #endif
@@ -3652,11 +3761,11 @@ void __fastcall save_runtime_settings(ApplicationState *state)
     }
 }
 
-bool load_saved_window_position(std::int32_t width, std::int32_t height, POINT *position)
+bool load_saved_window_position(int32_t width, int32_t height, POINT *position)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     HKEY key;
-    if(position == nullptr || window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    if(position == nullptr || window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE | modern_windows_registry_view, &key) != ERROR_SUCCESS)
     {
         return false;
     }
@@ -3686,7 +3795,7 @@ bool load_saved_window_position(std::int32_t width, std::int32_t height, POINT *
 #endif
 }
 
-bool load_saved_window_rectangle(std::int32_t minimum_width, std::int32_t minimum_height, RECT *rectangle)
+bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, RECT *rectangle)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     if(rectangle == nullptr)
@@ -3694,10 +3803,10 @@ bool load_saved_window_rectangle(std::int32_t minimum_width, std::int32_t minimu
         return false;
     }
 
-    const std::int32_t fallback_width = rectangle->right - rectangle->left;
-    const std::int32_t fallback_height = rectangle->bottom - rectangle->top;
+    const int32_t fallback_width = rectangle->right - rectangle->left;
+    const int32_t fallback_height = rectangle->bottom - rectangle->top;
     HKEY key;
-    if(window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+    if(window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE | modern_windows_registry_view, &key) != ERROR_SUCCESS)
     {
         return false;
     }
@@ -3752,7 +3861,9 @@ void save_window_position(ApplicationState *state)
     }
 
     HKEY key;
-    if(window_position_persistence_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+    if(window_position_persistence_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | modern_windows_registry_view, nullptr, &key,
+           nullptr)
+        != ERROR_SUCCESS)
     {
         return;
     }
@@ -3768,7 +3879,7 @@ void save_window_position(ApplicationState *state)
 }
 
 // GAG.EXE: 0x0041D0D0
-void __fastcall set_game_cursor_active(ApplicationState *state, int active)
+void set_game_cursor_active(ApplicationState *state, int active)
 {
     if(active == 0)
     {
@@ -3788,9 +3899,9 @@ void __fastcall set_game_cursor_active(ApplicationState *state, int active)
 }
 
 // GAG.EXE: 0x0041D510
-void __fastcall finish_credits_state(ApplicationState *state, StateFieldReference *reference)
+void finish_credits_state(ApplicationState *state, RuntimeTreeNode *tree)
 {
-    if(reference->activity == 0 && (state->validation_flags & 0x100) != 0 && (state->flags & 0x10000) != 0 && strings_equal("CREDITS", reference->name))
+    if(tree->parent == nullptr && (state->validation_flags & 0x100) != 0 && (state->flags & 0x10000) != 0 && strings_equal("CREDITS", tree->name))
     {
         state->flags &= 0xfffeffff;
         finish_credits_callback();
@@ -3826,17 +3937,14 @@ void update_modern_windows_windowed_viewport(ApplicationState *state)
         window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
     }
     window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
-    if(state->game_context != nullptr)
-    {
-        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
-        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
-    }
+    runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(state->content_left);
+    runtime_game_host_context.unknown_003c = static_cast<uint32_t>(state->content_top);
 #else
     (void)state;
 #endif
 }
 
-void __fastcall update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
+void update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
 {
     if(secondary_layout != nullptr)
     {
@@ -3912,8 +4020,8 @@ void __fastcall update_application_window_layout(ApplicationState *state, Second
         state->desktop_window_rect = monitor_info.rcMonitor;
         state->window_top_adjustment = 0;
 
-        const std::int32_t monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-        const std::int32_t monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
+        const int32_t monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+        const int32_t monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
         const RECT viewport = calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, state->width, state->height, modern_windows_fullscreen_scaling);
         state->content_left = viewport.left;
         state->content_top = viewport.top;
@@ -3976,11 +4084,8 @@ void __fastcall update_application_window_layout(ApplicationState *state, Second
         window_layout_api.set_focus(state->capture_window);
         window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
     }
-    if(state->game_context != nullptr)
-    {
-        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x490) = state->content_left;
-        *reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x494) = state->content_top;
-    }
+    runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(state->content_left);
+    runtime_game_host_context.unknown_003c = static_cast<uint32_t>(state->content_top);
 }
 
 void set_window_layout_api_for_testing(const WindowLayoutApi &api)
@@ -3989,7 +4094,7 @@ void set_window_layout_api_for_testing(const WindowLayoutApi &api)
 }
 
 // GAG.EXE: 0x0041D120
-void __fastcall restore_application_display(ApplicationState *state)
+void restore_application_display(ApplicationState *state)
 {
     if((state->flags & 0x80) == 0)
     {
@@ -4005,10 +4110,13 @@ void __fastcall restore_application_display(ApplicationState *state)
     window_layout_api.set_window_position(state->capture_window, nullptr, -state->width, -state->height, 0, 0, 0x105);
     switch_display_mode_if_enabled(state, (state->flags & 0x80) == 0);
     update_application_window_layout(state, nullptr);
-    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+#if !defined(FREEGAG_WINDOWS_FIXES)
+    // The original physical mode transition waits for resource activity to drain before resuming the UI thread.
+    while(runtime_resource_count != 0)
     {
         Sleep(0);
     }
+#endif
     if((state->flags & 0x80) != 0)
     {
         state->flags &= 0xffffffdf;
@@ -4017,14 +4125,14 @@ void __fastcall restore_application_display(ApplicationState *state)
 }
 
 // GAG.EXE: 0x0041D380
-void __fastcall process_state_activation(ApplicationState *state, StateFieldReference *reference)
+void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
 {
-    std::uint8_t *game_context = static_cast<std::uint8_t *>(state->game_context);
-    if(reference->activity != 0 || *reinterpret_cast<StateFieldReference **>(game_context + 0x964) != reference || (state->validation_flags & 0x100) == 0)
+    // GAG.EXE passes a RuntimeTreeNode here. On x86 its name/parent/flags prefix can also be viewed as the decompiler's 0x30-byte state record, but that offset overlay is invalid once pointers widen.
+    if(tree->parent != nullptr || reinterpret_cast<RuntimeTreeNode *>(active_runtime_pointer_region) != tree || (state->validation_flags & 0x100) == 0)
     {
         return;
     }
-    if(*reinterpret_cast<std::int32_t *>(game_context + 0x960) != 0)
+    if(current_runtime_scene_identity != nullptr)
     {
         clear_application_lock_flag(state);
         if((state->flags & 1) == 0)
@@ -4045,27 +4153,27 @@ void __fastcall process_state_activation(ApplicationState *state, StateFieldRefe
             }
         }
     }
-    if(strings_equal("CREDITS", reference->name))
+    if(strings_equal("CREDITS", tree->name))
     {
         set_credits_runtime_flag();
         state->flags |= 0x10000;
         application_hook_no_op_2();
     }
-    void *scene_identity = *reinterpret_cast<void **>(static_cast<std::uint8_t *>(state->game_context) + 0x960);
-    std::uint32_t status = state_activation_api.query_status(scene_identity);
+    void *scene_identity = current_runtime_scene_identity;
+    uint32_t status = state_activation_api.query_status(scene_identity);
     if(status == 0)
     {
-        std::uint32_t previous_flags = state->flags;
+        uint32_t previous_flags = state->flags;
         if((previous_flags & 0x80000) == 0)
         {
             state->flags = previous_flags | 0xc00000;
         }
         return;
     }
-    std::uint32_t previous_flags = state->flags;
+    uint32_t previous_flags = state->flags;
     if((previous_flags & 0x80000) == 0)
     {
-        if((reference->flags & 0x100) == 0 && (status & 0x2000) == 0)
+        if((tree->flags & 0x100) == 0 && (status & 0x2000) == 0)
         {
             state->flags = previous_flags & 0xff3fffff;
             if((status & 0x3000) != 0)
@@ -4091,10 +4199,10 @@ void set_state_activation_api_for_testing(const StateActivationApi &api)
 }
 
 // GAG.EXE: 0x0041D280
-void __fastcall save_application_state_interactive(ApplicationState *state, void *dialog_context)
+void save_application_state_interactive(ApplicationState *state, void *dialog_context)
 {
     void *memory;
-    std::uint32_t script_state;
+    uintptr_t script_state;
     if((state->flags & 0x80000) == 0)
     {
         memory = save_state_api.capture_state(state->game_context, nullptr, 1);
@@ -4122,7 +4230,7 @@ void __fastcall save_application_state_interactive(ApplicationState *state, void
     {
         free_heap_memory(memory);
     }
-    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+    while(runtime_resource_count != 0)
     {
         Sleep(0);
     }
@@ -4138,7 +4246,7 @@ void set_save_state_api_for_testing(const SaveStateApi &api)
 }
 
 // GAG.EXE: 0x0041D1C0
-void __fastcall open_application_state_interactive(ApplicationState *state, void *dialog_context)
+void open_application_state_interactive(ApplicationState *state, void *dialog_context)
 {
     if(state->display_bits_per_pixel == 8)
     {
@@ -4152,7 +4260,7 @@ void __fastcall open_application_state_interactive(ApplicationState *state, void
         graphics_host_flags |= 0x40;
         return;
     }
-    while(*reinterpret_cast<std::int32_t *>(static_cast<std::uint8_t *>(state->game_context) + 0x7e8) != 0)
+    while(runtime_resource_count != 0)
     {
         Sleep(0);
     }
@@ -4182,7 +4290,7 @@ bool finish_synchronized_state_operation(int result)
 }
 
 // GAG.EXE: 0x0041F7C0
-bool __fastcall run_synchronized_state_operation_17550(void *first, void *second, void *third, void *fourth)
+bool run_synchronized_state_operation_17550(void *first, void *second, void *third, void *fourth)
 {
     if((graphics_host_flags & 0x800) == 0)
     {
@@ -4193,7 +4301,7 @@ bool __fastcall run_synchronized_state_operation_17550(void *first, void *second
 }
 
 // GAG.EXE: 0x0041F830
-bool __fastcall run_synchronized_state_operation_175f0(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
+bool run_synchronized_state_operation_175f0(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
 {
     if((graphics_host_flags & 0x800) == 0)
     {
@@ -4204,7 +4312,7 @@ bool __fastcall run_synchronized_state_operation_175f0(void *first, void *second
 }
 
 // GAG.EXE: 0x0041F8F0
-bool __fastcall run_synchronized_state_operation_176a0(void *first, void *second, void *third, void *fourth)
+bool run_synchronized_state_operation_176a0(void *first, void *second, void *third, void *fourth)
 {
     if((graphics_host_flags & 0x800) == 0)
     {
@@ -4220,7 +4328,7 @@ void set_synchronized_state_api_for_testing(const SynchronizedStateApi &api)
 }
 
 // GAG.EXE: 0x0041D010
-void __fastcall switch_display_mode_if_enabled(ApplicationState *state, int restore_current)
+void switch_display_mode_if_enabled(ApplicationState *state, int restore_current)
 {
     if((state->flags & 0x4020) == 0x4020)
     {
@@ -4263,7 +4371,7 @@ void disable_runtime_subsystem()
 }
 
 // GAG.EXE: 0x00404980
-void __fastcall set_active_object_field_0824(std::uint32_t value)
+void set_active_object_field_0824(uint32_t value)
 {
     if(script_runtime_root != nullptr)
     {
@@ -4315,14 +4423,14 @@ void leave_runtime_state_1000()
     if((graphics_host_flags & 0x4000) == 0 && (graphics_host_flags & 0x1000) != 0)
     {
         graphics_host_flags &= 0xffffefff;
-        runtime_state_transition_callback(runtime_state_value);
+        runtime_state_transition_callback(static_cast<uint32_t>(runtime_state_value));
     }
 }
 
 RuntimePathApi runtime_path_api{ enter_runtime_path_lock, leave_runtime_path_lock };
 
 // GAG.EXE: 0x00420C30
-void __fastcall set_runtime_paths_once(const char *first_path, const char *second_path)
+void set_runtime_paths_once(const char *first_path, const char *second_path)
 {
     if((graphics_host_flags & 0x04000000) == 0)
     {
@@ -4350,13 +4458,14 @@ const char *get_second_runtime_path_for_testing()
 }
 
 // GAG.EXE: 0x0041CBE0
-void __fastcall save_game_screenshot(void *snapshot_context, void *game_context)
+void save_game_screenshot(void *snapshot_context, void *game_context)
 {
+    (void)game_context;
     char file_path[0x100]{};
     char file_title[0x100]{};
     char unused[0x100]{};
     (void)unused;
-    const char *state_name = *reinterpret_cast<const char **>(static_cast<std::uint8_t *>(game_context) + 0x964);
+    const char *state_name = reinterpret_cast<const char *>(active_runtime_pointer_region);
     std::sprintf(file_path, "%s_", state_name);
 
     static const char filter[] = "Bmp Files\0*.bmp\0\0";
@@ -4372,7 +4481,7 @@ void __fastcall save_game_screenshot(void *snapshot_context, void *game_context)
     file_name.lpstrDefExt = "bmp";
     if(screenshot_api.get_save_file_name(&file_name) != FALSE)
     {
-        std::uint32_t bitmap_size;
+        uint32_t bitmap_size;
         void *bitmap = screenshot_api.capture_bitmap(snapshot_context, &bitmap_size, 0);
         if(bitmap != nullptr)
         {
@@ -4394,7 +4503,7 @@ void set_screenshot_api_for_testing(const ScreenshotApi &api)
 }
 
 // GAG.EXE: 0x00417790
-void *__fastcall create_indexed_bitmap(const BitmapCaptureSource *source, const std::uint8_t *palette, std::uint32_t *size, int half_resolution)
+void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
 {
     if(size != nullptr)
     {
@@ -4405,10 +4514,10 @@ void *__fastcall create_indexed_bitmap(const BitmapCaptureSource *source, const 
         return nullptr;
     }
 
-    const std::uint32_t width = half_resolution == 0 ? source->width : source->width >> 1;
-    std::uint32_t remaining_height = half_resolution == 0 ? source->height : source->height >> 1;
-    const std::uint32_t bitmap_size = width * remaining_height + 0x436;
-    auto *bitmap = static_cast<std::uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
+    const uint32_t width = half_resolution == 0 ? source->width : source->width >> 1;
+    uint32_t remaining_height = half_resolution == 0 ? source->height : source->height >> 1;
+    const uint32_t bitmap_size = width * remaining_height + 0x436;
+    auto *bitmap = static_cast<uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
     if(bitmap == nullptr)
     {
         return nullptr;
@@ -4432,19 +4541,19 @@ void *__fastcall create_indexed_bitmap(const BitmapCaptureSource *source, const 
     info->biYPelsPerMeter = 0;
     info->biClrUsed = 0x100;
     info->biClrImportant = 0x100;
-    for(std::uint32_t index = 0; index < 0x100; ++index)
+    for(uint32_t index = 0; index < 0x100; ++index)
     {
         bitmap[0x36 + index * 4] = palette[index * 4 + 6];
         bitmap[0x37 + index * 4] = palette[index * 4 + 5];
         bitmap[0x38 + index * 4] = palette[index * 4 + 4];
     }
 
-    std::uint32_t destination = 0;
-    std::int32_t source_offset = (source->height - 1) * source->width;
-    const std::int32_t horizontal_step = half_resolution == 0 ? 1 : 2;
+    uint32_t destination = 0;
+    int32_t source_offset = (source->height - 1) * source->width;
+    const int32_t horizontal_step = half_resolution == 0 ? 1 : 2;
     while(remaining_height != 0)
     {
-        std::uint32_t remaining_width = width;
+        uint32_t remaining_width = width;
         while(remaining_width != 0)
         {
             bitmap[0x436 + destination] = source->pixels[source_offset];
@@ -4463,7 +4572,7 @@ void *__fastcall create_indexed_bitmap(const BitmapCaptureSource *source, const 
 }
 
 // GAG.EXE: 0x0041F8B0
-void *__fastcall capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const std::uint8_t *palette, std::uint32_t *size, int half_resolution)
+void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
 {
     if((graphics_host_flags & 0x800) == 0)
     {
@@ -4473,15 +4582,15 @@ void *__fastcall capture_bitmap_if_runtime_active(const BitmapCaptureSource *sou
 }
 
 // GAG.EXE: 0x0041CB90
-void *__fastcall capture_game_bitmap(void *game_context, std::uint32_t *size, int half_resolution)
+void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution)
 {
-    const auto *context = static_cast<const std::uint8_t *>(game_context);
+    (void)game_context;
     BitmapCaptureSource source{};
-    *reinterpret_cast<std::uint32_t *>(source.unresolved_00 + 8) = 8;
-    source.width = *reinterpret_cast<const std::uint16_t *>(context + 0x478);
-    source.height = *reinterpret_cast<const std::uint16_t *>(context + 0x47a);
-    source.pixels = *reinterpret_cast<const std::uint8_t *const *>(context + 0x488);
-    const auto *palette = *reinterpret_cast<const std::uint8_t *const *>(context + 0x48c);
+    *reinterpret_cast<uint32_t *>(source.unresolved_00 + 8) = 8;
+    source.width = runtime_game_host_context.width;
+    source.height = runtime_game_host_context.height;
+    source.pixels = reinterpret_cast<const uint8_t *>(runtime_game_host_context.unknown_0030);
+    const auto *palette = reinterpret_cast<const uint8_t *>(runtime_game_host_context.palette_entries);
     return capture_bitmap_if_runtime_active(&source, palette, size, half_resolution);
 }
 
@@ -4503,7 +4612,7 @@ void reset_runtime_pair_queue()
 }
 
 // GAG.EXE: 0x00420640
-void __fastcall enqueue_runtime_byte(std::uint8_t value)
+void enqueue_runtime_byte(uint8_t value)
 {
     if((graphics_host_flags & 0x100400) == 0x100400)
     {
@@ -4528,13 +4637,13 @@ void __fastcall enqueue_runtime_byte(std::uint8_t value)
 }
 
 // GAG.EXE: 0x004206D0
-std::uint8_t dequeue_runtime_byte()
+uint8_t dequeue_runtime_byte()
 {
     if(runtime_display_context.byte_available == 0)
     {
         return 0;
     }
-    std::uint8_t value = 0;
+    uint8_t value = 0;
     if((graphics_host_flags & 0x100400) == 0x100400)
     {
         runtime_queue_api.enter_byte_lock();
@@ -4569,7 +4678,7 @@ void reset_runtime_byte_queue()
 }
 
 // GAG.EXE: 0x00420E10
-void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
+void process_runtime_text_input(RuntimeCommandLoopState *state)
 {
     if((state->flags & 0x100) == 0)
     {
@@ -4577,8 +4686,8 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
     }
 
     bool changed = false;
-    std::uint8_t value = runtime_text_input_api.dequeue_byte();
-    std::uint32_t cursor = state->input_cursor;
+    uint8_t value = runtime_text_input_api.dequeue_byte();
+    uint32_t cursor = state->input_cursor;
     if(state->input_end - cursor == 1 || value == 0x0d)
     {
         state->input_text[cursor] = '\0';
@@ -4586,7 +4695,7 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
         state->flags &= 0xfffffeff;
         if(state->input_scene_identifier != 0)
         {
-            runtime_text_input_api.release_scene(state->input_scene_identifier, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(state)));
+            runtime_text_input_api.release_scene(state->input_scene_identifier, reinterpret_cast<intptr_t>(state));
             state->input_scene_identifier = 0;
         }
         return;
@@ -4605,9 +4714,9 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
         }
         else
         {
-            if(static_cast<std::int8_t>(value) > '@')
+            if(static_cast<int8_t>(value) > '@')
             {
-                std::uint32_t letter_mode = state->input_text_flags & 0x30;
+                uint32_t letter_mode = state->input_text_flags & 0x30;
                 if(letter_mode == 0x10)
                 {
                     value |= 0x20;
@@ -4659,8 +4768,8 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
                != 0)
     {
         DisplaySceneDescriptor descriptor;
-        runtime_display_context.input_scene_identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(runtime_text_input_api.acquire_scene(runtime_display_context.input_scene_index, 0,
-            0, text_state.bounds[2], text_state.bounds[3], 0x120000, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(&runtime_display_context)), &descriptor, nullptr)));
+        runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(runtime_text_input_api.acquire_scene(runtime_display_context.input_scene_index, 0, 0, text_state.bounds[2],
+            text_state.bounds[3], 0x120000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, nullptr));
         if(runtime_text_input_api.begin_update(runtime_display_context.input_scene_identifier) == 0)
         {
             runtime_text_input_api.draw_text(&text_state, &descriptor);
@@ -4671,7 +4780,7 @@ void __fastcall process_runtime_text_input(RuntimeCommandLoopState *state)
 }
 
 // GAG.EXE: 0x00420910
-void __fastcall enqueue_runtime_pair(std::uint32_t first, std::uint32_t second)
+void enqueue_runtime_pair(uint32_t first, uint32_t second)
 {
     bool input_enabled = (graphics_host_flags & 0x100400) == 0x100400;
 #if defined(FREEGAG_WINDOWS_FIXES)
@@ -4706,7 +4815,7 @@ void __fastcall enqueue_runtime_pair(std::uint32_t first, std::uint32_t second)
 }
 
 // GAG.EXE: 0x004209B0
-int __fastcall dequeue_runtime_pair(RuntimeMessagePair *pair)
+int dequeue_runtime_pair(RuntimeMessagePair *pair)
 {
     if(runtime_display_context.pair_available == 0)
     {
@@ -4808,7 +4917,7 @@ RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing()
 }
 
 // GAG.EXE: 0x00426560
-RuntimeTreeNode *__fastcall activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
+RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
 {
     runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0xf0000000, 0);
     RuntimeGenericResourceNode *resource = runtime_tree_activation_api.find_or_load_resource(resource_name);
@@ -4835,7 +4944,7 @@ void set_runtime_tree_activation_api_for_testing(const RuntimeTreeActivationApi 
 }
 
 // GAG.EXE: 0x004211A0
-std::uint32_t process_runtime_pair_message()
+uint32_t process_runtime_pair_message()
 {
     RuntimeMessagePair pair;
     if(runtime_pair_dispatch_api.dequeue_pair(&pair) != 0 && (runtime_display_context.flags & 4) == 0)
@@ -4843,7 +4952,7 @@ std::uint32_t process_runtime_pair_message()
         switch(pair.first)
         {
         case 0x200:
-            return runtime_pair_dispatch_api.move_pointer(static_cast<std::int32_t>(pair.second & 0xffff), static_cast<std::int32_t>(pair.second >> 16));
+            return runtime_pair_dispatch_api.move_pointer(static_cast<int32_t>(pair.second & 0xffff), static_cast<int32_t>(pair.second >> 16));
         case 0x201:
             return runtime_pair_dispatch_api.left_button_down();
         case 0x202:
@@ -4871,16 +4980,16 @@ RuntimePairDispatchApi get_runtime_pair_dispatch_api_for_testing()
 }
 
 // GAG.EXE: 0x004208E0
-std::uint32_t __fastcall copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
+uint32_t copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
 {
     std::memcpy(record, runtime_display_context.input_text, sizeof(*record));
-    std::uint32_t status = runtime_display_context.input_cursor;
+    uint32_t status = runtime_display_context.input_cursor;
     runtime_display_context.input_cursor = 0;
     return status;
 }
 
 // GAG.EXE: 0x00420790
-void __fastcall initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, std::uint32_t character_width, void *session_value)
+void initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, uint32_t character_width, void *session_value)
 {
     if(runtime_display_context.input_scene_identifier != 0)
     {
@@ -4890,7 +4999,7 @@ void __fastcall initialize_runtime_input_session(void *first, void *second, void
     runtime_input_session_api.reset_byte_queue();
     runtime_display_context.input_text[1] = '\0';
     runtime_display_context.input_cursor = 0;
-    runtime_display_context.input_text_flags = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(session_value));
+    runtime_display_context.input_text_flags = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(session_value));
     runtime_display_context.input_text[0] = '-';
     runtime_display_context.input_end = character_width;
     if(runtime_display_context.input_end == 0)
@@ -4905,13 +5014,13 @@ void __fastcall initialize_runtime_input_session(void *first, void *second, void
     {
         font_identity = record->identity_context;
     }
-    if(runtime_input_session_api.initialize_text(runtime_display_context.input_text, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(first)),
-           static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(second)), font_identity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(fourth)),
-           static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(fifth)), &runtime_display_context.input_text_state)
+    if(runtime_input_session_api.initialize_text(runtime_display_context.input_text, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(first)),
+           static_cast<uint32_t>(reinterpret_cast<uintptr_t>(second)), font_identity, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fourth)),
+           static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fifth)), &runtime_display_context.input_text_state)
         != 0)
     {
         runtime_display_context.input_scene_index = runtime_input_session_api.find_scene_index(0x80000);
-        std::int32_t scene_identifier;
+        intptr_t scene_identifier;
         if((record->flags & 0x04000000) != 0)
         {
             scene_identifier = runtime_display_context.input_alternate_scene_identifier;
@@ -4924,11 +5033,9 @@ void __fastcall initialize_runtime_input_session(void *first, void *second, void
         if(locked_scene != nullptr)
         {
             DisplaySceneDescriptor descriptor;
-            runtime_display_context.input_scene_identifier = static_cast<std::int32_t>(
-                reinterpret_cast<std::uintptr_t>(runtime_input_session_api.acquire_scene(runtime_display_context.input_scene_index, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(first)),
-                    static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(second)), runtime_display_context.input_text_state.bounds[2], runtime_display_context.input_text_state.bounds[3],
-                    0x20000, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(&runtime_display_context)), &descriptor,
-                    reinterpret_cast<const DisplayPixelFormatDescriptor *>(&locked_scene->rectangle_callback_state))));
+            runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(runtime_input_session_api.acquire_scene(runtime_display_context.input_scene_index,
+                static_cast<int32_t>(reinterpret_cast<uintptr_t>(first)), static_cast<int32_t>(reinterpret_cast<uintptr_t>(second)), runtime_display_context.input_text_state.bounds[2],
+                runtime_display_context.input_text_state.bounds[3], 0x20000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, &locked_scene->rectangle_callback_format));
             if(runtime_input_session_api.begin_update(runtime_display_context.input_scene_identifier) == 0)
             {
                 runtime_input_session_api.draw_text(&runtime_display_context.input_text_state, &descriptor);
@@ -4946,14 +5053,14 @@ void __fastcall initialize_runtime_input_session(void *first, void *second, void
 }
 
 // GAG.EXE: 0x00420CE0
-int __fastcall run_runtime_command_loop(RuntimeCommandLoopState *state)
+int run_runtime_command_loop(RuntimeCommandLoopState *state)
 {
-    std::uint32_t initial_flags = state->flags;
+    uint32_t initial_flags = state->flags;
     if((initial_flags & 0x03000040) == 0)
     {
         return 0;
     }
-    const std::uint32_t restore_flag = initial_flags & 0x100000;
+    const uint32_t restore_flag = initial_flags & 0x100000;
     state->flags = (initial_flags & 0xffefffff) | 0x01000000;
     runtime_command_loop_api.begin_first();
     runtime_command_loop_api.begin_second();
@@ -4991,9 +5098,9 @@ int __fastcall run_runtime_command_loop(RuntimeCommandLoopState *state)
 }
 
 // GAG.EXE: 0x00421010
-std::uint32_t run_pending_runtime_external_command()
+uint32_t run_pending_runtime_external_command()
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if((runtime_scene_control_flags & 0x200000) != 0)
     {
         runtime_display_context.external_command_pending = 1;
@@ -5033,7 +5140,7 @@ void set_runtime_script_executor_api_for_testing(const RuntimeScriptExecutorApi 
     runtime_script_executor_api = api;
 }
 
-bool should_send_runtime_script_message(std::int32_t command)
+bool should_send_runtime_script_message(int32_t command)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     // The modern transition can release ReplyMessage's script caller before the UI thread finishes the original callback. Suppress another synchronous 2010 send from that same physical press at
@@ -5053,21 +5160,21 @@ bool should_send_runtime_script_message(std::int32_t command)
 }
 
 // Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
-RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, std::uint32_t opcode,
-    std::int32_t random_value, std::uint32_t saved_cursor)
+RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value,
+    uint32_t saved_cursor)
 {
     ScriptParserState *parser = &link->parser;
     char first[0x20];
     char second[0x20];
-    std::uint32_t typed_value[8];
-    std::uint32_t value_type;
+    uint32_t typed_value[8];
+    uint32_t value_type;
 
     switch(opcode)
     {
     case 0xb0000000:
     case 0x70000000:
     {
-        std::uint32_t target_flags = 0;
+        uint32_t target_flags = 0;
         RuntimeTreeNode *target;
         if(parse_runtime_tree_command_target(parser, second, first, &target_flags) == 0)
         {
@@ -5107,7 +5214,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 refresh_runtime_pointer_region();
                 return RuntimeScriptOpcodeDisposition::finish_link;
             }
-            auto *deactivated = reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(deactivate_runtime_tree_and_visuals(target, previous)));
+            auto *deactivated = reinterpret_cast<RuntimeTreeNode *>(static_cast<uintptr_t>(deactivate_runtime_tree_and_visuals(target, previous)));
             if((previous->flags & 0x200) == 0 || deactivated == previous)
             {
                 reset_runtime_tree_parser_contexts(deactivated);
@@ -5128,7 +5235,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         }
 
         destroy_runtime_tree_resources(target);
-        const bool root_level = target->parent == reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+        const bool root_level = target->parent == reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         std::memcpy(first, target->name, sizeof(first));
         std::memcpy(typed_value, parser->owner->name, 0x20);
         if(root_level || (reset_runtime_tree_parser_contexts(tree), root_level) || find_runtime_tree_descendant_identity_by_name(tree, first) != nullptr)
@@ -5167,7 +5274,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             }
             else
             {
-                const std::uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
+                const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
                 if(flags != 0 && (flags & 0x80001000) == 0 && ((flags & 0x2000) == 0 || (flags & 1) == 0 || (flags & 0x20) != 0)
                     && ((flags & 0x400) == 0 || query_runtime_resource_frame_limit(primary->resource_identity) != 0xffffffff))
                 {
@@ -5190,7 +5297,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             }
             else
             {
-                const std::uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
+                const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
                 if(flags != 0 && (flags & 0x80001001) == 0 && (flags & 0x2000) != 0)
                 {
                     return RuntimeScriptOpcodeDisposition::pause;
@@ -5203,8 +5310,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
-            std::uint32_t flags = 0;
-            std::uint32_t parsed_flag;
+            uint32_t flags = 0;
+            uint32_t parsed_flag;
             while((parsed_flag = parse_image_flag(parser)) != 0xffffffff)
             {
                 flags |= parsed_flag;
@@ -5250,8 +5357,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             RuntimeTreeLink84 *zone = find_global_runtime_tree_link_0084_by_name(first);
             if(zone != nullptr)
             {
-                const std::int32_t x = parse_script_integer_expression(parser);
-                const std::int32_t y = parse_script_integer_expression(parser);
+                const int32_t x = parse_script_integer_expression(parser);
+                const int32_t y = parse_script_integer_expression(parser);
                 if(x != 0x7fffffff && y != 0x7fffffff)
                 {
                     update_runtime_tree_link_0084(tree, zone, x, y, zone->width - zone->x + x, zone->height - zone->y + y, 0, nullptr, nullptr, 0, 0, 0x7fffffff);
@@ -5312,7 +5419,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         {
             if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
             {
-                std::uint32_t selection = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+                uintptr_t selection = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 char selection_name[0x20];
                 if(selection == 0x7fffffff)
                 {
@@ -5320,7 +5427,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                     {
                         return RuntimeScriptOpcodeDisposition::complete;
                     }
-                    selection = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selection_name));
+                    selection = reinterpret_cast<uintptr_t>(selection_name);
                 }
                 else
                 {
@@ -5343,7 +5450,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         }
         else
         {
-            const std::uint32_t flags = get_runtime_generic_backend_child_flags(link->backend_child);
+            const uint32_t flags = get_runtime_generic_backend_child_flags(link->backend_child);
             if(flags != 0x7fffffff && (flags & 0x200) != 0)
             {
                 return RuntimeScriptOpcodeDisposition::pause;
@@ -5358,19 +5465,19 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         }
         if(state->input_cursor == 0)
         {
-            void *first_value = reinterpret_cast<void *>(static_cast<std::uintptr_t>(parse_script_integer_expression(parser)));
-            void *second_value = reinterpret_cast<void *>(static_cast<std::uintptr_t>(parse_script_integer_expression(parser)));
+            void *first_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
+            void *second_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
             parse_script_value_token(parser, first, sizeof(first));
-            void *fourth_value = reinterpret_cast<void *>(static_cast<std::uintptr_t>(parse_script_integer_expression(parser)));
-            void *fifth_value = reinterpret_cast<void *>(static_cast<std::uintptr_t>(parse_script_integer_expression(parser)));
+            void *fourth_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
+            void *fifth_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
             if(parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
             {
-                std::uint32_t character_width = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+                uint32_t character_width = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 if(character_width == 0x7fffffff)
                 {
                     character_width = 0;
                 }
-                void *session_value = reinterpret_cast<void *>(static_cast<std::uintptr_t>(parse_image_flag(parser)));
+                void *session_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_image_flag(parser)));
                 RuntimeFixedNameListNode *fixed = find_runtime_fixed_name_list_node(first);
                 initialize_runtime_input_session(first_value, second_value, fixed == nullptr ? nullptr : fixed->resource_identity, fourth_value, fifth_value, character_width, session_value);
                 return RuntimeScriptOpcodeDisposition::pause;
@@ -5395,8 +5502,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0x300:
     {
         state->external_command_pending = 1;
-        std::uint32_t result = 0;
-        const std::int32_t command = parse_script_integer_expression(parser);
+        uint32_t result = 0;
+        const int32_t command = parse_script_integer_expression(parser);
         if(command != 0x7fffffff)
         {
             ScriptObjectFieldSnapshot snapshot;
@@ -5412,7 +5519,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             }
             if(should_send_runtime_script_message(command))
             {
-                result = static_cast<std::uint32_t>(SendMessageA(runtime_display_context.window, 0x7ffd, static_cast<WPARAM>(command), parameter));
+                result = static_cast<uint32_t>(SendMessageA(runtime_display_context.window, 0x7ffd, static_cast<WPARAM>(command), parameter));
             }
         }
         if(result != 0)
@@ -5421,7 +5528,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             while(state->external_command_pending != 0)
             {
                 process_runtime_message(state);
-                result |= static_cast<std::uint32_t>(run_runtime_command_loop(state));
+                result |= static_cast<uint32_t>(run_runtime_command_loop(state));
                 Sleep(10);
             }
         }
@@ -5435,11 +5542,11 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
         {
             RuntimeTreeSceneLink *scene = find_global_runtime_tree_scene_link_by_name(first);
-            std::int32_t identifier;
-            std::int32_t x;
-            std::int32_t y;
-            std::uint32_t width;
-            std::uint32_t height;
+            intptr_t identifier;
+            int32_t x;
+            int32_t y;
+            uint32_t width;
+            uint32_t height;
             if(scene == nullptr)
             {
                 if(!strings_equal(first, "BACKGND"))
@@ -5449,8 +5556,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 identifier = state->input_alternate_scene_identifier;
                 x = parse_script_integer_expression(parser);
                 y = parse_script_integer_expression(parser);
-                width = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
-                height = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+                width = static_cast<uint32_t>(parse_script_integer_expression(parser));
+                height = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 if(x == 0x7fffffff)
                 {
                     x = 0;
@@ -5473,8 +5580,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 identifier = scene->scene_identifier;
                 x = parse_script_integer_expression(parser);
                 y = parse_script_integer_expression(parser);
-                width = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
-                height = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+                width = static_cast<uint32_t>(parse_script_integer_expression(parser));
+                height = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 if(x == 0x7fffffff)
                 {
                     x = 0;
@@ -5507,26 +5614,26 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0x600:
         if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
         {
-            const std::uint32_t fade_flag = parse_image_flag(parser);
-            if(static_cast<std::int32_t>(fade_flag) > 0)
+            const uint32_t fade_flag = parse_image_flag(parser);
+            if(static_cast<int32_t>(fade_flag) > 0)
             {
-                const std::int32_t duration = parse_script_integer_expression(parser);
+                const int32_t duration = parse_script_integer_expression(parser);
                 RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
                 if(duration != 0x7fffffff && primary != nullptr)
                 {
                     RuntimeLockRecord *record = acquire_runtime_lock_record(primary->resource_identity);
                     if(record != nullptr)
                     {
-                        if((record->unknown_0008 & 0x8000) != 0)
+                        if((record->type_flags & 0x8000) != 0)
                         {
                             if(fade_flag == 0x03000000)
                             {
-                                set_runtime_sound_volume(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->identity_context)), 0);
-                                fade_out_runtime_sound(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->identity_context)), duration, 1);
+                                set_runtime_sound_volume(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), 0);
+                                fade_out_runtime_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), duration, 1);
                             }
                             else if(fade_flag == 0x07000000)
                             {
-                                fade_in_runtime_sound(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->identity_context)), duration, 1);
+                                fade_in_runtime_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), duration, 1);
                             }
                         }
                         release_runtime_lock_record(record);
@@ -5551,7 +5658,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0x3000:
         if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
         {
-            const std::int32_t delta = parse_script_integer_expression(parser);
+            const int32_t delta = parse_script_integer_expression(parser);
             if(delta != 0x7fffffff)
             {
                 add_script_object_integer(first, second, delta);
@@ -5570,7 +5677,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0x50000:
         for(;;)
         {
-            const std::uint32_t control_opcode = parse_script_opcode(parser);
+            const uint32_t control_opcode = parse_script_opcode(parser);
             if(control_opcode == 0xffffffff)
             {
                 return RuntimeScriptOpcodeDisposition::complete;
@@ -5584,7 +5691,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 if(control_opcode == 0x5000)
                 {
                     parse_script_typed_value(parser, typed_value, &value_type);
-                    if((value_type != 0x7fffffff && compare_script_object_field(first, second, typed_value, static_cast<std::int32_t>(value_type)))
+                    if((value_type != 0x7fffffff && compare_script_object_field(first, second, typed_value, static_cast<int32_t>(value_type)))
                         || scan_runtime_tree_link_007c_control_boundary(link, 0x60000) == 0x6000)
                     {
                         return RuntimeScriptOpcodeDisposition::complete;
@@ -5592,11 +5699,11 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 }
                 continue;
             }
-            std::uint32_t boundary = 0xffffffff;
+            uint32_t boundary = 0xffffffff;
             if(control_opcode == 0x70000)
             {
-                const std::int32_t minimum = parse_script_integer_expression(parser);
-                const std::int32_t maximum = parse_script_integer_expression(parser);
+                const int32_t minimum = parse_script_integer_expression(parser);
+                const int32_t maximum = parse_script_integer_expression(parser);
                 if(minimum != 0x7fffffff && maximum != 0x7fffffff && minimum <= random_value && random_value <= maximum)
                 {
                     return RuntimeScriptOpcodeDisposition::complete;
@@ -5690,7 +5797,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
         void *parent_identity;
         if(opcode == 0x7000)
         {
-            parent_identity = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+            parent_identity = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
         else if(opcode == 0x8000)
         {
@@ -5727,7 +5834,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 RuntimeLockRecord *record = acquire_runtime_lock_record(destination_primary->resource_identity);
                 if(record != nullptr)
                 {
-                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(record->scene_identifier));
+                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(record->scene_identifier));
                     release_runtime_lock_record(record);
                 }
             }
@@ -5736,17 +5843,17 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 RuntimeTreeSceneLink *destination_scene = find_global_runtime_tree_scene_link_by_name(second);
                 if(destination_scene != nullptr)
                 {
-                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(destination_scene->scene_identifier));
+                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(destination_scene->scene_identifier));
                 }
                 else if(strings_equal(second, "BACKGND"))
                 {
-                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(state->input_alternate_scene_identifier));
+                    destination = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(state->input_alternate_scene_identifier));
                 }
             }
             if(destination != nullptr)
             {
-                std::int32_t destination_x = parse_script_integer_expression(parser);
-                std::int32_t destination_y = parse_script_integer_expression(parser);
+                int32_t destination_x = parse_script_integer_expression(parser);
+                int32_t destination_y = parse_script_integer_expression(parser);
                 if(destination_x == 0x7fffffff)
                 {
                     destination_x = 0;
@@ -5766,7 +5873,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                         if(record != nullptr)
                         {
                             auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
-                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(record->scene_identifier));
+                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(record->scene_identifier));
                             rectangle.left = parse_script_integer_expression(parser);
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
@@ -5781,11 +5888,11 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                             }
                             if(rectangle.right == 0x7fffffff)
                             {
-                                rectangle.right = static_cast<std::int32_t>(resource->output_width);
+                                rectangle.right = static_cast<int32_t>(resource->output_width);
                             }
                             if(rectangle.bottom == 0x7fffffff)
                             {
-                                rectangle.bottom = static_cast<std::int32_t>(resource->output_height);
+                                rectangle.bottom = static_cast<int32_t>(resource->output_height);
                             }
                             release_runtime_lock_record(record);
                         }
@@ -5795,7 +5902,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                         RuntimeTreeSceneLink *source_scene = find_global_runtime_tree_scene_link_by_name(second);
                         if(source_scene != nullptr && source_scene->scene_identifier != 0)
                         {
-                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(source_scene->scene_identifier));
+                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(source_scene->scene_identifier));
                             rectangle.left = parse_script_integer_expression(parser);
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
@@ -5810,16 +5917,16 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                             }
                             if(rectangle.right == 0x7fffffff)
                             {
-                                rectangle.right = static_cast<std::int32_t>(source_scene->width);
+                                rectangle.right = static_cast<int32_t>(source_scene->width);
                             }
                             if(rectangle.bottom == 0x7fffffff)
                             {
-                                rectangle.bottom = static_cast<std::int32_t>(source_scene->height);
+                                rectangle.bottom = static_cast<int32_t>(source_scene->height);
                             }
                         }
                         else if(strings_equal(second, "BACKGND"))
                         {
-                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(state->input_alternate_scene_identifier));
+                            source = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(state->input_alternate_scene_identifier));
                             rectangle.left = parse_script_integer_expression(parser);
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
@@ -5925,8 +6032,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
             {
-                const std::int32_t x = parse_script_integer_expression(parser);
-                const std::int32_t y = parse_script_integer_expression(parser);
+                const int32_t x = parse_script_integer_expression(parser);
+                const int32_t y = parse_script_integer_expression(parser);
                 if(x != 0x7fffffff && y != 0x7fffffff)
                 {
                     update_runtime_tree_primary_resource_link(tree, primary, nullptr, x - primary->x, y - primary->y, 0);
@@ -5951,8 +6058,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                         {
                             return RuntimeScriptOpcodeDisposition::pause;
                         }
-                        if((primary->flags & 2) == 0 && path->x <= primary->x && path->y <= primary->y && primary->x <= static_cast<std::int32_t>(path->width)
-                            && primary->y <= static_cast<std::int32_t>(path->height))
+                        if((primary->flags & 2) == 0 && path->x <= primary->x && path->y <= primary->y && primary->x <= static_cast<int32_t>(path->width)
+                            && primary->y <= static_cast<int32_t>(path->height))
                         {
                             if((path->flags & 1) != 0)
                             {
@@ -5973,10 +6080,10 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0xf0000:
         if((link->owner_flags & 0x40000000) == 0)
         {
-            const std::int32_t duration = parse_script_integer_expression(parser);
+            const int32_t duration = parse_script_integer_expression(parser);
             if(duration != 0x7fffffff)
             {
-                link->wait_deadline = state->script_clock + static_cast<std::uint32_t>(duration);
+                link->wait_deadline = state->script_clock + static_cast<uint32_t>(duration);
                 link->owner_flags |= 0x40000000;
                 return RuntimeScriptOpcodeDisposition::pause;
             }
@@ -5996,7 +6103,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     case 0x50000000:
     case 0x50000001:
     {
-        std::uint32_t target_flags = 0;
+        uint32_t target_flags = 0;
         if(parse_runtime_tree_command_target(parser, first, second, &target_flags) == 0)
         {
             return RuntimeScriptOpcodeDisposition::complete;
@@ -6023,7 +6130,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
             if((link->owner_flags & 0x10000000) != 0)
             {
                 copy_runtime_tree_command_name(first, opcode);
-                const std::uint32_t cursor = find_runtime_tree_link_007c_opcode_value(link, 0x700, first, 1);
+                const uint32_t cursor = find_runtime_tree_link_007c_opcode_value(link, 0x700, first, 1);
                 if(cursor != 0xffffffff)
                 {
                     saved_cursor = cursor;
@@ -6075,12 +6182,12 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
 {
     auto *state = static_cast<RuntimeCommandLoopState *>(parameter);
     runtime_script_executor_api.set_batch_limit(1);
-    std::uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
+    uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
     // The original reads this stack slot before its first assignment when the first executed conditional is SWRAND.
     // Zero is an explicitly non-original Debug-build guard against MSVC Run-Time Check Failure #3; the slot is assigned at 0x0042319B after the first outer pass.
-    std::int32_t random_value = 0;
+    int32_t random_value = 0;
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    std::uint32_t traced_script_iterations = 0;
+    uint32_t traced_script_iterations = 0;
 #endif
     while(true)
     {
@@ -6133,8 +6240,8 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
                         parser = &link->parser;
                         while(true)
                         {
-                            std::uint32_t saved_cursor = parser->cursor;
-                            const std::uint32_t opcode = runtime_script_executor_api.parse_opcode(parser);
+                            uint32_t saved_cursor = parser->cursor;
+                            const uint32_t opcode = runtime_script_executor_api.parse_opcode(parser);
                             if(opcode == 0xffffffff)
                             {
                                 saved_cursor = parser->start_offset;
@@ -6181,7 +6288,7 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
         }
 
         state->active_script_link = nullptr;
-        const std::uint32_t current_tick = runtime_script_executor_api.time_get_time();
+        const uint32_t current_tick = runtime_script_executor_api.time_get_time();
         random_value = runtime_script_executor_api.select_random(-10000, 10000);
         state->script_clock = current_tick + (state->script_clock - previous_tick);
         previous_tick = current_tick;
@@ -6190,9 +6297,9 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
 }
 
 // GAG.EXE: 0x00421230
-void __fastcall process_runtime_message(RuntimeCommandLoopState *state)
+void process_runtime_message(RuntimeCommandLoopState *state)
 {
-    std::uint32_t message = runtime_message_processor_api.dequeue_message();
+    uint32_t message = runtime_message_processor_api.dequeue_message();
     if(message == 0)
     {
         return;
@@ -6213,13 +6320,13 @@ void __fastcall process_runtime_message(RuntimeCommandLoopState *state)
     if(handled && runtime_message_processor_api.query_state(nullptr, nullptr, nullptr) == 0)
     {
         RuntimeCommandBounds bounds{ 0, 0, state->width, state->height };
-        runtime_message_processor_api.update_target(state->command_target, &bounds, 1);
+        runtime_message_processor_api.update_target(&state->command_target, &bounds, 1);
         runtime_message_processor_api.present();
     }
 }
 
 // GAG.EXE: 0x004280D0
-bool __fastcall update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
+bool update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
 {
     if(mode == 1)
     {
@@ -6242,14 +6349,14 @@ bool __fastcall update_runtime_target(void *, RuntimeCommandBounds *bounds, int 
 }
 
 // GAG.EXE: 0x004198E0
-std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, std::uint32_t *rectangle_flags)
+uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags)
 {
     if((display_lock_flags & 1) == 0)
     {
         return 0x80000000;
     }
-    std::uint32_t busy = 0;
-    std::uint32_t mode = 0;
+    uint32_t busy = 0;
+    uint32_t mode = 0;
     DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
     do
     {
@@ -6272,7 +6379,7 @@ std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangl
             mode = display_lock_flags & 0x3000;
             if((mode == 0 || display_lock_owner_thread == thread_id) && busy == 0)
             {
-                std::uint32_t dirty_flags = 0;
+                uint32_t dirty_flags = 0;
                 bool first_acquisition = display_lock_recursion_count == 0;
                 ++display_lock_recursion_count;
                 if(first_acquisition || mode == 0x2000)
@@ -6321,7 +6428,7 @@ std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangl
                 {
                     *rectangle_flags = dirty_flags;
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-                    static std::uint32_t traced_dirty_acquisitions = 0;
+                    static uint32_t traced_dirty_acquisitions = 0;
                     if(traced_dirty_acquisitions < 20)
                     {
                         trace_animation_startup("acquire display index=%u dirty=%08X rectangle=(%d,%d)-(%d,%d) clip=(%d,%d)-(%d,%d)", traced_dirty_acquisitions, dirty_flags, primary_rectangle->left,
@@ -6339,9 +6446,9 @@ std::uint32_t __fastcall acquire_display_lock(DisplayRectangle *primary_rectangl
 }
 
 // GAG.EXE: 0x00419AF0
-std::uint32_t release_display_lock()
+uint32_t release_display_lock()
 {
-    std::uint32_t result = 0x80000000;
+    uint32_t result = 0x80000000;
     if((display_lock_flags & 1) != 0)
     {
         DWORD thread_id = display_lock_release_api.get_current_thread_id();
@@ -6364,7 +6471,7 @@ std::uint32_t release_display_lock()
 }
 
 // GAG.EXE: 0x0041B690
-bool __fastcall clip_display_rectangle(DisplayRectangle *rectangle)
+bool clip_display_rectangle(DisplayRectangle *rectangle)
 {
     if(rectangle->left < display_clip_bounds.left)
     {
@@ -6386,7 +6493,7 @@ bool __fastcall clip_display_rectangle(DisplayRectangle *rectangle)
 }
 
 // GAG.EXE: 0x0041B640
-bool __fastcall constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
+bool constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
 {
     if(rectangle->left < 0)
     {
@@ -6408,10 +6515,10 @@ bool __fastcall constrain_display_rectangle_to_surface(DisplayRectangle *rectang
 }
 
 // GAG.EXE: 0x0041B560
-int __fastcall process_scene_node_callbacks(DisplaySceneNode *node)
+int process_scene_node_callbacks(DisplaySceneNode *node)
 {
-    DisplayTraversalState state{ 0x01000000, display_scene_callback_api.time_get_time(), static_cast<std::uint32_t>(node->width), static_cast<std::uint32_t>(node->height),
-        node->callback_first_position, node->callback_current_position, &node->previous_width, &display_clip_bounds, nullptr };
+    DisplayTraversalState state{ 0x01000000, display_scene_callback_api.time_get_time(), static_cast<uint32_t>(node->width), static_cast<uint32_t>(node->height), node->callback_first_position,
+        node->callback_current_position, &node->previous_width, &display_clip_bounds, nullptr };
     int result = 1;
     for(DisplaySceneCallbackNode *callback = node->callbacks; callback != nullptr; callback = callback->next)
     {
@@ -6451,18 +6558,18 @@ int __fastcall process_scene_node_callbacks(DisplaySceneNode *node)
 }
 
 // GAG.EXE: 0x0041B790
-void __fastcall trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNode *node)
+void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
     if(node == nullptr || rectangle == nullptr || (node->flags & 0x01000000) != 0)
     {
         return;
     }
-    std::int32_t node_left = node->x;
-    std::int32_t node_top = node->y;
-    std::int32_t node_right = node_left + node->width;
-    std::int32_t node_bottom = node_top + node->height;
-    std::int32_t overlap_left = node_left;
-    std::uint32_t edges = 0;
+    int32_t node_left = node->x;
+    int32_t node_top = node->y;
+    int32_t node_right = node_left + node->width;
+    int32_t node_bottom = node_top + node->height;
+    int32_t overlap_left = node_left;
+    uint32_t edges = 0;
     if(node_left <= rectangle->left)
     {
         overlap_left = rectangle->left;
@@ -6483,8 +6590,8 @@ void __fastcall trim_display_rectangle_overlap(DisplayRectangle *rectangle, Disp
         node_bottom = rectangle->bottom;
         edges |= 0x20000;
     }
-    std::int32_t overlap_width = node_right - overlap_left;
-    std::int32_t overlap_height = node_bottom - node_top;
+    int32_t overlap_width = node_right - overlap_left;
+    int32_t overlap_height = node_bottom - node_top;
     if(overlap_width != 0 && overlap_left <= node_right && overlap_height != 0 && node_top <= node_bottom)
     {
         if((edges & 3) == 3)
@@ -6513,7 +6620,7 @@ void __fastcall trim_display_rectangle_overlap(DisplayRectangle *rectangle, Disp
 }
 
 // GAG.EXE: 0x0041B860
-void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNode *node)
+void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
     if(rectangle == nullptr || node == nullptr)
     {
@@ -6527,10 +6634,10 @@ void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, Dis
             rectangle->bottom, node->previous_width, node->previous_height, node->extra_width, node->extra_height, node->x, node->y, node->surface->width, node->surface->height);
     }
 #endif
-    std::int32_t left = node->x + node->x_offset;
-    std::int32_t top = node->y + node->y_offset;
-    std::int32_t right;
-    std::int32_t bottom;
+    int32_t left = node->x + node->x_offset;
+    int32_t top = node->y + node->y_offset;
+    int32_t right;
+    int32_t bottom;
     if(left == node->previous_x && top == node->previous_y)
     {
         right = left + node->extra_width;
@@ -6548,13 +6655,13 @@ void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, Dis
         bottom = node->previous_y;
         if(right < left)
         {
-            std::int32_t swap = left;
+            int32_t swap = left;
             left = right;
             right = swap;
         }
         if(bottom < top)
         {
-            std::int32_t swap = top;
+            int32_t swap = top;
             top = bottom;
             bottom = swap;
         }
@@ -6611,22 +6718,22 @@ void __fastcall accumulate_scene_node_rectangle(DisplayRectangle *rectangle, Dis
 }
 
 // GAG.EXE: 0x0041B6F0
-void __fastcall merge_display_rectangle(DisplayRectangle *destination, const DisplayRectangleTransform *transform, const DisplayRectangle *source)
+void merge_display_rectangle(DisplayRectangle *destination, const DisplayRectangleTransform *transform, const DisplayRectangle *source)
 {
     if(source == nullptr || destination == nullptr)
     {
         return;
     }
-    std::int32_t left = source->left;
-    std::int32_t top = source->top;
-    std::int32_t right = source->right;
-    std::int32_t bottom = source->bottom;
+    int32_t left = source->left;
+    int32_t top = source->top;
+    int32_t right = source->right;
+    int32_t bottom = source->bottom;
     if(transform != nullptr)
     {
-        left = static_cast<std::int32_t>((static_cast<std::uint32_t>(left) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(left) + transform->x));
-        right = static_cast<std::int32_t>((static_cast<std::uint32_t>(right) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(right) + transform->x));
-        top = static_cast<std::int32_t>((static_cast<std::uint32_t>(top) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(top) + transform->y));
-        bottom = static_cast<std::int32_t>((static_cast<std::uint32_t>(bottom) & 0xffff0000) | static_cast<std::uint16_t>(static_cast<std::int16_t>(bottom) + transform->y));
+        left = static_cast<int32_t>((static_cast<uint32_t>(left) & 0xffff0000) | static_cast<uint16_t>(static_cast<int16_t>(left) + transform->x));
+        right = static_cast<int32_t>((static_cast<uint32_t>(right) & 0xffff0000) | static_cast<uint16_t>(static_cast<int16_t>(right) + transform->x));
+        top = static_cast<int32_t>((static_cast<uint32_t>(top) & 0xffff0000) | static_cast<uint16_t>(static_cast<int16_t>(top) + transform->y));
+        bottom = static_cast<int32_t>((static_cast<uint32_t>(bottom) & 0xffff0000) | static_cast<uint16_t>(static_cast<int16_t>(bottom) + transform->y));
     }
     if(left < destination->left)
     {
@@ -6654,11 +6761,11 @@ void __fastcall merge_display_rectangle(DisplayRectangle *destination, const Dis
         {
             destination->top = 0;
         }
-        if(static_cast<std::int32_t>(transform->width) < destination->right)
+        if(static_cast<int32_t>(transform->width) < destination->right)
         {
             destination->right = transform->width;
         }
-        if(static_cast<std::int32_t>(transform->height) < destination->bottom)
+        if(static_cast<int32_t>(transform->height) < destination->bottom)
         {
             destination->bottom = transform->height;
         }
@@ -6666,7 +6773,7 @@ void __fastcall merge_display_rectangle(DisplayRectangle *destination, const Dis
 }
 
 // GAG.EXE: 0x004195B0
-std::uint32_t __fastcall queue_display_rectangle(DisplayRectangle *rectangle)
+uint32_t queue_display_rectangle(DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -6683,7 +6790,7 @@ std::uint32_t __fastcall queue_display_rectangle(DisplayRectangle *rectangle)
 }
 
 // GAG.EXE: 0x00419550
-std::uint32_t __fastcall find_available_display_scene_index(std::uint32_t candidate)
+uint32_t find_available_display_scene_index(uint32_t candidate)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -6694,8 +6801,8 @@ std::uint32_t __fastcall find_available_display_scene_index(std::uint32_t candid
     DisplaySceneNode *previous = display_scene_head;
     while(current != nullptr && ((candidate <= previous->unknown_2c && previous != current) || current->unknown_2c <= candidate))
     {
-        std::uint32_t current_index = current->unknown_2c;
-        std::uint32_t next_candidate = candidate;
+        uint32_t current_index = current->unknown_2c;
+        uint32_t next_candidate = candidate;
         if(candidate <= current_index && current_index <= candidate)
         {
             next_candidate = candidate + 1;
@@ -6709,7 +6816,7 @@ std::uint32_t __fastcall find_available_display_scene_index(std::uint32_t candid
 }
 
 // GAG.EXE: 0x00419600
-std::uint32_t __fastcall wait_for_display_scene_ready(std::uint32_t timeout)
+uint32_t wait_for_display_scene_ready(uint32_t timeout)
 {
     if((display_lock_flags & 1) != 0)
     {
@@ -6728,13 +6835,13 @@ std::uint32_t __fastcall wait_for_display_scene_ready(std::uint32_t timeout)
 }
 
 // GAG.EXE: 0x00419660
-std::uint32_t __fastcall set_display_clip_rectangle(DisplayRectangle *rectangle)
+uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
     {
         return 0x80000000;
     }
-    std::uint32_t result = 0x20000000;
+    uint32_t result = 0x20000000;
     DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
     if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
     {
@@ -6761,9 +6868,9 @@ std::uint32_t __fastcall set_display_clip_rectangle(DisplayRectangle *rectangle)
 }
 
 // GAG.EXE: 0x00419B60
-std::uint32_t release_display_lock_mode_1000()
+uint32_t release_display_lock_mode_1000()
 {
-    std::uint32_t result = 0x80000000;
+    uint32_t result = 0x80000000;
     if((display_lock_flags & 1) != 0)
     {
         DWORD thread_id = display_lock_release_api.get_current_thread_id();
@@ -6782,7 +6889,7 @@ std::uint32_t release_display_lock_mode_1000()
 }
 
 // GAG.EXE: 0x0041ACC0
-DisplaySceneNode *__fastcall lock_display_scene_node(std::int32_t identifier)
+DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -6821,7 +6928,7 @@ DisplaySceneNode *__fastcall lock_display_scene_node(std::int32_t identifier)
 }
 
 // GAG.EXE: 0x0041AD50
-void __fastcall unlock_display_scene_node(std::int32_t identifier)
+void unlock_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -6848,7 +6955,7 @@ void __fastcall unlock_display_scene_node(std::int32_t identifier)
 }
 
 // GAG.EXE: 0x0041ADC0
-bool __fastcall set_display_scene_primary_owner(std::int32_t identifier, std::int32_t owner, bool replace_existing)
+bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool replace_existing)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -6869,7 +6976,7 @@ bool __fastcall set_display_scene_primary_owner(std::int32_t identifier, std::in
                 }
                 else
                 {
-                    for(std::uint32_t index = 0; index < node->owner_count; ++index)
+                    for(uint32_t index = 0; index < node->owner_count; ++index)
                     {
                         if(node->owners[index] == owner)
                         {
@@ -6888,36 +6995,32 @@ bool __fastcall set_display_scene_primary_owner(std::int32_t identifier, std::in
 }
 
 // GAG.EXE: 0x0041AE60
-std::int32_t __fastcall query_display_scene_by_index(std::int32_t index, DisplaySceneDescriptor *descriptor, std::uint32_t *callback_metadata)
+intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *descriptor, DisplayPixelFormatDescriptor *callback_format)
 {
     if((display_lock_flags & 1) == 0)
     {
         return 0;
     }
-    std::int32_t result = 0;
+    intptr_t result = 0;
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
-        if(static_cast<std::int32_t>(node->unknown_2c) == index)
+        if(static_cast<int32_t>(node->unknown_2c) == index)
         {
             result = node->identifier;
             if(descriptor != nullptr)
             {
                 descriptor->x = 0;
                 descriptor->y = 0;
-                descriptor->width = static_cast<std::int16_t>(node->width);
-                descriptor->height = static_cast<std::int16_t>(node->height);
+                descriptor->width = static_cast<int16_t>(node->width);
+                descriptor->height = static_cast<int16_t>(node->height);
                 descriptor->present = 1;
                 descriptor->reserved = 0;
                 descriptor->pixels = node->callback_first_position;
             }
-            if(callback_metadata != nullptr)
+            if(callback_format != nullptr)
             {
-                callback_metadata[0] = node->rectangle_callback_state;
-                for(std::uint32_t metadata_index = 0; metadata_index < 7; ++metadata_index)
-                {
-                    callback_metadata[metadata_index + 1] = node->rectangle_callback_metadata[metadata_index];
-                }
+                *callback_format = node->rectangle_callback_format;
             }
             break;
         }
@@ -6929,45 +7032,44 @@ std::int32_t __fastcall query_display_scene_by_index(std::int32_t index, Display
         {
             std::memset(descriptor, 0, sizeof(*descriptor));
         }
-        if(callback_metadata != nullptr)
+        if(callback_format != nullptr)
         {
-            std::memset(callback_metadata, 0, 8 * sizeof(*callback_metadata));
+            *callback_format = {};
         }
     }
     return result;
 }
 
 // GAG.EXE: 0x0041AFA0
-std::uint32_t __fastcall blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source,
-    DisplayRectangle *rectangle, std::uint32_t flags)
+uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags)
 {
-    std::uint32_t result = begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(source)));
+    uint32_t result = begin_display_scene_update(reinterpret_cast<intptr_t>(source));
     if(result == 0)
     {
-        result = begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(destination)));
+        result = begin_display_scene_update(reinterpret_cast<intptr_t>(destination));
         if(result == 0)
         {
             DisplayRectangleTransform transform{};
-            std::uint32_t temporary_palette[256];
-            transform.width = static_cast<std::uint16_t>(destination->width);
-            transform.height = static_cast<std::uint16_t>(destination->height);
+            uint32_t temporary_palette[256];
+            transform.width = static_cast<uint16_t>(destination->width);
+            transform.height = static_cast<uint16_t>(destination->height);
 
-            if(destination->rectangle_callback_metadata[0] == 8 && source->rectangle_callback_metadata[0] == 8)
+            if(destination->rectangle_callback_format.bits_per_pixel == 8 && source->rectangle_callback_format.bits_per_pixel == 8)
             {
-                if((flags & 0x04000000) == 0 && destination->rectangle_callback_metadata[5] != 0 && source->rectangle_callback_metadata[5] != 0)
+                if((flags & 0x04000000) == 0 && destination->rectangle_callback_format.palette_source != nullptr && source->rectangle_callback_format.palette_source != nullptr)
                 {
-                    std::uint32_t temporary_source_state[8];
-                    std::uint32_t *source_state;
+                    DisplayPixelFormatDescriptor temporary_source_state;
+                    DisplayPixelFormatDescriptor *source_state;
                     if(destination == display_scene_root)
                     {
-                        source_state = &source->rectangle_callback_state;
+                        source_state = &source->rectangle_callback_format;
                     }
                     else
                     {
-                        std::memcpy(temporary_source_state, &source->rectangle_callback_state, sizeof(temporary_source_state));
-                        temporary_source_state[7] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(temporary_palette));
-                        build_indexed_to_indexed_palette(temporary_source_state, &destination->rectangle_callback_state);
-                        source_state = temporary_source_state;
+                        temporary_source_state = source->rectangle_callback_format;
+                        temporary_source_state.palette_entries = temporary_palette;
+                        build_indexed_to_indexed_palette(&temporary_source_state, &destination->rectangle_callback_format);
+                        source_state = &temporary_source_state;
                     }
                     if((flags & 0x02000000) == 0)
                     {
@@ -6987,20 +7089,21 @@ std::uint32_t __fastcall blit_bitmap_with_optional_palette_remap(DisplaySceneNod
                     composite_transparent_8_to_8(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
                 }
             }
-            else if(destination->rectangle_callback_metadata[0] == 0x10 && source->rectangle_callback_metadata[0] == 8 && (flags & 0x04000000) == 0 && source->rectangle_callback_metadata[5] != 0)
+            else if(destination->rectangle_callback_format.bits_per_pixel == 0x10 && source->rectangle_callback_format.bits_per_pixel == 8 && (flags & 0x04000000) == 0
+                    && source->rectangle_callback_format.palette_source != nullptr)
             {
-                std::uint32_t temporary_source_state[8];
-                std::uint32_t *source_state;
+                DisplayPixelFormatDescriptor temporary_source_state;
+                DisplayPixelFormatDescriptor *source_state;
                 if(destination == display_scene_root)
                 {
-                    source_state = &source->rectangle_callback_state;
+                    source_state = &source->rectangle_callback_format;
                 }
                 else
                 {
-                    std::memcpy(temporary_source_state, &source->rectangle_callback_state, sizeof(temporary_source_state));
-                    temporary_source_state[7] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(temporary_palette));
-                    build_indexed_to_16_palette(temporary_source_state, &destination->rectangle_callback_state);
-                    source_state = temporary_source_state;
+                    temporary_source_state = source->rectangle_callback_format;
+                    temporary_source_state.palette_entries = temporary_palette;
+                    build_indexed_to_16_palette(&temporary_source_state, &destination->rectangle_callback_format);
+                    source_state = &temporary_source_state;
                 }
                 if((flags & 0x02000000) == 0)
                 {
@@ -7011,21 +7114,21 @@ std::uint32_t __fastcall blit_bitmap_with_optional_palette_remap(DisplaySceneNod
                     composite_transparent_indexed_to_16(destination, destination_x, destination_y, source, rectangle, source_state, 0);
                 }
             }
-            end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(destination)), &transform, rectangle);
+            end_display_scene_update(reinterpret_cast<intptr_t>(destination), &transform, rectangle);
         }
-        end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(source)), nullptr, nullptr);
+        end_display_scene_update(reinterpret_cast<intptr_t>(source), nullptr, nullptr);
     }
     return result;
 }
 
 // GAG.EXE: 0x0041AF20
-std::uint32_t __fastcall offset_display_scene_node(std::int32_t identifier, std::int32_t x_delta, std::int32_t y_delta)
+uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t y_delta)
 {
     if((display_lock_flags & 1) == 0)
     {
         return 0x80000000;
     }
-    std::uint32_t result = 0x80000000;
+    uint32_t result = 0x80000000;
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
@@ -7045,7 +7148,7 @@ std::uint32_t __fastcall offset_display_scene_node(std::int32_t identifier, std:
 }
 
 // GAG.EXE: 0x0041B280
-std::uint32_t __fastcall begin_display_scene_update(std::int32_t identifier)
+uint32_t begin_display_scene_update(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -7054,7 +7157,7 @@ std::uint32_t __fastcall begin_display_scene_update(std::int32_t identifier)
     while(true)
     {
         display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
-        std::uint32_t result = display_lock_flags & 0x1000;
+        uint32_t result = display_lock_flags & 0x1000;
         if(result == 0)
         {
             result = 0x80000000;
@@ -7090,13 +7193,13 @@ std::uint32_t __fastcall begin_display_scene_update(std::int32_t identifier)
 }
 
 // GAG.EXE: 0x0041B360
-std::uint32_t __fastcall end_display_scene_update(std::int32_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
+uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
     {
         return 0x80000000;
     }
-    std::uint32_t result = 0x80000000;
+    uint32_t result = 0x80000000;
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
@@ -7121,7 +7224,7 @@ std::uint32_t __fastcall end_display_scene_update(std::int32_t identifier, const
 }
 
 // GAG.EXE: 0x0041B1F0
-std::uint32_t __fastcall update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, std::uint32_t callback_value)
+uint32_t update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, uint32_t callback_value)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -7131,22 +7234,21 @@ std::uint32_t __fastcall update_display_root_region(DisplaySceneNode *scene, Dis
     {
         scene = display_scene_root;
     }
-    std::uint32_t result = display_root_region_api.begin_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)));
+    uint32_t result = display_root_region_api.begin_scene_update(reinterpret_cast<intptr_t>(scene));
     if(result == 0)
     {
-        DisplayRectangleTransform transform{ 0, 0, static_cast<std::uint16_t>(scene->width), static_cast<std::uint16_t>(scene->height) };
+        DisplayRectangleTransform transform{ 0, 0, static_cast<uint16_t>(scene->width), static_cast<uint16_t>(scene->height) };
         if(scene->root_rectangle_callback != nullptr)
         {
             scene->root_rectangle_callback(scene, rectangle, callback_value);
         }
-        display_root_region_api.end_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)), &transform, rectangle);
+        display_root_region_api.end_scene_update(reinterpret_cast<intptr_t>(scene), &transform, rectangle);
     }
     return result;
 }
 
 // GAG.EXE: 0x0041A830
-std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int(__fastcall *callback)(DisplayTraversalState *state), const void *context, std::uint32_t context_size,
-    std::uint32_t flags)
+uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(DisplayTraversalState *state), const void *context, uint32_t context_size, uint32_t flags)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -7155,7 +7257,7 @@ std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int
     while(true)
     {
         display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
-        std::uint32_t result = display_lock_flags & 0x1000;
+        uint32_t result = display_lock_flags & 0x1000;
         if(result == 0)
         {
             result = 0x80000000;
@@ -7175,7 +7277,7 @@ std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int
                 auto *entry = static_cast<DisplaySceneCallbackNode *>(display_scene_memory_api.heap_alloc(heap, 0, context_size + sizeof(DisplaySceneCallbackNode)));
                 if(entry != nullptr)
                 {
-                    entry->unknown_00 = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(entry));
+                    entry->identity = reinterpret_cast<uintptr_t>(entry);
                     entry->next = nullptr;
                     entry->flags = flags;
                     entry->callback = callback;
@@ -7192,7 +7294,7 @@ std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int
                     result = 0;
                     if((flags & 0x10000) == 0)
                     {
-                        std::int32_t *buffer_position;
+                        intptr_t *buffer_position;
                         if(node->callback_current_position == 0)
                         {
                             buffer_position = &node->callback_current_position;
@@ -7208,7 +7310,7 @@ std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int
                         if(buffer_position != nullptr)
                         {
                             LPVOID buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<SIZE_T>(node->width) * static_cast<SIZE_T>(node->height));
-                            *buffer_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(buffer));
+                            *buffer_position = reinterpret_cast<intptr_t>(buffer);
                             if(buffer == nullptr)
                             {
                                 --node->state_60;
@@ -7241,16 +7343,16 @@ std::uint32_t __fastcall add_display_scene_callback(std::int32_t identifier, int
 }
 
 // GAG.EXE: 0x0041B950
-void __fastcall fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
+void fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
     {
         return;
     }
-    std::int32_t left = rectangle->left;
-    std::int32_t top = rectangle->top;
-    std::int32_t right = rectangle->right;
-    std::int32_t bottom = rectangle->bottom;
+    int32_t left = rectangle->left;
+    int32_t top = rectangle->top;
+    int32_t right = rectangle->right;
+    int32_t bottom = rectangle->bottom;
     if(left < 0)
     {
         left = 0;
@@ -7267,14 +7369,14 @@ void __fastcall fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRe
     {
         bottom = node->height;
     }
-    std::int32_t row_width = right - left;
-    std::int32_t row_count = bottom - top;
+    int32_t row_width = right - left;
+    int32_t row_count = bottom - top;
     if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
     {
-        auto *row = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left;
+        auto *row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left;
         do
         {
-            std::memset(row, static_cast<std::uint8_t>(value), row_width);
+            std::memset(row, static_cast<uint8_t>(value), row_width);
             row += node->sync_secondary_position;
             --row_count;
         } while(row_count != 0);
@@ -7286,32 +7388,32 @@ namespace
 
 struct CompositeRegion
 {
-    std::int32_t source_x;
-    std::int32_t source_y;
-    std::int32_t destination_x;
-    std::int32_t destination_y;
-    std::int32_t width;
-    std::int32_t height;
+    int32_t source_x;
+    int32_t source_y;
+    int32_t destination_x;
+    int32_t destination_y;
+    int32_t width;
+    int32_t height;
 };
 
 // Non-original helper: common control flow shared by the six original compositor entry points.
-bool prepare_composite_region(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, std::uint32_t mode,
+bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t mode,
     CompositeRegion &region)
 {
     if(source == nullptr || destination == nullptr || rectangle == nullptr || (source->flags & 1) != 0 || (source->flags & 0x01000000) != 0)
     {
         return false;
     }
-    std::int32_t source_x = 0;
-    std::int32_t source_y = 0;
-    std::int32_t destination_right;
-    std::int32_t destination_bottom;
+    int32_t source_x = 0;
+    int32_t source_y = 0;
+    int32_t destination_right;
+    int32_t destination_bottom;
     if((mode & 0x01000000) == 0)
     {
         source_x = rectangle->left;
         source_y = rectangle->top;
-        std::int32_t source_right = rectangle->right;
-        std::int32_t source_bottom = rectangle->bottom;
+        int32_t source_right = rectangle->right;
+        int32_t source_bottom = rectangle->bottom;
         if(source_x < 0)
         {
             source_x = 0;
@@ -7355,10 +7457,10 @@ bool prepare_composite_region(DisplaySceneNode *destination, std::int32_t destin
     }
     else
     {
-        std::int32_t source_left = source->x;
-        std::int32_t source_top = source->y;
-        std::int32_t source_right = source_left + source->width;
-        std::int32_t source_bottom = source_top + source->height;
+        int32_t source_left = source->x;
+        int32_t source_top = source->y;
+        int32_t source_right = source_left + source->width;
+        int32_t source_bottom = source_top + source->height;
         if(source_left < rectangle->left)
         {
             source_x = rectangle->left - source_left;
@@ -7408,37 +7510,36 @@ bool prepare_composite_region(DisplaySceneNode *destination, std::int32_t destin
 void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *source, void *source_state, const CompositeRegion &region, bool transparent, bool convert_palette,
     bool destination_is_16_bit)
 {
-    auto *source_row = reinterpret_cast<const std::uint8_t *>(static_cast<std::uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position + region.source_x;
-    auto *destination_row = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
+    auto *source_row = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position + region.source_x;
+    auto *destination_row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
                           + region.destination_x * (destination_is_16_bit ? 2 : 1);
-    const std::uint32_t *palette = nullptr;
+    const uint32_t *palette = nullptr;
     if(convert_palette)
     {
-        auto *state_words = static_cast<const std::uint32_t *>(source_state);
-        palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(state_words[7]));
+        palette = static_cast<const DisplayPixelFormatDescriptor *>(source_state)->palette_entries;
     }
-    for(std::int32_t row_index = 0; row_index < region.height; ++row_index)
+    for(int32_t row_index = 0; row_index < region.height; ++row_index)
     {
         if(destination_is_16_bit)
         {
-            auto *destination_pixels = reinterpret_cast<std::uint16_t *>(destination_row);
-            for(std::int32_t column = 0; column < region.width; ++column)
+            auto *destination_pixels = reinterpret_cast<uint16_t *>(destination_row);
+            for(int32_t column = 0; column < region.width; ++column)
             {
-                std::uint8_t source_pixel = source_row[column];
+                uint8_t source_pixel = source_row[column];
                 if(!transparent || source_pixel != 0)
                 {
-                    destination_pixels[column] = static_cast<std::uint16_t>(palette[source_pixel]);
+                    destination_pixels[column] = static_cast<uint16_t>(palette[source_pixel]);
                 }
             }
         }
         else
         {
-            for(std::int32_t column = 0; column < region.width; ++column)
+            for(int32_t column = 0; column < region.width; ++column)
             {
-                std::uint8_t source_pixel = source_row[column];
+                uint8_t source_pixel = source_row[column];
                 if(!transparent || source_pixel != 0)
                 {
-                    destination_row[column] = convert_palette ? static_cast<std::uint8_t>(palette[source_pixel]) : source_pixel;
+                    destination_row[column] = convert_palette ? static_cast<uint8_t>(palette[source_pixel]) : source_pixel;
                 }
             }
         }
@@ -7447,8 +7548,8 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
     }
 }
 
-void composite_scene_pixels(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
-    std::uint32_t mode, bool transparent, bool convert_palette, bool destination_is_16_bit)
+void composite_scene_pixels(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode,
+    bool transparent, bool convert_palette, bool destination_is_16_bit)
 {
     CompositeRegion region{};
     if(prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
@@ -7460,55 +7561,53 @@ void composite_scene_pixels(DisplaySceneNode *destination, std::int32_t destinat
 } // namespace
 
 // GAG.EXE: 0x0041B9D0
-void __fastcall composite_transparent_8_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_transparent_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, false, false);
 }
 
 // GAG.EXE: 0x0041BC40
-void __fastcall composite_opaque_8_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_opaque_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, false, false);
 }
 
 // GAG.EXE: 0x0041BEE0
-void __fastcall composite_transparent_indexed_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_transparent_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, false);
 }
 
 // GAG.EXE: 0x0041C180
-void __fastcall composite_opaque_indexed_to_8(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_opaque_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, false);
 }
 
 // GAG.EXE: 0x0041C400
-void __fastcall composite_transparent_indexed_to_16(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_transparent_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, true);
 }
 
 // GAG.EXE: 0x0041C660
-void __fastcall composite_opaque_indexed_to_16(DisplaySceneNode *destination, std::int32_t destination_x, std::int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle,
-    void *source_state, std::uint32_t mode)
+void composite_opaque_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, true);
 }
 
 // GAG.EXE: 0x0041C8C0
-void __fastcall build_indexed_to_16_palette(std::uint32_t *source_state, const std::uint32_t *destination_state)
+void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
-    if(source_state[1] != 8 || source_state[6] == 0 || destination_state[1] != 0x10)
+    if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 0x10)
     {
         return;
     }
-    const auto count_bits = [](std::uint32_t mask, std::uint32_t &shift)
+    const auto count_bits = [](uint32_t mask, uint32_t &shift)
     {
         shift = 0;
         if(mask != 0)
@@ -7518,7 +7617,7 @@ void __fastcall build_indexed_to_16_palette(std::uint32_t *source_state, const s
                 ++shift;
             }
         }
-        std::uint32_t high_bit = 31;
+        uint32_t high_bit = 31;
         if(mask != 0)
         {
             while((mask >> high_bit) == 0)
@@ -7528,60 +7627,59 @@ void __fastcall build_indexed_to_16_palette(std::uint32_t *source_state, const s
         }
         return (high_bit + 1) - shift;
     };
-    std::uint32_t red_shift;
-    std::uint32_t green_shift;
-    std::uint32_t blue_shift;
-    std::uint32_t red_bits = count_bits(destination_state[2], red_shift);
-    std::uint32_t green_bits = count_bits(destination_state[3], green_shift);
-    std::uint32_t blue_bits = count_bits(destination_state[4], blue_shift);
-    auto *source_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(source_state[6]));
-    auto *destination_palette = reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(source_state[7]));
-    for(std::uint32_t index = 0; index < source_state[5]; ++index)
+    uint32_t red_shift;
+    uint32_t green_shift;
+    uint32_t blue_shift;
+    uint32_t red_bits = count_bits(destination_state->red_mask, red_shift);
+    uint32_t green_bits = count_bits(destination_state->green_mask, green_shift);
+    uint32_t blue_bits = count_bits(destination_state->blue_mask, blue_shift);
+    const uint32_t *source_palette = source_state->palette_source;
+    auto *destination_palette = const_cast<uint32_t *>(source_state->palette_entries);
+    for(uint32_t index = 0; index < source_state->palette_count; ++index)
     {
-        std::uint32_t color = source_palette[index];
-        auto rounded_component = [](std::uint8_t component, std::uint32_t bits)
+        uint32_t color = source_palette[index];
+        auto rounded_component = [](uint8_t component, uint32_t bits)
         {
-            std::uint8_t rounding = static_cast<std::uint8_t>(1u << (((8u - bits) >> 1) & 31));
-            std::uint16_t rounded = static_cast<std::uint16_t>(component) + rounding;
-            return static_cast<std::uint8_t>(rounded > 0xff ? 0xff : rounded);
+            uint8_t rounding = static_cast<uint8_t>(1u << (((8u - bits) >> 1) & 31));
+            uint16_t rounded = static_cast<uint16_t>(component) + rounding;
+            return static_cast<uint8_t>(rounded > 0xff ? 0xff : rounded);
         };
-        std::uint8_t red = rounded_component(static_cast<std::uint8_t>(color), red_bits);
-        std::uint8_t green = rounded_component(static_cast<std::uint8_t>(color >> 8), green_bits);
-        std::uint8_t blue = rounded_component(static_cast<std::uint8_t>(color >> 16), blue_bits);
-        destination_palette[index] = (static_cast<std::uint32_t>(red >> ((8u - red_bits) & 31)) << (red_shift & 31))
-                                   | (static_cast<std::uint32_t>(green >> ((8u - green_bits) & 31)) << (green_shift & 31))
-                                   | (static_cast<std::uint32_t>(blue >> ((8u - blue_bits) & 31)) << (blue_shift & 31));
+        uint8_t red = rounded_component(static_cast<uint8_t>(color), red_bits);
+        uint8_t green = rounded_component(static_cast<uint8_t>(color >> 8), green_bits);
+        uint8_t blue = rounded_component(static_cast<uint8_t>(color >> 16), blue_bits);
+        destination_palette[index] = (static_cast<uint32_t>(red >> ((8u - red_bits) & 31)) << (red_shift & 31)) | (static_cast<uint32_t>(green >> ((8u - green_bits) & 31)) << (green_shift & 31))
+                                   | (static_cast<uint32_t>(blue >> ((8u - blue_bits) & 31)) << (blue_shift & 31));
     }
 }
 
 // GAG.EXE: 0x0041CA00
-void __fastcall build_indexed_to_indexed_palette(std::uint32_t *source_state, const std::uint32_t *destination_state)
+void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
-    if(source_state[1] != 8 || source_state[6] == 0 || destination_state[1] != 8 || destination_state[6] == 0)
+    if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 8 || destination_state->palette_source == nullptr)
     {
         return;
     }
-    std::uint32_t source_count = source_state[5];
-    std::uint32_t destination_count = destination_state[5];
-    auto *source_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(source_state[6]));
-    auto *destination_palette = reinterpret_cast<const std::uint32_t *>(static_cast<std::uintptr_t>(destination_state[6]));
-    auto *mapping = reinterpret_cast<std::uint32_t *>(static_cast<std::uintptr_t>(source_state[7]));
-    for(std::uint32_t source_index = 0; source_index < source_count; ++source_index)
+    uint32_t source_count = source_state->palette_count;
+    uint32_t destination_count = destination_state->palette_count;
+    const uint32_t *source_palette = source_state->palette_source;
+    const uint32_t *destination_palette = destination_state->palette_source;
+    auto *mapping = const_cast<uint32_t *>(source_state->palette_entries);
+    for(uint32_t source_index = 0; source_index < source_count; ++source_index)
     {
-        std::uint32_t threshold = 0;
-        std::uint32_t destination_index;
+        uint32_t threshold = 0;
+        uint32_t destination_index;
         while(true)
         {
             for(destination_index = 0; destination_index < destination_count; ++destination_index)
             {
-                std::uint32_t source_color = source_palette[source_index];
-                std::uint32_t destination_color = destination_palette[destination_index];
-                std::uint32_t maximum_difference = 0;
-                for(std::uint32_t component = 0; component < 3; ++component)
+                uint32_t source_color = source_palette[source_index];
+                uint32_t destination_color = destination_palette[destination_index];
+                uint32_t maximum_difference = 0;
+                for(uint32_t component = 0; component < 3; ++component)
                 {
-                    std::uint32_t source_component = (source_color >> (component * 8)) & 0xff;
-                    std::uint32_t destination_component = (destination_color >> (component * 8)) & 0xff;
-                    std::uint32_t difference = source_component < destination_component ? destination_component - source_component : source_component - destination_component;
+                    uint32_t source_component = (source_color >> (component * 8)) & 0xff;
+                    uint32_t destination_component = (destination_color >> (component * 8)) & 0xff;
+                    uint32_t difference = source_component < destination_component ? destination_component - source_component : source_component - destination_component;
                     if(maximum_difference < difference)
                     {
                         maximum_difference = difference;
@@ -7607,28 +7705,28 @@ void __fastcall build_indexed_to_indexed_palette(std::uint32_t *source_state, co
 }
 
 // GAG.EXE: 0x0041AA10
-bool __fastcall configure_display_scene_palette(DisplaySceneNode *node, const std::uint32_t *palette, std::uint32_t count)
+bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *palette, uint32_t count)
 {
     if(node == nullptr)
     {
         node = display_scene_root;
     }
     bool result = false;
-    if(begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node))) == 0)
+    if(begin_display_scene_update(reinterpret_cast<intptr_t>(node)) == 0)
     {
-        if(node->rectangle_callback_metadata[0] == 8)
+        if(node->rectangle_callback_format.bits_per_pixel == 8)
         {
             result = true;
             if(palette == nullptr)
             {
-                node->rectangle_callback_metadata[4] = 0;
-                node->rectangle_callback_metadata[5] = 0;
-                node->rectangle_callback_metadata[6] = 0;
+                node->rectangle_callback_format.palette_count = 0;
+                node->rectangle_callback_format.palette_source = nullptr;
+                node->rectangle_callback_format.palette_entries = nullptr;
                 if(node == display_scene_root)
                 {
                     for(DisplaySceneNode *entry = display_scene_head; entry != nullptr; entry = entry->next)
                     {
-                        if(entry != node && entry->rectangle_callback_metadata[0] == 8 && entry->rectangle_callback_metadata[5] != 0)
+                        if(entry != node && entry->rectangle_callback_format.bits_per_pixel == 8 && entry->rectangle_callback_format.palette_source != nullptr)
                         {
                             entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                         }
@@ -7636,7 +7734,7 @@ bool __fastcall configure_display_scene_palette(DisplaySceneNode *node, const st
                     display_palette_source_state = nullptr;
                     display_lock_flags |= 0x10;
                 }
-                else if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
                 {
                     node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                 }
@@ -7647,60 +7745,60 @@ bool __fastcall configure_display_scene_palette(DisplaySceneNode *node, const st
             }
             else
             {
-                std::uint32_t copy_count = count & 0x3fffffff;
-                std::memcpy(node->palette_source, palette, copy_count * sizeof(std::uint32_t));
-                node->rectangle_callback_metadata[4] = count;
-                node->rectangle_callback_metadata[5] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_source));
-                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
-                auto *node_state = &node->rectangle_callback_state;
+                uint32_t copy_count = count & 0x3fffffff;
+                std::memcpy(node->palette_source, palette, copy_count * sizeof(uint32_t));
+                node->rectangle_callback_format.palette_count = count;
+                node->rectangle_callback_format.palette_source = node->palette_source;
+                node->rectangle_callback_format.palette_entries = node->palette_mapping;
+                auto *node_state = &node->rectangle_callback_format;
                 if(node == display_scene_root)
                 {
                     for(DisplaySceneNode *entry = display_scene_head; entry != nullptr; entry = entry->next)
                     {
-                        if(entry != node && entry->rectangle_callback_metadata[0] == 8 && entry->rectangle_callback_metadata[5] != 0)
+                        if(entry != node && entry->rectangle_callback_format.bits_per_pixel == 8 && entry->rectangle_callback_format.palette_source != nullptr)
                         {
-                            build_indexed_to_indexed_palette(&entry->rectangle_callback_state, node_state);
+                            build_indexed_to_indexed_palette(&entry->rectangle_callback_format, node_state);
                             entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
                         }
                     }
                     display_palette_source_state = node_state;
                     display_lock_flags |= 0x10;
                 }
-                else if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
                 {
-                    if(display_scene_root->rectangle_callback_metadata[5] != 0)
+                    if(display_scene_root->rectangle_callback_format.palette_source != nullptr)
                     {
-                        build_indexed_to_indexed_palette(node_state, &display_scene_root->rectangle_callback_state);
+                        build_indexed_to_indexed_palette(node_state, &display_scene_root->rectangle_callback_format);
                         node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
                     }
                 }
-                else if(display_scene_root->rectangle_callback_metadata[0] == 0x10)
+                else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 0x10)
                 {
-                    build_indexed_to_16_palette(node_state, &display_scene_root->rectangle_callback_state);
+                    build_indexed_to_16_palette(node_state, &display_scene_root->rectangle_callback_format);
                     node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
                 }
             }
         }
-        end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node)), nullptr, nullptr);
+        end_display_scene_update(reinterpret_cast<intptr_t>(node), nullptr, nullptr);
     }
     return result;
 }
 
 // GAG.EXE: 0x00418EE0
-void __fastcall configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFormatDescriptor *format)
+void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFormatDescriptor *format)
 {
     node->rectangle_callback = nullptr;
     node->root_rectangle_callback = nullptr;
-    std::memcpy(&node->rectangle_callback_state, format, sizeof(*format));
-    node->rectangle_callback_metadata[4] = 0;
-    node->rectangle_callback_metadata[5] = 0;
-    node->rectangle_callback_metadata[6] = 0;
+    node->rectangle_callback_format = *format;
+    node->rectangle_callback_format.palette_count = 0;
+    node->rectangle_callback_format.palette_source = nullptr;
+    node->rectangle_callback_format.palette_entries = nullptr;
     if(display_scene_root == nullptr)
     {
         return;
     }
-    std::uint32_t destination_bits = display_scene_root->rectangle_callback_metadata[0];
-    std::uint32_t source_bits = format->bits_per_pixel;
+    uint32_t destination_bits = display_scene_root->rectangle_callback_format.bits_per_pixel;
+    uint32_t source_bits = format->bits_per_pixel;
     if(node == display_scene_root)
     {
         if(source_bits == 8)
@@ -7728,7 +7826,7 @@ void __fastcall configure_display_scene_format(DisplaySceneNode *node, const Dis
             else if(format->palette_entries != nullptr)
             {
                 std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
-                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
+                node->rectangle_callback_format.palette_entries = node->palette_mapping;
                 node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
             }
             else
@@ -7753,7 +7851,7 @@ void __fastcall configure_display_scene_format(DisplaySceneNode *node, const Dis
             else if(format->palette_entries != nullptr)
             {
                 std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
-                node->rectangle_callback_metadata[6] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->palette_mapping));
+                node->rectangle_callback_format.palette_entries = node->palette_mapping;
                 node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
             }
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
@@ -7777,8 +7875,8 @@ void __fastcall configure_display_scene_format(DisplaySceneNode *node, const Dis
 }
 
 // GAG.EXE: 0x00419BC0
-DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t flags, std::int32_t owner,
-    DisplaySceneDescriptor *descriptor, const DisplayPixelFormatDescriptor *format)
+DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
+    const DisplayPixelFormatDescriptor *format)
 {
     if(owner != 0 && descriptor == nullptr)
     {
@@ -7794,10 +7892,10 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
     }
     DisplaySceneNode *result = nullptr;
     DisplaySceneNode *previous = nullptr;
-    std::uint32_t previous_mode = 0;
+    uint32_t previous_mode = 0;
     bool locked_node = false;
-    std::int32_t requested_x = x;
-    std::uint32_t requested_index = index;
+    int32_t requested_x = x;
+    uint32_t requested_index = index;
     if((flags & 1) != 0)
     {
         requested_index = 0x7fffffff;
@@ -7836,14 +7934,14 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                 auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
                 if(node != nullptr)
                 {
-                    std::uint32_t bytes_per_pixel = format->bits_per_pixel >> 3;
-                    std::uint32_t pixel_bytes;
+                    uint32_t bytes_per_pixel = format->bits_per_pixel >> 3;
+                    uint32_t pixel_bytes;
                     if(requested_index == 0x7fffffff)
                     {
-                        pixel_bytes = bytes_per_pixel * static_cast<std::uint32_t>(display_height) * static_cast<std::uint32_t>(display_width);
+                        pixel_bytes = bytes_per_pixel * static_cast<uint32_t>(display_height) * static_cast<uint32_t>(display_width);
                         display_scene_root = node;
                         node->callback_first_position = display_scene_root_primary_position;
-                        node->sync_secondary_position = static_cast<std::int32_t>(bytes_per_pixel * display_width);
+                        node->sync_secondary_position = static_cast<int32_t>(bytes_per_pixel * display_width);
                         node->width = display_width;
                         node->height = display_height;
                     }
@@ -7851,12 +7949,12 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                     {
                         pixel_bytes = bytes_per_pixel * height * width;
                         LPVOID pixels = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
-                        node->callback_first_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(pixels));
+                        node->callback_first_position = reinterpret_cast<intptr_t>(pixels);
                         if(pixels != nullptr)
                         {
-                            node->sync_secondary_position = static_cast<std::int32_t>(bytes_per_pixel * width);
-                            node->width = static_cast<std::int32_t>(width);
-                            node->height = static_cast<std::int32_t>(height);
+                            node->sync_secondary_position = static_cast<int32_t>(bytes_per_pixel * width);
+                            node->width = static_cast<int32_t>(width);
+                            node->height = static_cast<int32_t>(height);
                             node->x = requested_x;
                             node->y = y;
                             node->previous_x = requested_x;
@@ -7873,7 +7971,7 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         {
                             if((flags & 0x20000) != 0)
                             {
-                                std::memset(reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_first_position)), 0, pixel_bytes);
+                                std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)), 0, pixel_bytes);
                             }
                             if(requested_index == 0x7fffffff)
                             {
@@ -7881,7 +7979,7 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                             }
                         }
                         node->callback_position = node->callback_first_position;
-                        node->identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node));
+                        node->identifier = reinterpret_cast<intptr_t>(node);
                         node->surface = &display_scene_surface_state;
                         node->flags = (flags & 0xf7fcffbf) | 0x01000000;
                         node->unknown_2c = requested_index;
@@ -7898,8 +7996,8 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                             node->flags |= flags & 0xffccffff;
                             descriptor->x = 0;
                             descriptor->y = 0;
-                            descriptor->width = static_cast<std::int16_t>(width);
-                            descriptor->height = static_cast<std::int16_t>(height);
+                            descriptor->width = static_cast<int16_t>(width);
+                            descriptor->height = static_cast<int16_t>(height);
                             descriptor->present = 1;
                             descriptor->reserved = 0;
                             descriptor->pixels = node->callback_first_position;
@@ -7932,19 +8030,19 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                     {
                         y = existing->y;
                     }
-                    if(static_cast<std::uint32_t>(existing->x + existing->width) < static_cast<std::uint32_t>(requested_x) + width)
+                    if(static_cast<uint32_t>(existing->x + existing->width) < static_cast<uint32_t>(requested_x) + width)
                     {
-                        requested_x = (existing->width - static_cast<std::int32_t>(width)) + existing->x;
+                        requested_x = (existing->width - static_cast<int32_t>(width)) + existing->x;
                     }
-                    if(static_cast<std::uint32_t>(existing->y + existing->height) < static_cast<std::uint32_t>(y) + height)
+                    if(static_cast<uint32_t>(existing->y + existing->height) < static_cast<uint32_t>(y) + height)
                     {
-                        y = (existing->height - static_cast<std::int32_t>(height)) + existing->y;
+                        y = (existing->height - static_cast<int32_t>(height)) + existing->y;
                     }
                 }
-                std::int32_t offset_x = requested_x - existing->x;
-                std::int32_t offset_y = y - existing->y;
+                int32_t offset_x = requested_x - existing->x;
+                int32_t offset_y = y - existing->y;
                 bool owner_exists = false;
-                for(std::uint32_t owner_index = 0; owner_index < existing->owner_count; ++owner_index)
+                for(uint32_t owner_index = 0; owner_index < existing->owner_count; ++owner_index)
                 {
                     if(existing->owners[owner_index] == owner)
                     {
@@ -7952,9 +8050,9 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         break;
                     }
                 }
-                bool fits = offset_x >= 0 && offset_y >= 0 && static_cast<std::uint32_t>(offset_x) + width <= static_cast<std::uint32_t>(existing->width)
-                         && static_cast<std::uint32_t>(offset_y) + height <= static_cast<std::uint32_t>(existing->height);
-                std::uint32_t existing_flags = existing->flags;
+                bool fits = offset_x >= 0 && offset_y >= 0 && static_cast<uint32_t>(offset_x) + width <= static_cast<uint32_t>(existing->width)
+                         && static_cast<uint32_t>(offset_y) + height <= static_cast<uint32_t>(existing->height);
+                uint32_t existing_flags = existing->flags;
                 if((existing_flags & 0x40) != 0 || owner_exists || !fits || (existing->owner_count == 0 && (existing_flags & 2) == 0))
                 {
                     locked_node = true;
@@ -7963,11 +8061,11 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         locked_node = false;
                         if((flags & 0x200000) != 0)
                         {
-                            if(width <= static_cast<std::uint32_t>(existing->width))
+                            if(width <= static_cast<uint32_t>(existing->width))
                             {
                                 width = existing->width;
                             }
-                            if(height <= static_cast<std::uint32_t>(existing->height))
+                            if(height <= static_cast<uint32_t>(existing->height))
                             {
                                 height = existing->height;
                             }
@@ -7979,9 +8077,9 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         }
                         if(((existing->owner_count == 0 && owner != 0) || (existing->owner_count == 1 && owner_exists)) && (existing_flags & 0x42) == 0)
                         {
-                            std::uint32_t pixel_bytes = (format->bits_per_pixel >> 3) * height * width;
-                            if(existing->rectangle_callback_metadata[0] == format->bits_per_pixel
-                                && ((existing_flags & 0x02000000) == 0 || (width == static_cast<std::uint32_t>(existing->width) && height == static_cast<std::uint32_t>(existing->height)))
+                            uint32_t pixel_bytes = (format->bits_per_pixel >> 3) * height * width;
+                            if(existing->rectangle_callback_format.bits_per_pixel == format->bits_per_pixel
+                                && ((existing_flags & 0x02000000) == 0 || (width == static_cast<uint32_t>(existing->width) && height == static_cast<uint32_t>(existing->height)))
                                 && ((existing_flags & 0x04000000) == 0 || (requested_x == existing->x && y == existing->y)))
                             {
                                 DisplayRectangle old_rectangle{ existing->x, existing->y, existing->x + existing->width, existing->y + existing->height };
@@ -7990,25 +8088,25 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                                 LPVOID alternate;
                                 bool allocation_success = true;
                                 HANDLE heap = display_scene_memory_api.get_process_heap();
-                                if(existing->width == static_cast<std::int32_t>(width) && existing->height == static_cast<std::int32_t>(height))
+                                if(existing->width == static_cast<int32_t>(width) && existing->height == static_cast<int32_t>(height))
                                 {
-                                    primary = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position));
-                                    current = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_current_position));
-                                    alternate = reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_alternate_position));
+                                    primary = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position));
+                                    current = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position));
+                                    alternate = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position));
                                 }
                                 else
                                 {
                                     if(existing->callback_alternate_position != 0)
                                     {
-                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_alternate_position)));
+                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position)));
                                     }
                                     if(existing->callback_current_position != 0)
                                     {
-                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_current_position)));
+                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position)));
                                     }
                                     bool had_current = existing->callback_current_position != 0;
                                     bool had_alternate = existing->callback_alternate_position != 0;
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position)));
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)));
                                     current = nullptr;
                                     alternate = nullptr;
                                     primary = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
@@ -8032,9 +8130,9 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                                 }
                                 if(allocation_success)
                                 {
-                                    existing->callback_first_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
-                                    existing->callback_current_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(current));
-                                    existing->callback_alternate_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(alternate));
+                                    existing->callback_first_position = reinterpret_cast<intptr_t>(primary);
+                                    existing->callback_current_position = reinterpret_cast<intptr_t>(current);
+                                    existing->callback_alternate_position = reinterpret_cast<intptr_t>(alternate);
                                     queue_display_rectangle(&old_rectangle);
                                     if((flags & 0x10000) != 0 && existing->primary_owner == 0)
                                     {
@@ -8047,8 +8145,8 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                                     existing->owners[0] = owner;
                                     existing->owner_count = 1;
                                     existing->reference_count = 0;
-                                    existing->callback_position = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
-                                    existing->sync_secondary_position = static_cast<std::int32_t>((format->bits_per_pixel >> 3) * width);
+                                    existing->callback_position = reinterpret_cast<intptr_t>(primary);
+                                    existing->sync_secondary_position = static_cast<int32_t>((format->bits_per_pixel >> 3) * width);
                                     existing->width = width;
                                     existing->height = height;
                                     existing->x = requested_x;
@@ -8058,11 +8156,11 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                                     existing->flags = flags | 0x01000000;
                                     descriptor->x = 0;
                                     descriptor->y = 0;
-                                    descriptor->width = static_cast<std::int16_t>(width);
-                                    descriptor->height = static_cast<std::int16_t>(height);
+                                    descriptor->width = static_cast<int16_t>(width);
+                                    descriptor->height = static_cast<int16_t>(height);
                                     descriptor->present = 1;
                                     descriptor->reserved = 0;
-                                    descriptor->pixels = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(primary));
+                                    descriptor->pixels = reinterpret_cast<intptr_t>(primary);
                                     result = existing;
                                 }
                                 else
@@ -8098,7 +8196,7 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         }
                     }
                 }
-                else if(existing->rectangle_callback_metadata[0] == format->bits_per_pixel)
+                else if(existing->rectangle_callback_format.bits_per_pixel == format->bits_per_pixel)
                 {
                     result = existing;
                     if(owner != 0)
@@ -8109,14 +8207,14 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
                         }
                         if((flags & 0x20000) != 0 && existing->owner_count == 0)
                         {
-                            std::memset(reinterpret_cast<void *>(static_cast<std::uintptr_t>(existing->callback_first_position)), 0,
-                                static_cast<std::uint32_t>(existing->width) * static_cast<std::uint32_t>(existing->height));
+                            std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)), 0,
+                                static_cast<uint32_t>(existing->width) * static_cast<uint32_t>(existing->height));
                         }
                         existing->owners[existing->owner_count] = owner;
-                        descriptor->x = static_cast<std::int16_t>(offset_x);
-                        descriptor->y = static_cast<std::int16_t>(offset_y);
-                        descriptor->width = static_cast<std::int16_t>(existing->width);
-                        descriptor->height = static_cast<std::int16_t>(existing->height);
+                        descriptor->x = static_cast<int16_t>(offset_x);
+                        descriptor->y = static_cast<int16_t>(offset_y);
+                        descriptor->width = static_cast<int16_t>(existing->width);
+                        descriptor->height = static_cast<int16_t>(existing->height);
                         descriptor->present = 1;
                         descriptor->reserved = 0;
                         descriptor->pixels = existing->callback_first_position;
@@ -8142,8 +8240,8 @@ DisplaySceneNode *__fastcall acquire_display_scene_node(std::uint32_t index, std
 }
 
 // GAG.EXE: 0x004192B0
-std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_position, const DisplayPixelFormatDescriptor *format, std::int32_t width, std::int32_t height,
-    int(__fastcall *synchronize)(void *context, void *payload, std::uint32_t mode), void *context, std::uint32_t worker_interval)
+uint32_t *initialize_display_scene_host(intptr_t primary_position, const DisplayPixelFormatDescriptor *format, int32_t width, int32_t height,
+    int (*synchronize)(void *context, void *payload, uint32_t mode), void *context, uint32_t worker_interval)
 {
     if(primary_position == 0)
     {
@@ -8192,6 +8290,8 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
 
     display_width = width;
     display_height = height;
+    display_scene_surface_state.width = width;
+    display_scene_surface_state.height = height;
     display_lock_flags = 1;
     display_scene_root_primary_position = primary_position;
     display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
@@ -8213,7 +8313,7 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
         if(display_scene_worker_thread == nullptr)
         {
             display_lock_flags |= 0x40000000;
-            release_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(display_scene_root)), 0);
+            release_display_scene_node(reinterpret_cast<intptr_t>(display_scene_root), 0);
             display_scene_host_api.delete_critical_section(&display_lock_critical_section);
             display_scene_host_api.close_handle(display_lock_release_event);
             display_scene_host_api.close_handle(display_lock_gate_event);
@@ -8228,7 +8328,7 @@ std::uint32_t *__fastcall initialize_display_scene_host(std::int32_t primary_pos
 }
 
 // GAG.EXE: 0x004194B0
-std::uint32_t shutdown_display_scene_host()
+uint32_t shutdown_display_scene_host()
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -8245,7 +8345,7 @@ std::uint32_t shutdown_display_scene_host()
     {
         display_scene_host_api.wait_for_single_object(display_scene_worker_thread, INFINITE);
     }
-    release_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(display_scene_root)), 0);
+    release_display_scene_node(reinterpret_cast<intptr_t>(display_scene_root), 0);
     display_scene_host_api.close_handle(display_lock_release_event);
     display_scene_host_api.close_handle(display_lock_gate_event);
     display_scene_host_api.delete_critical_section(&display_lock_critical_section);
@@ -8253,21 +8353,21 @@ std::uint32_t shutdown_display_scene_host()
 }
 
 // GAG.EXE: 0x0041B3F0
-DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
+DWORD WINAPI run_display_scene_worker(uint32_t *flags)
 {
     DWORD frame_start = display_scene_worker_api.time_get_time();
     DWORD rate_start = frame_start;
-    std::uint32_t frame_count = 0;
-    std::uint32_t worker_iteration = 0;
+    uint32_t frame_count = 0;
+    uint32_t worker_iteration = 0;
     while((*flags & 0x40000000) == 0)
     {
         ++worker_iteration;
         DisplayRectangle primary_rectangle{};
         DisplayRectangle secondary_rectangle{};
-        std::uint32_t dirty_flags = 0;
-        const std::uint32_t acquire_result = display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
+        uint32_t dirty_flags = 0;
+        const uint32_t acquire_result = display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        static std::uint32_t traced_worker_iterations = 0;
+        static uint32_t traced_worker_iterations = 0;
         if(traced_worker_iterations < 12 && (dirty_flags != 0 || traced_worker_iterations < 2))
         {
             trace_animation_startup("scene worker index=%u acquire=%08X dirty=%08X primary=(%d,%d)-(%d,%d) busy=%u flags=%08X", traced_worker_iterations, acquire_result, dirty_flags,
@@ -8298,7 +8398,7 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
                     {
                         if(node->rectangle_callback != nullptr)
                         {
-                            node->rectangle_callback(display_scene_root, 0, 0, node, &primary_rectangle, &node->rectangle_callback_state, 0x01000000);
+                            node->rectangle_callback(display_scene_root, 0, 0, node, &primary_rectangle, &node->rectangle_callback_format, 0x01000000);
                         }
                     }
                 }
@@ -8311,9 +8411,9 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
                 }
                 display_scene_sync_api.synchronize(display_scene_sync_context, &primary_rectangle, 1);
             }
-            const std::uint32_t release_result = display_scene_worker_api.release_lock();
+            [[maybe_unused]] const uint32_t release_result = display_scene_worker_api.release_lock();
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            static std::uint32_t traced_releases = 0;
+            static uint32_t traced_releases = 0;
             if(traced_releases < 4)
             {
                 trace_animation_startup("scene release result=%08X flags=%08X owner=%u current=%u recursion=%u", release_result, *flags, display_lock_owner_thread, GetCurrentThreadId(),
@@ -8359,14 +8459,14 @@ DWORD WINAPI run_display_scene_worker(std::uint32_t *flags)
 }
 
 // GAG.EXE: 0x0041A480
-std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std::int32_t owner)
+uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
 {
     if((identifier == 0 && owner == 0) || (display_lock_flags & 1) == 0)
     {
         return 0x80000000;
     }
-    std::uint32_t previous_mode = 0;
-    std::uint32_t previous_busy = 0;
+    uint32_t previous_mode = 0;
+    uint32_t previous_busy = 0;
     bool locked_node = false;
     while(true)
     {
@@ -8388,10 +8488,10 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
             display_lock_acquire_api.sleep(5);
         }
         display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
-        std::uint32_t observed_busy = display_lock_busy;
+        uint32_t observed_busy = display_lock_busy;
         previous_mode = display_lock_flags & 0x3000;
         previous_busy = display_lock_busy;
-        std::uint32_t result = previous_mode;
+        uint32_t result = previous_mode;
         if(previous_mode == 0 && display_lock_busy == 0)
         {
             result = 0x80000000;
@@ -8405,10 +8505,10 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
                 {
                     if(node->lock_count == 0)
                     {
-                        std::int32_t remaining_owner = owner;
+                        intptr_t remaining_owner = owner;
                         if(owner != 0)
                         {
-                            for(std::uint32_t owner_index = 0; owner_index < node->owner_count; ++owner_index)
+                            for(uint32_t owner_index = 0; owner_index < node->owner_count; ++owner_index)
                             {
                                 if(node->owners[owner_index] == owner)
                                 {
@@ -8418,14 +8518,14 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
                                     if(node->owner_count == 0)
                                     {
                                         node->flags = (node->flags & ~0x40u) | 0x01000000;
-                                        if(node->rectangle_callback_metadata[0] == 8)
+                                        if(node->rectangle_callback_format.bits_per_pixel == 8)
                                         {
-                                            node->rectangle_callback_metadata[4] = 0;
-                                            node->rectangle_callback_metadata[5] = 0;
-                                            node->rectangle_callback_metadata[6] = 0;
+                                            node->rectangle_callback_format.palette_count = 0;
+                                            node->rectangle_callback_format.palette_source = nullptr;
+                                            node->rectangle_callback_format.palette_entries = nullptr;
                                             if(node != display_scene_root)
                                             {
-                                                if(display_scene_root->rectangle_callback_metadata[0] == 8)
+                                                if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
                                                 {
                                                     node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                                                 }
@@ -8446,7 +8546,7 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
                                 }
                             }
                         }
-                        if(static_cast<std::int32_t>(node->unknown_2c) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
+                        if(static_cast<int32_t>(node->unknown_2c) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
                         {
                             if(remaining_owner == 0 && node->owner_count < node->reference_count)
                             {
@@ -8480,19 +8580,19 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
                                 }
                                 if(node->callback_alternate_position != 0)
                                 {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_alternate_position)));
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_alternate_position)));
                                 }
                                 if(node->callback_current_position != 0)
                                 {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_current_position)));
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_current_position)));
                                 }
-                                if(static_cast<std::int32_t>(node->unknown_2c) == 0x7fffffff)
+                                if(static_cast<int32_t>(node->unknown_2c) == 0x7fffffff)
                                 {
                                     display_scene_root = nullptr;
                                 }
                                 else
                                 {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<std::uintptr_t>(node->callback_first_position)));
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
                                 }
                                 display_scene_memory_api.heap_free(heap, 0, node);
                                 retained_node = nullptr;
@@ -8528,16 +8628,16 @@ std::uint32_t __fastcall release_display_scene_node(std::int32_t identifier, std
 }
 
 // GAG.EXE: 0x0041BE60
-void __fastcall fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
+void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
     {
         return;
     }
-    std::int32_t left = rectangle->left;
-    std::int32_t top = rectangle->top;
-    std::int32_t right = rectangle->right;
-    std::int32_t bottom = rectangle->bottom;
+    int32_t left = rectangle->left;
+    int32_t top = rectangle->top;
+    int32_t right = rectangle->right;
+    int32_t bottom = rectangle->bottom;
     if(left < 0)
     {
         left = 0;
@@ -8554,38 +8654,38 @@ void __fastcall fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayR
     {
         bottom = node->height;
     }
-    std::int32_t row_width = right - left;
-    std::int32_t row_count = bottom - top;
+    int32_t row_width = right - left;
+    int32_t row_count = bottom - top;
     if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
     {
-        auto *row = reinterpret_cast<std::uint16_t *>(reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position
-                                                      + left * static_cast<std::int32_t>(sizeof(std::uint16_t)));
+        auto *row = reinterpret_cast<uint16_t *>(
+            reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left * static_cast<int32_t>(sizeof(uint16_t)));
         do
         {
-            for(std::int32_t column = 0; column < row_width; ++column)
+            for(int32_t column = 0; column < row_width; ++column)
             {
-                row[column] = static_cast<std::uint16_t>(value);
+                row[column] = static_cast<uint16_t>(value);
             }
-            row = reinterpret_cast<std::uint16_t *>(reinterpret_cast<std::uint8_t *>(row) + node->sync_secondary_position);
+            row = reinterpret_cast<uint16_t *>(reinterpret_cast<uint8_t *>(row) + node->sync_secondary_position);
             --row_count;
         } while(row_count != 0);
     }
 }
 
 // GAG.EXE: 0x004190D0
-int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *output_rectangle)
+int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *output_rectangle)
 {
     DisplayRectangle geometry{ 0, 0, node->width, node->height };
-    std::int32_t primary_position = node->callback_first_position;
-    std::int32_t secondary_position = node->sync_secondary_position;
+    intptr_t primary_position = node->callback_first_position;
+    int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
     int synchronized = display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x10000);
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    static std::uint32_t traced_target_synchronizations = 0;
+    static uint32_t traced_target_synchronizations = 0;
     if(traced_target_synchronizations < 8)
     {
-        trace_animation_startup("target synchronize index=%u node=%p result=%d geometry=(%d,%d)-(%d,%d) primary=%08X secondary=%d", traced_target_synchronizations, node, synchronized, geometry.left,
-            geometry.top, geometry.right, geometry.bottom, primary_position, secondary_position);
+        trace_animation_startup("target synchronize index=%u node=%p result=%d geometry=(%d,%d)-(%d,%d) primary=%p secondary=%d", traced_target_synchronizations, node, synchronized, geometry.left,
+            geometry.top, geometry.right, geometry.bottom, reinterpret_cast<void *>(primary_position), secondary_position);
         ++traced_target_synchronizations;
     }
 #endif
@@ -8629,23 +8729,23 @@ int __fastcall synchronize_display_scene_node(DisplaySceneNode *node, DisplayRec
 }
 
 // GAG.EXE: 0x00419230
-void __fastcall publish_display_scene_node(DisplaySceneNode *node)
+void publish_display_scene_node(DisplaySceneNode *node)
 {
     DisplayRectangle geometry{ 0, 0, node->width, node->height };
-    std::int32_t primary_position = node->callback_first_position;
-    std::int32_t secondary_position = node->sync_secondary_position;
+    intptr_t primary_position = node->callback_first_position;
+    int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
     display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
 }
 
 // GAG.EXE: 0x00419710
-std::uint32_t __fastcall dispatch_display_scene_update(void *target, std::uint32_t options)
+uint32_t dispatch_display_scene_update(void *target, uint32_t options)
 {
     if((display_lock_flags & 1) == 0 || display_scene_sync_api.synchronize == nullptr)
     {
         return 0x80000000;
     }
-    std::uint32_t result = 0x20000000;
+    uint32_t result = 0x20000000;
     DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
     if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
     {
@@ -8657,12 +8757,12 @@ std::uint32_t __fastcall dispatch_display_scene_update(void *target, std::uint32
             local_rectangle = { display_width, display_height, 0, 0 };
             DisplaySceneNode *node = static_cast<DisplaySceneNode *>(target);
             rectangle = &local_rectangle;
-            if(contains_display_scene_node(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(node))))
+            if(contains_display_scene_node(reinterpret_cast<intptr_t>(node)))
             {
                 accumulate_scene_node_rectangle(rectangle, node);
             }
         }
-        std::uint32_t attempts = 0;
+        uint32_t attempts = 0;
         while(true)
         {
             if(synchronize_display_scene_node(display_scene_root, rectangle) == 0)
@@ -8706,7 +8806,7 @@ std::uint32_t __fastcall dispatch_display_scene_update(void *target, std::uint32
             {
                 if(node->rectangle_callback != nullptr)
                 {
-                    node->rectangle_callback(display_scene_root, 0, 0, node, rectangle, &node->rectangle_callback_state, 0x01000000);
+                    node->rectangle_callback(display_scene_root, 0, 0, node, rectangle, &node->rectangle_callback_format, 0x01000000);
                 }
             }
             publish_display_scene_node(display_scene_root);
@@ -8721,7 +8821,7 @@ std::uint32_t __fastcall dispatch_display_scene_update(void *target, std::uint32
 }
 
 // GAG.EXE: 0x0041AC70
-bool __fastcall contains_display_scene_node(std::int32_t identifier)
+bool contains_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
     {
@@ -8742,9 +8842,9 @@ bool __fastcall contains_display_scene_node(std::int32_t identifier)
 }
 
 // GAG.EXE: 0x00414540
-std::uint32_t end_display_target()
+uint32_t end_display_target()
 {
-    std::uint32_t result = 0x200000;
+    uint32_t result = 0x200000;
     if((display_palette_flags & 0x40000000) != 0)
     {
         if((display_palette_flags & 0x100002) != 0)
@@ -8760,9 +8860,9 @@ std::uint32_t end_display_target()
 }
 
 // GAG.EXE: 0x00413340
-HWND __fastcall find_top_level_display_window(HWND window)
+HWND find_top_level_display_window(HWND window)
 {
-    while((static_cast<std::uint32_t>(display_cooperative_level_api.get_window_long(window, GWL_STYLE)) & WS_CHILD) != 0)
+    while((static_cast<uint32_t>(display_cooperative_level_api.get_window_long(window, GWL_STYLE)) & WS_CHILD) != 0)
     {
         window = display_cooperative_level_api.get_parent(window);
     }
@@ -8833,14 +8933,14 @@ void acquire_display_mode_change_lock()
 }
 
 // GAG.EXE: 0x00413780
-std::uint32_t __fastcall set_active_display_mode(DisplayMode *mode)
+uint32_t set_active_display_mode(DisplayMode *mode)
 {
-    std::uint32_t result = 0x200000;
+    uint32_t result = 0x200000;
     acquire_display_mode_change_lock();
     if((display_palette_flags & 0x200002) == 0)
     {
-        std::uint32_t cooperative_result = 0;
-        const std::uint32_t previous_cooperative = display_palette_flags & 0x1000;
+        uint32_t cooperative_result = 0;
+        const uint32_t previous_cooperative = display_palette_flags & 0x1000;
         if(previous_cooperative == 0)
         {
             cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
@@ -8878,14 +8978,14 @@ std::uint32_t __fastcall set_active_display_mode(DisplayMode *mode)
 }
 
 // GAG.EXE: 0x004138D0
-std::uint32_t restore_active_display_mode()
+uint32_t restore_active_display_mode()
 {
-    std::uint32_t result = 0x200000;
+    uint32_t result = 0x200000;
     acquire_display_mode_change_lock();
     if((display_palette_flags & 0x200002) == 0)
     {
-        std::uint32_t cooperative_result = 0;
-        const std::uint32_t previous_cooperative = display_palette_flags & 0x1000;
+        uint32_t cooperative_result = 0;
+        const uint32_t previous_cooperative = display_palette_flags & 0x1000;
         if(previous_cooperative == 0)
         {
             cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
@@ -8912,7 +9012,7 @@ std::uint32_t restore_active_display_mode()
 }
 
 // GAG.EXE: 0x0041F9C0
-std::uint32_t __fastcall set_active_display_mode_if_graphics_ready(DisplayMode *mode)
+uint32_t set_active_display_mode_if_graphics_ready(DisplayMode *mode)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     (void)mode;
@@ -8927,7 +9027,7 @@ std::uint32_t __fastcall set_active_display_mode_if_graphics_ready(DisplayMode *
 }
 
 // GAG.EXE: 0x0041F9E0
-std::uint32_t restore_active_display_mode_if_graphics_ready()
+uint32_t restore_active_display_mode_if_graphics_ready()
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
     return 0;
@@ -8941,7 +9041,7 @@ std::uint32_t restore_active_display_mode_if_graphics_ready()
 }
 
 // GAG.EXE: 0x00413590
-std::uint32_t __fastcall set_display_cooperative_mode(std::uint32_t mode)
+uint32_t set_display_cooperative_mode(uint32_t mode)
 {
     if(display_palette_window == nullptr)
     {
@@ -8972,7 +9072,7 @@ std::uint32_t __fastcall set_display_cooperative_mode(std::uint32_t mode)
 }
 
 // GAG.EXE: 0x004140B0
-void __fastcall operate_display_surface(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, std::int32_t mode)
+void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode)
 {
     while(true)
     {
@@ -8999,7 +9099,7 @@ void __fastcall operate_display_surface(std::int32_t x, std::int32_t y, std::int
         }
         else if(mode == 2)
         {
-            std::uint32_t effects[25]{};
+            uint32_t effects[25]{};
             effects[0] = 100;
             display_surface_operation_api.blt(display_direct_draw_primary_surface, &rectangle, display_direct_draw_secondary_surface, &rectangle, 0x400, effects);
         }
@@ -9036,7 +9136,7 @@ void __fastcall operate_display_surface(std::int32_t x, std::int32_t y, std::int
 }
 
 // GAG.EXE: 0x00414220
-void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uint32_t mode)
+void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode)
 {
     while(true)
     {
@@ -9063,7 +9163,7 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
         }
         else if(mode == 2)
         {
-            std::uint32_t effects[25]{};
+            uint32_t effects[25]{};
             effects[0] = sizeof(effects);
             display_region_synchronization_api.blt(display_direct_draw_primary_surface, native_rectangle, display_direct_draw_secondary_surface, native_rectangle, 0x400, effects);
         }
@@ -9084,16 +9184,16 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
                 display_palette_dib_dc, rectangle->left, rectangle->top, SRCCOPY);
         }
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        static std::uint32_t traced_presentations = 0;
+        static uint32_t traced_presentations = 0;
         if(traced_presentations < 8)
         {
-            std::uint32_t nonzero_surface_pixels = 0;
+            uint32_t nonzero_surface_pixels = 0;
             if(display_palette_pixels != nullptr && display_palette_bits_per_pixel == 16)
             {
-                const auto *surface_pixels = static_cast<const std::uint16_t *>(display_palette_pixels);
-                for(std::int32_t y = rectangle->top; y < rectangle->bottom; ++y)
+                const auto *surface_pixels = static_cast<const uint16_t *>(display_palette_pixels);
+                for(int32_t y = rectangle->top; y < rectangle->bottom; ++y)
                 {
-                    for(std::int32_t x = rectangle->left; x < rectangle->right; ++x)
+                    for(int32_t x = rectangle->left; x < rectangle->right; ++x)
                     {
                         nonzero_surface_pixels += surface_pixels[y * display_palette_width + x] != 0 ? 1u : 0u;
                     }
@@ -9125,10 +9225,10 @@ void __fastcall synchronize_display_region(DisplayRectangle *rectangle, std::uin
 }
 
 // GAG.EXE: 0x00414360
-std::uint32_t __fastcall begin_display_target(void **pixels, DisplayRectangle *rectangle, std::uint32_t *pitch)
+uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32_t *pitch)
 {
     const bool direct_draw = (display_palette_flags & 0x100002) == 0;
-    std::uint32_t busy;
+    uint32_t busy;
     do
     {
         busy = (display_palette_flags & 0x40000000) >> 30;
@@ -9164,15 +9264,15 @@ std::uint32_t __fastcall begin_display_target(void **pixels, DisplayRectangle *r
             *pitch = descriptor.pitch;
             rectangle->left = 0;
             rectangle->top = 0;
-            rectangle->right = static_cast<std::int32_t>(descriptor.width);
-            rectangle->bottom = static_cast<std::int32_t>(descriptor.height);
+            rectangle->right = static_cast<int32_t>(descriptor.width);
+            rectangle->bottom = static_cast<int32_t>(descriptor.height);
             return 0;
         }
     }
     else
     {
         *pixels = display_palette_pixels;
-        *pitch = static_cast<std::uint32_t>((current_display_mode->bits_per_pixel >> 3) * display_palette_width);
+        *pitch = static_cast<uint32_t>((current_display_mode->bits_per_pixel >> 3) * display_palette_width);
         rectangle->left = 0;
         rectangle->top = 0;
         rectangle->right = display_palette_width;
@@ -9187,7 +9287,7 @@ std::uint32_t __fastcall begin_display_target(void **pixels, DisplayRectangle *r
 }
 
 // GAG.EXE: 0x004139B0
-void *__fastcall create_display_surface(std::int32_t width, std::int32_t height, const LegacyDisplayPixelFormat *format, std::uint32_t options)
+void *create_display_surface(int32_t width, int32_t height, const LegacyDisplayPixelFormat *format, uint32_t options)
 {
     while(true)
     {
@@ -9208,12 +9308,12 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
 
     void *result = nullptr;
     display_surface_creation_api.teardown();
-    std::uint32_t mode_flags = (options & 0x100) | 0x10;
+    uint32_t mode_flags = (options & 0x100) | 0x10;
     if((display_palette_flags & 0x100002) == 0)
     {
         while(true)
         {
-            std::uint32_t previous_flags = display_palette_flags;
+            uint32_t previous_flags = display_palette_flags;
             LegacyDirectDrawSurfaceDescriptor descriptor{};
             descriptor.size = sizeof(descriptor);
             if((mode_flags & 0x100) == 0)
@@ -9225,8 +9325,8 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                     descriptor = {};
                     descriptor.size = sizeof(descriptor);
                     descriptor.flags = 0x1006;
-                    descriptor.height = static_cast<std::uint32_t>(height);
-                    descriptor.width = static_cast<std::uint32_t>(width);
+                    descriptor.height = static_cast<uint32_t>(height);
+                    descriptor.width = static_cast<uint32_t>(width);
                     descriptor.pixel_format.size = sizeof(descriptor.pixel_format);
                     descriptor.pixel_format.flags = format->flags;
                     descriptor.pixel_format.bits_per_pixel = format->bits_per_pixel;
@@ -9236,7 +9336,7 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                     descriptor.caps = 0x840;
                     if(display_surface_creation_api.create_direct_draw_surface(display_direct_draw, &descriptor, &display_direct_draw_secondary_surface, nullptr) == 0)
                     {
-                        result = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+                        result = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
                         display_palette_flags |= mode_flags;
                     }
                     else
@@ -9255,10 +9355,10 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                 descriptor.caps = 0x218;
                 if(display_surface_creation_api.create_direct_draw_surface(display_direct_draw, &descriptor, &display_direct_draw_primary_surface, nullptr) == 0)
                 {
-                    std::uint32_t caps = 4;
+                    uint32_t caps = 4;
                     if(display_surface_creation_api.get_attached_surface(display_direct_draw_primary_surface, &caps, &display_direct_draw_secondary_surface) == 0)
                     {
-                        result = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+                        result = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
                         display_palette_flags |= mode_flags;
                     }
                 }
@@ -9350,9 +9450,9 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                     bitmap_info->bmiHeader.biCompression = compression;
                     bitmap_info->bmiHeader.biSizeImage = (format->bits_per_pixel >> 3) * height * width;
                     bitmap_info->bmiHeader.biClrUsed = color_count;
-                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[0] = format->red_mask;
-                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[1] = format->green_mask;
-                    reinterpret_cast<std::uint32_t *>(bitmap_info->bmiColors)[2] = format->blue_mask;
+                    reinterpret_cast<uint32_t *>(bitmap_info->bmiColors)[0] = format->red_mask;
+                    reinterpret_cast<uint32_t *>(bitmap_info->bmiColors)[1] = format->green_mask;
+                    reinterpret_cast<uint32_t *>(bitmap_info->bmiColors)[2] = format->blue_mask;
                     display_palette_bitmap = display_surface_creation_api.create_dib_section(display_palette_dc, bitmap_info, DIB_RGB_COLORS, &result, nullptr, 0);
                     if(display_palette_bitmap == nullptr)
                     {
@@ -9372,7 +9472,7 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                     {
                         display_palette_width = width;
                         display_palette_height = height;
-                        display_palette_bits_per_pixel = static_cast<std::int32_t>(format->bits_per_pixel);
+                        display_palette_bits_per_pixel = static_cast<int32_t>(format->bits_per_pixel);
                         display_palette_pixels = result;
                         display_palette_previous_bitmap = static_cast<HBITMAP>(display_surface_creation_api.select_object(display_palette_dib_dc, display_palette_bitmap));
                         if(format->bits_per_pixel == 8)
@@ -9380,7 +9480,7 @@ void *__fastcall create_display_surface(std::int32_t width, std::int32_t height,
                             display_surface_creation_api.set_palette_entries(display_palette, 0, 0xec, display_palette_entries);
                             display_surface_creation_api.realize_palette(display_palette_dc);
                             RGBQUAD colors[0x100];
-                            for(std::uint32_t index = 0; index < 0x100; ++index)
+                            for(uint32_t index = 0; index < 0x100; ++index)
                             {
                                 colors[index].rgbRed = display_palette_entries[index].peRed;
                                 colors[index].rgbGreen = display_palette_entries[index].peGreen;
@@ -9479,7 +9579,7 @@ PALETTEENTRY *get_display_palette_entries()
 }
 
 // GAG.EXE: 0x00414610
-UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::uint32_t update_flags)
+UINT apply_display_palette(const PALETTEENTRY *palette_entries, uint32_t update_flags)
 {
     bool palette_unchanged = true;
     display_palette_api.enter_lock();
@@ -9512,7 +9612,7 @@ UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::
                 {
                     palette_unchanged = false;
                     display_palette_api.unrealize_object(display_palette);
-                    for(std::uint32_t index = 0; index < 0xec; ++index)
+                    for(uint32_t index = 0; index < 0xec; ++index)
                     {
                         display_palette_entries[index].peFlags = 1;
                     }
@@ -9525,7 +9625,7 @@ UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::
             {
                 palette_unchanged = false;
                 display_palette_api.unrealize_object(display_palette);
-                for(std::uint32_t index = 0; index < 0xec; ++index)
+                for(uint32_t index = 0; index < 0xec; ++index)
                 {
                     display_palette_entries[index].peFlags = 0;
                 }
@@ -9562,7 +9662,7 @@ UINT __fastcall apply_display_palette(const PALETTEENTRY *palette_entries, std::
         if((update_flags & 0x20000) != 0)
         {
             RGBQUAD colors[0x100];
-            for(std::uint32_t index = 0; index < 0x100; ++index)
+            for(uint32_t index = 0; index < 0x100; ++index)
             {
                 colors[index].rgbBlue = display_palette_entries[index].peBlue;
                 colors[index].rgbGreen = display_palette_entries[index].peGreen;
@@ -9605,7 +9705,7 @@ void disable_display_palette_mode()
 }
 
 // GAG.EXE: 0x00420A90
-void __fastcall enqueue_runtime_message(std::uint32_t message)
+void enqueue_runtime_message(uint32_t message)
 {
     if((graphics_host_flags & 0x400) == 0)
     {
@@ -9617,7 +9717,7 @@ void __fastcall enqueue_runtime_message(std::uint32_t message)
         runtime_display_context.message_write_index = 0;
         runtime_display_context.message_read_index = 0;
     }
-    std::uint32_t previous_index = runtime_display_context.message_write_index == 0 ? 0x1f : runtime_display_context.message_write_index - 1;
+    uint32_t previous_index = runtime_display_context.message_write_index == 0 ? 0x1f : runtime_display_context.message_write_index - 1;
     if(runtime_display_context.message_write_index == runtime_display_context.message_read_index || runtime_display_context.message_queue[previous_index] != message)
     {
         runtime_display_context.message_available = 1;
@@ -9640,13 +9740,13 @@ void __fastcall enqueue_runtime_message(std::uint32_t message)
 }
 
 // GAG.EXE: 0x00420B50
-std::uint32_t dequeue_runtime_message()
+uint32_t dequeue_runtime_message()
 {
     if(runtime_display_context.message_available == 0)
     {
         return 0;
     }
-    std::uint32_t message = 0;
+    uint32_t message = 0;
     runtime_queue_api.enter_queue_lock();
     if(runtime_display_context.message_write_index != runtime_display_context.message_read_index)
     {
@@ -9679,13 +9779,13 @@ void set_runtime_queue_api_for_testing(const RuntimeQueueApi &api)
     runtime_queue_api = api;
 }
 
-void set_runtime_pair_indices_for_testing(std::uint32_t read_index, std::uint32_t write_index)
+void set_runtime_pair_indices_for_testing(uint32_t read_index, uint32_t write_index)
 {
     runtime_display_context.pair_read_index = read_index;
     runtime_display_context.pair_write_index = write_index;
 }
 
-void get_runtime_pair_indices_for_testing(std::uint32_t *read_index, std::uint32_t *write_index)
+void get_runtime_pair_indices_for_testing(uint32_t *read_index, uint32_t *write_index)
 {
     *read_index = runtime_display_context.pair_read_index;
     *write_index = runtime_display_context.pair_write_index;
@@ -9715,7 +9815,7 @@ void reset_runtime_pair_queue_for_testing()
     runtime_display_context.pair_write_index = 0;
 }
 
-void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, std::uint32_t status)
+void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, uint32_t status)
 {
     std::memcpy(runtime_display_context.input_text, &record, sizeof(record));
     runtime_display_context.input_cursor = status;
@@ -9726,7 +9826,7 @@ void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api
     runtime_input_session_api = api;
 }
 
-void set_runtime_input_alternate_scene_for_testing(std::int32_t identifier)
+void set_runtime_input_alternate_scene_for_testing(intptr_t identifier)
 {
     runtime_display_context.input_alternate_scene_identifier = identifier;
 }
@@ -9741,25 +9841,25 @@ void set_runtime_session_reset_api_for_testing(const RuntimeSessionResetApi &api
     runtime_session_reset_api = api;
 }
 
-void set_runtime_session_reset_storage_for_testing(std::uint32_t value)
+void set_runtime_session_reset_storage_for_testing(uint32_t value)
 {
-    for(std::uint32_t &entry : runtime_session_reset_storage)
+    for(uint32_t &entry : runtime_session_reset_storage)
     {
         entry = value;
     }
 }
 
-std::uint32_t get_runtime_session_reset_storage_for_testing(std::uint32_t index)
+uint32_t get_runtime_session_reset_storage_for_testing(uint32_t index)
 {
     return runtime_session_reset_storage[index];
 }
 
-std::uint32_t get_runtime_pointer_event_record_for_testing(std::uint32_t index)
+uintptr_t get_runtime_pointer_event_record_for_testing(uint32_t index)
 {
     return runtime_pointer_event_record[index];
 }
 
-void set_embedded_script_runtime_flags_for_testing(std::uint32_t flags, std::uint32_t palette_flags)
+void set_embedded_script_runtime_flags_for_testing(uint32_t flags, uint32_t palette_flags)
 {
     graphics_script_runtime_root.flags = flags;
     graphics_script_runtime_root.palette_flags = palette_flags;
@@ -9775,7 +9875,7 @@ void set_runtime_target_update_api_for_testing(const RuntimeTargetUpdateApi &api
     runtime_target_update_api = api;
 }
 
-void set_runtime_target_flags_for_testing(std::uint32_t flags)
+void set_runtime_target_flags_for_testing(uint32_t flags)
 {
     runtime_target_flags = flags;
 }
@@ -9790,7 +9890,7 @@ void set_display_lock_acquire_api_for_testing(const DisplayLockAcquireApi &api)
     display_lock_acquire_api = api;
 }
 
-void set_display_lock_state_for_testing(std::uint32_t flags, DWORD owner_thread, std::uint32_t recursion_count, HANDLE release_event)
+void set_display_lock_state_for_testing(uint32_t flags, DWORD owner_thread, uint32_t recursion_count, HANDLE release_event)
 {
     display_lock_flags = flags;
     display_lock_owner_thread = owner_thread;
@@ -9803,13 +9903,13 @@ void set_display_root_region_api_for_testing(const DisplayRootRegionApi &api)
     display_root_region_api = api;
 }
 
-void set_display_root_region_state_for_testing(std::uint32_t lock_flags, DisplaySceneNode *root)
+void set_display_root_region_state_for_testing(uint32_t lock_flags, DisplaySceneNode *root)
 {
     display_lock_flags = lock_flags;
     display_scene_root = root;
 }
 
-void get_display_lock_state_for_testing(std::uint32_t *flags, DWORD *owner_thread, std::uint32_t *recursion_count)
+void get_display_lock_state_for_testing(uint32_t *flags, DWORD *owner_thread, uint32_t *recursion_count)
 {
     *flags = display_lock_flags;
     *owner_thread = display_lock_owner_thread;
@@ -9852,23 +9952,23 @@ void set_display_scene_sync_state_for_testing(void *context, DisplaySceneNode *r
     display_scene_root = root_node;
 }
 
-void set_display_scene_worker_state_for_testing(std::uint32_t interval, std::uint32_t *palette_source_state)
+void set_display_scene_worker_state_for_testing(uint32_t interval, DisplayPixelFormatDescriptor *palette_source_state)
 {
     display_scene_worker_interval = interval;
     display_palette_source_state = palette_source_state;
 }
 
-std::uint32_t get_display_scene_worker_rate_for_testing()
+uint32_t get_display_scene_worker_rate_for_testing()
 {
     return display_scene_worker_rate;
 }
 
-void set_display_scene_root_primary_position_for_testing(std::int32_t primary_position)
+void set_display_scene_root_primary_position_for_testing(intptr_t primary_position)
 {
     display_scene_root_primary_position = primary_position;
 }
 
-void set_display_lock_acquire_state_for_testing(HANDLE gate_event, std::uint32_t busy, const DisplayRectangle &pending_rectangle, std::int32_t width, std::int32_t height, DisplaySceneNode *scene_head)
+void set_display_lock_acquire_state_for_testing(HANDLE gate_event, uint32_t busy, const DisplayRectangle &pending_rectangle, int32_t width, int32_t height, DisplaySceneNode *scene_head)
 {
     display_lock_gate_event = gate_event;
     display_lock_busy = busy;
@@ -9908,7 +10008,7 @@ void set_display_mode_change_api_for_testing(const DisplayModeChangeApi &api)
     display_mode_change_api = api;
 }
 
-void set_display_mode_change_state_for_testing(std::uint32_t flags, void *display, DisplayMode *current_mode)
+void set_display_mode_change_state_for_testing(uint32_t flags, void *display, DisplayMode *current_mode)
 {
     display_palette_flags = flags;
     display_direct_draw = display;
@@ -9925,7 +10025,7 @@ void set_display_region_synchronization_api_for_testing(const DisplayRegionSynch
     display_region_synchronization_api = api;
 }
 
-void set_display_region_synchronization_state_for_testing(std::uint32_t flags, void *primary_surface, void *secondary_surface, HDC primary_context, HDC secondary_context)
+void set_display_region_synchronization_state_for_testing(uint32_t flags, void *primary_surface, void *secondary_surface, HDC primary_context, HDC secondary_context)
 {
     display_palette_flags = flags;
     display_direct_draw_primary_surface = primary_surface;
@@ -9939,7 +10039,7 @@ void set_display_target_begin_api_for_testing(const DisplayTargetBeginApi &api)
     display_target_begin_api = api;
 }
 
-void set_display_target_begin_state_for_testing(std::uint32_t flags, void *secondary_surface, void *pixels, std::int32_t width, std::int32_t height, DisplayMode *mode)
+void set_display_target_begin_state_for_testing(uint32_t flags, void *secondary_surface, void *pixels, int32_t width, int32_t height, DisplayMode *mode)
 {
     display_palette_flags = flags;
     display_direct_draw_secondary_surface = secondary_surface;
@@ -9954,8 +10054,7 @@ void set_display_surface_creation_api_for_testing(const DisplaySurfaceCreationAp
     display_surface_creation_api = api;
 }
 
-void set_display_palette_state_for_testing(std::uint32_t flags, std::int32_t display_bits_per_pixel, std::int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette,
-    std::int32_t width, std::int32_t height)
+void set_display_palette_state_for_testing(uint32_t flags, int32_t display_bits_per_pixel, int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette, int32_t width, int32_t height)
 {
     static DisplayMode surface_mode;
     display_palette_flags = flags;
@@ -9993,7 +10092,7 @@ void set_display_surface_operation_state_for_testing(void *primary_surface, void
     display_direct_draw_secondary_surface = secondary_surface;
 }
 
-std::uint32_t get_display_palette_flags_for_testing()
+uint32_t get_display_palette_flags_for_testing()
 {
     return display_palette_flags;
 }
@@ -10021,23 +10120,23 @@ void application_hook_no_op_1() {}
 void application_hook_no_op_2() {}
 
 // GAG.EXE: 0x0041CDC0
-void __fastcall set_application_lock_flag(ApplicationState *state)
+void set_application_lock_flag(ApplicationState *state)
 {
     state->flags |= 0x40000000;
 }
 
 // GAG.EXE: 0x0041CD30
-void __fastcall set_application_inactive_flags(ApplicationState *state)
+void set_application_inactive_flags(ApplicationState *state)
 {
-    std::uint32_t previous_flags = state->flags;
+    uint32_t previous_flags = state->flags;
     state->flags = previous_flags | 0x1000002;
     state->flags = previous_flags | 0x9000002;
 }
 
 // GAG.EXE: 0x0041CD50
-void __fastcall clear_runtime_active_flag(ApplicationState *state)
+void clear_runtime_active_flag(ApplicationState *state)
 {
-    std::uint32_t previous_flags = state->flags;
+    uint32_t previous_flags = state->flags;
     state->flags = previous_flags & 0xfeffffff;
     if((previous_flags & 0x40000000) == 0)
     {
@@ -10046,9 +10145,9 @@ void __fastcall clear_runtime_active_flag(ApplicationState *state)
 }
 
 // GAG.EXE: 0x0041CDD0
-void __fastcall clear_application_lock_flag(ApplicationState *state)
+void clear_application_lock_flag(ApplicationState *state)
 {
-    std::uint32_t previous_flags = state->flags;
+    uint32_t previous_flags = state->flags;
     state->flags = previous_flags & 0xbfffffff;
     if((previous_flags & 0x01000000) == 0)
     {
@@ -10057,7 +10156,7 @@ void __fastcall clear_application_lock_flag(ApplicationState *state)
 }
 
 // GAG.EXE: 0x00417970
-void __fastcall free_heap_memory(void *memory)
+void free_heap_memory(void *memory)
 {
     if(memory != nullptr)
     {
@@ -10070,7 +10169,7 @@ void set_display_mode_list_for_testing(DisplayMode *head)
     display_mode_head = head;
 }
 
-void set_graphics_host_flags_for_testing(std::uint32_t flags)
+void set_graphics_host_flags_for_testing(uint32_t flags)
 {
     graphics_host_flags = flags;
 }
@@ -10101,7 +10200,7 @@ void reset_custom_control_registration_for_testing()
     custom_control_instance = nullptr;
 }
 
-void set_custom_control_registration_state_for_testing(std::uint32_t registered, HINSTANCE instance)
+void set_custom_control_registration_state_for_testing(uint32_t registered, HINSTANCE instance)
 {
     custom_control_registered = registered;
     custom_control_instance = instance;
@@ -10143,21 +10242,21 @@ void set_display_switch_api_for_testing(const DisplaySwitchApi &api)
     display_switch_api = api;
 }
 
-std::uint32_t get_graphics_host_flags_for_testing()
+uint32_t get_graphics_host_flags_for_testing()
 {
     return graphics_host_flags;
 }
 
-void set_runtime_state_transition_for_testing(std::uint32_t current_value, std::uint32_t saved_value, void(__fastcall *callback)(std::uint32_t value))
+void set_runtime_state_transition_for_testing(uint32_t current_value, uint32_t saved_value, void (*callback)(uint32_t value))
 {
     runtime_state_value = current_value;
     saved_runtime_state_value = saved_value;
     runtime_state_transition_callback = callback;
 }
 
-std::uint32_t get_runtime_state_value_for_testing()
+uint32_t get_runtime_state_value_for_testing()
 {
-    return runtime_state_value;
+    return static_cast<uint32_t>(runtime_state_value);
 }
 
 int run_startup(HINSTANCE instance, LPSTR command_line, int show_command, const StartupApi &api)
@@ -10205,7 +10304,7 @@ constexpr char settings_value[] = "set";
 } // namespace
 
 // GAG.EXE: 0x0040CD00
-std::int32_t __fastcall select_bounded_random_value(std::int32_t minimum, std::int32_t maximum)
+int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
 {
     if(!script_random_seeded)
     {
@@ -10234,7 +10333,7 @@ void set_script_utility_api_for_testing(const ScriptUtilityApi &api)
 }
 
 // GAG.EXE: 0x0040CF50
-int __fastcall copy_string(char *destination, const char *source)
+int copy_string(char *destination, const char *source)
 {
     int length = 0;
     while((*destination = *source) != '\0')
@@ -10249,19 +10348,20 @@ int __fastcall copy_string(char *destination, const char *source)
 // GAG.EXE: 0x0040D0B0
 ScriptTextBuffer *create_script_text_buffer()
 {
-    auto *buffer = static_cast<ScriptTextBuffer *>(script_utility_api.virtual_alloc(nullptr, 64000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    constexpr uint32_t allocation_size = 64000;
+    auto *buffer = static_cast<ScriptTextBuffer *>(script_utility_api.virtual_alloc(nullptr, allocation_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     if(buffer == nullptr)
     {
         return nullptr;
     }
     buffer->length = 0;
-    buffer->capacity = 0xf9f4;
+    buffer->capacity = allocation_size - sizeof(*buffer);
     buffer->data = reinterpret_cast<char *>(buffer + 1);
     return buffer;
 }
 
 // GAG.EXE: 0x0040D0E0
-void __fastcall clear_script_text_buffer(ScriptTextBuffer *buffer)
+void clear_script_text_buffer(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
     {
@@ -10270,7 +10370,7 @@ void __fastcall clear_script_text_buffer(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x0040D0F0
-void __fastcall begin_script_text_document(ScriptTextBuffer *buffer)
+void begin_script_text_document(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
     {
@@ -10283,7 +10383,7 @@ void __fastcall begin_script_text_document(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x0040D140
-void __fastcall end_script_text_document(ScriptTextBuffer *buffer)
+void end_script_text_document(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
     {
@@ -10294,7 +10394,7 @@ void __fastcall end_script_text_document(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x0040D180
-void __fastcall append_script_text_property(ScriptTextBuffer *buffer, std::uint32_t property, const char *value)
+void append_script_text_property(ScriptTextBuffer *buffer, uint32_t property, const char *value)
 {
     if(buffer == nullptr)
     {
@@ -10376,7 +10476,7 @@ void __fastcall append_script_text_property(ScriptTextBuffer *buffer, std::uint3
 }
 
 // GAG.EXE: 0x0040D400
-void __fastcall end_script_text_statement(ScriptTextBuffer *buffer)
+void end_script_text_statement(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
     {
@@ -10399,7 +10499,7 @@ static void append_script_text_scope_name(ScriptTextBuffer *buffer, const char *
 }
 
 // GAG.EXE: 0x0040D440
-void __fastcall append_script_text_scope(ScriptTextBuffer *buffer, std::uint32_t scope)
+void append_script_text_scope(ScriptTextBuffer *buffer, uint32_t scope)
 {
     if(buffer == nullptr)
     {
@@ -10437,7 +10537,7 @@ void __fastcall append_script_text_scope(ScriptTextBuffer *buffer, std::uint32_t
 }
 
 // GAG.EXE: 0x0040D610
-void __fastcall append_script_text_preload_directive(ScriptTextBuffer *buffer, std::uint32_t scope)
+void append_script_text_preload_directive(ScriptTextBuffer *buffer, uint32_t scope)
 {
     if(buffer != nullptr && scope == 0x50000000)
     {
@@ -10446,7 +10546,7 @@ void __fastcall append_script_text_preload_directive(ScriptTextBuffer *buffer, s
 }
 
 // GAG.EXE: 0x0040CE90
-void __fastcall append_script_text_scoped_tokens(ScriptTextBuffer *buffer, std::uint32_t scope, const char *text)
+void append_script_text_scoped_tokens(ScriptTextBuffer *buffer, uint32_t scope, const char *text)
 {
     if(text[0] == '\0')
     {
@@ -10498,7 +10598,7 @@ void __fastcall append_script_text_scoped_tokens(ScriptTextBuffer *buffer, std::
 }
 
 // GAG.EXE: 0x0040D650
-void __fastcall append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, char delimiter)
+void append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, char delimiter)
 {
     if(buffer != nullptr)
     {
@@ -10511,17 +10611,17 @@ void __fastcall append_script_text_delimiter(ScriptTextBuffer *buffer, const cha
 }
 
 // GAG.EXE: 0x0040D690
-void __fastcall append_script_text_integer(ScriptTextBuffer *buffer, std::uint32_t value, char delimiter)
+void append_script_text_integer(ScriptTextBuffer *buffer, uint32_t value, char delimiter)
 {
     if(buffer != nullptr)
     {
-        if(static_cast<std::int32_t>(value) < 0)
+        if(static_cast<int32_t>(value) < 0)
         {
             value = 0 - value;
             buffer->data[buffer->length++] = '-';
         }
-        std::uint32_t divisor = 1;
-        std::uint32_t quotient = value / 10;
+        uint32_t divisor = 1;
+        uint32_t quotient = value / 10;
         while(quotient != 0)
         {
             quotient = value / (divisor * 100);
@@ -10538,14 +10638,14 @@ void __fastcall append_script_text_integer(ScriptTextBuffer *buffer, std::uint32
 }
 
 // GAG.EXE: 0x0040D740
-int __fastcall find_script_property_value(char *value, const char *property_name, const char *text, std::uint32_t text_length, std::uint32_t start_offset)
+int find_script_property_value(char *value, const char *property_name, const char *text, uint32_t text_length, uint32_t start_offset)
 {
     if(value != nullptr)
     {
         std::memset(value, 0, 32);
     }
 
-    std::uint32_t offset = start_offset;
+    uint32_t offset = start_offset;
     while(true)
     {
         if(offset < text_length)
@@ -10619,7 +10719,7 @@ int __fastcall find_script_property_value(char *value, const char *property_name
 }
 
 // GAG.EXE: 0x0040D830
-int __fastcall find_script_section(const char *section_name, const char *text, int text_length)
+int find_script_section(const char *section_name, const char *text, int text_length)
 {
     int remaining = text_length;
     const char *cursor = text;
@@ -10671,10 +10771,10 @@ int __fastcall find_script_section(const char *section_name, const char *text, i
 }
 
 // GAG.EXE: 0x00418230
-std::int32_t __fastcall parse_path_numeric_identifier(const char *path)
+int32_t parse_path_numeric_identifier(const char *path)
 {
-    std::uint32_t offset = 0;
-    std::int32_t result = -1;
+    uint32_t offset = 0;
+    int32_t result = -1;
     while(path[offset] != '\0' && path[offset] != '\\')
     {
         ++offset;
@@ -10711,7 +10811,7 @@ std::int32_t __fastcall parse_path_numeric_identifier(const char *path)
 }
 
 // GAG.EXE: 0x004182A0
-std::uint32_t __fastcall enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox)
+uint32_t enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox)
 {
     char path[0x104];
     WIN32_FIND_DATAA find_data;
@@ -10753,14 +10853,14 @@ std::uint32_t __fastcall enumerate_archive_comments(ArchiveCommentDialogState *s
         {
             copy_string(state->archive_paths + state->comment_count * 0x104, path);
             std::memset(path, 0, sizeof(path));
-            const std::uint32_t comment_size = archive_comment_enumeration_api.get_entry_size(archive, 0, "COMMENT.TXT");
+            const uint32_t comment_size = archive_comment_enumeration_api.get_entry_size(archive, 0, "COMMENT.TXT");
             if(comment_size < sizeof(path) && archive_comment_enumeration_api.read_entry(archive, 0, "COMMENT.TXT", path) != 0)
             {
                 path[comment_size] = '\0';
                 archive_comment_enumeration_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>(path));
                 ++state->comment_count;
-                const std::uint32_t identifier_limit = static_cast<std::uint32_t>(parse_path_numeric_identifier(find_data.cFileName) + 1);
-                if(static_cast<std::int32_t>(state->maximum_identifier) < static_cast<std::int32_t>(identifier_limit))
+                const uint32_t identifier_limit = static_cast<uint32_t>(parse_path_numeric_identifier(find_data.cFileName) + 1);
+                if(static_cast<int32_t>(state->maximum_identifier) < static_cast<int32_t>(identifier_limit))
                 {
                     state->maximum_identifier = identifier_limit;
                 }
@@ -10810,15 +10910,18 @@ INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPA
     if(message == WM_INITDIALOG)
     {
         auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
+        state->custom_control.archive_path = state->output_1;
+        state->custom_control.comment_text = state->output_2;
+        state->custom_control.dialog_state = state;
         HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
         HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        const std::uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
+        const uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
         if(result == 0)
         {
             archive_comment_dialog_api.send_message(listbox, 0x186, 0, 0);
             archive_comment_dialog_api.set_focus(listbox);
             archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
             archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths));
             return 0;
         }
@@ -10826,7 +10929,7 @@ INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPA
         {
             archive_comment_dialog_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>("-No entries found...-"));
             archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
             archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
             return 1;
         }
@@ -10842,7 +10945,7 @@ INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPA
         HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
         HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
         auto *state = reinterpret_cast<ArchiveCommentDialogState *>(archive_comment_dialog_api.send_message(control, 0x7ff0, 2, 0));
-        const std::uint32_t command = LOWORD(wparam);
+        const uint32_t command = LOWORD(wparam);
         if(command == 1)
         {
             archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
@@ -10869,7 +10972,7 @@ INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPA
         }
         if(command == 1000)
         {
-            const std::uint32_t notification = HIWORD(wparam);
+            const uint32_t notification = HIWORD(wparam);
             if(notification == 1 && state->archive_paths != nullptr)
             {
                 const LRESULT selection = archive_comment_dialog_api.send_message(listbox, 0x188, 0, 0);
@@ -10897,7 +11000,7 @@ INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPA
 }
 
 // GAG.EXE: 0x00417550
-INT_PTR __fastcall run_archive_comment_dialog(HWND parent, const char *directory, const char *path, char *output)
+INT_PTR run_archive_comment_dialog(HWND parent, const char *directory, const char *path, char *output)
 {
     output[0] = '\0';
     if(custom_control_registered == 0)
@@ -10926,13 +11029,16 @@ INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, W
     if(message == WM_INITDIALOG)
     {
         auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
+        state->custom_control.archive_path = state->output_1;
+        state->custom_control.comment_text = state->output_2;
+        state->custom_control.dialog_state = state;
         HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
         HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
         HWND edit = archive_comment_dialog_api.get_dialog_item(dialog, 1009);
-        archive_comment_dialog_api.send_message(control, 0x7ff0, 1, lparam);
+        archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
         archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
         archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-        const std::uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
+        const uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
         if(result == 0)
         {
             archive_comment_dialog_api.send_message(listbox, LB_SETCURSEL, 0, 0);
@@ -10970,8 +11076,8 @@ INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, W
         {
             return 1;
         }
-        const std::uint32_t command = LOWORD(wparam);
-        const std::uint32_t notification = HIWORD(wparam);
+        const uint32_t command = LOWORD(wparam);
+        const uint32_t notification = HIWORD(wparam);
         if(command == IDOK)
         {
             char name[0x104]{};
@@ -11084,7 +11190,7 @@ INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, W
 }
 
 // GAG.EXE: 0x004175F0
-INT_PTR __fastcall run_archive_selection_dialog(HWND parent, const char *directory, const char *path, void *initial_value, char *output_path, char *output_name)
+INT_PTR run_archive_selection_dialog(HWND parent, const char *directory, const char *path, void *initial_value, char *output_path, char *output_name)
 {
     output_path[0] = '\0';
     output_name[0] = '\0';
@@ -11114,7 +11220,7 @@ void set_archive_comment_dialog_launch_api_for_testing(const ArchiveCommentDialo
 }
 
 // GAG.EXE: 0x0040EA40
-std::uint32_t __fastcall extract_script_property_name(ScriptParserState *parser, char *name)
+uint32_t extract_script_property_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
     if(parser == nullptr)
@@ -11122,9 +11228,9 @@ std::uint32_t __fastcall extract_script_property_name(ScriptParserState *parser,
         return 0xffffffff;
     }
 
-    const std::uint32_t text_length = parser->text_length;
-    std::uint32_t token_start = parser->cursor;
-    for(std::uint32_t offset = parser->cursor; offset < text_length; ++offset)
+    const uint32_t text_length = parser->text_length;
+    uint32_t token_start = parser->cursor;
+    for(uint32_t offset = parser->cursor; offset < text_length; ++offset)
     {
         switch(parser->text[offset])
         {
@@ -11143,7 +11249,7 @@ std::uint32_t __fastcall extract_script_property_name(ScriptParserState *parser,
         case '=':
         {
             std::memset(name, 0, 32);
-            std::uint32_t name_length = 0;
+            uint32_t name_length = 0;
             while(token_start < text_length && name_length < 31 && parser->text[token_start] != '=')
             {
                 name[name_length++] = parser->text[token_start++];
@@ -11162,7 +11268,7 @@ std::uint32_t __fastcall extract_script_property_name(ScriptParserState *parser,
 }
 
 // GAG.EXE: 0x0040EB70
-std::uint32_t __fastcall extract_script_scope_name(ScriptParserState *parser, char *name)
+uint32_t extract_script_scope_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
     if(parser == nullptr)
@@ -11170,7 +11276,7 @@ std::uint32_t __fastcall extract_script_scope_name(ScriptParserState *parser, ch
         return 0xffffffff;
     }
 
-    std::uint32_t offset = parser->cursor;
+    uint32_t offset = parser->cursor;
     while(offset < parser->text_length)
     {
         const char character = parser->text[offset];
@@ -11190,7 +11296,7 @@ std::uint32_t __fastcall extract_script_scope_name(ScriptParserState *parser, ch
     }
 
     std::memset(name, 0, 32);
-    std::uint32_t name_length = 0;
+    uint32_t name_length = 0;
     while(++offset < parser->text_length && name_length < 31)
     {
         const char character = parser->text[offset];
@@ -11219,7 +11325,7 @@ std::uint32_t __fastcall extract_script_scope_name(ScriptParserState *parser, ch
 }
 
 // GAG.EXE: 0x0040ECB0
-std::uint32_t __fastcall extract_script_parenthesized_text(ScriptParserState *parser, char *text, std::uint32_t text_capacity)
+uint32_t extract_script_parenthesized_text(ScriptParserState *parser, char *text, uint32_t text_capacity)
 {
     text[0] = '\0';
     if(parser == nullptr || parser->cursor >= parser->text_length || parser->text[parser->cursor] != '(')
@@ -11228,8 +11334,8 @@ std::uint32_t __fastcall extract_script_parenthesized_text(ScriptParserState *pa
     }
 
     std::memset(text, 0, text_capacity);
-    std::uint32_t text_length = 0;
-    std::uint32_t offset = parser->cursor;
+    uint32_t text_length = 0;
+    uint32_t offset = parser->cursor;
     while(offset + 1 < parser->text_length && text_length < text_capacity - 1 && parser->text[offset + 1] != ')')
     {
         const char character = parser->text[offset + 1];
@@ -11246,7 +11352,7 @@ std::uint32_t __fastcall extract_script_parenthesized_text(ScriptParserState *pa
 }
 
 // GAG.EXE: 0x0040ED80
-int __fastcall find_whitespace_token_index(const char *text, const char *token)
+int find_whitespace_token_index(const char *text, const char *token)
 {
     int token_index = -1;
     int text_offset = 0;
@@ -11255,6 +11361,10 @@ int __fastcall find_whitespace_token_index(const char *text, const char *token)
         while(text[text_offset] == '\t' || text[text_offset] == '\n' || text[text_offset] == '\r' || text[text_offset] == ' ')
         {
             ++text_offset;
+        }
+        if(text[text_offset] == '\0')
+        {
+            return token[0] == '\0' ? token_index + 1 : -1;
         }
 
         ++token_index;
@@ -11268,6 +11378,10 @@ int __fastcall find_whitespace_token_index(const char *text, const char *token)
                 if(matches != 0 && token[candidate_offset] == '\0')
                 {
                     return token_index;
+                }
+                if(character == '\0')
+                {
+                    return -1;
                 }
                 break;
             }
@@ -11288,7 +11402,7 @@ int __fastcall find_whitespace_token_index(const char *text, const char *token)
 }
 
 // GAG.EXE: 0x0040F0A0
-std::uint32_t __fastcall extract_script_token(ScriptParserState *parser, char *token, std::uint32_t token_capacity)
+uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t token_capacity)
 {
     token[0] = '\0';
     if(parser == nullptr)
@@ -11296,7 +11410,7 @@ std::uint32_t __fastcall extract_script_token(ScriptParserState *parser, char *t
         return 0xffffffff;
     }
 
-    std::uint32_t offset = parser->cursor;
+    uint32_t offset = parser->cursor;
     while(true)
     {
         if(offset >= parser->text_length)
@@ -11346,7 +11460,7 @@ std::uint32_t __fastcall extract_script_token(ScriptParserState *parser, char *t
         default:
         {
             std::memset(token, 0, token_capacity);
-            std::uint32_t token_length = 0;
+            uint32_t token_length = 0;
             while(offset < parser->text_length && token_length < token_capacity - 1)
             {
                 const char character = parser->text[offset];
@@ -11380,11 +11494,11 @@ std::uint32_t __fastcall extract_script_token(ScriptParserState *parser, char *t
 }
 
 // GAG.EXE: 0x00408AA0
-void __fastcall parse_script_typed_value(ScriptParserState *parser, void *value, std::uint32_t *value_type)
+void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *value_type)
 {
-    const std::uint32_t saved_cursor = parser->cursor;
-    const std::int32_t integer_value = script_typed_value_api.parse_integer_expression(parser);
-    *static_cast<std::int32_t *>(value) = integer_value;
+    const uint32_t saved_cursor = parser->cursor;
+    const int32_t integer_value = script_typed_value_api.parse_integer_expression(parser);
+    *static_cast<int32_t *>(value) = integer_value;
     if(integer_value != 0x7fffffff)
     {
         *value_type = 2;
@@ -11392,8 +11506,8 @@ void __fastcall parse_script_typed_value(ScriptParserState *parser, void *value,
     }
 
     parser->cursor = saved_cursor;
-    const std::uint32_t flag = script_typed_value_api.parse_image_flag(parser);
-    *static_cast<std::uint32_t *>(value) = flag;
+    const uint32_t flag = script_typed_value_api.parse_image_flag(parser);
+    *static_cast<uint32_t *>(value) = flag;
     if(flag != 0)
     {
         *value_type = 1;
@@ -11410,7 +11524,7 @@ void __fastcall parse_script_typed_value(ScriptParserState *parser, void *value,
 }
 
 // GAG.EXE: 0x00408B20
-void __fastcall append_natural_mouse_image_flag(ScriptTextBuffer *buffer, std::uint32_t flags)
+void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer == nullptr)
     {
@@ -11418,7 +11532,7 @@ void __fastcall append_natural_mouse_image_flag(ScriptTextBuffer *buffer, std::u
     }
     while(flags != 0)
     {
-        std::uint32_t emitted = 0;
+        uint32_t emitted = 0;
         if((flags & 0x00010000) != 0)
         {
             emitted = 1;
@@ -11435,7 +11549,7 @@ void __fastcall append_natural_mouse_image_flag(ScriptTextBuffer *buffer, std::u
 }
 
 // GAG.EXE: 0x0040A9D0
-void __fastcall serialize_image_flag_overrides(ScriptTextBuffer *buffer, std::uint32_t flags)
+void serialize_image_flag_overrides(ScriptTextBuffer *buffer, uint32_t flags)
 {
     while(buffer != nullptr)
     {
@@ -11473,12 +11587,12 @@ void __fastcall serialize_image_flag_overrides(ScriptTextBuffer *buffer, std::ui
 }
 
 // GAG.EXE: 0x0040EEB0
-std::uint32_t __fastcall parse_script_parameter_token(const char *text, std::int32_t token_index, void *value, std::uint32_t *value_type)
+uint32_t parse_script_parameter_token(const char *text, int32_t token_index, void *value, uint32_t *value_type)
 {
     char token[0x104];
     token[0] = '\0';
-    std::int32_t current_index = -1;
-    std::uint32_t offset = 0;
+    int32_t current_index = -1;
+    uint32_t offset = 0;
     while(text[offset] != '\0')
     {
         while(text[offset] == '\t' || text[offset] == '\n' || text[offset] == '\r' || text[offset] == ' ')
@@ -11492,7 +11606,7 @@ std::uint32_t __fastcall parse_script_parameter_token(const char *text, std::int
         ++current_index;
         if(current_index == token_index)
         {
-            std::uint32_t length = 0;
+            uint32_t length = 0;
             while(text[offset] != '\0' && text[offset] != '\t' && text[offset] != '\n' && text[offset] != '\r' && text[offset] != ' ')
             {
                 token[length++] = text[offset++];
@@ -11506,45 +11620,45 @@ std::uint32_t __fastcall parse_script_parameter_token(const char *text, std::int
         }
     }
 
-    const std::uint32_t expected_type = *value_type;
+    const uint32_t expected_type = *value_type;
     if(token[0] == '\0')
     {
         if(expected_type == 1)
         {
-            *static_cast<std::uint32_t *>(value) = 0x07000000;
+            *static_cast<uint32_t *>(value) = 0x07000000;
         }
         else if(expected_type == 2 || expected_type == 4)
         {
-            *static_cast<std::uint32_t *>(value) = 0;
+            *static_cast<uint32_t *>(value) = 0;
         }
         return 0;
     }
 
     ScriptParserState token_parser;
     token_parser.text = token;
-    token_parser.text_length = static_cast<std::uint32_t>(std::strlen(token));
+    token_parser.text_length = static_cast<uint32_t>(std::strlen(token));
     token_parser.cursor = 0;
     parse_script_typed_value(&token_parser, value, value_type);
     return *value_type != 0x7fffffff && (expected_type == 0 || expected_type == *value_type) ? 1 : 0;
 }
 
 // GAG.EXE: 0x0040F070
-std::uint32_t __fastcall evaluate_script_parameter(ScriptParserState *parser, const char *name, void *value, std::uint32_t *value_type)
+uint32_t evaluate_script_parameter(ScriptParserState *parser, const char *name, void *value, uint32_t *value_type)
 {
-    const std::int32_t token_index = find_whitespace_token_index(parser->scratch_text, name);
+    const int32_t token_index = find_whitespace_token_index(parser->scratch_text, name);
     return parse_script_parameter_token(parser->creation_text, token_index, value, value_type);
 }
 
 // GAG.EXE: 0x0040F4F0
-std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parser)
+int32_t parse_script_integer_expression(ScriptParserState *parser)
 {
     if(parser == nullptr)
     {
         return 0x7fffffff;
     }
 
-    const std::uint32_t saved_cursor = parser->cursor;
-    std::int32_t result = parse_script_integer_literal(parser);
+    const uint32_t saved_cursor = parser->cursor;
+    int32_t result = parse_script_integer_literal(parser);
     if(result != 0x7fffffff)
     {
         return result;
@@ -11561,23 +11675,23 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
         parse_script_value_token(parser, token, sizeof(token));
         // The evaluator materializes the parameter before checking its type, so
         // the original supplies enough temporary storage for any typed value.
-        std::uint32_t parameter_value[8];
-        std::uint32_t value_type = 2;
+        uint32_t parameter_value[8];
+        uint32_t value_type = 2;
         if(script_integer_expression_api.evaluate_parameter(parser, token, parameter_value, &value_type) == 0)
         {
             parser->cursor = saved_cursor;
             return 0x7fffffff;
         }
-        return static_cast<std::int32_t>(parameter_value[0]);
+        return static_cast<int32_t>(parameter_value[0]);
     }
     if(fixed_dword_memory_equal(token, "RAND", 4))
     {
-        std::int32_t minimum = parse_script_integer_expression(parser);
+        int32_t minimum = parse_script_integer_expression(parser);
         if(minimum == 0x7fffffff)
         {
             minimum = -10000;
         }
-        std::int32_t maximum = parse_script_integer_expression(parser);
+        int32_t maximum = parse_script_integer_expression(parser);
         if(maximum == 0x7fffffff)
         {
             maximum = 10000;
@@ -11592,7 +11706,7 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
             parser->cursor = saved_cursor;
             return 0x7fffffff;
         }
-        std::int32_t offset = parse_script_integer_expression(parser);
+        int32_t offset = parse_script_integer_expression(parser);
         if(offset == 0x7fffffff)
         {
             offset = 0;
@@ -11613,7 +11727,7 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
             parser->cursor = saved_cursor;
             return 0x7fffffff;
         }
-        std::int32_t offset = parse_script_integer_expression(parser);
+        int32_t offset = parse_script_integer_expression(parser);
         if(offset == 0x7fffffff)
         {
             offset = 0;
@@ -11628,12 +11742,12 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
     }
     if(fixed_dword_memory_equal(token, "RELM", 4))
     {
-        std::int32_t offset = parse_script_integer_expression(parser);
+        int32_t offset = parse_script_integer_expression(parser);
         if(offset == 0x7fffffff)
         {
             offset = 0;
         }
-        std::int32_t runtime_value;
+        int32_t runtime_value;
         script_integer_expression_api.query_runtime(token[4] == 'X' ? 9 : 10, nullptr, &runtime_value);
         return runtime_value + offset;
     }
@@ -11675,9 +11789,9 @@ std::int32_t __fastcall parse_script_integer_expression(ScriptParserState *parse
 }
 
 // GAG.EXE: 0x0040F2C0
-std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, char *value, std::uint32_t value_capacity)
+uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32_t value_capacity)
 {
-    std::uint32_t result = extract_script_token(parser, value, value_capacity);
+    uint32_t result = extract_script_token(parser, value, value_capacity);
     if(result == 0xffffffff)
     {
         return result;
@@ -11687,7 +11801,7 @@ std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, cha
     {
         char parameter_name[0x20];
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
-        std::uint32_t value_type = 4;
+        uint32_t value_type = 4;
         result = script_value_parse_api.evaluate_parameter(parser, parameter_name, value, &value_type) == 0 ? 0xffffffff : 0x20;
     }
     if(fixed_dword_memory_equal(value, "SVALUE", 4))
@@ -11702,7 +11816,7 @@ std::uint32_t __fastcall parse_script_value_token(ScriptParserState *parser, cha
 }
 
 // GAG.EXE: 0x0040E580
-std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
+uint32_t parse_image_flag(ScriptParserState *parser)
 {
     if(parser == nullptr)
     {
@@ -11720,7 +11834,7 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
         char field_name[0x20];
         parse_script_value_token(parser, object_name, sizeof(object_name));
         parse_script_value_token(parser, field_name, sizeof(field_name));
-        std::uint32_t value = 0x03000000;
+        uint32_t value = 0x03000000;
         return query_or_create_script_object_field(object_name, field_name, &value, 1);
     }
     if(fixed_dword_memory_equal(token, "PARAM", 4))
@@ -11729,8 +11843,8 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
         // Match the original 0x20-byte temporary: a mismatched parameter may
         // be a string, and the evaluator writes it before reporting mismatch.
-        std::uint32_t parameter_value[8];
-        std::uint32_t value_type = 1;
+        uint32_t parameter_value[8];
+        uint32_t value_type = 1;
         if(script_value_parse_api.evaluate_parameter(parser, parameter_name, parameter_value, &value_type) == 0)
         {
             return 0xffffffff;
@@ -11741,7 +11855,7 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
     struct ImageFlagMapping
     {
         const char *name;
-        std::uint32_t value;
+        uint32_t value;
     };
     static constexpr ImageFlagMapping mappings[]{
         { "PRIMARY",        0x00000001 },
@@ -11791,9 +11905,9 @@ std::uint32_t __fastcall parse_image_flag(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x00421440
-std::uint32_t __fastcall parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, std::uint32_t *flags)
+uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, uint32_t *flags)
 {
-    std::uint32_t saved_cursor = parser->cursor;
+    uint32_t saved_cursor = parser->cursor;
     *flags = runtime_tree_command_target_api.parse_image_flag(parser);
     if(*flags != 0)
     {
@@ -11819,8 +11933,8 @@ std::uint32_t __fastcall parse_runtime_tree_command_target(ScriptParserState *pa
     {
         parser->cursor = saved_cursor;
         runtime_tree_command_target_api.parse_value_token(parser, tree_name, 0x20);
-        const std::uint32_t trailing_flags = runtime_tree_command_target_api.parse_image_flag(parser);
-        if(static_cast<std::int32_t>(trailing_flags) > 0)
+        const uint32_t trailing_flags = runtime_tree_command_target_api.parse_image_flag(parser);
+        if(static_cast<int32_t>(trailing_flags) > 0)
         {
             *flags = trailing_flags;
             return 1;
@@ -11840,12 +11954,12 @@ void set_runtime_tree_command_target_api_for_testing(const RuntimeTreeCommandTar
 }
 
 // GAG.EXE: 0x00406B40
-std::uint32_t __fastcall apply_runtime_tree_image_flags(ScriptParserState *parser)
+uint32_t apply_runtime_tree_image_flags(ScriptParserState *parser)
 {
     auto *owner = static_cast<RuntimeTreeNode *>(parser->owner);
     while(true)
     {
-        const std::uint32_t flag = parse_image_flag(parser);
+        const uint32_t flag = parse_image_flag(parser);
         if(flag == 0xffffffff)
         {
             break;
@@ -11867,7 +11981,7 @@ std::uint32_t __fastcall apply_runtime_tree_image_flags(ScriptParserState *parse
 }
 
 // GAG.EXE: 0x00406CB0
-RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *parser)
+RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
     char resource_name[0x20];
@@ -11876,8 +11990,8 @@ RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *p
     {
         return nullptr;
     }
-    const std::uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
-    RuntimeGenericResourceNode *resource;
+    const uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
+    RuntimeGenericResourceNode *resource = nullptr;
     if(tree_name_result == 0xffffffff)
     {
         std::memcpy(tree_name, resource_name, sizeof(tree_name));
@@ -11886,33 +12000,33 @@ RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *p
 
     RuntimeTreeNode *node = runtime_tree_conditional_create_api.find_descendant(owner, tree_name);
     bool saw_condition = false;
-    std::uint8_t conditions_match = 1;
+    uint8_t conditions_match = 1;
     void *parent_selector = owner;
     while(true)
     {
-        std::uint32_t scope = parse_script_scope_code(parser);
+        uint32_t scope = parse_script_scope_code(parser);
         if(scope == 0x00010000)
         {
             saw_condition = true;
             char object_name[0x20];
             char field_name[0x20];
-            std::uint8_t value[0x80];
+            uint8_t value[0x80];
             if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
             {
                 parse_script_typed_value(parser, value, &scope);
                 if(scope != 0x7fffffff)
                 {
-                    conditions_match &= runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<std::int32_t>(scope));
+                    conditions_match = static_cast<uint8_t>(conditions_match != 0 && runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<int32_t>(scope)));
                 }
             }
         }
         else if(scope == 0x00200000)
         {
-            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
             {
                 return nullptr;
             }
-            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+            parent_selector = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
         else if(scope == 0x0e000000)
         {
@@ -11921,7 +12035,7 @@ RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *p
             scope = parse_script_value_token(parser, container_name, sizeof(container_name));
             if(scope != 0xffffffff)
             {
-                conditions_match &= runtime_tree_conditional_create_api.container_matches(container_name);
+                conditions_match = static_cast<uint8_t>(conditions_match != 0 && runtime_tree_conditional_create_api.container_matches(container_name));
             }
         }
 
@@ -11957,7 +12071,7 @@ RuntimeTreeNode *__fastcall update_conditional_runtime_tree(ScriptParserState *p
 }
 
 // GAG.EXE: 0x00406EA0
-RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *parser)
+RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
     char resource_name[0x20];
@@ -11966,8 +12080,8 @@ RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *p
     {
         return nullptr;
     }
-    const std::uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
-    RuntimeGenericResourceNode *resource;
+    const uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
+    RuntimeGenericResourceNode *resource = nullptr;
     if(tree_name_result == 0xffffffff)
     {
         std::memcpy(tree_name, resource_name, sizeof(tree_name));
@@ -11977,16 +12091,16 @@ RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *p
     void *parent_selector = owner;
     while(true)
     {
-        std::uint32_t scope = parse_script_scope_code(parser);
+        uint32_t scope = parse_script_scope_code(parser);
         if(scope == 0x00010000)
         {
             char object_name[0x20];
             char field_name[0x20];
-            std::uint8_t value[0x80];
+            uint8_t value[0x80];
             if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
             {
                 parse_script_typed_value(parser, value, &scope);
-                if(scope != 0x7fffffff && !runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<std::int32_t>(scope)))
+                if(scope != 0x7fffffff && !runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<int32_t>(scope)))
                 {
                     return nullptr;
                 }
@@ -11994,11 +12108,11 @@ RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *p
         }
         else if(scope == 0x00200000)
         {
-            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
             {
                 return nullptr;
             }
-            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+            parent_selector = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
         else if(scope == 0x0e000000)
         {
@@ -12022,9 +12136,9 @@ RuntimeTreeNode *__fastcall create_conditional_runtime_tree(ScriptParserState *p
 }
 
 // GAG.EXE: 0x0040F380
-std::int32_t __fastcall parse_script_integer_literal(ScriptParserState *parser)
+int32_t parse_script_integer_literal(ScriptParserState *parser)
 {
-    std::uint32_t offset = parser->cursor;
+    uint32_t offset = parser->cursor;
     bool negative = false;
     while(true)
     {
@@ -12084,7 +12198,7 @@ std::int32_t __fastcall parse_script_integer_literal(ScriptParserState *parser)
         break;
     }
 
-    std::int32_t value = 0;
+    int32_t value = 0;
     bool no_digits = true;
     while(offset < parser->text_length)
     {
@@ -12106,7 +12220,7 @@ std::int32_t __fastcall parse_script_integer_literal(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040D8A0
-std::uint32_t __fastcall parse_script_property_code(ScriptParserState *parser)
+uint32_t parse_script_property_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
     {
@@ -12121,7 +12235,7 @@ std::uint32_t __fastcall parse_script_property_code(ScriptParserState *parser)
     struct Mapping
     {
         const char *name;
-        std::uint32_t code;
+        uint32_t code;
     };
     static constexpr Mapping mappings[]{
         { "object",      0x01 },
@@ -12166,7 +12280,7 @@ std::uint32_t __fastcall parse_script_property_code(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040DC00
-std::uint32_t __fastcall parse_script_scope_code(ScriptParserState *parser)
+uint32_t parse_script_scope_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
     {
@@ -12181,7 +12295,7 @@ std::uint32_t __fastcall parse_script_scope_code(ScriptParserState *parser)
     struct Mapping
     {
         const char *name;
-        std::uint32_t code;
+        uint32_t code;
     };
     static constexpr Mapping mappings[]{
         { "FILE",         0x01000000 },
@@ -12230,7 +12344,7 @@ std::uint32_t __fastcall parse_script_scope_code(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040DFD0
-std::uint32_t __fastcall parse_script_opcode(ScriptParserState *parser)
+uint32_t parse_script_opcode(ScriptParserState *parser)
 {
     if(parser == nullptr)
     {
@@ -12245,7 +12359,7 @@ std::uint32_t __fastcall parse_script_opcode(ScriptParserState *parser)
     struct Mapping
     {
         const char *name;
-        std::uint32_t code;
+        uint32_t code;
     };
     static constexpr Mapping mappings[]{
         { "PLOAD",           0x40000000 },
@@ -12312,11 +12426,11 @@ std::uint32_t __fastcall parse_script_opcode(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040D070
-bool __fastcall fixed_dword_memory_equal(const void *left, const void *right, std::uint32_t byte_count)
+bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte_count)
 {
-    const std::uint32_t *left_dwords = static_cast<const std::uint32_t *>(left);
-    const std::uint32_t *right_dwords = static_cast<const std::uint32_t *>(right);
-    std::uint32_t count = byte_count >> 2;
+    const uint32_t *left_dwords = static_cast<const uint32_t *>(left);
+    const uint32_t *right_dwords = static_cast<const uint32_t *>(right);
+    uint32_t count = byte_count >> 2;
     bool equal = count == 0;
     while(count != 0)
     {
@@ -12333,7 +12447,7 @@ bool __fastcall fixed_dword_memory_equal(const void *left, const void *right, st
 }
 
 // GAG.EXE: 0x004068C0
-void __fastcall set_script_runtime_flags(std::uint32_t mask, int enabled)
+void set_script_runtime_flags(uint32_t mask, int enabled)
 {
     if(script_runtime_root != nullptr)
     {
@@ -12359,7 +12473,7 @@ void reset_script_runtime_transient_indices()
 }
 
 // GAG.EXE: 0x004050B0
-RuntimeGenericResourceNode *__fastcall find_runtime_generic_resource(void *identity)
+RuntimeGenericResourceNode *find_runtime_generic_resource(void *identity)
 {
     if(script_runtime_root == nullptr)
     {
@@ -12392,7 +12506,7 @@ void remove_all_runtime_generic_resources()
 }
 
 // GAG.EXE: 0x00406A70
-std::uint32_t __fastcall dispatch_runtime_tree_section_command(ScriptParserState *parser)
+uintptr_t dispatch_runtime_tree_section_command(ScriptParserState *parser)
 {
     parser->owner->flags &= ~0x200u;
     char resource_name[0x20];
@@ -12419,17 +12533,17 @@ std::uint32_t __fastcall dispatch_runtime_tree_section_command(ScriptParserState
         runtime_tree_basic_command_api.extract_parenthesized(parser, creation_text, sizeof(creation_text));
     }
     RuntimeTreeNode *result = runtime_tree_basic_command_api.dispatch_section(resource, parser->owner, section_name, creation_text);
-    return result == parser->owner ? 0 : static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(result));
+    return result == parser->owner ? 0 : reinterpret_cast<uintptr_t>(result);
 }
 
 // GAG.EXE: 0x00406B90
-bool __fastcall parse_runtime_language(ScriptParserState *parser)
+bool parse_runtime_language(ScriptParserState *parser)
 {
     return runtime_tree_basic_command_api.parse_value(parser, script_runtime_root->language, sizeof(script_runtime_root->language)) != 0xffffffff;
 }
 
 // GAG.EXE: 0x00406C00
-RuntimeTreeNode *__fastcall create_runtime_tree_command(ScriptParserState *parser)
+RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
     char resource_name[0x20];
@@ -12438,18 +12552,18 @@ RuntimeTreeNode *__fastcall create_runtime_tree_command(ScriptParserState *parse
     {
         return nullptr;
     }
-    const std::uint32_t tree_name_result = runtime_tree_basic_command_api.parse_value(parser, tree_name, sizeof(tree_name));
+    const uint32_t tree_name_result = runtime_tree_basic_command_api.parse_value(parser, tree_name, sizeof(tree_name));
     void *parent_selector = nullptr;
     while(true)
     {
-        const std::uint32_t scope = runtime_tree_basic_command_api.parse_scope(parser);
+        const uint32_t scope = runtime_tree_basic_command_api.parse_scope(parser);
         if(scope == 0x00200000)
         {
-            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
             {
                 return nullptr;
             }
-            parent_selector = reinterpret_cast<void *>(static_cast<std::uintptr_t>(0xffffffff));
+            parent_selector = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
         if(scope == 0xffffffff)
         {
@@ -12475,7 +12589,7 @@ void set_runtime_tree_basic_command_api_for_testing(const RuntimeTreeBasicComman
 }
 
 // GAG.EXE: 0x004050E0
-void __fastcall set_runtime_generic_resource_position(void *identity, std::uint32_t position)
+void set_runtime_generic_resource_position(void *identity, uint32_t position)
 {
     if(script_runtime_root == nullptr)
     {
@@ -12485,7 +12599,7 @@ void __fastcall set_runtime_generic_resource_position(void *identity, std::uint3
     {
         if(node->identity == identity)
         {
-            if(position < static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(node->resource_metadata)))
+            if(position < node->resource_metadata)
             {
                 node->current_position = position;
             }
@@ -12495,20 +12609,20 @@ void __fastcall set_runtime_generic_resource_position(void *identity, std::uint3
 }
 
 // GAG.EXE: 0x00405110
-std::uint32_t __fastcall read_runtime_generic_resource_token(void *identity, char *output, std::uint32_t capacity, std::uint8_t delimiter)
+uint32_t read_runtime_generic_resource_token(void *identity, char *output, uint32_t capacity, uint8_t delimiter)
 {
     RuntimeGenericResourceNode *resource = find_runtime_generic_resource(identity);
     if(resource == nullptr)
     {
         return 0xffffffff;
     }
-    const auto *data = static_cast<const std::uint8_t *>(resource->resource_data);
-    std::uint32_t length = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->resource_metadata));
-    std::uint32_t position = resource->current_position;
-    std::uint32_t copied = 0;
+    const auto *data = static_cast<const uint8_t *>(resource->resource_data);
+    uint32_t length = resource->resource_metadata;
+    uint32_t position = resource->current_position;
+    uint32_t copied = 0;
     while(position < length)
     {
-        std::uint8_t value = data[position];
+        uint8_t value = data[position];
         if(value == delimiter || value == ';' || (value != '\r' && value != '\n'))
         {
             break;
@@ -12536,7 +12650,7 @@ std::uint32_t __fastcall read_runtime_generic_resource_token(void *identity, cha
 }
 
 // GAG.EXE: 0x00404EE0
-RuntimeGenericResourceNode *__fastcall find_or_load_runtime_generic_resource(const char *resource_name)
+RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *resource_name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -12568,7 +12682,7 @@ RuntimeGenericResourceNode *__fastcall find_or_load_runtime_generic_resource(con
     std::memcpy(node->name, name, sizeof(node->name));
     node->identity = node;
     node->resource_data = resource_data;
-    node->resource_metadata = resource_metadata;
+    node->resource_metadata = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource_metadata));
     if(last != nullptr)
     {
         last->next = node;
@@ -12586,8 +12700,7 @@ void set_runtime_generic_resource_load_api_for_testing(const RuntimeGenericResou
 }
 
 // GAG.EXE: 0x00405210
-RuntimeTreeParserContext *__fastcall find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, std::uint32_t start_offset,
-    const char *creation_text)
+RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, uint32_t start_offset, const char *creation_text)
 {
     RuntimeTreeParserContext *last = nullptr;
     for(RuntimeTreeParserContext *context = owner->parser_contexts; context != nullptr; context = context->next)
@@ -12635,7 +12748,7 @@ void set_runtime_tree_parser_context_api_for_testing(const RuntimeTreeParserCont
 }
 
 // GAG.EXE: 0x004052F0
-void __fastcall release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
+void release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
 {
     RuntimeTreeParserContext *context = owner->parser_contexts;
     while(context != nullptr)
@@ -12655,7 +12768,7 @@ void __fastcall release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
 }
 
 // GAG.EXE: 0x00405350
-RuntimeTreeParserContext *__fastcall find_existing_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name)
+RuntimeTreeParserContext *find_existing_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name)
 {
     RuntimeTreeParserContext *context = owner->parser_contexts;
     while(context != nullptr && !strings_equal(context->name, name))
@@ -12671,16 +12784,16 @@ void set_runtime_tree_parser_release_api_for_testing(const RuntimeTreeParserRele
 }
 
 // GAG.EXE: 0x004056C0
-RuntimeTreeNode *__fastcall dispatch_runtime_tree_parser(RuntimeTreeParserContext *context)
+RuntimeTreeNode *dispatch_runtime_tree_parser(RuntimeTreeParserContext *context)
 {
     auto *parser = reinterpret_cast<ScriptParserState *>(context);
     RuntimeTreeNode *owner = context->owner;
-    std::uint32_t property_cursor = context->cursor;
-    const auto dispatch_root_operation = [](std::uint32_t operation, const void *value)
+    uint32_t property_cursor = context->cursor;
+    const auto dispatch_root_operation = [](uint32_t operation, const void *value)
     { script_runtime_root->set_property(operation, 0, reinterpret_cast<RuntimeGenericResourceNode *>(const_cast<void *>(value))); };
     while(true)
     {
-        const std::uint32_t property = runtime_tree_parser_direct_dispatch_api.parse_property(parser);
+        const uint32_t property = runtime_tree_parser_direct_dispatch_api.parse_property(parser);
         if(property == 0xffffffff)
         {
             break;
@@ -12719,19 +12832,19 @@ RuntimeTreeNode *__fastcall dispatch_runtime_tree_parser(RuntimeTreeParserContex
             break;
         case 0x0b:
         {
-            std::int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
-            std::uint32_t operation = 4;
+            int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
+            uint32_t operation = 4;
             while(true)
             {
                 if(value != 0x7fffffff)
                 {
-                    dispatch_root_operation(operation, reinterpret_cast<void *>(value));
+                    dispatch_root_operation(operation, reinterpret_cast<void *>(static_cast<intptr_t>(value)));
                 }
-                std::uint32_t flag;
+                uint32_t flag;
                 do
                 {
                     flag = runtime_tree_parser_special_dispatch_api.parse_image_flag(parser);
-                    if(static_cast<std::int32_t>(flag) < 1)
+                    if(static_cast<int32_t>(flag) < 1)
                     {
                         break;
                     }
@@ -12742,7 +12855,7 @@ RuntimeTreeNode *__fastcall dispatch_runtime_tree_parser(RuntimeTreeParserContex
                         goto dispatch_property_0b_value;
                     }
                 } while(flag != 4);
-                if(static_cast<std::int32_t>(flag) < 1)
+                if(static_cast<int32_t>(flag) < 1)
                 {
                     break;
                 }
@@ -12759,7 +12872,7 @@ dispatch_property_0b_value:;
         {
             char source[0x104];
             runtime_tree_parser_direct_dispatch_api.set_resource_position(context->resource, context->cursor);
-            const std::uint32_t result = runtime_tree_parser_direct_dispatch_api.read_resource_token(context->resource, source, sizeof(source), ';');
+            const uint32_t result = runtime_tree_parser_direct_dispatch_api.read_resource_token(context->resource, source, sizeof(source), ';');
             if(result != 0xffffffff)
             {
                 const bool had_source = source[0] != '\0';
@@ -12801,14 +12914,14 @@ dispatch_property_0b_value:;
         }
         case 0x0f:
         {
-            const std::int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
+            const int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
             if(value == 0x7fffffff)
             {
                 break;
             }
             else
             {
-                dispatch_root_operation(8, reinterpret_cast<void *>(value));
+                dispatch_root_operation(8, reinterpret_cast<void *>(static_cast<intptr_t>(value)));
             }
             break;
         }
@@ -12835,14 +12948,14 @@ dispatch_property_0b_value:;
             break;
         case 0x80:
         {
-            const std::int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
+            const int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
             if(value == 0x7fffffff)
             {
                 break;
             }
             else
             {
-                script_runtime_root->parser_integer_0820 = static_cast<std::uint32_t>(value);
+                script_runtime_root->parser_integer_0820 = static_cast<uint32_t>(value);
             }
             break;
         }
@@ -12852,14 +12965,14 @@ dispatch_property_0b_value:;
             break;
         case 0xa0:
         {
-            const std::int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
+            const int32_t value = runtime_tree_parser_special_dispatch_api.parse_integer(parser);
             if(value == 0x7fffffff)
             {
                 break;
             }
             else
             {
-                dispatch_root_operation(0x0c, reinterpret_cast<void *>(value));
+                dispatch_root_operation(0x0c, reinterpret_cast<void *>(static_cast<intptr_t>(value)));
             }
             break;
         }
@@ -12947,7 +13060,7 @@ void reset_runtime_tree_parser_special_dispatch_api_for_testing()
 }
 
 // GAG.EXE: 0x00405410
-RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
+RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
 {
     RuntimeTreeNode *current = runtime_tree_creation_api.find_node(parent_selector);
     RuntimeGenericResourceNode *resolved_resource = runtime_tree_creation_api.find_resource(resource);
@@ -12982,8 +13095,8 @@ RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode 
         last = last->next;
     }
 
-    std::uint32_t text_length = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resolved_resource->resource_metadata));
-    std::uint32_t start_offset = static_cast<std::uint32_t>(runtime_tree_creation_api.find_section(tree_name, static_cast<const char *>(resolved_resource->resource_data), text_length));
+    uint32_t text_length = resolved_resource->resource_metadata;
+    uint32_t start_offset = static_cast<uint32_t>(runtime_tree_creation_api.find_section(tree_name, static_cast<const char *>(resolved_resource->resource_data), text_length));
     if(start_offset == 0xffffffff)
     {
         return nullptr;
@@ -13024,9 +13137,10 @@ RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode 
     }
     std::memcpy(node->name, tree_name, sizeof(node->name));
     node->identity = node;
-    if(parent_selector == reinterpret_cast<void *>(0xffffffff))
+    constexpr auto root_parent_selector = static_cast<intptr_t>(-1);
+    if(parent_selector == reinterpret_cast<void *>(root_parent_selector))
     {
-        node->parent = reinterpret_cast<RuntimeTreeNode *>(0xffffffff);
+        node->parent = reinterpret_cast<RuntimeTreeNode *>(root_parent_selector);
     }
     else
     {
@@ -13040,7 +13154,7 @@ RuntimeTreeNode *__fastcall create_runtime_tree_node(RuntimeGenericResourceNode 
         return nullptr;
     }
 
-    if(parent_selector == reinterpret_cast<void *>(0xffffffff))
+    if(parent_selector == reinterpret_cast<void *>(root_parent_selector))
     {
         if(script_runtime_root->runtime_tree != nullptr)
         {
@@ -13077,13 +13191,13 @@ void set_runtime_tree_creation_api_for_testing(const RuntimeTreeCreationApi &api
 }
 
 // GAG.EXE: 0x00405D00
-RuntimeTreeNode *__fastcall find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, std::uint32_t success_cursor)
+RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, uint32_t success_cursor)
 {
     RuntimeTreeNode *result = nullptr;
-    std::uint32_t saved_cursor = parser->cursor;
+    uint32_t saved_cursor = parser->cursor;
     for(;;)
     {
-        std::uint32_t property = runtime_tree_jump_api.parse_property(parser);
+        uint32_t property = runtime_tree_jump_api.parse_property(parser);
         if(property == 0x70)
         {
             char resource_name[0x20];
@@ -13129,12 +13243,12 @@ void set_runtime_tree_conditional_create_api_for_testing(const RuntimeTreeCondit
 }
 
 // GAG.EXE: 0x00405E00
-void __fastcall reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
+void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
 {
     parser->cursor = parser->start_offset;
     for(;;)
     {
-        std::uint32_t property = runtime_tree_parser_reset_api.parse_property(parser);
+        uint32_t property = runtime_tree_parser_reset_api.parse_property(parser);
         if(property == 0xffffffff)
         {
             return;
@@ -13154,7 +13268,7 @@ void __fastcall reset_runtime_tree_parser_context_recursive(ScriptParserState *p
 }
 
 // GAG.EXE: 0x00405DC0
-void __fastcall reset_runtime_tree_parser_contexts(void *identity)
+void reset_runtime_tree_parser_contexts(void *identity)
 {
     RuntimeTreeNode *node = runtime_tree_parser_reset_api.find_node(identity);
     if(node != nullptr)
@@ -13172,7 +13286,7 @@ void set_runtime_tree_parser_reset_api_for_testing(const RuntimeTreeParserResetA
 }
 
 // GAG.EXE: 0x00405380
-RuntimeTreeNode *__fastcall dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text)
+RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text)
 {
     RuntimeTreeNode *node = runtime_tree_section_dispatch_api.find_node(node_identity);
     if(node == nullptr)
@@ -13184,13 +13298,12 @@ RuntimeTreeNode *__fastcall dispatch_runtime_tree_section(void *resource_identit
     {
         return nullptr;
     }
-    int start_offset = runtime_tree_section_dispatch_api.find_section(section_name, static_cast<const char *>(resource->resource_data),
-        static_cast<int>(reinterpret_cast<std::uintptr_t>(resource->resource_metadata)));
+    int start_offset = runtime_tree_section_dispatch_api.find_section(section_name, static_cast<const char *>(resource->resource_data), static_cast<int>(resource->resource_metadata));
     if(start_offset == -1)
     {
         return nullptr;
     }
-    RuntimeTreeParserContext *context = runtime_tree_section_dispatch_api.create_parser_context(node, section_name, resource, static_cast<std::uint32_t>(start_offset), creation_text);
+    RuntimeTreeParserContext *context = runtime_tree_section_dispatch_api.create_parser_context(node, section_name, resource, static_cast<uint32_t>(start_offset), creation_text);
     if(context == nullptr)
     {
         runtime_tree_section_dispatch_api.remove_resource(resource_identity);
@@ -13205,7 +13318,7 @@ void set_runtime_tree_section_dispatch_api_for_testing(const RuntimeTreeSectionD
 }
 
 // GAG.EXE: 0x00407040
-void __fastcall add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
+void add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
 {
     for(RuntimeTreeAuxiliaryNode *node = owner->auxiliary_head; node != nullptr; node = node->next)
     {
@@ -13234,7 +13347,7 @@ void __fastcall add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const ch
 }
 
 // GAG.EXE: 0x004070F0
-std::uint32_t __fastcall parse_runtime_tree_auxiliary_names(ScriptParserState *parser)
+uint32_t parse_runtime_tree_auxiliary_names(ScriptParserState *parser)
 {
     char name[0x20];
     while(parse_script_value_token(parser, name, sizeof(name)) != 0xffffffff)
@@ -13245,16 +13358,16 @@ std::uint32_t __fastcall parse_runtime_tree_auxiliary_names(ScriptParserState *p
 }
 
 // GAG.EXE: 0x00407130
-std::uint32_t __fastcall add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner)
+uint32_t add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner)
 {
-    const char *text = reinterpret_cast<const char *>(script_runtime_root) + 0x96c;
+    const char *text = script_runtime_root->default_auxiliary_names;
     if(text[0] == '\0')
     {
         return 0;
     }
     const int length = static_cast<int>(std::strlen(text));
     int offset = 0;
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     while(offset < length)
     {
         while(offset < length && text[offset] == ' ')
@@ -13278,7 +13391,7 @@ std::uint32_t __fastcall add_default_runtime_tree_auxiliary_names(RuntimeTreeNod
 }
 
 // GAG.EXE: 0x004071E0
-void __fastcall release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
+void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
 {
     while(owner->auxiliary_head != nullptr)
     {
@@ -13315,43 +13428,44 @@ void free_runtime_tree_link_range(Link *head, Link *tail)
     }
 }
 
-// Non-original helper for the seven confirmed selector/global destinations inside ScriptRuntimeRoot.
-void route_runtime_tree_global_link(std::size_t selector_offset, std::size_t selector_field_offset, std::size_t global_offset, void *value)
+// Non-original typed form of the original tail-or-head link update.
+template<typename Link>
+void route_runtime_tree_global_link(Link *&head, Link *tail, Link *value)
 {
-    auto *root_bytes = reinterpret_cast<std::uint8_t *>(script_runtime_root);
-    void *selector = *reinterpret_cast<void **>(root_bytes + selector_offset);
-    if(selector == nullptr)
+    if(tail == nullptr)
     {
-        *reinterpret_cast<void **>(root_bytes + global_offset) = value;
+        head = value;
     }
     else
     {
-        *reinterpret_cast<void **>(static_cast<std::uint8_t *>(selector) + selector_field_offset) = value;
+        tail->next = value;
     }
 }
 
 // GAG.EXE: 0x00406360
-void __fastcall update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode *replacement)
+void update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode *replacement)
 {
     if(removed->parent != nullptr)
     {
         return;
     }
-    route_runtime_tree_global_link(0xfc0, 0x40, 0xfa4, replacement == nullptr ? nullptr : replacement->scene_link_head);
-    route_runtime_tree_global_link(0xfbc, 0x48, 0xfa0, replacement == nullptr ? nullptr : replacement->secondary_resource_link_head);
-    route_runtime_tree_global_link(0xfa8, 0x24, 0xf8c, replacement == nullptr ? nullptr : replacement->primary_resource_link_head);
-    route_runtime_tree_global_link(0xfb0, 0x24, 0xf94, replacement == nullptr ? nullptr : replacement->link_0084_head);
-    route_runtime_tree_global_link(0xfb8, 0x24, 0xf9c, replacement == nullptr ? nullptr : replacement->link_008c_head);
-    route_runtime_tree_global_link(0xfac, 0x24, 0xf90, replacement == nullptr ? nullptr : replacement->link_007c_head);
-    route_runtime_tree_global_link(0xfb4, 0x24, 0xf98, replacement == nullptr ? nullptr : replacement->container_head);
+    route_runtime_tree_global_link(script_runtime_root->global_scene_links, script_runtime_root->global_scene_link_tail, replacement == nullptr ? nullptr : replacement->scene_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_secondary_resource_links, script_runtime_root->global_secondary_resource_link_tail,
+        replacement == nullptr ? nullptr : replacement->secondary_resource_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_primary_resource_links, script_runtime_root->global_primary_resource_link_tail,
+        replacement == nullptr ? nullptr : replacement->primary_resource_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_0084_head, script_runtime_root->global_link_0084_tail, replacement == nullptr ? nullptr : replacement->link_0084_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_008c_head, script_runtime_root->global_link_008c_tail, replacement == nullptr ? nullptr : replacement->link_008c_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_007c_head, script_runtime_root->global_link_007c_tail, replacement == nullptr ? nullptr : replacement->link_007c_head);
+    route_runtime_tree_global_link(script_runtime_root->containers, script_runtime_root->container_tail, replacement == nullptr ? nullptr : replacement->container_head);
 }
 
 // GAG.EXE: 0x00406190
-void __fastcall publish_runtime_tree_global_links(RuntimeTreeNode *node)
+void publish_runtime_tree_global_links(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr)
     {
-        if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+        if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
         {
             if(node->scene_link_tail != nullptr)
             {
@@ -13363,7 +13477,7 @@ void __fastcall publish_runtime_tree_global_links(RuntimeTreeNode *node)
             }
             if(node->primary_resource_link_tail != nullptr)
             {
-                script_runtime_root->plan_terminal = reinterpret_cast<RuntimePlanNode *>(node->primary_resource_link_tail);
+                script_runtime_root->global_primary_resource_link_tail = node->primary_resource_link_tail;
             }
             if(node->link_0084_tail != nullptr)
             {
@@ -13384,17 +13498,17 @@ void __fastcall publish_runtime_tree_global_links(RuntimeTreeNode *node)
         }
         return;
     }
-    route_runtime_tree_global_link(0xfc0, 0x40, 0xfa4, node->scene_link_head);
-    route_runtime_tree_global_link(0xfbc, 0x48, 0xfa0, node->secondary_resource_link_head);
-    route_runtime_tree_global_link(0xfa8, 0x24, 0xf8c, node->primary_resource_link_head);
-    route_runtime_tree_global_link(0xfb0, 0x24, 0xf94, node->link_0084_head);
-    route_runtime_tree_global_link(0xfb8, 0x24, 0xf9c, node->link_008c_head);
-    route_runtime_tree_global_link(0xfac, 0x24, 0xf90, node->link_007c_head);
-    route_runtime_tree_global_link(0xfb4, 0x24, 0xf98, node->container_head);
+    route_runtime_tree_global_link(script_runtime_root->global_scene_links, script_runtime_root->global_scene_link_tail, node->scene_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_secondary_resource_links, script_runtime_root->global_secondary_resource_link_tail, node->secondary_resource_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_primary_resource_links, script_runtime_root->global_primary_resource_link_tail, node->primary_resource_link_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_0084_head, script_runtime_root->global_link_0084_tail, node->link_0084_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_008c_head, script_runtime_root->global_link_008c_tail, node->link_008c_head);
+    route_runtime_tree_global_link(script_runtime_root->global_link_007c_head, script_runtime_root->global_link_007c_tail, node->link_007c_head);
+    route_runtime_tree_global_link(script_runtime_root->containers, script_runtime_root->container_tail, node->container_head);
 }
 
 // GAG.EXE: 0x004068F0
-void __fastcall append_script_runtime_flags(ScriptTextBuffer *buffer, std::uint32_t flags)
+void append_script_runtime_flags(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(flags == 0)
     {
@@ -13423,7 +13537,7 @@ void __fastcall append_script_runtime_flags(ScriptTextBuffer *buffer, std::uint3
 }
 
 // GAG.EXE: 0x004069D0
-void __fastcall serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
+void serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->runtime_tree == nullptr)
     {
@@ -13439,7 +13553,7 @@ void __fastcall serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
             append_script_text_property(buffer, 0xe, nullptr);
             append_script_text_delimiter(buffer, context->resource->name, ':');
             append_script_text_delimiter(buffer, node->name, ' ');
-            if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<std::uintptr_t>(0xffffffff)))
+            if(node->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
             {
                 append_script_text_scope(buffer, 0x200000);
             }
@@ -13449,13 +13563,13 @@ void __fastcall serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x00406BB0
-void __fastcall serialize_runtime_language(ScriptTextBuffer *buffer)
+void serialize_runtime_language(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr)
     {
         return;
     }
-    const char *language = reinterpret_cast<const char *>(script_runtime_root) + 0x828;
+    const char *language = script_runtime_root->language;
     if(*language != '\0')
     {
         append_script_text_property(buffer, 0x20, nullptr);
@@ -13465,7 +13579,7 @@ void __fastcall serialize_runtime_language(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x004073D0
-void __fastcall serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer)
+void serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->fixed_name_nodes == nullptr)
     {
@@ -13506,28 +13620,28 @@ ScriptTextBuffer *serialize_current_runtime_state()
     ScriptTextBuffer *buffer = script_runtime_root->serialized_script;
     begin_script_text_document(buffer);
 
-    std::uint8_t operation_result[0x108];
+    uint8_t operation_result[0x108];
     script_runtime_root->get_property(8, nullptr, reinterpret_cast<void **>(operation_result));
     append_script_text_property(buffer, 0x0f, nullptr);
-    append_script_text_integer(buffer, *reinterpret_cast<std::uint32_t *>(operation_result), ' ');
+    append_script_text_integer(buffer, *reinterpret_cast<uint32_t *>(operation_result), ' ');
     end_script_text_statement(buffer);
 
     script_runtime_root->get_property(12, nullptr, reinterpret_cast<void **>(operation_result));
     append_script_text_property(buffer, 0xa0, nullptr);
-    append_script_text_integer(buffer, *reinterpret_cast<std::uint32_t *>(operation_result), ' ');
+    append_script_text_integer(buffer, *reinterpret_cast<uint32_t *>(operation_result), ' ');
     end_script_text_statement(buffer);
 
     script_runtime_root->get_property(4, nullptr, reinterpret_cast<void **>(operation_result));
     append_script_text_property(buffer, 0x0b, nullptr);
-    append_script_text_integer(buffer, *reinterpret_cast<std::uint32_t *>(operation_result), ' ');
+    append_script_text_integer(buffer, *reinterpret_cast<uint32_t *>(operation_result), ' ');
 
     script_runtime_root->get_property(1, nullptr, reinterpret_cast<void **>(operation_result));
     append_script_text_delimiter(buffer, "PALFADE", ':');
-    append_script_text_integer(buffer, *reinterpret_cast<std::uint32_t *>(operation_result), ' ');
+    append_script_text_integer(buffer, *reinterpret_cast<uint32_t *>(operation_result), ' ');
 
     script_runtime_root->get_property(2, nullptr, reinterpret_cast<void **>(operation_result));
     append_script_text_delimiter(buffer, "FRAMEFADE", ':');
-    append_script_text_integer(buffer, *reinterpret_cast<std::uint32_t *>(operation_result), ' ');
+    append_script_text_integer(buffer, *reinterpret_cast<uint32_t *>(operation_result), ' ');
     end_script_text_statement(buffer);
 
     serialize_runtime_language(buffer);
@@ -13600,7 +13714,7 @@ ScriptTextBuffer *serialize_current_runtime_state()
 }
 
 // GAG.EXE: 0x00405E50
-RuntimeTreeNode *__fastcall destroy_runtime_tree_node(void *identity, void *replacement_identity)
+RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_identity)
 {
     RuntimeTreeNode *node = runtime_tree_destruction_core_api.find_node(identity);
     RuntimeTreeNode *replacement = runtime_tree_destruction_core_api.find_node(replacement_identity);
@@ -13781,26 +13895,26 @@ void set_runtime_tree_destruction_core_api_for_testing(const RuntimeTreeDestruct
 }
 
 // GAG.EXE: 0x0042A1B0
-RuntimeMediaBackend *__fastcall create_runtime_bitmap_backend(std::uint32_t, std::uint32_t extension_bytes, void *bitmap_data)
+RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
 {
-    auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0x978 + extension_bytes));
+    auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeMediaBackend) + extension_bytes));
     if(backend == nullptr)
     {
         return nullptr;
     }
     if(extension_bytes != 0)
     {
-        backend->extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0x978;
+        backend->extension_data = backend + 1;
     }
     backend->type = 0xac;
     backend->identity = backend;
     backend->source_data = bitmap_data;
-    if(*static_cast<std::uint16_t *>(bitmap_data) != 0x4d42)
+    if(*static_cast<uint16_t *>(bitmap_data) != 0x4d42)
     {
         backend->error_state = 1;
         backend->media_flags |= 0x80000000;
     }
-    backend->format_data = static_cast<std::uint8_t *>(bitmap_data) + 0x0e;
+    backend->format_data = static_cast<uint8_t *>(bitmap_data) + 0x0e;
     backend->field_001c = 0x0300;
     backend->field_001e = 0x00ec;
     backend->media_flags |= 0x20;
@@ -13822,18 +13936,19 @@ RuntimeMediaBackend *__fastcall create_runtime_bitmap_backend(std::uint32_t, std
 }
 
 // GAG.EXE: 0x00429EB0
-RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32_t, void *data, std::uint32_t extension_bytes, std::uint32_t storage)
+RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, uint32_t extension_bytes, uint32_t storage)
 {
     RuntimeAnimationBackend *backend = nullptr;
-    auto read_u32 = [](const std::uint8_t *source)
+    auto read_u32 = [](const uint8_t *source)
     {
-        std::uint32_t value;
+        uint32_t value;
         std::memcpy(&value, source, sizeof(value));
         return value;
     };
     if(storage == 0x01000000)
     {
-        backend = static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0xa58 + extension_bytes));
+        backend =
+            static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
         {
             return nullptr;
@@ -13842,23 +13957,23 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
         backend->base.format_data = backend->header;
         if(extension_bytes != 0)
         {
-            backend->base.extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0xa58;
+            backend->base.extension_data = backend + 1;
         }
         std::memcpy(backend->header, data, sizeof(backend->header));
-        const std::uint16_t signature = *reinterpret_cast<const std::uint16_t *>(backend->header + 4);
+        const uint16_t signature = *reinterpret_cast<const uint16_t *>(backend->header + 4);
         if(signature == 0xaf11)
         {
             backend->base.frame_duration = (read_u32(backend->header + 0x10) * 5 + 5) * 2;
-            backend->data_start = static_cast<std::uint8_t *>(data) + 0x80;
+            backend->data_start = static_cast<uint8_t *>(data) + 0x80;
             backend->base.frame_header = backend->data_start;
-            backend->data_end = static_cast<std::uint8_t *>(backend->data_start) + read_u32(static_cast<std::uint8_t *>(backend->data_start));
+            backend->data_end = static_cast<uint8_t *>(backend->data_start) + read_u32(static_cast<uint8_t *>(backend->data_start));
             backend->base.error_state = 0;
         }
         else if(signature == 0xaf12)
         {
             backend->base.frame_duration = read_u32(backend->header + 0x10);
-            backend->data_start = static_cast<std::uint8_t *>(data) + read_u32(backend->header + 0x50);
-            backend->data_end = static_cast<std::uint8_t *>(data) + read_u32(backend->header + 0x54);
+            backend->data_start = static_cast<uint8_t *>(data) + read_u32(backend->header + 0x50);
+            backend->data_end = static_cast<uint8_t *>(data) + read_u32(backend->header + 0x54);
             backend->base.error_state = 0;
         }
         else
@@ -13871,33 +13986,34 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
     else if(storage == 0x02000000)
     {
         auto *record = static_cast<AsyncFileRecord *>(data);
-        const std::uint32_t saved_position = runtime_animation_backend_create_api.get_position(record);
-        std::uint8_t header[0x80];
-        std::uint32_t bytes_read;
+        const uint32_t saved_position = runtime_animation_backend_create_api.get_position(record);
+        uint8_t header[0x80];
+        uint32_t bytes_read;
         runtime_animation_backend_create_api.read_record(record, header, sizeof(header), &bytes_read, 0);
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        trace_animation_startup("backend header record=%p saved=%u bytes=%u sig=%04X", record, saved_position, bytes_read, *reinterpret_cast<const std::uint16_t *>(header + 4));
+        trace_animation_startup("backend header record=%p saved=%u bytes=%u sig=%04X", record, saved_position, bytes_read, *reinterpret_cast<const uint16_t *>(header + 4));
 #endif
-        backend = static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, 0xa70 + extension_bytes));
+        backend =
+            static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
         {
             return nullptr;
         }
         backend->base.format_data = backend->header;
-        backend->base.frame_header = reinterpret_cast<std::uint8_t *>(backend) + 0xa58;
-        backend->base.chunk_header = reinterpret_cast<std::uint8_t *>(backend) + 0xa68;
+        backend->base.frame_header = backend->streamed_tail;
+        backend->base.chunk_header = backend->streamed_tail + 0x10;
         if(extension_bytes != 0)
         {
-            backend->base.extension_data = reinterpret_cast<std::uint8_t *>(backend) + 0xa70;
+            backend->base.extension_data = backend + 1;
         }
         backend->base.stream_record = record;
         std::memcpy(backend->header, header, sizeof(header));
-        const std::uint16_t signature = *reinterpret_cast<const std::uint16_t *>(backend->header + 4);
+        const uint16_t signature = *reinterpret_cast<const uint16_t *>(backend->header + 4);
         if(signature == 0xaf12)
         {
             backend->base.frame_duration = read_u32(backend->header + 0x10);
-            backend->data_start = reinterpret_cast<void *>(saved_position + read_u32(backend->header + 0x50));
-            backend->data_end = reinterpret_cast<void *>(saved_position + read_u32(backend->header + 0x54));
+            backend->data_start = reinterpret_cast<void *>(static_cast<uintptr_t>(saved_position) + read_u32(backend->header + 0x50));
+            backend->data_end = reinterpret_cast<void *>(static_cast<uintptr_t>(saved_position) + read_u32(backend->header + 0x54));
             backend->base.error_state = 0;
         }
         else if(signature != 0xaf11)
@@ -13905,7 +14021,7 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
             backend->base.error_state = 1;
             backend->base.media_flags |= 0x80000000;
         }
-        runtime_animation_backend_create_api.set_position(record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(backend->data_start)));
+        runtime_animation_backend_create_api.set_position(record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(backend->data_start)));
     }
     else
     {
@@ -13941,7 +14057,7 @@ RuntimeAnimationBackend *__fastcall create_runtime_animation_backend(std::uint32
 }
 
 // GAG.EXE: 0x0042B620
-RuntimeMediaBackend *__fastcall acquire_runtime_media_backend(void *identity)
+RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *result = nullptr;
     const DWORD thread_id = runtime_media_backend_api.get_current_thread_id();
@@ -13976,9 +14092,9 @@ RuntimeMediaBackend *__fastcall acquire_runtime_media_backend(void *identity)
 }
 
 // GAG.EXE: 0x0042B5B0
-std::uint32_t __fastcall get_runtime_media_backend_type(void *identity)
+uint32_t get_runtime_media_backend_type(void *identity)
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
     {
@@ -13993,10 +14109,10 @@ std::uint32_t __fastcall get_runtime_media_backend_type(void *identity)
 }
 
 // GAG.EXE: 0x004299B0
-std::uint8_t __fastcall classify_runtime_media_data(const void *data)
+uint8_t classify_runtime_media_data(const void *data)
 {
-    const auto *bytes = static_cast<const std::uint8_t *>(data);
-    std::uint16_t signature;
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    uint16_t signature;
     std::memcpy(&signature, bytes + 4, sizeof(signature));
     if(signature == 0xaf12)
     {
@@ -14006,23 +14122,23 @@ std::uint8_t __fastcall classify_runtime_media_data(const void *data)
     {
         return 1;
     }
-    static constexpr std::uint8_t wave_format_signature[7]{ 'W', 'A', 'V', 'E', 'f', 'm', 't' };
+    static constexpr uint8_t wave_format_signature[7]{ 'W', 'A', 'V', 'E', 'f', 'm', 't' };
     if(std::memcmp(bytes + 8, wave_format_signature, sizeof(wave_format_signature)) == 0)
     {
         return 2;
     }
-    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    static constexpr uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
     return std::memcmp(bytes, configuration_signature, sizeof(configuration_signature)) == 0 ? 4 : 0;
 }
 
 // GAG.EXE: 0x00404920
-std::uint32_t __fastcall read_compressor_input(void *destination, std::uint32_t requested_size)
+uint32_t read_compressor_input(void *destination, uint32_t requested_size)
 {
     if(compressor_input_position >= compressor_input_size)
     {
         return 0;
     }
-    std::uint32_t copied_size = compressor_input_size - compressor_input_position;
+    uint32_t copied_size = compressor_input_size - compressor_input_position;
     if(requested_size < copied_size)
     {
         copied_size = requested_size;
@@ -14033,7 +14149,7 @@ std::uint32_t __fastcall read_compressor_input(void *destination, std::uint32_t 
 }
 
 // GAG.EXE: 0x0042B2A0
-void __fastcall set_runtime_media_backend_scale(void *identity, std::uint32_t scale_x, std::uint32_t scale_y)
+void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t scale_y)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
@@ -14049,7 +14165,7 @@ void __fastcall set_runtime_media_backend_scale(void *identity, std::uint32_t sc
 }
 
 // GAG.EXE: 0x0042A440
-std::uint32_t __fastcall stop_runtime_animation_backend(void *identity)
+uint32_t stop_runtime_animation_backend(void *identity)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
@@ -14068,21 +14184,21 @@ std::uint32_t __fastcall stop_runtime_animation_backend(void *identity)
 }
 
 // GAG.EXE: 0x0042B600
-void *__fastcall get_locked_runtime_media_extension(void *identity)
+void *get_locked_runtime_media_extension(void *identity)
 {
     RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
     return backend == nullptr ? nullptr : backend->extension_data;
 }
 
 // GAG.EXE: 0x0042B720
-UINT __fastcall apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, std::uint32_t *flags, std::uint32_t force)
+UINT apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, uint32_t *flags, uint32_t force)
 {
-    auto *entries = reinterpret_cast<PALETTEENTRY *>(static_cast<std::uint8_t *>(palette_data) + 4);
+    auto *entries = reinterpret_cast<PALETTEENTRY *>(static_cast<uint8_t *>(palette_data) + 4);
     if((*flags & 0x40000) == 0)
     {
         if((*flags & 0x80000) != 0)
         {
-            for(std::uint32_t index = 0; index < 236; ++index)
+            for(uint32_t index = 0; index < 236; ++index)
             {
                 entries[index].peFlags = PC_EXPLICIT;
             }
@@ -14093,7 +14209,7 @@ UINT __fastcall apply_runtime_palette_entries(RuntimePaletteTarget *target, void
     }
     else
     {
-        for(std::uint32_t index = 0; index < 236; ++index)
+        for(uint32_t index = 0; index < 236; ++index)
         {
             entries[index].peFlags = 0;
         }
@@ -14116,7 +14232,7 @@ UINT __fastcall apply_runtime_palette_entries(RuntimePaletteTarget *target, void
 }
 
 // GAG.EXE: 0x0042A290
-std::uint32_t __fastcall configure_runtime_bitmap_backend(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, void *callback, std::uint32_t flags)
+uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
@@ -14132,17 +14248,28 @@ std::uint32_t __fastcall configure_runtime_bitmap_backend(void *identity, const 
     backend->media_flags |= flags;
     if(callback == nullptr)
     {
-        callback = reinterpret_cast<std::uint8_t *>(backend) + 0x1c;
+        callback = &backend->field_001c;
     }
-    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x18, &callback, sizeof(callback));
-    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x934, transform, 10 * sizeof(std::uint32_t));
-    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x924, descriptor, 4 * sizeof(std::uint32_t));
+    backend->comparison_palette = callback;
+    backend->window = target->window;
+    backend->destination_context = target->destination_context;
+    backend->destination_bits_per_pixel = target->bits_per_pixel;
+    backend->destination_palette = target->palette;
+    backend->presentation_field_0944 = target->field_0944;
+    backend->source_context = target->source_context;
+    std::memcpy(backend->presentation_tail, target->tail, sizeof(backend->presentation_tail));
+    backend->destination_x = static_cast<uint16_t>(descriptor->x);
+    backend->destination_y = static_cast<uint16_t>(descriptor->y);
+    backend->destination_stride = static_cast<uint16_t>(descriptor->width);
+    backend->destination_reserved = static_cast<uint16_t>(descriptor->height);
+    backend->descriptor_2 = descriptor->present;
+    backend->destination_pixels = reinterpret_cast<uint8_t *>(descriptor->pixels);
     runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
     return 1;
 }
 
 // GAG.EXE: 0x0042A340
-std::uint32_t __fastcall configure_runtime_animation_backend(void *identity, const std::uint32_t *transform, const std::uint32_t *descriptor, const void *comparison_palette, std::uint32_t flags,
+uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags,
     RuntimeAnimationCallback callback)
 {
     runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -14158,12 +14285,23 @@ std::uint32_t __fastcall configure_runtime_animation_backend(void *identity, con
     }
     if(comparison_palette == nullptr)
     {
-        comparison_palette = reinterpret_cast<std::uint8_t *>(backend) + 0x1c;
+        comparison_palette = &backend->field_001c;
     }
     backend->comparison_palette = comparison_palette;
     backend->animation_callback = callback == nullptr ? present_runtime_animation_frame : callback;
-    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x934, transform, 10 * sizeof(std::uint32_t));
-    std::memcpy(reinterpret_cast<std::uint8_t *>(backend) + 0x924, descriptor, 4 * sizeof(std::uint32_t));
+    backend->window = target->window;
+    backend->destination_context = target->destination_context;
+    backend->destination_bits_per_pixel = target->bits_per_pixel;
+    backend->destination_palette = target->palette;
+    backend->presentation_field_0944 = target->field_0944;
+    backend->source_context = target->source_context;
+    std::memcpy(backend->presentation_tail, target->tail, sizeof(backend->presentation_tail));
+    backend->destination_x = static_cast<uint16_t>(descriptor->x);
+    backend->destination_y = static_cast<uint16_t>(descriptor->y);
+    backend->destination_stride = static_cast<uint16_t>(descriptor->width);
+    backend->destination_reserved = static_cast<uint16_t>(descriptor->height);
+    backend->descriptor_2 = descriptor->present;
+    backend->destination_pixels = reinterpret_cast<uint8_t *>(descriptor->pixels);
     backend->dirty_left = 32000;
     backend->dirty_top = 32000;
     backend->dirty_right = 0;
@@ -14176,12 +14314,12 @@ std::uint32_t __fastcall configure_runtime_animation_backend(void *identity, con
 }
 
 // GAG.EXE: 0x00427E60
-void __fastcall configure_runtime_resource_palette(RuntimeResourceObject *resource)
+void configure_runtime_resource_palette(RuntimeResourceObject *resource)
 {
     auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
-    const auto *palette = reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(backend) + 0x20);
-    auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier));
-    const std::int32_t owner = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(resource));
+    const auto *palette = reinterpret_cast<const uint32_t *>(backend->palette_entries);
+    auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier));
+    const intptr_t owner = reinterpret_cast<intptr_t>(resource);
     if((resource->type_flags & 1) == 0)
     {
         if(runtime_resource_palette_configure_api.set_primary_owner(resource->scene_identifier, owner, false)
@@ -14202,38 +14340,34 @@ void __fastcall configure_runtime_resource_palette(RuntimeResourceObject *resour
 }
 
 // GAG.EXE: 0x00415D90
-void __fastcall build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
+void build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
 {
     if((backend->media_flags & 0x4000000) != 0)
     {
         return;
     }
-    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
-    void *comparison_palette_pointer = nullptr;
-    std::memcpy(&comparison_palette_pointer, backend_bytes + 0x18, sizeof(comparison_palette_pointer));
-    const auto *comparison_palette = static_cast<const std::uint8_t *>(comparison_palette_pointer);
-    const std::uint8_t *source_color = backend_bytes + 0x20;
-    std::uint8_t *remap = backend_bytes + 0x824;
-    std::uint32_t bits_per_pixel = 0;
-    std::memcpy(&bits_per_pixel, backend_bytes + 0x93c, sizeof(bits_per_pixel));
-    const std::uint16_t comparison_count = bits_per_pixel == 8 ? 0xec : 0x100;
-    for(std::uint16_t source_index = 0; source_index < 0x100; ++source_index)
+    const auto *comparison_palette = static_cast<const uint8_t *>(backend->comparison_palette);
+    const auto *source_color = reinterpret_cast<const uint8_t *>(backend->palette_entries);
+    uint8_t *remap = backend->palette_remap;
+    const uint32_t bits_per_pixel = backend->destination_bits_per_pixel;
+    const uint16_t comparison_count = bits_per_pixel == 8 ? 0xec : 0x100;
+    for(uint16_t source_index = 0; source_index < 0x100; ++source_index)
     {
-        std::uint8_t tolerance = 0;
-        std::uint16_t comparison_index = comparison_count;
+        uint8_t tolerance = 0;
+        uint16_t comparison_index = comparison_count;
         do
         {
             comparison_index = 0;
-            const std::uint8_t *comparison_color = comparison_palette;
+            const uint8_t *comparison_color = comparison_palette;
             do
             {
                 comparison_color += 4;
-                std::uint32_t component = 0;
+                uint32_t component = 0;
                 for(; component < 3; ++component)
                 {
-                    const std::uint8_t left = comparison_color[component];
-                    const std::uint8_t right = source_color[component];
-                    const std::uint8_t difference = left < right ? static_cast<std::uint8_t>(right - left) : static_cast<std::uint8_t>(left - right);
+                    const uint8_t left = comparison_color[component];
+                    const uint8_t right = source_color[component];
+                    const uint8_t difference = left < right ? static_cast<uint8_t>(right - left) : static_cast<uint8_t>(left - right);
                     if(tolerance < difference)
                     {
                         break;
@@ -14249,52 +14383,44 @@ void __fastcall build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
             {
                 break;
             }
-            tolerance = static_cast<std::uint8_t>(tolerance + 10);
+            tolerance = static_cast<uint8_t>(tolerance + 10);
         } while(tolerance < 0xfa);
-        *remap++ = static_cast<std::uint8_t>(comparison_index);
+        *remap++ = static_cast<uint8_t>(comparison_index);
         source_color += 4;
     }
 }
 
 // GAG.EXE: 0x00417260
-std::uint8_t __fastcall convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
+uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
 {
-    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
-    auto *format = static_cast<std::uint8_t *>(backend->format_data);
-    std::uint32_t format_header_size = 0;
+    auto *format = static_cast<uint8_t *>(backend->format_data);
+    uint32_t format_header_size = 0;
     std::memcpy(&format_header_size, format, sizeof(format_header_size));
-    const std::uint8_t *source_palette = format + format_header_size;
-    for(std::uint32_t index = 0; index < 0x100; ++index)
+    const uint8_t *source_palette = format + format_header_size;
+    for(uint32_t index = 0; index < 0x100; ++index)
     {
-        const std::uint8_t blue = source_palette[index * 4];
-        const std::uint8_t green = source_palette[index * 4 + 1];
-        const std::uint8_t red = source_palette[index * 4 + 2];
-        backend_bytes[0x20 + index * 4] = red;
-        backend_bytes[0x21 + index * 4] = green;
-        backend_bytes[0x22 + index * 4] = blue;
-        backend_bytes[0x23 + index * 4] = 1;
-        std::memcpy(backend_bytes + 0x420 + index * 4, source_palette + index * 4, sizeof(std::uint32_t));
+        const uint8_t blue = source_palette[index * 4];
+        const uint8_t green = source_palette[index * 4 + 1];
+        const uint8_t red = source_palette[index * 4 + 2];
+        backend->palette_entries[index] = { red, green, blue, 1 };
+        std::memcpy(&backend->dib_colors[index], source_palette + index * 4, sizeof(uint32_t));
     }
     build_runtime_palette_index_remap(backend);
-    auto *bitmap_file = static_cast<std::uint8_t *>(backend->source_data);
-    std::uint32_t pixel_offset = 0;
+    auto *bitmap_file = static_cast<uint8_t *>(backend->source_data);
+    uint32_t pixel_offset = 0;
     std::memcpy(&pixel_offset, bitmap_file + 0x0a, sizeof(pixel_offset));
-    const std::uint8_t *source = bitmap_file + pixel_offset;
-    std::uint16_t destination_x = 0;
-    std::uint16_t destination_y = 0;
-    std::uint16_t destination_stride = 0;
-    std::uint8_t *destination_base = nullptr;
-    std::memcpy(&destination_x, backend_bytes + 0x924, sizeof(destination_x));
-    std::memcpy(&destination_y, backend_bytes + 0x926, sizeof(destination_y));
-    std::memcpy(&destination_stride, backend_bytes + 0x928, sizeof(destination_stride));
-    std::memcpy(&destination_base, backend_bytes + 0x930, sizeof(destination_base));
-    std::uint8_t *destination = destination_base + destination_y * destination_stride + destination_x;
-    std::int32_t width = 0;
-    std::int32_t signed_height = 0;
+    const uint8_t *source = bitmap_file + pixel_offset;
+    const uint16_t destination_x = backend->destination_x;
+    const uint16_t destination_y = backend->destination_y;
+    const uint16_t destination_stride = backend->destination_stride;
+    uint8_t *destination_base = backend->destination_pixels;
+    uint8_t *destination = destination_base + destination_y * destination_stride + destination_x;
+    int32_t width = 0;
+    int32_t signed_height = 0;
     std::memcpy(&width, format + 4, sizeof(width));
     std::memcpy(&signed_height, format + 8, sizeof(signed_height));
-    std::int32_t height = signed_height;
-    std::int32_t destination_row_adjustment;
+    int32_t height = signed_height;
+    int32_t destination_row_adjustment;
     if(height < 0)
     {
         height = -height;
@@ -14305,14 +14431,14 @@ std::uint8_t __fastcall convert_runtime_bitmap_to_surface(RuntimeMediaBackend *b
         destination += destination_stride * (height - 1);
         destination_row_adjustment = -(destination_stride + width);
     }
-    const std::uint32_t source_row_padding = (static_cast<std::uint32_t>(width) + 3 & ~3u) - static_cast<std::uint32_t>(width);
-    std::uint8_t result = 0;
+    const uint32_t source_row_padding = (static_cast<uint32_t>(width) + 3 & ~3u) - static_cast<uint32_t>(width);
+    uint8_t result = 0;
     if((backend->media_flags & 0x4000000) == 0)
     {
-        const std::uint8_t *remap = backend_bytes + 0x824;
+        const uint8_t *remap = backend->palette_remap;
         do
         {
-            std::int32_t remaining = width;
+            int32_t remaining = width;
             do
             {
                 result = remap[*source++];
@@ -14328,7 +14454,7 @@ std::uint8_t __fastcall convert_runtime_bitmap_to_surface(RuntimeMediaBackend *b
     {
         do
         {
-            std::memcpy(destination, source, static_cast<std::size_t>(width));
+            std::memcpy(destination, source, static_cast<size_t>(width));
             source += width + source_row_padding;
             destination += width + destination_row_adjustment;
             --height;
@@ -14338,7 +14464,7 @@ std::uint8_t __fastcall convert_runtime_bitmap_to_surface(RuntimeMediaBackend *b
 }
 
 // GAG.EXE: 0x0042B300
-void __fastcall finalize_runtime_media_backend(void *identity)
+void finalize_runtime_media_backend(void *identity)
 {
     runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
@@ -14357,35 +14483,23 @@ void __fastcall finalize_runtime_media_backend(void *identity)
                 {
                     backend->media_flags &= ~0x20u;
                     runtime_media_backend_finalize_api.convert_bitmap(backend);
-                    const std::uint32_t flags = backend->media_flags;
+                    const uint32_t flags = backend->media_flags;
                     if((flags & 0x100) == 0)
                     {
-                        auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
-                        std::int32_t bits_per_pixel = 0;
-                        std::memcpy(&bits_per_pixel, backend_bytes + 0x93c, sizeof(bits_per_pixel));
-                        HPALETTE palette = nullptr;
-                        HDC destination = nullptr;
-                        HDC source = nullptr;
-                        std::memcpy(&palette, backend_bytes + 0x940, sizeof(palette));
-                        std::memcpy(&destination, backend_bytes + 0x938, sizeof(destination));
-                        std::memcpy(&source, backend_bytes + 0x948, sizeof(source));
-                        if(bits_per_pixel == 8 && (flags & 0x10) == 0 && (flags & 0x20) != 0)
+                        if(backend->destination_bits_per_pixel == 8 && (flags & 0x10) == 0 && (flags & 0x20) != 0)
                         {
-                            runtime_media_backend_finalize_api.set_palette_entries(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(backend_bytes + 0x20));
-                            runtime_media_backend_finalize_api.realize_palette(destination);
+                            runtime_media_backend_finalize_api.set_palette_entries(backend->destination_palette, 0, 0xec, backend->palette_entries);
+                            runtime_media_backend_finalize_api.realize_palette(backend->destination_context);
                             backend->media_flags &= ~0x20u;
                         }
-                        runtime_media_backend_finalize_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(backend_bytes + 0x420));
-                        std::uint16_t x = 0;
-                        std::uint16_t y = 0;
-                        std::memcpy(&x, backend_bytes + 0x924, sizeof(x));
-                        std::memcpy(&y, backend_bytes + 0x926, sizeof(y));
-                        std::int32_t width = 0;
-                        std::int32_t height = 0;
-                        auto *format = static_cast<const std::uint8_t *>(backend->format_data);
+                        runtime_media_backend_finalize_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
+                        int32_t width = 0;
+                        int32_t height = 0;
+                        auto *format = static_cast<const uint8_t *>(backend->format_data);
                         std::memcpy(&width, format + 4, sizeof(width));
                         std::memcpy(&height, format + 8, sizeof(height));
-                        runtime_media_backend_finalize_api.bit_blt(destination, x, y, width, height, source, x, y, SRCCOPY);
+                        runtime_media_backend_finalize_api.bit_blt(backend->destination_context, backend->destination_x, backend->destination_y, width, height, backend->source_context,
+                            backend->destination_x, backend->destination_y, SRCCOPY);
                     }
                 }
                 break;
@@ -14397,18 +14511,13 @@ void __fastcall finalize_runtime_media_backend(void *identity)
 }
 
 // GAG.EXE: 0x0042A4C0
-void __fastcall fail_runtime_animation(RuntimeMediaBackend *backend, std::uint32_t error)
+void fail_runtime_animation(RuntimeMediaBackend *backend, uint32_t error)
 {
-    auto *backend_bytes = reinterpret_cast<std::uint8_t *>(backend);
     backend->error_state = error;
     backend->media_flags |= 0x80000000;
-    RuntimeAnimationCallback callback = nullptr;
-    std::memcpy(&callback, backend_bytes + 0x9b8, sizeof(callback));
-    if(callback(backend) == 0)
+    if(backend->animation_callback(backend) == 0)
     {
-        HWND window = nullptr;
-        std::memcpy(&window, backend_bytes + 0x934, sizeof(window));
-        runtime_animation_failure_api.post_message(window, 0x7ffe, reinterpret_cast<WPARAM>(backend->identity), static_cast<LPARAM>(0x80000000u));
+        runtime_animation_failure_api.post_message(backend->window, 0x7ffe, reinterpret_cast<WPARAM>(backend->identity), static_cast<LPARAM>(0x80000000u));
     }
     backend->media_flags |= 1;
 }
@@ -14426,7 +14535,7 @@ void resume_all_runtime_animations()
 }
 
 // Non-original helper: exact control phase of RunRuntimeAnimationThread.
-RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimationBackend *animation, std::uint32_t current_time, std::uint32_t *wait_milliseconds)
+RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimationBackend *animation, uint32_t current_time, uint32_t *wait_milliseconds)
 {
     RuntimeMediaBackend &backend = animation->base;
     *wait_milliseconds = 0;
@@ -14446,9 +14555,9 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
     }
     if((backend.media_flags & 0x40) != 0)
     {
-        const auto *header = static_cast<const std::uint8_t *>(backend.format_data);
-        std::uint16_t width = 0;
-        std::uint16_t height = 0;
+        const auto *header = static_cast<const uint8_t *>(backend.format_data);
+        uint16_t width = 0;
+        uint16_t height = 0;
         std::memcpy(&width, header + 8, sizeof(width));
         std::memcpy(&height, header + 10, sizeof(height));
         backend.dirty_left = 0;
@@ -14466,14 +14575,14 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
     if((backend.media_flags & 0x20000) != 0)
     {
         backend.frame_number = 0;
-        const std::uint32_t storage = backend.media_flags & 0x3000000;
+        const uint32_t storage = backend.media_flags & 0x3000000;
         if(storage == 0x1000000)
         {
             animation->source_cursor = animation->data_start;
         }
         else if(storage == 0x2000000)
         {
-            runtime_animation_control_api.set_stream_position(backend.stream_record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(animation->data_start)));
+            runtime_animation_control_api.set_stream_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_start)));
         }
         if(backend.sound_handle != 0)
         {
@@ -14481,7 +14590,7 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
             backend.sound_handle = 0;
         }
         backend.timing_correction = 0;
-        const std::uint32_t old_flags = backend.media_flags;
+        const uint32_t old_flags = backend.media_flags;
         backend.media_flags = old_flags & ~0x20000u;
         if((old_flags & 0x2201) == 0x201)
         {
@@ -14512,7 +14621,7 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
         backend.previous_frame_time = current_time - backend.frame_duration;
         backend.media_flags &= ~0x2000u;
     }
-    if(static_cast<std::int32_t>(current_time) < static_cast<std::int32_t>(backend.next_frame_time))
+    if(static_cast<int32_t>(current_time) < static_cast<int32_t>(backend.next_frame_time))
     {
         *wait_milliseconds = backend.next_frame_time - current_time;
         return RuntimeAnimationControlResult::Wait;
@@ -14521,20 +14630,20 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
 }
 
 // Non-original helper: exact frame scheduling phase of RunRuntimeAnimationThread.
-void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, std::uint32_t current_time)
+void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, uint32_t current_time)
 {
     if(backend->frame_number > 1)
     {
         backend->timing_correction += (current_time - backend->previous_frame_time) - backend->frame_duration;
     }
     backend->previous_frame_time = current_time;
-    std::uint32_t next_frame_time = current_time;
-    if(backend->timing_correction < static_cast<std::int32_t>(backend->frame_duration))
+    uint32_t next_frame_time = current_time;
+    if(backend->timing_correction < static_cast<int32_t>(backend->frame_duration))
     {
-        std::uint32_t duration = backend->frame_duration;
+        uint32_t duration = backend->frame_duration;
         if(backend->timing_correction < 0)
         {
-            duration = static_cast<std::uint32_t>(static_cast<std::int32_t>(duration << 2) / 3);
+            duration = static_cast<uint32_t>(static_cast<int32_t>(duration << 2) / 3);
         }
         else
         {
@@ -14555,21 +14664,21 @@ void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, std::uint32_
 bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
-    const std::uint32_t storage = backend.media_flags & 0x3000000;
+    const uint32_t storage = backend.media_flags & 0x3000000;
     if(storage == 0x1000000)
     {
         backend.frame_header = animation->source_cursor;
-        backend.frame_buffer = static_cast<std::uint8_t *>(animation->source_cursor) + 0x10;
+        backend.frame_buffer = static_cast<uint8_t *>(animation->source_cursor) + 0x10;
     }
     else if(storage == 0x2000000)
     {
-        std::uint32_t bytes_read = 0;
+        uint32_t bytes_read = 0;
         runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
         if(backend.frame_number < 2)
         {
             trace_animation_startup("frame header backend=%p bytes=%u magic=%04X", animation, bytes_read,
-                bytes_read >= 6 ? *reinterpret_cast<const std::uint16_t *>(static_cast<const std::uint8_t *>(backend.frame_header) + 4) : 0);
+                bytes_read >= 6 ? *reinterpret_cast<const uint16_t *>(static_cast<const uint8_t *>(backend.frame_header) + 4) : 0);
         }
 #endif
         if(bytes_read != 0x10)
@@ -14579,8 +14688,8 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
         }
     }
     ++backend.frame_number;
-    std::uint16_t frame_magic = 0;
-    std::memcpy(&frame_magic, static_cast<const std::uint8_t *>(backend.frame_header) + 4, sizeof(frame_magic));
+    uint16_t frame_magic = 0;
+    std::memcpy(&frame_magic, static_cast<const uint8_t *>(backend.frame_header) + 4, sizeof(frame_magic));
     if(frame_magic != 0xf1fa)
     {
         runtime_animation_frame_acquire_api.fail_animation(&backend, 1);
@@ -14588,9 +14697,9 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     }
     if((backend.media_flags & 0x2000000) != 0)
     {
-        std::uint32_t frame_size = 0;
+        uint32_t frame_size = 0;
         std::memcpy(&frame_size, backend.frame_header, sizeof(frame_size));
-        std::uint32_t payload_size = frame_size - 0x10;
+        uint32_t payload_size = frame_size - 0x10;
         if(payload_size > 899999)
         {
             payload_size = 0;
@@ -14616,7 +14725,7 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
                 backend.allocation_2_active = payload_size;
                 backend.frame_buffer = buffer;
             }
-            std::uint32_t bytes_read = 0;
+            uint32_t bytes_read = 0;
             runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_buffer, payload_size, &bytes_read, 1);
             if(bytes_read != payload_size)
             {
@@ -14636,37 +14745,37 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
     animation->source_cursor = backend.frame_buffer;
     backend.media_flags |= 0x10000000;
     backend.animation_callback(&backend);
-    std::uint16_t chunk_count = 0;
-    std::memcpy(&chunk_count, static_cast<const std::uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
+    uint16_t chunk_count = 0;
+    std::memcpy(&chunk_count, static_cast<const uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
     if(backend.frame_number <= 2)
     {
         trace_animation_startup("decode backend=%p frame=%u chunks=%u callback=%p", animation, backend.frame_number, chunk_count, backend.animation_callback);
     }
 #endif
-    for(std::uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
+    for(uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
     {
         backend.chunk_header = animation->source_cursor;
-        const auto *chunk = static_cast<const std::uint8_t *>(backend.chunk_header);
-        std::uint16_t chunk_type = 0;
+        const auto *chunk = static_cast<const uint8_t *>(backend.chunk_header);
+        uint16_t chunk_type = 0;
         std::memcpy(&chunk_type, chunk + 4, sizeof(chunk_type));
-        std::uint32_t payload_size = 0;
+        uint32_t payload_size = 0;
         if(chunk_type == 0x10)
         {
-            const auto *format = static_cast<const std::uint8_t *>(backend.format_data);
-            std::uint16_t width = 0;
-            std::uint16_t height = 0;
+            const auto *format = static_cast<const uint8_t *>(backend.format_data);
+            uint16_t width = 0;
+            uint16_t height = 0;
             std::memcpy(&width, format + 8, sizeof(width));
             std::memcpy(&height, format + 10, sizeof(height));
-            payload_size = static_cast<std::uint32_t>(width) * height;
+            payload_size = static_cast<uint32_t>(width) * height;
         }
         else
         {
-            std::uint32_t chunk_size = 0;
+            uint32_t chunk_size = 0;
             std::memcpy(&chunk_size, chunk, sizeof(chunk_size));
             payload_size = chunk_size - 6;
         }
-        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + 6;
+        animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + 6;
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
         if(backend.frame_number <= 2)
         {
@@ -14722,7 +14831,7 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
             trace_animation_startup("chunk end backend=%p frame=%u index=%u type=%04X", animation, backend.frame_number, chunk_index, chunk_type);
         }
 #endif
-        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + payload_size;
+        animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
     backend.media_flags |= 0x20000000;
     backend.animation_callback(&backend);
@@ -14732,7 +14841,7 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
 void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
-    const std::int32_t presentation_threshold = static_cast<std::int32_t>(backend.frame_duration * 4u);
+    const int32_t presentation_threshold = static_cast<int32_t>(backend.frame_duration * 4u);
     if((backend.media_flags & 0x100) == 0 && (backend.timing_correction <= presentation_threshold || (backend.media_flags & 0x100000) != 0))
     {
         if(backend.animation_callback(&backend) != 0)
@@ -14748,8 +14857,8 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
     {
         backend.media_flags |= 1;
     }
-    std::uint16_t total_frames = 0;
-    std::memcpy(&total_frames, static_cast<const std::uint8_t *>(backend.format_data) + 6, sizeof(total_frames));
+    uint16_t total_frames = 0;
+    std::memcpy(&total_frames, static_cast<const uint8_t *>(backend.format_data) + 6, sizeof(total_frames));
     if((backend.media_flags & 0x400) == 0 && total_frames == backend.frame_number)
     {
         backend.media_flags |= 1;
@@ -14767,14 +14876,14 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
         backend.media_flags |= 0x40000000;
         backend.animation_callback(&backend);
         runtime_animation_completion_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x40000000);
-        const std::uint32_t storage = backend.media_flags & 0x3000000;
+        const uint32_t storage = backend.media_flags & 0x3000000;
         if(storage == 0x1000000)
         {
             animation->source_cursor = animation->data_end;
         }
         else if(storage == 0x2000000)
         {
-            runtime_animation_completion_api.set_stream_position(backend.stream_record, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(animation->data_end)));
+            runtime_animation_completion_api.set_stream_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_end)));
         }
     }
 }
@@ -14784,27 +14893,27 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
     animation->source_cursor = backend.frame_buffer;
-    std::uint16_t chunk_count = 0;
-    std::memcpy(&chunk_count, static_cast<const std::uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
-    for(std::uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
+    uint16_t chunk_count = 0;
+    std::memcpy(&chunk_count, static_cast<const uint8_t *>(backend.frame_header) + 6, sizeof(chunk_count));
+    for(uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
     {
         backend.chunk_header = animation->source_cursor;
-        auto *chunk = static_cast<std::uint8_t *>(backend.chunk_header);
-        std::uint16_t chunk_type = 0;
+        auto *chunk = static_cast<uint8_t *>(backend.chunk_header);
+        uint16_t chunk_type = 0;
         std::memcpy(&chunk_type, chunk + 4, sizeof(chunk_type));
-        std::uint32_t payload_size = 0;
+        uint32_t payload_size = 0;
         if(chunk_type == 0x10)
         {
-            const auto *format = static_cast<const std::uint8_t *>(backend.format_data);
-            std::uint16_t width = 0;
-            std::uint16_t height = 0;
+            const auto *format = static_cast<const uint8_t *>(backend.format_data);
+            uint16_t width = 0;
+            uint16_t height = 0;
             std::memcpy(&width, format + 8, sizeof(width));
             std::memcpy(&height, format + 10, sizeof(height));
-            payload_size = static_cast<std::uint32_t>(width) * height;
+            payload_size = static_cast<uint32_t>(width) * height;
         }
         else
         {
-            std::uint32_t chunk_size = 0;
+            uint32_t chunk_size = 0;
             std::memcpy(&chunk_size, chunk, sizeof(chunk_size));
             payload_size = chunk_size - 6;
         }
@@ -14813,23 +14922,23 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
         {
             if(backend.sound_slot != nullptr && (backend.media_flags & 0x800000) == 0)
             {
-                const std::uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
                 while(backend.sound_slot->playback_state == 0 && (backend.media_flags & 0x10000) == 0)
                 {
                     runtime_animation_audio_api.sleep(0);
                 }
                 backend.timing_adjustment = ((wait_start - backend.frame_duration * 5u) - backend.sound_slot->playback_state) / (backend.synchronized_sound_frame - backend.frame_number);
-                const std::uint32_t wait_end = runtime_animation_audio_api.time_get_time();
+                const uint32_t wait_end = runtime_animation_audio_api.time_get_time();
                 backend.previous_frame_time += wait_end - wait_start;
                 backend.next_frame_time += wait_end - wait_start;
-                const std::uint32_t storage = backend.media_flags & 0x3000000;
+                const uint32_t storage = backend.media_flags & 0x3000000;
                 if(storage == 0x1000000)
                 {
                     runtime_animation_audio_api.queue_sound_data(backend.sound_handle, animation->source_cursor, payload_size, 0);
                 }
                 else if(storage == 0x2000000)
                 {
-                    std::uint8_t *destination = static_cast<std::uint8_t *>(backend.audio_buffer);
+                    uint8_t *destination = static_cast<uint8_t *>(backend.audio_buffer);
                     if((backend.media_flags & 0x400000) == 0)
                     {
                         backend.media_flags |= 0x400000;
@@ -14853,9 +14962,9 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                 backend.sound_slot->schedule_state = 0;
                 backend.sound_slot->playback_state = 0;
                 backend.media_flags |= 0x400000;
-                const std::uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
                 bool available = true;
-                const std::uint32_t storage = backend.media_flags & 0x3000000;
+                const uint32_t storage = backend.media_flags & 0x3000000;
                 if(storage == 0x1000000)
                 {
                     backend.audio_buffer = animation->source_cursor;
@@ -14885,15 +14994,15 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                 }
                 if(available)
                 {
-                    const std::uint32_t half_size = payload_size >> 1;
+                    const uint32_t half_size = payload_size >> 1;
                     runtime_animation_audio_api.queue_sound_data(backend.sound_handle, backend.audio_buffer, half_size, 1);
-                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, static_cast<std::uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
+                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, static_cast<uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
                     runtime_animation_audio_api.stop_sound(backend.sound_handle, 0);
                     while(backend.sound_slot->schedule_state == 0 && (backend.media_flags & 0x10000) == 0)
                     {
                         runtime_animation_audio_api.sleep(0);
                     }
-                    const std::uint32_t elapsed = backend.sound_slot->schedule_state - wait_start;
+                    const uint32_t elapsed = backend.sound_slot->schedule_state - wait_start;
                     backend.previous_frame_time += elapsed;
                     backend.next_frame_time += elapsed;
                 }
@@ -14910,7 +15019,7 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
             backend.sound_handle = runtime_animation_audio_api.create_sound(reinterpret_cast<WAVEFORMATEX *>(chunk + 0x12));
             backend.sound_slot = runtime_animation_audio_api.get_sound_slot(backend.sound_handle);
         }
-        animation->source_cursor = static_cast<std::uint8_t *>(animation->source_cursor) + payload_size;
+        animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
 }
 
@@ -14919,13 +15028,13 @@ DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
 {
     auto *animation = static_cast<RuntimeAnimationBackend *>(backend_pointer);
     runtime_animation_worker_api.gdi_set_batch_limit(1);
-    std::uint32_t wait_milliseconds = 0;
+    uint32_t wait_milliseconds = 0;
     for(;;)
     {
         runtime_animation_worker_api.sleep(wait_milliseconds);
         for(;;)
         {
-            const std::uint32_t current_time = runtime_animation_worker_api.time_get_time();
+            const uint32_t current_time = runtime_animation_worker_api.time_get_time();
             const RuntimeAnimationControlResult control = process_runtime_animation_control(animation, current_time, &wait_milliseconds);
             if(control == RuntimeAnimationControlResult::Exit)
             {
@@ -14950,10 +15059,9 @@ DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
 }
 
 // GAG.EXE: 0x0042B850
-std::int32_t __fastcall present_runtime_animation_frame(RuntimeMediaBackend *backend)
+int32_t present_runtime_animation_frame(RuntimeMediaBackend *backend)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    std::uint32_t flags = backend->media_flags;
+    uint32_t flags = backend->media_flags;
     if((flags & 0x10000000) != 0)
     {
         backend->media_flags = flags & ~0x10000000u;
@@ -14964,63 +15072,44 @@ std::int32_t __fastcall present_runtime_animation_frame(RuntimeMediaBackend *bac
         backend->media_flags = flags & ~0x20000000u;
         return 1;
     }
-    std::int32_t bits_per_pixel = 0;
-    HDC destination = nullptr;
-    HPALETTE palette = nullptr;
-    HDC source = nullptr;
-    std::memcpy(&bits_per_pixel, bytes + 0x93c, sizeof(bits_per_pixel));
-    std::memcpy(&destination, bytes + 0x938, sizeof(destination));
-    std::memcpy(&palette, bytes + 0x940, sizeof(palette));
-    std::memcpy(&source, bytes + 0x948, sizeof(source));
     if((flags & 0x4000) != 0)
     {
-        if(bits_per_pixel == 8)
+        if(backend->destination_bits_per_pixel == 8)
         {
             if((flags & 0x10) == 0)
             {
                 if((flags & 0x20) == 0)
                 {
-                    runtime_animation_present_api.animate_palette(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(bytes + 0x20));
+                    runtime_animation_present_api.animate_palette(backend->destination_palette, 0, 0xec, backend->palette_entries);
                 }
                 else
                 {
-                    runtime_animation_present_api.set_palette_entries(palette, 0, 0xec, reinterpret_cast<const PALETTEENTRY *>(bytes + 0x20));
-                    runtime_animation_present_api.realize_palette(destination);
+                    runtime_animation_present_api.set_palette_entries(backend->destination_palette, 0, 0xec, backend->palette_entries);
+                    runtime_animation_present_api.realize_palette(backend->destination_context);
                     backend->media_flags &= ~0x20u;
                 }
-                runtime_animation_present_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(bytes + 0x420));
+                runtime_animation_present_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
             }
         }
         else if((flags & 0x10) == 0)
         {
-            runtime_animation_present_api.set_dib_color_table(source, 0, 0x100, reinterpret_cast<const RGBQUAD *>(bytes + 0x420));
+            runtime_animation_present_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
         }
     }
     if((backend->media_flags & 0x8000) != 0)
     {
-        std::uint16_t origin_x = 0;
-        std::uint16_t origin_y = 0;
-        std::int32_t left = 0;
-        std::int32_t top = 0;
-        std::int32_t right = 0;
-        std::int32_t bottom = 0;
-        std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
-        std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
-        std::memcpy(&left, bytes + 0x98c, sizeof(left));
-        std::memcpy(&top, bytes + 0x990, sizeof(top));
-        std::memcpy(&right, bytes + 0x994, sizeof(right));
-        std::memcpy(&bottom, bytes + 0x998, sizeof(bottom));
-        const int x = origin_x + left;
-        const int y = origin_y + top;
-        const int width = right - left;
-        const int height = bottom - top;
+        const int x = backend->destination_x + backend->dirty_left;
+        const int y = backend->destination_y + backend->dirty_top;
+        const int width = backend->dirty_right - backend->dirty_left;
+        const int height = backend->dirty_bottom - backend->dirty_top;
         if((backend->media_flags & 0x200000) == 0)
         {
-            runtime_animation_present_api.bit_blt(destination, x, y, width, height, source, x, y, SRCCOPY);
+            runtime_animation_present_api.bit_blt(backend->destination_context, x, y, width, height, backend->source_context, x, y, SRCCOPY);
         }
         else if((backend->media_flags & 0x200000) == 0x200000)
         {
-            runtime_animation_present_api.stretch_blt(destination, origin_x + left * 2, origin_y + top * 2, width * 2, height * 2, source, x, y, width, height, SRCCOPY);
+            runtime_animation_present_api.stretch_blt(backend->destination_context, backend->destination_x + backend->dirty_left * 2, backend->destination_y + backend->dirty_top * 2, width * 2,
+                height * 2, backend->source_context, x, y, width, height, SRCCOPY);
         }
     }
     backend->media_flags &= 0xffff3fffu;
@@ -15028,19 +15117,18 @@ std::int32_t __fastcall present_runtime_animation_frame(RuntimeMediaBackend *bac
 }
 
 // GAG.EXE: 0x00415E60
-void __fastcall decode_runtime_animation_palette(RuntimeMediaBackend *backend)
+void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
-    std::uint16_t packet_count = 0;
+    auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    uint16_t packet_count = 0;
     std::memcpy(&packet_count, source, sizeof(packet_count));
     source += 2;
-    std::uint8_t *palette_entries = bytes + 0x20;
-    std::uint8_t *dib_colors = bytes + 0x420;
+    auto *palette_entries = reinterpret_cast<uint8_t *>(backend->palette_entries);
+    auto *dib_colors = reinterpret_cast<uint8_t *>(backend->dib_colors);
     do
     {
-        const std::uint8_t skip = *source++;
-        std::uint16_t color_count = *source++;
+        const uint8_t skip = *source++;
+        uint16_t color_count = *source++;
         if(color_count == 0)
         {
             color_count = 0x100;
@@ -15052,9 +15140,9 @@ void __fastcall decode_runtime_animation_palette(RuntimeMediaBackend *backend)
         }
         do
         {
-            const std::uint8_t red = *source++;
-            const std::uint8_t green = *source++;
-            const std::uint8_t blue = *source++;
+            const uint8_t red = *source++;
+            const uint8_t green = *source++;
+            const uint8_t blue = *source++;
             palette_entries[0] = red;
             palette_entries[1] = green;
             palette_entries[2] = blue;
@@ -15075,46 +15163,41 @@ void __fastcall decode_runtime_animation_palette(RuntimeMediaBackend *backend)
 // Non-original shared implementation for the two mapped GAG MVZ chunk decoders.
 void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_counted)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
-    const auto read_word = [](const std::uint8_t *value)
+    const auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    const auto read_word = [](const uint8_t *value)
     {
-        std::uint16_t result = 0;
+        uint16_t result = 0;
         std::memcpy(&result, value, sizeof(result));
         return result;
     };
-    const std::uint16_t area_width = read_word(source);
-    const std::uint16_t area_height = read_word(source + 2);
-    const std::uint16_t area_x = read_word(source + 4);
-    const std::uint16_t area_y = read_word(source + 6);
+    const uint16_t area_width = read_word(source);
+    const uint16_t area_height = read_word(source + 2);
+    const uint16_t area_x = read_word(source + 4);
+    const uint16_t area_y = read_word(source + 6);
     source += 0x10;
-    std::uint16_t origin_x = 0;
-    std::uint16_t origin_y = 0;
-    std::uint16_t destination_stride = 0;
-    std::uint8_t *destination_base = nullptr;
-    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
-    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
-    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
-    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
-    const std::uint32_t scale_x = backend->scale_x;
-    const std::uint32_t scale_y = backend->scale_y;
-    const std::uint32_t left = area_x * scale_x;
-    const std::uint32_t top = area_y * scale_y;
-    const std::uint32_t output_width = area_width * scale_x;
-    const std::uint32_t output_height = area_height * scale_y;
-    std::memcpy(bytes + 0x98c, &left, sizeof(left));
-    std::memcpy(bytes + 0x990, &top, sizeof(top));
-    const std::uint32_t right = left + output_width;
-    const std::uint32_t bottom = top + output_height;
-    std::memcpy(bytes + 0x994, &right, sizeof(right));
-    std::memcpy(bytes + 0x998, &bottom, sizeof(bottom));
+    const uint16_t origin_x = backend->destination_x;
+    const uint16_t origin_y = backend->destination_y;
+    const uint16_t destination_stride = backend->destination_stride;
+    uint8_t *destination_base = backend->destination_pixels;
+    const uint32_t scale_x = backend->scale_x;
+    const uint32_t scale_y = backend->scale_y;
+    const uint32_t left = area_x * scale_x;
+    const uint32_t top = area_y * scale_y;
+    const uint32_t output_width = area_width * scale_x;
+    const uint32_t output_height = area_height * scale_y;
+    backend->dirty_left = static_cast<int32_t>(left);
+    backend->dirty_top = static_cast<int32_t>(top);
+    const uint32_t right = left + output_width;
+    const uint32_t bottom = top + output_height;
+    backend->dirty_right = static_cast<int32_t>(right);
+    backend->dirty_bottom = static_cast<int32_t>(bottom);
     const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
-    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
-    const std::uint32_t destination_x = origin_x + left;
-    const std::uint32_t destination_y = origin_y + top;
-    for(std::uint32_t y = 0; y < area_height; ++y)
+    const auto map_value = [backend, copy_indices](uint8_t value) { return copy_indices ? value : backend->palette_remap[value]; };
+    const uint32_t destination_x = origin_x + left;
+    const uint32_t destination_y = origin_y + top;
+    for(uint32_t y = 0; y < area_height; ++y)
     {
-        std::uint32_t packet_count = 0;
+        uint32_t packet_count = 0;
         if(packet_counted)
         {
             packet_count = read_word(source);
@@ -15124,7 +15207,7 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
                 continue;
             }
         }
-        std::uint32_t x = 0;
+        uint32_t x = 0;
         do
         {
             if(packet_counted)
@@ -15132,29 +15215,29 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
                 x += *source++;
                 --packet_count;
             }
-            const std::uint8_t control_byte = *source++;
-            const std::uint8_t type = control_byte >> 6;
-            const std::uint8_t control = control_byte & 0x3f;
-            std::uint32_t count = 0;
+            const uint8_t control_byte = *source++;
+            const uint8_t type = control_byte >> 6;
+            const uint8_t control = control_byte & 0x3f;
+            uint32_t count = 0;
             if(type == 0)
             {
                 count = control;
-                const std::uint8_t value = map_value(*source++);
-                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                const uint8_t value = map_value(*source++);
+                for(uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
                 {
-                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
                     std::memset(destination, value, count * scale_x);
                 }
             }
             else if(type == 1)
             {
                 count = control;
-                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                for(uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
                 {
-                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
-                    for(std::uint32_t index = 0; index < count; ++index)
+                    uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    for(uint32_t index = 0; index < count; ++index)
                     {
-                        const std::uint8_t value = map_value(source[index]);
+                        const uint8_t value = map_value(source[index]);
                         std::memset(destination, value, scale_x);
                         destination += scale_x;
                     }
@@ -15163,28 +15246,28 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
             }
             else
             {
-                std::uint32_t source_x = 0;
-                std::uint32_t source_y = 0;
+                uint32_t source_x = 0;
+                uint32_t source_y = 0;
                 if(type == 2)
                 {
-                    const std::uint32_t value = static_cast<std::uint32_t>(control) << 8 | *source++;
+                    const uint32_t value = static_cast<uint32_t>(control) << 8 | *source++;
                     count = 3;
                     source_x = value & 0x1ff;
                     source_y = y - ((value >> 9) & 0x1f);
                 }
                 else
                 {
-                    const std::uint32_t value = static_cast<std::uint32_t>(control) << 16 | static_cast<std::uint32_t>(source[0]) << 8 | source[1];
+                    const uint32_t value = static_cast<uint32_t>(control) << 16 | static_cast<uint32_t>(source[0]) << 8 | source[1];
                     source += 2;
                     count = value & 0x1f;
                     source_x = (value >> 5) & 0x3ff;
                     source_y = y - ((value >> 15) & 0x7f);
                 }
-                for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+                for(uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
                 {
-                    std::uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
-                    const std::uint8_t *copy_source = destination_base + (destination_y + source_y * scale_y + repeat_y) * destination_stride + destination_x + source_x * scale_x;
-                    for(std::uint32_t index = 0; index < count * scale_x; ++index)
+                    uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
+                    const uint8_t *copy_source = destination_base + (destination_y + source_y * scale_y + repeat_y) * destination_stride + destination_x + source_x * scale_x;
+                    for(uint32_t index = 0; index < count * scale_x; ++index)
                     {
                         *destination++ = *copy_source++;
                     }
@@ -15196,57 +15279,51 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
 }
 
 // GAG.EXE: 0x00415EE0
-void __fastcall decode_runtime_animation_mvz8(RuntimeMediaBackend *backend)
+void decode_runtime_animation_mvz8(RuntimeMediaBackend *backend)
 {
     decode_runtime_animation_mvz(backend, true);
 }
 
 // GAG.EXE: 0x00416420
-void __fastcall decode_runtime_animation_mvz5(RuntimeMediaBackend *backend)
+void decode_runtime_animation_mvz5(RuntimeMediaBackend *backend)
 {
     decode_runtime_animation_mvz(backend, false);
 }
 
 // GAG.EXE: 0x00416900
-void __fastcall decode_runtime_animation_literal(RuntimeMediaBackend *backend)
+void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
-    std::uint16_t source_width = 0;
-    std::uint16_t source_height = 0;
-    std::uint16_t origin_x = 0;
-    std::uint16_t origin_y = 0;
-    std::uint16_t destination_stride = 0;
-    std::uint8_t *destination_base = nullptr;
+    const auto *header = static_cast<const uint8_t *>(backend->format_data);
+    uint16_t source_width = 0;
+    uint16_t source_height = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
     std::memcpy(&source_height, header + 10, sizeof(source_height));
-    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
-    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
-    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
-    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
-    const std::uint32_t horizontal_scale = backend->scale_x;
-    const std::uint32_t effective_horizontal_scale = horizontal_scale < 2 ? 1 : horizontal_scale;
-    const std::uint32_t output_width = source_width * effective_horizontal_scale;
-    const std::uint32_t output_height = source_height * backend->scale_y;
+    const uint16_t origin_x = backend->destination_x;
+    const uint16_t origin_y = backend->destination_y;
+    const uint16_t destination_stride = backend->destination_stride;
+    uint8_t *destination_base = backend->destination_pixels;
+    const uint32_t horizontal_scale = backend->scale_x;
+    const uint32_t effective_horizontal_scale = horizontal_scale < 2 ? 1 : horizontal_scale;
+    const uint32_t output_width = source_width * effective_horizontal_scale;
+    const uint32_t output_height = source_height * backend->scale_y;
     const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
-    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
-    std::uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
-    const std::uint32_t destination_row_adjustment = destination_stride - output_width;
-    std::int32_t zero = 0;
-    std::memcpy(bytes + 0x98c, &zero, sizeof(zero));
-    std::memcpy(bytes + 0x990, &zero, sizeof(zero));
-    std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
-    std::memcpy(bytes + 0x998, &output_height, sizeof(output_height));
-    for(std::uint16_t row = 0; row < source_height; ++row)
+    const auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
+    const uint32_t destination_row_adjustment = destination_stride - output_width;
+    backend->dirty_left = 0;
+    backend->dirty_top = 0;
+    backend->dirty_right = static_cast<int32_t>(output_width);
+    backend->dirty_bottom = static_cast<int32_t>(output_height);
+    for(uint16_t row = 0; row < source_height; ++row)
     {
-        const std::uint8_t *source_row = source;
-        for(std::uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
+        const uint8_t *source_row = source;
+        for(uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
         {
             source = source_row;
-            for(std::uint16_t column = 0; column < source_width; ++column)
+            for(uint16_t column = 0; column < source_width; ++column)
             {
-                const std::uint8_t value = copy_indices ? *source++ : bytes[0x824 + *source++];
-                for(std::uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
+                const uint8_t value = copy_indices ? *source++ : backend->palette_remap[*source++];
+                for(uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
                 {
                     *destination++ = value;
                 }
@@ -15257,52 +15334,46 @@ void __fastcall decode_runtime_animation_literal(RuntimeMediaBackend *backend)
 }
 
 // GAG.EXE: 0x00416AD0
-void __fastcall decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
+void decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
-    std::uint16_t source_width = 0;
-    std::uint16_t source_height = 0;
-    std::uint16_t origin_x = 0;
-    std::uint16_t origin_y = 0;
-    std::uint16_t destination_stride = 0;
-    std::uint8_t *destination_base = nullptr;
+    const auto *header = static_cast<const uint8_t *>(backend->format_data);
+    uint16_t source_width = 0;
+    uint16_t source_height = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
     std::memcpy(&source_height, header + 10, sizeof(source_height));
-    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
-    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
-    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
-    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
-    const std::uint32_t effective_horizontal_scale = backend->scale_x < 2 ? 1 : backend->scale_x;
-    const std::uint32_t output_width = source_width * effective_horizontal_scale;
-    const std::uint32_t output_height = source_height * backend->scale_y;
+    const uint16_t origin_x = backend->destination_x;
+    const uint16_t origin_y = backend->destination_y;
+    const uint16_t destination_stride = backend->destination_stride;
+    uint8_t *destination_base = backend->destination_pixels;
+    const uint32_t effective_horizontal_scale = backend->scale_x < 2 ? 1 : backend->scale_x;
+    const uint32_t output_width = source_width * effective_horizontal_scale;
+    const uint32_t output_height = source_height * backend->scale_y;
     const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
-    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
-    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
-    std::uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
-    const std::uint32_t destination_row_adjustment = destination_stride - output_width;
-    const std::int32_t zero = 0;
-    std::memcpy(bytes + 0x98c, &zero, sizeof(zero));
-    std::memcpy(bytes + 0x990, &zero, sizeof(zero));
-    std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
-    std::memcpy(bytes + 0x998, &output_height, sizeof(output_height));
-    for(std::uint16_t row = 0; row < source_height; ++row)
+    const auto map_value = [backend, copy_indices](uint8_t value) { return copy_indices ? value : backend->palette_remap[value]; };
+    const auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    uint8_t *destination = destination_base + origin_y * destination_stride + origin_x;
+    const uint32_t destination_row_adjustment = destination_stride - output_width;
+    backend->dirty_left = 0;
+    backend->dirty_top = 0;
+    backend->dirty_right = static_cast<int32_t>(output_width);
+    backend->dirty_bottom = static_cast<int32_t>(output_height);
+    for(uint16_t row = 0; row < source_height; ++row)
     {
-        const std::uint8_t *source_row = source;
-        for(std::uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
+        const uint8_t *source_row = source;
+        for(uint32_t repeat_y = 0; repeat_y < backend->scale_y; ++repeat_y)
         {
             source = source_row + 1;
-            std::uint32_t produced = 0;
+            uint32_t produced = 0;
             do
             {
-                const std::int8_t encoded_count = static_cast<std::int8_t>(*source++);
-                const std::uint32_t count = encoded_count < 0 ? static_cast<std::uint32_t>(-encoded_count) : static_cast<std::uint32_t>(encoded_count);
+                const int8_t encoded_count = static_cast<int8_t>(*source++);
+                const uint32_t count = encoded_count < 0 ? static_cast<uint32_t>(-encoded_count) : static_cast<uint32_t>(encoded_count);
                 if(encoded_count < 0)
                 {
-                    for(std::uint32_t index = 0; index < count; ++index)
+                    for(uint32_t index = 0; index < count; ++index)
                     {
-                        const std::uint8_t value = map_value(*source++);
-                        for(std::uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
+                        const uint8_t value = map_value(*source++);
+                        for(uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
                         {
                             *destination++ = value;
                         }
@@ -15310,8 +15381,8 @@ void __fastcall decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
                 }
                 else
                 {
-                    const std::uint8_t value = map_value(*source++);
-                    for(std::uint32_t index = 0; index < count * effective_horizontal_scale; ++index)
+                    const uint8_t value = map_value(*source++);
+                    for(uint32_t index = 0; index < count * effective_horizontal_scale; ++index)
                     {
                         *destination++ = value;
                     }
@@ -15324,93 +15395,88 @@ void __fastcall decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
 }
 
 // GAG.EXE: 0x00416DA0
-void __fastcall decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
+void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
 {
-    auto *bytes = reinterpret_cast<std::uint8_t *>(backend);
-    const auto *header = static_cast<const std::uint8_t *>(backend->format_data);
-    std::uint16_t source_width = 0;
-    std::uint16_t origin_x = 0;
-    std::uint16_t origin_y = 0;
-    std::uint16_t destination_stride = 0;
-    std::uint8_t *destination_base = nullptr;
+    const auto *header = static_cast<const uint8_t *>(backend->format_data);
+    uint16_t source_width = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
-    std::memcpy(&origin_x, bytes + 0x924, sizeof(origin_x));
-    std::memcpy(&origin_y, bytes + 0x926, sizeof(origin_y));
-    std::memcpy(&destination_stride, bytes + 0x928, sizeof(destination_stride));
-    std::memcpy(&destination_base, bytes + 0x930, sizeof(destination_base));
-    const std::uint32_t scale_x = backend->scale_x < 2 ? 1 : backend->scale_x;
-    const std::uint32_t scale_y = backend->scale_y;
-    const std::uint32_t output_width = source_width * scale_x;
+    const uint16_t origin_x = backend->destination_x;
+    const uint16_t origin_y = backend->destination_y;
+    const uint16_t destination_stride = backend->destination_stride;
+    uint8_t *destination_base = backend->destination_pixels;
+    const uint32_t scale_x = backend->scale_x < 2 ? 1 : backend->scale_x;
+    const uint32_t scale_y = backend->scale_y;
+    const uint32_t output_width = source_width * scale_x;
     const bool copy_indices = (backend->media_flags & 0x4000000) != 0;
-    const auto map_value = [bytes, copy_indices](std::uint8_t value) { return copy_indices ? value : bytes[0x824 + value]; };
-    const auto read_signed_word = [](const std::uint8_t *value)
+    const auto map_value = [backend, copy_indices](uint8_t value) { return copy_indices ? value : backend->palette_remap[value]; };
+    const auto read_signed_word = [](const uint8_t *value)
     {
-        std::int16_t result = 0;
+        int16_t result = 0;
         std::memcpy(&result, value, sizeof(result));
         return result;
     };
-    const auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
-    std::uint16_t remaining_lines = 0;
+    const auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
+    uint16_t remaining_lines = 0;
     std::memcpy(&remaining_lines, source, sizeof(remaining_lines));
     source += 2;
-    std::int32_t current_y = 0;
+    int32_t current_y = 0;
     do
     {
         for(;;)
         {
-            const std::int16_t control = read_signed_word(source);
-            if(control >= 0 || (static_cast<std::uint16_t>(control) & 0x4000) == 0)
+            const int16_t control = read_signed_word(source);
+            if(control >= 0 || (static_cast<uint16_t>(control) & 0x4000) == 0)
             {
                 break;
             }
             source += 2;
-            current_y += -static_cast<std::int32_t>(control) * static_cast<std::int32_t>(scale_y);
+            current_y += -static_cast<int32_t>(control) * static_cast<int32_t>(scale_y);
         }
-        const std::uint8_t *line_source = source;
-        const std::uint8_t *line_end = source;
-        for(std::uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
+        const uint8_t *line_source = source;
+        const uint8_t *line_end = source;
+        for(uint32_t repeat_y = 0; repeat_y < scale_y; ++repeat_y)
         {
             source = line_source;
-            std::int16_t packet_count = read_signed_word(source);
+            int16_t packet_count = read_signed_word(source);
             source += 2;
-            std::uint8_t *destination_row = destination_base + (origin_y + current_y) * destination_stride + origin_x;
+            uint8_t *destination_row = destination_base + (origin_y + current_y) * destination_stride + origin_x;
             if(packet_count < 0)
             {
-                const std::uint8_t value = map_value(static_cast<std::uint8_t>(packet_count));
+                const uint8_t value = map_value(static_cast<uint8_t>(packet_count));
                 std::memset(destination_row + output_width - scale_x, value, scale_x);
-                std::memcpy(bytes + 0x994, &output_width, sizeof(output_width));
+                backend->dirty_right = static_cast<int32_t>(output_width);
                 packet_count = read_signed_word(source);
                 source += 2;
             }
-            if(current_y < *reinterpret_cast<std::int32_t *>(bytes + 0x990))
+            if(current_y < backend->dirty_top)
             {
-                std::memcpy(bytes + 0x990, &current_y, sizeof(current_y));
+                backend->dirty_top = current_y;
             }
-            std::int32_t current_x = 0;
-            for(std::int16_t packet = 0; packet < packet_count; ++packet)
+            int32_t current_x = 0;
+            for(int16_t packet = 0; packet < packet_count; ++packet)
             {
-                current_x += static_cast<std::uint32_t>(*source++) * scale_x;
-                if(current_x < *reinterpret_cast<std::int32_t *>(bytes + 0x98c))
+                current_x += static_cast<uint32_t>(*source++) * scale_x;
+                if(current_x < backend->dirty_left)
                 {
-                    std::memcpy(bytes + 0x98c, &current_x, sizeof(current_x));
+                    backend->dirty_left = current_x;
                 }
-                const std::int8_t encoded_count = static_cast<std::int8_t>(*source++);
+                const int8_t encoded_count = static_cast<int8_t>(*source++);
                 if(encoded_count >= 0)
                 {
-                    const std::uint32_t count = static_cast<std::uint32_t>(encoded_count) * 2;
-                    for(std::uint32_t index = 0; index < count; ++index)
+                    const uint32_t count = static_cast<uint32_t>(encoded_count) * 2;
+                    for(uint32_t index = 0; index < count; ++index)
                     {
-                        const std::uint8_t value = map_value(*source++);
+                        const uint8_t value = map_value(*source++);
                         std::memset(destination_row + current_x, value, scale_x);
                         current_x += scale_x;
                     }
                 }
                 else
                 {
-                    const std::uint32_t count = static_cast<std::uint32_t>(-encoded_count);
-                    const std::uint8_t first = map_value(*source++);
-                    const std::uint8_t second = map_value(*source++);
-                    for(std::uint32_t index = 0; index < count; ++index)
+                    const uint32_t count = static_cast<uint32_t>(-encoded_count);
+                    const uint8_t first = map_value(*source++);
+                    const uint8_t second = map_value(*source++);
+                    for(uint32_t index = 0; index < count; ++index)
                     {
                         std::memset(destination_row + current_x, first, scale_x);
                         current_x += scale_x;
@@ -15419,9 +15485,9 @@ void __fastcall decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
                     }
                 }
             }
-            if(*reinterpret_cast<std::int32_t *>(bytes + 0x994) < current_x)
+            if(backend->dirty_right < current_x)
             {
-                std::memcpy(bytes + 0x994, &current_x, sizeof(current_x));
+                backend->dirty_right = current_x;
             }
             ++current_y;
             line_end = source;
@@ -15429,9 +15495,9 @@ void __fastcall decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
         source = line_end;
         --remaining_lines;
     } while(remaining_lines != 0);
-    if(*reinterpret_cast<std::int32_t *>(bytes + 0x998) < current_y)
+    if(backend->dirty_bottom < current_y)
     {
-        std::memcpy(bytes + 0x998, &current_y, sizeof(current_y));
+        backend->dirty_bottom = current_y;
     }
 }
 
@@ -15445,10 +15511,10 @@ void ignore_runtime_animation_chunk_12() {}
 void ignore_runtime_animation_chunk_13() {}
 
 // GAG.EXE: 0x0042B4E0
-std::uint32_t __fastcall destroy_runtime_media_backend(void *identity)
+uint32_t destroy_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if(backend != nullptr)
     {
         runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -15487,12 +15553,12 @@ std::uint32_t __fastcall destroy_runtime_media_backend(void *identity)
 }
 
 // GAG.EXE: 0x00410CC0
-RuntimeGenericBackend *__fastcall acquire_runtime_generic_backend(void *identity)
+RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
 {
     for(;;)
     {
         RuntimeGenericBackend *result = nullptr;
-        std::uint32_t contended = 0;
+        uint32_t contended = 0;
         runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
         {
@@ -15517,7 +15583,7 @@ RuntimeGenericBackend *__fastcall acquire_runtime_generic_backend(void *identity
 }
 
 // GAG.EXE: 0x00410C40
-RuntimeGenericBackend *__fastcall create_runtime_generic_backend(std::uint32_t value_0010, std::uint32_t value_000c)
+RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t value_0010, uint32_t value_000c)
 {
     auto *backend =
         static_cast<RuntimeGenericBackend *>(runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackend)));
@@ -15526,7 +15592,7 @@ RuntimeGenericBackend *__fastcall create_runtime_generic_backend(std::uint32_t v
     {
         backend->identity = backend;
         backend->text_size = value_000c;
-        backend->text = reinterpret_cast<const char *>(static_cast<std::uintptr_t>(value_0010));
+        backend->text = reinterpret_cast<const char *>(static_cast<uintptr_t>(value_0010));
         runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
         if(runtime_generic_backend_enabled == 0)
         {
@@ -15544,13 +15610,13 @@ RuntimeGenericBackend *__fastcall create_runtime_generic_backend(std::uint32_t v
 }
 
 // GAG.EXE: 0x00410D40
-void __fastcall clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
+void clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
 {
     backend->flags &= 0xfffeffff;
 }
 
 // GAG.EXE: 0x00410DE0
-void *__fastcall find_available_runtime_generic_child(std::uint32_t maximum_end_position)
+void *find_available_runtime_generic_child(uint32_t maximum_end_position)
 {
     void *result = nullptr;
     runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
@@ -15571,10 +15637,10 @@ void *__fastcall find_available_runtime_generic_child(std::uint32_t maximum_end_
 }
 
 // GAG.EXE: 0x00410E50
-std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *backend, std::int32_t category, const char *name)
+int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t category, const char *name)
 {
-    std::uint32_t position = 0;
-    std::int32_t found_category;
+    uint32_t position = 0;
+    int32_t found_category;
     char token[32];
     do
     {
@@ -15600,8 +15666,8 @@ std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *b
                         break;
                     }
                 }
-                std::uint32_t input = position + 1;
-                std::uint32_t length = 0;
+                uint32_t input = position + 1;
+                uint32_t length = 0;
                 while(backend->text[input] != '=' && length < 30)
                 {
                     token[length++] = backend->text[input++];
@@ -15633,8 +15699,8 @@ std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *b
 
         if(position != 0xffffffff)
         {
-            std::uint32_t length = 0;
-            while(backend->text[position] != ' ' && static_cast<std::uint8_t>(backend->text[position]) != 9 && static_cast<std::uint8_t>(backend->text[position]) != 0x3b && length < 30)
+            uint32_t length = 0;
+            while(backend->text[position] != ' ' && static_cast<uint8_t>(backend->text[position]) != 9 && static_cast<uint8_t>(backend->text[position]) != 0x3b && length < 30)
             {
                 token[length++] = backend->text[position++];
             }
@@ -15642,13 +15708,13 @@ std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *b
         }
     } while(std::strcmp(token, name) != 0 && position != 0xffffffff);
 
-    std::int32_t result = -1;
+    int32_t result = -1;
     if(position != 0xffffffff)
     {
-        result = static_cast<std::int32_t>(position + 1);
+        result = static_cast<int32_t>(position + 1);
         if(found_category != 0x20)
         {
-            const std::uint32_t size = backend->text_size;
+            const uint32_t size = backend->text_size;
             while(true)
             {
                 if(position < size)
@@ -15666,7 +15732,7 @@ std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *b
                     }
                     if(backend->text[position] == ';')
                     {
-                        result = static_cast<std::int32_t>(position + 1);
+                        result = static_cast<int32_t>(position + 1);
                     }
                 }
                 if(backend->text[position] == '[' || position == size)
@@ -15680,16 +15746,16 @@ std::int32_t __fastcall find_runtime_generic_text_entry(RuntimeGenericBackend *b
 }
 
 // GAG.EXE: 0x004110B0
-RuntimeGenericBackendChild *__fastcall create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const std::uint32_t *context, std::uintptr_t selection, std::uint32_t flags)
+RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const uintptr_t *context, uintptr_t selection, uint32_t flags)
 {
     RuntimeGenericBackendChild *child = nullptr;
     RuntimeGenericBackend *backend = runtime_generic_child_create_api.acquire_backend(backend_identity);
     if(backend != nullptr)
     {
-        std::uint32_t default_selection;
-        std::uint32_t parser_position;
-        std::uint32_t text_search_position;
-        std::uint32_t additional_flags;
+        uint32_t default_selection = 0x7fffffff;
+        uint32_t parser_position;
+        uint32_t text_search_position;
+        uint32_t additional_flags;
         if((selection >> 16) == 0)
         {
             default_selection = selection & 0xffff;
@@ -15700,10 +15766,10 @@ RuntimeGenericBackendChild *__fastcall create_runtime_generic_backend_child(void
         else
         {
             const char *name = reinterpret_cast<const char *>(selection);
-            std::int32_t entry_position = runtime_generic_child_create_api.find_text_entry(backend, 0x20, name);
+            int32_t entry_position = runtime_generic_child_create_api.find_text_entry(backend, 0x20, name);
             if(entry_position != -1)
             {
-                std::uint32_t position = static_cast<std::uint32_t>(entry_position);
+                uint32_t position = static_cast<uint32_t>(entry_position);
                 default_selection = runtime_generic_child_create_api.parse_integer(backend->text, &position, backend->text_size, 0);
             }
             parser_position = runtime_generic_child_create_api.find_text_entry(backend, 0x30, name);
@@ -15744,39 +15810,39 @@ void set_runtime_generic_child_create_api_for_testing(const RuntimeGenericChildC
 }
 
 // GAG.EXE: 0x004212E0
-void __fastcall process_available_runtime_generic_children(std::uint32_t maximum_end_position)
+void process_available_runtime_generic_children(uint32_t maximum_end_position)
 {
     for(void *identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position); identity != nullptr;
         identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position))
     {
-        std::uint32_t context[2];
+        uintptr_t context[2];
         DisplaySceneDescriptor descriptor;
-        std::uint32_t state[15];
-        if(runtime_generic_child_scene_api.build_child_state(identity, 0, state, reinterpret_cast<std::uint32_t *>(&descriptor), context) != 0)
+        uint32_t state[15];
+        if(runtime_generic_child_scene_api.build_child_state(identity, 0, state, reinterpret_cast<uint32_t *>(&descriptor), context) != 0)
         {
             auto *rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
-            if(rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+            if(rectangle->right <= static_cast<uint16_t>(descriptor.width) && rectangle->bottom <= static_cast<uint16_t>(descriptor.height))
             {
-                rectangle->right = static_cast<std::uint16_t>(descriptor.width);
-                rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+                rectangle->right = static_cast<uint16_t>(descriptor.width);
+                rectangle->bottom = static_cast<uint16_t>(descriptor.height);
             }
             if(context[1] == 0)
             {
                 context[1] = runtime_generic_child_scene_api.find_scene_index(0x80000);
             }
-            std::int32_t x = static_cast<std::int32_t>(state[5]);
-            std::int32_t y = static_cast<std::int32_t>(state[6]);
+            int32_t x = static_cast<int32_t>(state[5]);
+            int32_t y = static_cast<int32_t>(state[6]);
             if((runtime_pointer_event_record[14] & 1) != 0)
             {
                 x = 10000;
                 y = 10000;
             }
-            DisplaySceneNode *scene =
-                runtime_generic_child_scene_api.acquire_scene(context[1], x, y, rectangle->right, rectangle->bottom, 0x20000, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
-            const std::int32_t scene_identifier = static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene));
+            DisplaySceneNode *scene = runtime_generic_child_scene_api.acquire_scene(static_cast<uint32_t>(context[1]), x, y, rectangle->right, rectangle->bottom, 0x20000,
+                static_cast<intptr_t>(context[0]), &descriptor, nullptr);
+            const intptr_t scene_identifier = reinterpret_cast<intptr_t>(scene);
             if(runtime_generic_child_scene_api.begin_scene_update(scene_identifier) == 0)
             {
-                runtime_generic_child_scene_api.publish_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), static_cast<std::int32_t>(maximum_end_position));
+                runtime_generic_child_scene_api.publish_child_state(identity, state, reinterpret_cast<uint32_t *>(&descriptor), static_cast<int32_t>(maximum_end_position));
                 runtime_generic_child_scene_api.end_scene_update(scene_identifier, reinterpret_cast<DisplayRectangleTransform *>(&descriptor), rectangle);
             }
             runtime_generic_child_scene_api.set_child_context(identity, context);
@@ -15786,10 +15852,10 @@ void __fastcall process_available_runtime_generic_children(std::uint32_t maximum
             if(context[0] == 0x0047EF60)
             {
                 runtime_generic_child_scene_api.destroy_child(identity);
-                const std::int32_t scene_identifier = runtime_generic_child_scene_api.query_scene(static_cast<std::int32_t>(context[1]), nullptr, nullptr);
+                const intptr_t scene_identifier = runtime_generic_child_scene_api.query_scene(static_cast<int32_t>(context[1]), nullptr, nullptr);
                 if(scene_identifier != 0)
                 {
-                    runtime_generic_child_scene_api.release_scene(scene_identifier, static_cast<std::int32_t>(context[0]));
+                    runtime_generic_child_scene_api.release_scene(scene_identifier, static_cast<int32_t>(context[0]));
                 }
             }
             else
@@ -15805,18 +15871,18 @@ void set_runtime_generic_child_scene_api_for_testing(const RuntimeGenericChildSc
     runtime_generic_child_scene_api = api;
 }
 
-void set_runtime_pointer_event_flags_for_testing(std::uint32_t flags)
+void set_runtime_pointer_event_flags_for_testing(uint32_t flags)
 {
     runtime_pointer_event_record[14] = flags;
 }
 
 // GAG.EXE: 0x00411220
-RuntimeGenericBackendChild *__fastcall acquire_runtime_generic_backend_child(void *identity)
+RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity)
 {
     for(;;)
     {
         RuntimeGenericBackendChild *result = nullptr;
-        std::uint32_t contended = 0;
+        uint32_t contended = 0;
         runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
         bool found = false;
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr && !found; backend = backend->next)
@@ -15846,9 +15912,9 @@ RuntimeGenericBackendChild *__fastcall acquire_runtime_generic_backend_child(voi
 }
 
 // GAG.EXE: 0x004118F0
-std::int32_t __fastcall parse_runtime_generic_integer(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+int32_t parse_runtime_generic_integer(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
-    std::uint32_t cursor = *position;
+    uint32_t cursor = *position;
     const char alternate_stop = (flags & 0x1000) == 0 ? ':' : '#';
     while(cursor < end && text[cursor] != ';' && text[cursor] != '@' && text[cursor] != alternate_stop && (text[cursor] < '0' || text[cursor] > '9'))
     {
@@ -15867,7 +15933,7 @@ std::int32_t __fastcall parse_runtime_generic_integer(const char *text, std::uin
     {
         ++cursor;
     }
-    std::int32_t value = 0;
+    int32_t value = 0;
     while(text[cursor] >= '0' && text[cursor] <= '9')
     {
         value = text[cursor] - '0' + value * 10;
@@ -15882,9 +15948,9 @@ std::int32_t __fastcall parse_runtime_generic_integer(const char *text, std::uin
 }
 
 // GAG.EXE: 0x004119A0
-std::int32_t __fastcall skip_runtime_generic_statement(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+int32_t skip_runtime_generic_statement(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
-    std::uint32_t cursor = *position;
+    uint32_t cursor = *position;
     do
     {
         while(cursor < end && text[cursor] != ';' && text[cursor] != '@')
@@ -15929,13 +15995,13 @@ std::int32_t __fastcall skip_runtime_generic_statement(const char *text, std::ui
 }
 
 // GAG.EXE: 0x00411A20
-std::int32_t __fastcall parse_runtime_generic_directive(const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t flags)
+int32_t parse_runtime_generic_directive(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
     if((flags & 0x1000) != 0)
     {
         return 0x10000;
     }
-    std::uint32_t cursor = *position;
+    uint32_t cursor = *position;
     char name[32]{};
     while(cursor < end && text[cursor] != '@' && text[cursor] != '[')
     {
@@ -15946,7 +16012,7 @@ std::int32_t __fastcall parse_runtime_generic_directive(const char *text, std::u
         return -1;
     }
     ++cursor;
-    std::uint32_t length = 0;
+    uint32_t length = 0;
     while(cursor < end && length < 30 && text[cursor] != '@' && text[cursor] != ':' && text[cursor] != '[')
     {
         name[length++] = text[cursor++];
@@ -15956,7 +16022,7 @@ std::int32_t __fastcall parse_runtime_generic_directive(const char *text, std::u
     {
         return -1;
     }
-    std::int32_t result = -1;
+    int32_t result = -1;
     if(length == 0 || std::strcmp(name, "THIS") == 0)
     {
         result = 0x10000;
@@ -15978,9 +16044,9 @@ std::int32_t __fastcall parse_runtime_generic_directive(const char *text, std::u
 }
 
 // GAG.EXE: 0x00411560
-std::uint32_t __fastcall build_runtime_generic_backend_child_state(void *identity, std::uint32_t selection, std::uint32_t *state, std::uint32_t *descriptor, std::uint32_t *context)
+uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t selection, uint32_t *state, uint32_t *descriptor, uintptr_t *context)
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if(state != nullptr)
     {
         state[0] = 0xffffffff;
@@ -15991,8 +16057,8 @@ std::uint32_t __fastcall build_runtime_generic_backend_child_state(void *identit
         return result;
     }
 
-    std::uint32_t flags = child->flags;
-    std::uint32_t effective_selection = selection;
+    uint32_t flags = child->flags;
+    uint32_t effective_selection = selection;
     if((flags & 2) == 0)
     {
         if((flags & 0x100) == 0)
@@ -16008,38 +16074,38 @@ std::uint32_t __fastcall build_runtime_generic_backend_child_state(void *identit
     if((flags & 1) == 0 || child->computed_state[9] != effective_selection)
     {
         RuntimeGenericBackend *parent = child->parent;
-        std::uint32_t cursor = child->parser_position;
+        uint32_t cursor = child->parser_position;
         const char *text = parent->text;
         flags = child->flags;
-        std::uint32_t parsed_selection;
+        uint32_t parsed_selection;
         do
         {
-            parsed_selection = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+            parsed_selection = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
             if(parsed_selection == effective_selection && parsed_selection != 0x7fffffff)
             {
                 child->computed_state[0] = 0;
                 child->flags |= 1;
-                child->computed_state[4] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(child->font_identity));
-                child->computed_state[3] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(text));
+                child->computed_state[4] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(child->font_identity));
+                child->computed_state[3] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(text));
 
-                std::uint32_t state_start;
-                std::uint32_t following_selection;
+                uint32_t state_start;
+                uint32_t following_selection;
                 do
                 {
                     state_start = cursor;
                     skip_runtime_generic_statement(text, &cursor, parent->text_size, flags);
-                    following_selection = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                    following_selection = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
                 } while(following_selection == effective_selection);
 
                 cursor = state_start;
-                child->computed_state[5] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-                child->computed_state[6] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-                child->computed_state[7] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-                child->computed_state[8] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[5] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[6] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[7] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[8] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
                 child->computed_state[1] = select_runtime_generic_text(&child->computed_state[11], text, &cursor, parent->text_size, child->text_search_position, child->font_identity, flags);
                 child->computed_state[9] = parsed_selection;
-                child->computed_state[2] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-                child->computed_state[10] = static_cast<std::uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[2] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
+                child->computed_state[10] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
                 if(child->computed_state[1] == 0xffffffff)
                 {
                     child->computed_state[0] = 0xffffffff;
@@ -16083,7 +16149,7 @@ std::uint32_t __fastcall build_runtime_generic_backend_child_state(void *identit
 }
 
 // GAG.EXE: 0x00411420
-void __fastcall publish_runtime_generic_backend_child_state(void *identity, const std::uint32_t *state, const std::uint32_t *descriptor, std::int32_t end_offset)
+void publish_runtime_generic_backend_child_state(void *identity, const uint32_t *state, const uint32_t *descriptor, int32_t end_offset)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
@@ -16098,7 +16164,7 @@ void __fastcall publish_runtime_generic_backend_child_state(void *identity, cons
         {
             std::memcpy(child->descriptor, descriptor, sizeof(child->descriptor));
         }
-        if(child->descriptor[3] != 0)
+        if(reinterpret_cast<const DisplaySceneDescriptor *>(child->descriptor)->pixels != 0)
         {
             draw_runtime_generic_text(child->parent->text, child->parent->text_size, state, child->font_identity, reinterpret_cast<DisplaySceneDescriptor *>(child->descriptor), child->flags);
         }
@@ -16109,18 +16175,18 @@ void __fastcall publish_runtime_generic_backend_child_state(void *identity, cons
 }
 
 // GAG.EXE: 0x004122C0
-std::uint32_t __fastcall measure_runtime_font_glyph(std::uint8_t character, const RuntimeMediaBackend *backend)
+uint32_t measure_runtime_font_glyph(uint8_t character, const RuntimeMediaBackend *backend)
 {
-    const std::uint16_t atlas_stride = backend->destination_stride;
-    const std::uint32_t glyph_width = atlas_stride >> 4;
-    std::uint32_t rows_remaining = backend->destination_reserved >> 4;
-    const std::uint8_t *pixels = backend->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
-    std::uint32_t maximum_width = 0;
+    const uint16_t atlas_stride = backend->destination_stride;
+    const uint32_t glyph_width = atlas_stride >> 4;
+    uint32_t rows_remaining = backend->destination_reserved >> 4;
+    const uint8_t *pixels = backend->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
+    uint32_t maximum_width = 0;
     do
     {
-        std::uint32_t transparent_run = 0;
-        std::uint32_t row_width = 0;
-        std::uint32_t columns_remaining = glyph_width;
+        uint32_t transparent_run = 0;
+        uint32_t row_width = 0;
+        uint32_t columns_remaining = glyph_width;
         do
         {
             ++transparent_run;
@@ -16133,7 +16199,7 @@ std::uint32_t __fastcall measure_runtime_font_glyph(std::uint8_t character, cons
             --columns_remaining;
         } while(columns_remaining != 0);
         pixels += atlas_stride - glyph_width;
-        if(static_cast<std::int32_t>(maximum_width) < static_cast<std::int32_t>(row_width))
+        if(static_cast<int32_t>(maximum_width) < static_cast<int32_t>(row_width))
         {
             maximum_width = row_width;
         }
@@ -16147,49 +16213,48 @@ std::uint32_t __fastcall measure_runtime_font_glyph(std::uint8_t character, cons
 }
 
 // GAG.EXE: 0x00412370
-std::uint32_t __fastcall draw_runtime_font_glyph(DisplaySceneDescriptor *destination, std::uint8_t character, std::int32_t x, std::int32_t y, const RuntimeMediaBackend *font, std::uint32_t low_color,
-    std::uint32_t high_color)
+uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t character, int32_t x, int32_t y, const RuntimeMediaBackend *font, uint32_t low_color, uint32_t high_color)
 {
-    std::uint8_t low_mask = 0xff;
-    std::uint8_t high_mask = 0xff;
-    std::uint8_t low_value = 0;
-    std::uint8_t high_value = 0;
+    uint8_t low_mask = 0xff;
+    uint8_t high_mask = 0xff;
+    uint8_t low_value = 0;
+    uint8_t high_value = 0;
     if(high_color < 0x100)
     {
-        high_value = static_cast<std::uint8_t>(high_color);
+        high_value = static_cast<uint8_t>(high_color);
         high_mask = 0;
     }
     if(low_color < 0x100)
     {
-        low_value = static_cast<std::uint8_t>(low_color);
+        low_value = static_cast<uint8_t>(low_color);
         low_mask = 0;
     }
 
-    const std::uint32_t destination_width = static_cast<std::uint16_t>(destination->width);
-    const std::uint32_t destination_height = static_cast<std::uint16_t>(destination->height);
-    const std::uint32_t atlas_stride = font->destination_stride;
-    const std::uint32_t glyph_width = atlas_stride >> 4;
-    std::uint32_t rows_remaining = font->destination_reserved >> 4;
-    std::int32_t source_row_advance = static_cast<std::int32_t>(atlas_stride - glyph_width);
-    std::int32_t destination_row_advance = static_cast<std::int32_t>(destination_width - glyph_width);
-    std::uint32_t draw_width = glyph_width;
+    const uint32_t destination_width = static_cast<uint16_t>(destination->width);
+    const uint32_t destination_height = static_cast<uint16_t>(destination->height);
+    const uint32_t atlas_stride = font->destination_stride;
+    const uint32_t glyph_width = atlas_stride >> 4;
+    uint32_t rows_remaining = font->destination_reserved >> 4;
+    int32_t source_row_advance = static_cast<int32_t>(atlas_stride - glyph_width);
+    int32_t destination_row_advance = static_cast<int32_t>(destination_width - glyph_width);
+    uint32_t draw_width = glyph_width;
 
-    const std::int32_t right_overflow = static_cast<std::int32_t>(glyph_width) + x - static_cast<std::int32_t>(destination_width);
-    if(right_overflow > 0 && static_cast<std::int32_t>(destination_width) <= static_cast<std::int32_t>(glyph_width) + x)
+    const int32_t right_overflow = static_cast<int32_t>(glyph_width) + x - static_cast<int32_t>(destination_width);
+    if(right_overflow > 0 && static_cast<int32_t>(destination_width) <= static_cast<int32_t>(glyph_width) + x)
     {
-        draw_width -= static_cast<std::uint32_t>(right_overflow);
-        if(draw_width == 0 || static_cast<std::int32_t>(glyph_width) < right_overflow)
+        draw_width -= static_cast<uint32_t>(right_overflow);
+        if(draw_width == 0 || static_cast<int32_t>(glyph_width) < right_overflow)
         {
             return glyph_width;
         }
         source_row_advance += right_overflow;
         destination_row_advance += right_overflow;
     }
-    const std::int32_t bottom_overflow = static_cast<std::int32_t>(rows_remaining) + y - static_cast<std::int32_t>(destination_height);
-    if(bottom_overflow > 0 && static_cast<std::int32_t>(destination_height) <= static_cast<std::int32_t>(rows_remaining) + y)
+    const int32_t bottom_overflow = static_cast<int32_t>(rows_remaining) + y - static_cast<int32_t>(destination_height);
+    if(bottom_overflow > 0 && static_cast<int32_t>(destination_height) <= static_cast<int32_t>(rows_remaining) + y)
     {
-        const std::uint32_t clipped_width = draw_width - static_cast<std::uint32_t>(bottom_overflow);
-        const bool underflow = static_cast<std::int32_t>(draw_width) < bottom_overflow;
+        const uint32_t clipped_width = draw_width - static_cast<uint32_t>(bottom_overflow);
+        const bool underflow = static_cast<int32_t>(draw_width) < bottom_overflow;
         draw_width = clipped_width;
         if(draw_width == 0 || underflow)
         {
@@ -16197,22 +16262,22 @@ std::uint32_t __fastcall draw_runtime_font_glyph(DisplaySceneDescriptor *destina
         }
     }
 
-    const std::uint8_t *source = font->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
-    auto *destination_pixels = reinterpret_cast<std::uint8_t *>(static_cast<std::uintptr_t>(destination->pixels));
-    std::uint8_t *output = destination_pixels + destination_width * y + x;
-    std::uint32_t maximum_width = 0;
+    const uint8_t *source = font->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
+    auto *destination_pixels = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->pixels));
+    uint8_t *output = destination_pixels + destination_width * y + x;
+    uint32_t maximum_width = 0;
     do
     {
-        std::uint32_t transparent_run = 0;
-        std::uint32_t row_width = 0;
-        std::uint32_t columns_remaining = draw_width;
+        uint32_t transparent_run = 0;
+        uint32_t row_width = 0;
+        uint32_t columns_remaining = draw_width;
         do
         {
             ++transparent_run;
-            const std::uint8_t pixel = *source;
+            const uint8_t pixel = *source;
             if(pixel != 0)
             {
-                *output = pixel < 0x10 ? static_cast<std::uint8_t>((pixel & high_mask) | high_value) : static_cast<std::uint8_t>((pixel & low_mask) | low_value);
+                *output = pixel < 0x10 ? static_cast<uint8_t>((pixel & high_mask) | high_value) : static_cast<uint8_t>((pixel & low_mask) | low_value);
                 row_width += transparent_run;
                 transparent_run = 0;
             }
@@ -16222,7 +16287,7 @@ std::uint32_t __fastcall draw_runtime_font_glyph(DisplaySceneDescriptor *destina
         } while(columns_remaining != 0);
         source += source_row_advance;
         output += destination_row_advance;
-        if(static_cast<std::int32_t>(maximum_width) < static_cast<std::int32_t>(row_width))
+        if(static_cast<int32_t>(maximum_width) < static_cast<int32_t>(row_width))
         {
             maximum_width = row_width;
         }
@@ -16236,27 +16301,26 @@ std::uint32_t __fastcall draw_runtime_font_glyph(DisplaySceneDescriptor *destina
 }
 
 // GAG.EXE: 0x00411800
-std::uint32_t __fastcall initialize_runtime_standalone_text(const char *text, std::uint32_t value_0014, std::uint32_t value_0018, void *font_identity, std::uint32_t low_color,
-    std::uint32_t high_color, RuntimeStandaloneTextState *state)
+uint32_t initialize_runtime_standalone_text(const char *text, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state)
 {
     if(get_runtime_media_backend_type(font_identity) != 0xac)
     {
         return 0;
     }
 
-    std::uint32_t text_length = 0;
+    uint32_t text_length = 0;
     while(text[text_length] != '\0')
     {
         ++text_length;
     }
-    const std::uint32_t end = text_length + 1;
+    const uint32_t end = text_length + 1;
     if(text_length == 0)
     {
         return 0;
     }
 
     std::memset(state, 0, sizeof(*state));
-    std::uint32_t position = 0;
+    uint32_t position = 0;
     measure_runtime_generic_text(state->bounds, text, &position, end, font_identity, 0);
     state->text = text;
     state->font_identity = font_identity;
@@ -16268,31 +16332,35 @@ std::uint32_t __fastcall initialize_runtime_standalone_text(const char *text, st
 }
 
 // GAG.EXE: 0x004118C0
-void __fastcall draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination)
+void draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination)
 {
-    std::uint32_t text_length = 0;
+    uint32_t text_length = 0;
     while(state->text[text_length] != '\0')
     {
         ++text_length;
     }
-    draw_runtime_generic_text(state->text, text_length + 1, reinterpret_cast<const std::uint32_t *>(state), state->font_identity, destination, 0);
+    uint32_t generic_state[9]{};
+    generic_state[1] = state->unknown_0000[1];
+    generic_state[7] = state->low_color;
+    generic_state[8] = state->high_color;
+    draw_runtime_generic_text(state->text, text_length + 1, generic_state, state->font_identity, destination, 0);
 }
 
 // GAG.EXE: 0x00411FF0
-void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, const std::uint32_t *state, void *font_identity, DisplaySceneDescriptor *destination, std::uint32_t flags)
+void draw_runtime_generic_text(const char *text, uint32_t end, const uint32_t *state, void *font_identity, DisplaySceneDescriptor *destination, uint32_t flags)
 {
-    std::uint32_t cursor = state[1];
+    uint32_t cursor = state[1];
     RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
     if(font == nullptr)
     {
         return;
     }
-    const auto *format = static_cast<const std::uint8_t *>(font->format_data);
-    const std::uint32_t cell_width = static_cast<std::uint32_t>(*reinterpret_cast<const std::int32_t *>(format + 4) >> 4);
-    const std::int32_t signed_cell_height = *reinterpret_cast<const std::int32_t *>(format + 8);
-    const std::uint32_t cell_height = signed_cell_height < 1 ? static_cast<std::uint32_t>(-signed_cell_height) >> 4 : static_cast<std::uint32_t>(signed_cell_height >> 4);
-    std::int32_t x = static_cast<std::uint16_t>(destination->x);
-    std::int32_t y = static_cast<std::uint16_t>(destination->y);
+    const auto *format = static_cast<const uint8_t *>(font->format_data);
+    const uint32_t cell_width = static_cast<uint32_t>(*reinterpret_cast<const int32_t *>(format + 4) >> 4);
+    const int32_t signed_cell_height = *reinterpret_cast<const int32_t *>(format + 8);
+    const uint32_t cell_height = signed_cell_height < 1 ? static_cast<uint32_t>(-signed_cell_height) >> 4 : static_cast<uint32_t>(signed_cell_height >> 4);
+    int32_t x = static_cast<uint16_t>(destination->x);
+    int32_t y = static_cast<uint16_t>(destination->y);
 
     while(cursor < end)
     {
@@ -16303,7 +16371,7 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
             ++cursor;
             break;
         case ' ':
-            x += static_cast<std::int32_t>(cell_width >> 1);
+            x += static_cast<int32_t>(cell_width >> 1);
             break;
         case '#':
         case ';':
@@ -16311,12 +16379,12 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
             {
                 goto release;
             }
-            x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+            x += static_cast<int32_t>(draw_runtime_font_glyph(destination, static_cast<uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
             break;
         case '@':
             if((flags & 0x1000) != 0)
             {
-                x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+                x += static_cast<int32_t>(draw_runtime_font_glyph(destination, static_cast<uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
                 break;
             }
             if(end - 10 <= cursor)
@@ -16324,7 +16392,7 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
                 goto release;
             }
             {
-                const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
                 if(directive == -1)
                 {
                     break;
@@ -16335,14 +16403,14 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
                 }
                 if(directive == 0x20000)
                 {
-                    const std::int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
+                    const int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
                     if(target == 0x7fffffff)
                     {
                         goto release;
                     }
                     for(;;)
                     {
-                        std::int32_t candidate_directive;
+                        int32_t candidate_directive;
                         do
                         {
                             candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
@@ -16351,7 +16419,7 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
                                 goto release;
                             }
                         } while(candidate_directive != 0x10000);
-                        const std::int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
+                        const int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
                         if(candidate == 0x7fffffff)
                         {
                             goto release;
@@ -16374,18 +16442,18 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
             ++cursor;
             if(text[cursor] == 'n')
             {
-                x = static_cast<std::uint16_t>(destination->x);
-                y += static_cast<std::int32_t>(cell_height);
+                x = static_cast<uint16_t>(destination->x);
+                y += static_cast<int32_t>(cell_height);
             }
             else if(text[cursor] == 't')
             {
                 if(text[cursor + 1] < '0' || text[cursor + 1] > '9')
                 {
-                    x += static_cast<std::int32_t>(cell_width * 2);
+                    x += static_cast<int32_t>(cell_width * 2);
                 }
                 else
                 {
-                    std::int32_t tab_width = 0;
+                    int32_t tab_width = 0;
                     ++cursor;
                     while(text[cursor] >= '0' && text[cursor] <= '9')
                     {
@@ -16397,7 +16465,7 @@ void __fastcall draw_runtime_generic_text(const char *text, std::uint32_t end, c
             }
             break;
         default:
-            x += static_cast<std::int32_t>(draw_runtime_font_glyph(destination, static_cast<std::uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
+            x += static_cast<int32_t>(draw_runtime_font_glyph(destination, static_cast<uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
             break;
         }
         ++cursor;
@@ -16408,9 +16476,9 @@ release:
 }
 
 // GAG.EXE: 0x00411CF0
-void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *text, std::uint32_t *position, std::uint32_t end, void *font_identity, std::uint32_t flags)
+void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *position, uint32_t end, void *font_identity, uint32_t flags)
 {
-    std::uint32_t cursor = *position;
+    uint32_t cursor = *position;
     std::memset(bounds, 0, 4 * sizeof(*bounds));
     RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
     if(font == nullptr)
@@ -16418,19 +16486,19 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
         return;
     }
 
-    const auto *format = static_cast<const std::uint8_t *>(font->format_data);
-    const std::uint32_t cell_width = static_cast<std::uint32_t>(*reinterpret_cast<const std::int32_t *>(format + 4) >> 4);
-    const std::int32_t signed_cell_height = *reinterpret_cast<const std::int32_t *>(format + 8);
-    const std::uint32_t cell_height = signed_cell_height < 1 ? static_cast<std::uint32_t>(-signed_cell_height) >> 4 : static_cast<std::uint32_t>(signed_cell_height >> 4);
-    std::uint32_t current_width = 0;
-    std::uint32_t maximum_width = 0;
-    std::uint32_t height = cell_height;
-    std::uint32_t output_height = 0;
+    const auto *format = static_cast<const uint8_t *>(font->format_data);
+    const uint32_t cell_width = static_cast<uint32_t>(*reinterpret_cast<const int32_t *>(format + 4) >> 4);
+    const int32_t signed_cell_height = *reinterpret_cast<const int32_t *>(format + 8);
+    const uint32_t cell_height = signed_cell_height < 1 ? static_cast<uint32_t>(-signed_cell_height) >> 4 : static_cast<uint32_t>(signed_cell_height >> 4);
+    uint32_t current_width = 0;
+    uint32_t maximum_width = 0;
+    uint32_t height = cell_height;
+    uint32_t output_height = 0;
     bool publish = false;
 
     do
     {
-        std::uint32_t next_cursor = cursor;
+        uint32_t next_cursor = cursor;
         switch(text[cursor])
         {
         case '\n':
@@ -16447,12 +16515,12 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
                 publish = true;
                 goto complete;
             }
-            current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+            current_width += measure_runtime_font_glyph(static_cast<uint8_t>(text[cursor]), font);
             break;
         case '@':
             if((flags & 0x1000) != 0)
             {
-                current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+                current_width += measure_runtime_font_glyph(static_cast<uint8_t>(text[cursor]), font);
                 break;
             }
             if(end - 10 <= cursor)
@@ -16460,7 +16528,7 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
                 goto release;
             }
             {
-                const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+                const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
                 next_cursor = cursor;
                 if(directive != -1)
                 {
@@ -16471,14 +16539,14 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
                     }
                     if(directive == 0x20000)
                     {
-                        const std::int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
+                        const int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
                         if(target == 0x7fffffff)
                         {
                             goto release;
                         }
                         for(;;)
                         {
-                            std::int32_t candidate_directive;
+                            int32_t candidate_directive;
                             do
                             {
                                 candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
@@ -16487,7 +16555,7 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
                                     goto release;
                                 }
                             } while(candidate_directive != 0x10000);
-                            const std::int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
+                            const int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
                             if(candidate == 0x7fffffff)
                             {
                                 goto release;
@@ -16521,10 +16589,10 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
             }
             else if(text[next_cursor] == 't')
             {
-                std::int32_t tab_width;
+                int32_t tab_width;
                 if(text[next_cursor + 1] < '0' || text[next_cursor + 1] > '9')
                 {
-                    tab_width = static_cast<std::int32_t>(cell_width * 2);
+                    tab_width = static_cast<int32_t>(cell_width * 2);
                     cursor = next_cursor;
                 }
                 else
@@ -16541,12 +16609,12 @@ void __fastcall measure_runtime_generic_text(std::uint32_t *bounds, const char *
                         ++cursor;
                     }
                 }
-                current_width += static_cast<std::uint32_t>(tab_width);
+                current_width += static_cast<uint32_t>(tab_width);
                 next_cursor = cursor;
             }
             break;
         default:
-            current_width += measure_runtime_font_glyph(static_cast<std::uint8_t>(text[cursor]), font);
+            current_width += measure_runtime_font_glyph(static_cast<uint8_t>(text[cursor]), font);
             break;
         }
         cursor = next_cursor + 1;
@@ -16575,12 +16643,11 @@ release:
 }
 
 // GAG.EXE: 0x00411BC0
-std::uint32_t __fastcall select_runtime_generic_text(std::uint32_t *bounds, const char *text, std::uint32_t *position, std::uint32_t end, std::uint32_t search_position, void *font_identity,
-    std::uint32_t flags)
+uint32_t select_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *position, uint32_t end, uint32_t search_position, void *font_identity, uint32_t flags)
 {
-    std::uint32_t cursor = *position;
-    std::uint32_t result = 0xffffffff;
-    const std::int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
+    uint32_t cursor = *position;
+    uint32_t result = 0xffffffff;
+    const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
     if(directive == -1)
     {
         std::memset(bounds, 0, 4 * sizeof(*bounds));
@@ -16592,13 +16659,13 @@ std::uint32_t __fastcall select_runtime_generic_text(std::uint32_t *bounds, cons
     }
     else if(directive == 0x40000)
     {
-        const std::int32_t requested = parse_runtime_generic_integer(text, &cursor, end, flags);
+        const int32_t requested = parse_runtime_generic_integer(text, &cursor, end, flags);
         if(requested != 0x7fffffff)
         {
-            std::uint32_t candidate_cursor = search_position;
+            uint32_t candidate_cursor = search_position;
             for(;;)
             {
-                std::int32_t candidate_directive;
+                int32_t candidate_directive;
                 do
                 {
                     candidate_directive = parse_runtime_generic_directive(text, &candidate_cursor, end, flags);
@@ -16607,7 +16674,7 @@ std::uint32_t __fastcall select_runtime_generic_text(std::uint32_t *bounds, cons
                         goto finish;
                     }
                 } while(candidate_directive != 0x10000);
-                const std::int32_t candidate = parse_runtime_generic_integer(text, &candidate_cursor, end, flags);
+                const int32_t candidate = parse_runtime_generic_integer(text, &candidate_cursor, end, flags);
                 if(candidate == 0x7fffffff)
                 {
                     goto finish;
@@ -16635,13 +16702,13 @@ finish:
 }
 
 // GAG.EXE: 0x004112B0
-void __fastcall release_runtime_generic_backend_child_lock(RuntimeGenericBackendChild *child)
+void release_runtime_generic_backend_child_lock(RuntimeGenericBackendChild *child)
 {
     child->flags &= ~0x10000u;
 }
 
 // GAG.EXE: 0x0042B6A0
-void __fastcall release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
+void release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
 {
     if(backend != nullptr && backend->recursion_count != 0)
     {
@@ -16650,50 +16717,49 @@ void __fastcall release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
 }
 
 // GAG.EXE: 0x00427A30
-void __fastcall render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
+void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
     if(resource->field_0074 != 0 && (resource->type_flags & 1) != 0 && (resource->type_flags & 0x80) == 0)
     {
-        std::uint32_t context[2];
-        std::uint32_t state[15];
-        if(query_runtime_generic_backend_child_state(reinterpret_cast<void *>(static_cast<std::uintptr_t>(resource->field_0074)), state, nullptr, context))
+        uintptr_t context[2];
+        uint32_t state[15];
+        if(query_runtime_generic_backend_child_state(reinterpret_cast<void *>(static_cast<uintptr_t>(resource->field_0074)), state, nullptr, context))
         {
-            std::int32_t source_identifier = 0;
+            intptr_t source_identifier = 0;
             if(context[1] != 0)
             {
-                source_identifier = query_display_scene_by_index(static_cast<std::int32_t>(context[1]), nullptr, nullptr);
+                source_identifier = query_display_scene_by_index(static_cast<int32_t>(context[1]), nullptr, nullptr);
             }
-            blit_bitmap_with_optional_palette_remap(reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), static_cast<std::int32_t>(state[6]) - resource->x,
-                static_cast<std::int32_t>(state[7]) - resource->y, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(source_identifier)),
-                reinterpret_cast<DisplayRectangle *>(&state[11]), 0);
+            blit_bitmap_with_optional_palette_remap(reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), static_cast<int32_t>(state[6]) - resource->x,
+                static_cast<int32_t>(state[7]) - resource->y, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(source_identifier)), reinterpret_cast<DisplayRectangle *>(&state[11]), 0);
         }
     }
 }
 
 // GAG.EXE: 0x00427AB0
-void __fastcall update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
+void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
-    void *identity = reinterpret_cast<void *>(static_cast<std::uintptr_t>(resource->field_0074));
+    void *identity = reinterpret_cast<void *>(static_cast<uintptr_t>(resource->field_0074));
     if(identity == nullptr)
     {
         return;
     }
 
-    std::uint32_t context[2];
+    uintptr_t context[2];
     DisplaySceneDescriptor descriptor;
     DisplayRectangle destination_rectangle;
-    std::uint32_t state[15];
+    uint32_t state[15];
     if((resource->type_flags & 1) == 0 || (resource->type_flags & 0x80) != 0)
     {
-        if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state, reinterpret_cast<std::uint32_t *>(&descriptor), context) != 0)
+        if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state, reinterpret_cast<uint32_t *>(&descriptor), context) != 0)
         {
             auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
-            if(state_rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+            if(state_rectangle->right <= static_cast<uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<uint16_t>(descriptor.height))
             {
-                state_rectangle->right = static_cast<std::uint16_t>(descriptor.width);
-                state_rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+                state_rectangle->right = static_cast<uint16_t>(descriptor.width);
+                state_rectangle->bottom = static_cast<uint16_t>(descriptor.height);
             }
             if(context[1] == 0)
             {
@@ -16704,12 +16770,12 @@ void __fastcall update_runtime_generic_backend_child(RuntimeMediaBackend *backen
                 state[5] = 10000;
                 state[6] = 10000;
             }
-            DisplaySceneNode *scene = acquire_display_scene_node(context[1], static_cast<std::int32_t>(state[5]), static_cast<std::int32_t>(state[6]), state_rectangle->right, state_rectangle->bottom,
-                0x20000, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
-            if(begin_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene))) == 0)
+            DisplaySceneNode *scene = acquire_display_scene_node(static_cast<uint32_t>(context[1]), static_cast<int32_t>(state[5]), static_cast<int32_t>(state[6]), state_rectangle->right,
+                state_rectangle->bottom, 0x20000, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
+            if(begin_display_scene_update(reinterpret_cast<intptr_t>(scene)) == 0)
             {
-                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
-                end_display_scene_update(static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(scene)), reinterpret_cast<DisplayRectangleTransform *>(&descriptor), state_rectangle);
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<uint32_t *>(&descriptor), 0);
+                end_display_scene_update(reinterpret_cast<intptr_t>(scene), reinterpret_cast<DisplayRectangleTransform *>(&descriptor), state_rectangle);
             }
             set_runtime_generic_backend_child_context(identity, context);
         }
@@ -16724,35 +16790,39 @@ void __fastcall update_runtime_generic_backend_child(RuntimeMediaBackend *backen
         }
         else
         {
-            query_display_scene_by_index(static_cast<std::int32_t>(context[1]), &descriptor, nullptr);
+            query_display_scene_by_index(static_cast<int32_t>(context[1]), &descriptor, nullptr);
         }
         auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
-        if(state_rectangle->right <= static_cast<std::uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<std::uint16_t>(descriptor.height))
+        if(state_rectangle->right <= static_cast<uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<uint16_t>(descriptor.height))
         {
-            state_rectangle->right = static_cast<std::uint16_t>(descriptor.width);
-            state_rectangle->bottom = static_cast<std::uint16_t>(descriptor.height);
+            state_rectangle->right = static_cast<uint16_t>(descriptor.width);
+            state_rectangle->bottom = static_cast<uint16_t>(descriptor.height);
         }
         if(context[1] == 0)
         {
             context[1] = find_available_display_scene_index(0x80000);
         }
-        DisplaySceneNode *scene = acquire_display_scene_node(context[1], 10000, 10000, state_rectangle->right, state_rectangle->bottom, 0, static_cast<std::int32_t>(context[0]), &descriptor, nullptr);
+        DisplaySceneNode *scene =
+            acquire_display_scene_node(static_cast<uint32_t>(context[1]), 10000, 10000, state_rectangle->right, state_rectangle->bottom, 0, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
         if(begin_display_scene_update(resource->scene_identifier) == 0)
         {
-            destination_rectangle.left = static_cast<std::int32_t>(state[5]) - resource->x;
-            destination_rectangle.top = static_cast<std::int32_t>(state[6]) - resource->y;
+            destination_rectangle.left = static_cast<int32_t>(state[5]) - resource->x;
+            destination_rectangle.top = static_cast<int32_t>(state[6]) - resource->y;
             destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
             destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
-            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
-            std::memcpy(&descriptor.width, resource->scene_descriptor + 4, 8);
-            descriptor.pixels = *reinterpret_cast<const std::int32_t *>(resource->scene_descriptor + 12);
-            descriptor.y = static_cast<std::int16_t>(state[6]) - static_cast<std::int16_t>(resource->y);
-            descriptor.x = static_cast<std::int16_t>(state[5]) - static_cast<std::int16_t>(resource->x);
+            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            descriptor.width = resource->scene_descriptor.width;
+            descriptor.height = resource->scene_descriptor.height;
+            descriptor.present = resource->scene_descriptor.present;
+            descriptor.reserved = resource->scene_descriptor.reserved;
+            descriptor.pixels = resource->scene_descriptor.pixels;
+            descriptor.y = static_cast<int16_t>(state[6]) - static_cast<int16_t>(resource->y);
+            descriptor.x = static_cast<int16_t>(state[5]) - static_cast<int16_t>(resource->x);
             if((runtime_pointer_event_record[14] & 1) == 0)
             {
-                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<uint32_t *>(&descriptor), 0);
             }
-            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &destination_rectangle);
+            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&resource->scene_descriptor), &destination_rectangle);
         }
         set_runtime_generic_backend_child_context(identity, context);
         return;
@@ -16763,37 +16833,40 @@ void __fastcall update_runtime_generic_backend_child(RuntimeMediaBackend *backen
         DisplaySceneNode *scene = nullptr;
         if(context[1] != 0)
         {
-            scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(query_display_scene_by_index(static_cast<std::int32_t>(context[1]), &descriptor, nullptr)));
+            scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(query_display_scene_by_index(static_cast<int32_t>(context[1]), &descriptor, nullptr)));
         }
         if(begin_display_scene_update(resource->scene_identifier) == 0)
         {
             auto *state_rectangle = reinterpret_cast<DisplayRectangle *>(&state[11]);
-            destination_rectangle.left = static_cast<std::int32_t>(state[5]) - resource->x;
-            destination_rectangle.top = static_cast<std::int32_t>(state[6]) - resource->y;
+            destination_rectangle.left = static_cast<int32_t>(state[5]) - resource->x;
+            destination_rectangle.top = static_cast<int32_t>(state[6]) - resource->y;
             destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
             destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
-            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
-            std::memcpy(&descriptor.width, resource->scene_descriptor + 4, 8);
-            descriptor.pixels = *reinterpret_cast<const std::int32_t *>(resource->scene_descriptor + 12);
-            descriptor.y = static_cast<std::int16_t>(state[6]) - static_cast<std::int16_t>(resource->y);
-            descriptor.x = static_cast<std::int16_t>(state[5]) - static_cast<std::int16_t>(resource->x);
+            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            descriptor.width = resource->scene_descriptor.width;
+            descriptor.height = resource->scene_descriptor.height;
+            descriptor.present = resource->scene_descriptor.present;
+            descriptor.reserved = resource->scene_descriptor.reserved;
+            descriptor.pixels = resource->scene_descriptor.pixels;
+            descriptor.y = static_cast<int16_t>(state[6]) - static_cast<int16_t>(resource->y);
+            descriptor.x = static_cast<int16_t>(state[5]) - static_cast<int16_t>(resource->x);
             if((runtime_pointer_event_record[14] & 1) == 0)
             {
-                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<std::uint32_t *>(&descriptor), 0);
+                publish_runtime_generic_backend_child_state(identity, state, reinterpret_cast<uint32_t *>(&descriptor), 0);
             }
-            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &destination_rectangle);
+            end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&resource->scene_descriptor), &destination_rectangle);
         }
     }
 }
 
 // GAG.EXE: 0x00427EF0
-std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
+int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
-    std::uint32_t flags = backend->media_flags;
+    uint32_t flags = backend->media_flags;
     if((flags & 0x1000) != 0)
     {
-        const std::uint32_t resource_flags = resource->type_flags;
+        const uint32_t resource_flags = resource->type_flags;
         destroy_runtime_resource(resource);
         if((resource_flags & 2) == 0)
         {
@@ -16807,18 +16880,18 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
     }
     if((flags & 0x10000000) != 0)
     {
-        if(current_runtime_resource == resource && (flags & 0x100000) == 0 && static_cast<std::int32_t>(backend->frame_duration * 4) < backend->timing_correction)
+        if(current_runtime_resource == resource && (flags & 0x100000) == 0 && static_cast<int32_t>(backend->frame_duration * 4) < backend->timing_correction)
         {
             resource->state_flags |= 1;
         }
         else
         {
-            const std::uint32_t begin_result = begin_display_scene_update(resource->scene_identifier);
+            [[maybe_unused]] const uint32_t begin_result = begin_display_scene_update(resource->scene_identifier);
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
             if(backend->frame_number <= 2)
             {
                 trace_animation_startup("present begin backend=%p frame=%u flags=%08X scene=%08X result=%08X pixels=%p stride=%u bpp=%u", backend, backend->frame_number, flags,
-                    static_cast<std::uint32_t>(resource->scene_identifier), begin_result, backend->destination_pixels, backend->destination_stride, backend->destination_bits_per_pixel);
+                    static_cast<uint32_t>(resource->scene_identifier), begin_result, backend->destination_pixels, backend->destination_stride, backend->destination_bits_per_pixel);
             }
 #endif
             resource->state_flags &= ~1u;
@@ -16867,9 +16940,9 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
             }
             backend->dirty_left = 0;
             backend->dirty_top = 0;
-            const auto *format = static_cast<const std::uint16_t *>(backend->format_data);
-            backend->dirty_right = static_cast<std::uint32_t>(format[4]) * resource->requested_width;
-            backend->dirty_bottom = static_cast<std::uint32_t>(format[5]) * resource->requested_height;
+            const auto *format = static_cast<const uint16_t *>(backend->format_data);
+            backend->dirty_right = static_cast<uint32_t>(format[4]) * resource->requested_width;
+            backend->dirty_bottom = static_cast<uint32_t>(format[5]) * resource->requested_height;
         }
     }
     if((backend->media_flags & 0x20) != 0 && (resource->type_flags & 2) == 0)
@@ -16881,21 +16954,21 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
         update_runtime_generic_backend_child(backend);
         if((resource->state_flags & 1) == 0)
         {
-            const std::uint32_t end_result = end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&backend->destination_x),
+            [[maybe_unused]] const uint32_t end_result = end_display_scene_update(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&backend->destination_x),
                 reinterpret_cast<const DisplayRectangle *>(&backend->dirty_left));
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
             if(backend->frame_number <= 2)
             {
-                std::uint32_t nonzero_pixels = 0;
-                const std::uint32_t pixel_count = static_cast<std::uint32_t>(backend->destination_stride) * resource->output_height;
-                for(std::uint32_t index = 0; index < pixel_count; ++index)
+                uint32_t nonzero_pixels = 0;
+                const uint32_t pixel_count = static_cast<uint32_t>(backend->destination_stride) * resource->output_height;
+                for(uint32_t index = 0; index < pixel_count; ++index)
                 {
                     nonzero_pixels += backend->destination_pixels[index] != 0 ? 1u : 0u;
                 }
                 trace_animation_startup("present end backend=%p frame=%u flags=%08X scene=%08X result=%08X destination=(%u,%u) dirty=(%u,%u)-(%u,%u)", backend, backend->frame_number,
-                    backend->media_flags, static_cast<std::uint32_t>(resource->scene_identifier), end_result, backend->destination_x, backend->destination_y, backend->dirty_left, backend->dirty_top,
+                    backend->media_flags, static_cast<uint32_t>(resource->scene_identifier), end_result, backend->destination_x, backend->destination_y, backend->dirty_left, backend->dirty_top,
                     backend->dirty_right, backend->dirty_bottom);
-                auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(resource->scene_identifier));
+                [[maybe_unused]] auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier));
                 trace_animation_startup("present scene node=%p xy=(%d,%d) previous_xy=(%d,%d) accumulated=(%d,%d)-(%d,%d) size=%dx%d surface=%p surface_size=%dx%d", scene, scene->x, scene->y,
                     scene->previous_x, scene->previous_y, scene->previous_width, scene->previous_height, scene->extra_width, scene->extra_height, scene->width, scene->height, scene->surface,
                     scene->surface->width, scene->surface->height);
@@ -16911,20 +16984,20 @@ std::int32_t __fastcall update_runtime_resource_animation_backend(RuntimeMediaBa
 }
 
 // GAG.EXE: 0x00411340
-std::uint32_t __fastcall get_runtime_generic_backend_child_flags(void *identity)
+uint32_t get_runtime_generic_backend_child_flags(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
     {
         return 0x7fffffff;
     }
-    const std::uint32_t flags = child->flags;
+    const uint32_t flags = child->flags;
     release_runtime_generic_backend_child_lock(child);
     return flags;
 }
 
 // GAG.EXE: 0x00411360
-void __fastcall clear_runtime_generic_backend_child_ready(void *identity)
+void clear_runtime_generic_backend_child_ready(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
@@ -16935,7 +17008,7 @@ void __fastcall clear_runtime_generic_backend_child_ready(void *identity)
 }
 
 // GAG.EXE: 0x00411380
-void __fastcall enable_runtime_generic_backend_child_mode_200(void *identity)
+void enable_runtime_generic_backend_child_mode_200(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
@@ -16946,7 +17019,7 @@ void __fastcall enable_runtime_generic_backend_child_mode_200(void *identity)
 }
 
 // GAG.EXE: 0x004113A0
-void __fastcall disable_runtime_generic_backend_child_mode_200(void *identity)
+void disable_runtime_generic_backend_child_mode_200(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
@@ -16957,7 +17030,7 @@ void __fastcall disable_runtime_generic_backend_child_mode_200(void *identity)
 }
 
 // GAG.EXE: 0x004113C0
-bool __fastcall get_runtime_generic_backend_child_context(void *identity, std::uint32_t *context)
+bool get_runtime_generic_backend_child_context(void *identity, uintptr_t *context)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
@@ -16970,7 +17043,7 @@ bool __fastcall get_runtime_generic_backend_child_context(void *identity, std::u
 }
 
 // GAG.EXE: 0x004113F0
-bool __fastcall set_runtime_generic_backend_child_context(void *identity, const std::uint32_t *context)
+bool set_runtime_generic_backend_child_context(void *identity, const uintptr_t *context)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
@@ -16983,9 +17056,9 @@ bool __fastcall set_runtime_generic_backend_child_context(void *identity, const 
 }
 
 // GAG.EXE: 0x004114D0
-std::uint32_t __fastcall query_runtime_generic_backend_child_state(void *identity, std::uint32_t *state, std::uint32_t *descriptor, std::uint32_t *context)
+uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *state, uint32_t *descriptor, uintptr_t *context)
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if(state != nullptr)
     {
         state[0] = 0xffffffff;
@@ -17015,7 +17088,7 @@ std::uint32_t __fastcall query_runtime_generic_backend_child_state(void *identit
 }
 
 // GAG.EXE: 0x004112C0
-void *__fastcall destroy_runtime_generic_backend_child(void *identity)
+void *destroy_runtime_generic_backend_child(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
@@ -17046,7 +17119,7 @@ void *__fastcall destroy_runtime_generic_backend_child(void *identity)
 }
 
 // GAG.EXE: 0x00410D50
-std::uint32_t __fastcall destroy_runtime_generic_backend(void *identity)
+uint32_t destroy_runtime_generic_backend(void *identity)
 {
     RuntimeGenericBackend *backend = acquire_runtime_generic_backend(identity);
     if(backend == nullptr)
@@ -17078,7 +17151,7 @@ std::uint32_t __fastcall destroy_runtime_generic_backend(void *identity)
 }
 
 // GAG.EXE: 0x00402040
-void __fastcall destroy_runtime_sound_handle(std::uint32_t handle)
+void destroy_runtime_sound_handle(uint32_t handle)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17124,13 +17197,13 @@ void __fastcall destroy_runtime_sound_handle(std::uint32_t handle)
 }
 
 // GAG.EXE: 0x00401820
-std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format)
+uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
 {
     if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
     {
         return 0;
     }
-    std::uint16_t conversion_flags = 0;
+    uint16_t conversion_flags = 0;
     if(runtime_sound_create_api.ensure_ready(source_format, 0x600) == 0)
     {
         return 0;
@@ -17145,7 +17218,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
     }
     if(runtime_sound_create_api.formats_equal(runtime_sound_output_format, source_format) == 0)
     {
-        std::uint32_t candidate = 1;
+        uint32_t candidate = 1;
         do
         {
             if(runtime_sound_slots[candidate].active != 0)
@@ -17178,7 +17251,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
                     runtime_sound_thread_id = 0;
                 }
                 runtime_sound_ready = 0;
-                std::uint32_t handle = 1;
+                uint32_t handle = 1;
                 if(runtime_sound_maximum_handle > 1)
                 {
                     do
@@ -17218,7 +17291,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
             return 0;
         }
     }
-    std::uint32_t handle = 1;
+    uint32_t handle = 1;
     do
     {
         if(runtime_sound_slots[handle].active == 0)
@@ -17227,7 +17300,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
         }
         ++handle;
     } while(handle < 0x400);
-    if(handle < 0x401)
+    if(handle < 0x400)
     {
         RuntimeSoundSlot &slot = runtime_sound_slots[handle];
         slot.playing = 0;
@@ -17254,7 +17327,7 @@ std::uint32_t __fastcall create_runtime_sound_handle(WAVEFORMATEX *source_format
 }
 
 // GAG.EXE: 0x00401BB0
-std::uint32_t __fastcall queue_runtime_sound_data(std::uint32_t handle, void *data, std::uint32_t size, std::int32_t replace)
+uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, int32_t replace)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17306,7 +17379,7 @@ std::uint32_t __fastcall queue_runtime_sound_data(std::uint32_t handle, void *da
 }
 
 // GAG.EXE: 0x00401CD0
-std::uint32_t __fastcall start_runtime_sound(std::uint32_t handle, std::int32_t reset_timing)
+uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17329,7 +17402,7 @@ std::uint32_t __fastcall start_runtime_sound(std::uint32_t handle, std::int32_t 
 }
 
 // GAG.EXE: 0x00401D50
-std::uint32_t __fastcall stop_runtime_sound(std::uint32_t handle, std::int32_t reset_timing)
+uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17355,7 +17428,7 @@ std::uint32_t __fastcall stop_runtime_sound(std::uint32_t handle, std::int32_t r
 }
 
 // GAG.EXE: 0x00403380
-void __fastcall set_runtime_sound_loop_value(std::uint32_t handle, std::uint32_t value)
+void set_runtime_sound_loop_value(uint32_t handle, uint32_t value)
 {
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
@@ -17371,7 +17444,7 @@ void __fastcall set_runtime_sound_loop_value(std::uint32_t handle, std::uint32_t
 }
 
 // GAG.EXE: 0x004033E0
-RuntimeSoundSlot *__fastcall get_runtime_sound_slot(std::uint32_t handle)
+RuntimeSoundSlot *get_runtime_sound_slot(uint32_t handle)
 {
     if(handle != 0 && handle < 0x400 && runtime_sound_slots[handle].active != 0)
     {
@@ -17381,7 +17454,7 @@ RuntimeSoundSlot *__fastcall get_runtime_sound_slot(std::uint32_t handle)
 }
 
 // GAG.EXE: 0x00401DE0
-std::uint32_t __fastcall fade_out_runtime_sound(std::uint32_t handle, std::int32_t duration_ms, std::int32_t reset_timing)
+uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17397,23 +17470,23 @@ std::uint32_t __fastcall fade_out_runtime_sound(std::uint32_t handle, std::int32
             {
                 slot->playback_state = 0;
             }
-            const std::uint32_t old_flags = slot->transition_flags;
+            const uint32_t old_flags = slot->transition_flags;
             slot->transition_flags = old_flags & ~2u;
             slot->transition_flags = (old_flags & ~2u) | 1;
             slot->fade_current = 0;
-            const std::uint64_t blocks = (static_cast<std::uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
-            if(static_cast<std::int32_t>(blocks) == 0)
+            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            if(static_cast<int32_t>(blocks) == 0)
             {
                 slot->fade_step = 100;
             }
             else
             {
-                slot->fade_step = static_cast<std::uint8_t>(100 / blocks);
+                slot->fade_step = static_cast<uint8_t>(100 / blocks);
                 slot->fade_block_index = 0;
             }
             if(slot->fade_step == 0)
             {
-                const std::int32_t index = static_cast<std::int32_t>(blocks / 100) - 1;
+                const int32_t index = static_cast<int32_t>(blocks / 100) - 1;
                 slot->fade_block_index = index;
                 slot->fade_current = index;
             }
@@ -17427,7 +17500,7 @@ std::uint32_t __fastcall fade_out_runtime_sound(std::uint32_t handle, std::int32
 }
 
 // GAG.EXE: 0x00401F10
-std::uint32_t __fastcall fade_in_runtime_sound(std::uint32_t handle, std::int32_t duration_ms, std::int32_t reset_timing)
+uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17443,23 +17516,23 @@ std::uint32_t __fastcall fade_in_runtime_sound(std::uint32_t handle, std::int32_
         }
         if(slot->playing == 0)
         {
-            const std::uint32_t old_flags = slot->transition_flags;
+            const uint32_t old_flags = slot->transition_flags;
             slot->transition_flags = old_flags & ~1u;
             slot->transition_flags = (old_flags & ~1u) | 2;
             slot->fade_current = 0;
-            const std::uint64_t blocks = (static_cast<std::uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
-            if(static_cast<std::int32_t>(blocks) == 0)
+            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            if(static_cast<int32_t>(blocks) == 0)
             {
                 slot->fade_step = 100;
             }
             else
             {
-                slot->fade_step = static_cast<std::uint8_t>(100 / blocks);
+                slot->fade_step = static_cast<uint8_t>(100 / blocks);
                 slot->fade_block_index = 0;
             }
             if(slot->fade_step == 0)
             {
-                const std::int32_t index = static_cast<std::int32_t>(blocks / 100) - 1;
+                const int32_t index = static_cast<int32_t>(blocks / 100) - 1;
                 slot->fade_block_index = index;
                 slot->fade_current = index;
             }
@@ -17473,7 +17546,7 @@ std::uint32_t __fastcall fade_in_runtime_sound(std::uint32_t handle, std::int32_
 }
 
 // GAG.EXE: 0x00403310
-std::uint32_t __fastcall set_runtime_sound_volume(std::uint32_t handle, std::uint8_t volume)
+uint32_t set_runtime_sound_volume(uint32_t handle, uint8_t volume)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17512,7 +17585,7 @@ void CALLBACK runtime_wave_out_callback(HWAVEOUT wave_out, UINT message, DWORD_P
 }
 
 // GAG.EXE: 0x00401190
-std::uint32_t shutdown_runtime_sound()
+uint32_t shutdown_runtime_sound()
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17535,7 +17608,7 @@ std::uint32_t shutdown_runtime_sound()
             runtime_sound_thread = nullptr;
             runtime_sound_thread_id = 0;
         }
-        std::uint32_t handle = 1;
+        uint32_t handle = 1;
         if(runtime_sound_maximum_handle > 1)
         {
             do
@@ -17560,7 +17633,7 @@ void toggle_runtime_sound_state()
 }
 
 // GAG.EXE: 0x004015D0
-std::uint32_t __fastcall pause_runtime_sound_output(std::int32_t close_output)
+uint32_t pause_runtime_sound_output(int32_t close_output)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17593,7 +17666,7 @@ std::uint32_t __fastcall pause_runtime_sound_output(std::int32_t close_output)
 }
 
 // GAG.EXE: 0x004016D0
-std::uint32_t resume_runtime_sound_output()
+uint32_t resume_runtime_sound_output()
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17644,7 +17717,7 @@ std::uint32_t resume_runtime_sound_output()
 }
 
 // GAG.EXE: 0x004010B0
-std::uint32_t __fastcall ensure_runtime_sound_ready(WAVEFORMATEX *format, std::uint32_t mixer_argument)
+uint32_t ensure_runtime_sound_ready(WAVEFORMATEX *format, uint32_t mixer_argument)
 {
     if(runtime_sound_enabled == 0)
     {
@@ -17705,7 +17778,7 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
 {
     if(message == WOM_OPEN)
     {
-        for(std::uint32_t index = 0; index < 2; ++index)
+        for(uint32_t index = 0; index < 2; ++index)
         {
             RuntimeSoundOutputBlock &output = runtime_sound_outputs[index];
             output.format->wFormatTag = runtime_sound_output_format->wFormatTag;
@@ -17730,7 +17803,7 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
     {
         if(runtime_sound_output_initialized != 0)
         {
-            for(std::uint32_t count = 0; count < 2; ++count)
+            for(uint32_t count = 0; count < 2; ++count)
             {
                 RuntimeSoundOutputBlock &output = runtime_sound_outputs[runtime_sound_output_index];
                 if((output.header->dwFlags & WHDR_DONE) != 0)
@@ -17740,9 +17813,9 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
 #if defined(FREEGAG_WINDOWS_FIXES)
                     // Non-original modern-Windows compatibility: HWAVEOUT is an opaque pointer-sized handle on current Windows and cannot serve as the millisecond marker assumed by the original.
                     // RuntimeWaveOutCallback already supplies timeGetTime() in lParam for WOM_DONE.
-                    runtime_sound_mixer(message == WOM_DONE ? static_cast<std::uint32_t>(lparam) : static_cast<std::uint32_t>(wparam));
+                    runtime_sound_mixer(message == WOM_DONE ? static_cast<uint32_t>(lparam) : static_cast<uint32_t>(wparam));
 #else
-                    runtime_sound_mixer(static_cast<std::uint32_t>(wparam));
+                    runtime_sound_mixer(static_cast<uint32_t>(wparam));
 #endif
                     runtime_sound_window_api.release_mutex(runtime_sound_mutex);
                     runtime_sound_window_api.wave_out_write(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
@@ -17770,7 +17843,7 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
 }
 
 // Non-original helper: exact 8-bit saturating add used by GAG's PCM mixers.
-void mix_unsigned_8bit_sample(std::uint8_t *destination, std::uint8_t scaled_sample, std::uint8_t scaled_silence)
+void mix_unsigned_8bit_sample(uint8_t *destination, uint8_t scaled_sample, uint8_t scaled_silence)
 {
     const int mixed = static_cast<int>(*destination) + static_cast<int>(scaled_sample) - static_cast<int>(scaled_silence);
     if(mixed < 0)
@@ -17783,15 +17856,15 @@ void mix_unsigned_8bit_sample(std::uint8_t *destination, std::uint8_t scaled_sam
     }
     else
     {
-        *destination = static_cast<std::uint8_t>(mixed);
+        *destination = static_cast<uint8_t>(mixed);
     }
 }
 
 // Non-original helper: exact signed 16-bit overflow clamps used by GAG's PCM mixers.
-void mix_signed_16bit_sample(std::uint16_t *destination, std::uint16_t scaled_sample)
+void mix_signed_16bit_sample(uint16_t *destination, uint16_t scaled_sample)
 {
-    const std::uint16_t original = *destination;
-    *destination = static_cast<std::uint16_t>(original + scaled_sample);
+    const uint16_t original = *destination;
+    *destination = static_cast<uint16_t>(original + scaled_sample);
     if(original < 0x8000)
     {
         if(scaled_sample < 0x8000 && *destination > 0x7fff)
@@ -17806,15 +17879,15 @@ void mix_signed_16bit_sample(std::uint16_t *destination, std::uint16_t scaled_sa
 }
 
 // Non-original helper shared by the four address-bearing PCM mixer entry points.
-void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
+void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
 {
     const bool sixteen_bit = mode >= 2;
-    std::uint8_t *output = runtime_sound_outputs[runtime_sound_output_index].data;
+    uint8_t *output = runtime_sound_outputs[runtime_sound_output_index].data;
     if(output == nullptr)
     {
         return;
     }
-    std::uint32_t clear_bytes = runtime_sound_mixer_data_size;
+    uint32_t clear_bytes = runtime_sound_mixer_data_size;
     if(mode == 1 || mode == 2)
     {
         clear_bytes &= ~1U;
@@ -17828,7 +17901,7 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
     {
         return;
     }
-    std::uint32_t handle = 1;
+    uint32_t handle = 1;
     do
     {
         RuntimeSoundSlot &slot = runtime_sound_slots[handle];
@@ -17868,7 +17941,7 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                 }
                 else
                 {
-                    slot.volume = static_cast<std::uint8_t>(slot.volume - slot.fade_step);
+                    slot.volume = static_cast<uint8_t>(slot.volume - slot.fade_step);
                 }
             }
             if((slot.transition_flags & 1) == 0 || slot.volume > 99)
@@ -17889,10 +17962,10 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
             }
             else
             {
-                const std::uint8_t volume = static_cast<std::uint8_t>(slot.volume + slot.fade_step);
+                const uint8_t volume = static_cast<uint8_t>(slot.volume + slot.fade_step);
                 slot.volume = volume < 101 ? volume : 100;
             }
-            std::uint32_t output_offset = 0;
+            uint32_t output_offset = 0;
             for(;;)
             {
                 RuntimeSoundBufferNode *node = slot.buffers;
@@ -17902,9 +17975,9 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                 }
                 if(node->data != nullptr)
                 {
-                    std::uint32_t output_multiplier = 1;
-                    std::uint32_t input_stride = 1;
-                    const std::uint16_t conversion = slot.conversion_flags;
+                    uint32_t output_multiplier = 1;
+                    uint32_t input_stride = 1;
+                    const uint16_t conversion = slot.conversion_flags;
                     if(sixteen_bit)
                     {
                         if((conversion & 0x1000) != 0)
@@ -17928,41 +18001,41 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                     {
                         slot.schedule_state = marker;
                     }
-                    const std::uint32_t available = ((node->size - node->offset) * output_multiplier) / input_stride;
-                    std::uint32_t output_bytes = runtime_sound_mixer_data_size - output_offset;
+                    const uint32_t available = ((node->size - node->offset) * output_multiplier) / input_stride;
+                    uint32_t output_bytes = runtime_sound_mixer_data_size - output_offset;
                     if(available <= output_bytes)
                     {
                         output_bytes = available;
                     }
                     if((sixteen_bit ? output_bytes >> 1 : output_bytes) != 0)
                     {
-                        std::uint32_t source_count = (sixteen_bit ? output_bytes >> 1 : output_bytes) / output_multiplier;
-                        std::uint8_t *destination = output + output_offset;
-                        const std::uint8_t *source = static_cast<const std::uint8_t *>(node->data) + node->offset;
-                        const std::uint32_t volume = slot.volume;
-                        const std::uint8_t scaled_silence = static_cast<std::uint8_t>((volume * 0x80U) / 100U);
+                        uint32_t source_count = (sixteen_bit ? output_bytes >> 1 : output_bytes) / output_multiplier;
+                        uint8_t *destination = output + output_offset;
+                        const uint8_t *source = static_cast<const uint8_t *>(node->data) + node->offset;
+                        const uint32_t volume = slot.volume;
+                        const uint8_t scaled_silence = static_cast<uint8_t>((volume * 0x80U) / 100U);
                         if(runtime_sound_mixing_suppressed == 0)
                         {
                             if(sixteen_bit)
                             {
-                                std::uint16_t *destination_16 = reinterpret_cast<std::uint16_t *>(destination);
+                                uint16_t *destination_16 = reinterpret_cast<uint16_t *>(destination);
                                 if(conversion == 0)
                                 {
                                     do
                                     {
-                                        const std::int16_t sample = *reinterpret_cast<const std::int16_t *>(source);
+                                        const int16_t sample = *reinterpret_cast<const int16_t *>(source);
                                         source += 2;
-                                        mix_signed_16bit_sample(destination_16++, static_cast<std::uint16_t>((static_cast<std::int64_t>(sample) * volume) / 100));
+                                        mix_signed_16bit_sample(destination_16++, static_cast<uint16_t>((static_cast<int64_t>(sample) * volume) / 100));
                                     } while(--source_count != 0);
                                 }
                                 else if((conversion & 0xf000) == 0)
                                 {
                                     do
                                     {
-                                        const std::int16_t sample = *reinterpret_cast<const std::int16_t *>(source);
+                                        const int16_t sample = *reinterpret_cast<const int16_t *>(source);
                                         source += input_stride * 2;
-                                        const std::uint16_t scaled = static_cast<std::uint16_t>((static_cast<std::int64_t>(sample) * volume) / 100);
-                                        std::uint32_t repeat = output_multiplier;
+                                        const uint16_t scaled = static_cast<uint16_t>((static_cast<int64_t>(sample) * volume) / 100);
+                                        uint32_t repeat = output_multiplier;
                                         do
                                         {
                                             mix_signed_16bit_sample(destination_16++, scaled);
@@ -17971,13 +18044,13 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                                 }
                                 else
                                 {
-                                    std::uint32_t byte_count = source_count << 1;
+                                    uint32_t byte_count = source_count << 1;
                                     do
                                     {
-                                        const std::uint8_t scaled_byte = static_cast<std::uint8_t>((*source * volume) / 100U - 0x80U);
+                                        const uint8_t scaled_byte = static_cast<uint8_t>((*source * volume) / 100U - 0x80U);
                                         source += input_stride;
-                                        const std::uint16_t scaled = static_cast<std::uint16_t>(scaled_byte << 8);
-                                        std::uint32_t repeat = output_multiplier >> 1;
+                                        const uint16_t scaled = static_cast<uint16_t>(scaled_byte << 8);
+                                        uint32_t repeat = output_multiplier >> 1;
                                         do
                                         {
                                             mix_signed_16bit_sample(destination_16++, scaled);
@@ -17989,16 +18062,16 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                             {
                                 do
                                 {
-                                    mix_unsigned_8bit_sample(destination++, static_cast<std::uint8_t>((*source++ * volume) / 100U), scaled_silence);
+                                    mix_unsigned_8bit_sample(destination++, static_cast<uint8_t>((*source++ * volume) / 100U), scaled_silence);
                                 } while(--source_count != 0);
                             }
                             else if((conversion & 0xf000) == 0)
                             {
                                 do
                                 {
-                                    std::uint8_t scaled = static_cast<std::uint8_t>((*source * volume) / 100U);
+                                    uint8_t scaled = static_cast<uint8_t>((*source * volume) / 100U);
                                     source += input_stride;
-                                    std::uint32_t repeat = output_multiplier;
+                                    uint32_t repeat = output_multiplier;
                                     do
                                     {
                                         mix_unsigned_8bit_sample(destination++, scaled, scaled_silence);
@@ -18009,10 +18082,10 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                             {
                                 do
                                 {
-                                    const std::uint8_t centered = static_cast<std::uint8_t>(source[1] - 0x80);
-                                    std::uint8_t scaled = static_cast<std::uint8_t>((centered * volume) / 100U);
+                                    const uint8_t centered = static_cast<uint8_t>(source[1] - 0x80);
+                                    uint8_t scaled = static_cast<uint8_t>((centered * volume) / 100U);
                                     source += input_stride;
-                                    std::uint32_t repeat = output_multiplier;
+                                    uint32_t repeat = output_multiplier;
                                     do
                                     {
                                         mix_unsigned_8bit_sample(destination++, scaled, scaled_silence);
@@ -18022,7 +18095,7 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
                         }
                     }
                     output_offset += output_bytes;
-                    const std::uint32_t input_bytes = (output_bytes * input_stride) / output_multiplier;
+                    const uint32_t input_bytes = (output_bytes * input_stride) / output_multiplier;
                     node->offset += input_bytes;
                     if(node->unknown_000c <= runtime_sound_mixer_data_size)
                     {
@@ -18052,44 +18125,46 @@ void mix_runtime_sound_pcm(std::uint32_t marker, std::uint32_t mode)
             }
         }
         ++handle;
-    } while(handle <= static_cast<std::uint8_t>(runtime_sound_maximum_handle));
+    } while(handle <= static_cast<uint8_t>(runtime_sound_maximum_handle));
 }
 
 // GAG.EXE: 0x004023C0
-void __fastcall mix_runtime_sound_8bit_mono(std::uint32_t marker)
+void mix_runtime_sound_8bit_mono(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 0);
 }
 
 // GAG.EXE: 0x00402770
-void __fastcall mix_runtime_sound_8bit_stereo(std::uint32_t marker)
+void mix_runtime_sound_8bit_stereo(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 1);
 }
 
 // GAG.EXE: 0x00402B10
-void __fastcall mix_runtime_sound_16bit_mono(std::uint32_t marker)
+void mix_runtime_sound_16bit_mono(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 2);
 }
 
 // GAG.EXE: 0x00402F10
-void __fastcall mix_runtime_sound_16bit_stereo(std::uint32_t marker)
+void mix_runtime_sound_16bit_stereo(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 3);
 }
 
 // GAG.EXE: 0x00401330
-std::uint32_t __fastcall initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, std::uint32_t)
+uint32_t initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, uint32_t)
 {
     if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
     {
         return 0;
     }
     runtime_sound_output_ready = 0;
-    const std::int32_t sample_width = static_cast<std::int32_t>(format->nChannels) * static_cast<std::int32_t>(format->wBitsPerSample);
-    runtime_sound_mixer_data_size = static_cast<std::uint32_t>((sample_width + (sample_width < 0 ? 7 : 0)) >> 3) * (format->nSamplesPerSec / 11000) * 0x800;
-    const std::uint32_t block_stride = runtime_sound_mixer_data_size + 0x32;
+    const int32_t sample_width = static_cast<int32_t>(format->nChannels) * static_cast<int32_t>(format->wBitsPerSample);
+    runtime_sound_mixer_data_size = static_cast<uint32_t>((sample_width + (sample_width < 0 ? 7 : 0)) >> 3) * (format->nSamplesPerSec / 11000) * 0x800;
+    constexpr size_t wave_header_offset = (sizeof(WAVEFORMATEX) + alignof(WAVEHDR) - 1) & ~(alignof(WAVEHDR) - 1);
+    constexpr size_t wave_data_offset = wave_header_offset + sizeof(WAVEHDR);
+    const size_t block_stride = runtime_sound_mixer_data_size + wave_data_offset;
     if(runtime_sound_output_initialized != 0)
     {
         return 1;
@@ -18100,12 +18175,12 @@ std::uint32_t __fastcall initialize_runtime_wave_out_mixer(WAVEFORMATEX *format,
         return 0;
     }
     std::memset(runtime_sound_format_buffer, 0, block_stride * 2);
-    for(std::uint32_t index = 0; index < 2; ++index)
+    for(uint32_t index = 0; index < 2; ++index)
     {
-        std::uint8_t *block = static_cast<std::uint8_t *>(runtime_sound_format_buffer) + block_stride * index;
+        uint8_t *block = static_cast<uint8_t *>(runtime_sound_format_buffer) + block_stride * index;
         runtime_sound_outputs[index].format = reinterpret_cast<WAVEFORMATEX *>(block);
-        runtime_sound_outputs[index].header = reinterpret_cast<WAVEHDR *>(block + 0x12);
-        runtime_sound_outputs[index].data = block + 0x32;
+        runtime_sound_outputs[index].header = reinterpret_cast<WAVEHDR *>(block + wave_header_offset);
+        runtime_sound_outputs[index].data = block + wave_data_offset;
         runtime_sound_headers[index] = runtime_sound_outputs[index].header;
     }
     runtime_sound_output_format = runtime_sound_outputs[0].format;
@@ -18119,7 +18194,7 @@ std::uint32_t __fastcall initialize_runtime_wave_out_mixer(WAVEFORMATEX *format,
     runtime_sound_output_format->nChannels = format->nChannels;
     runtime_sound_output_format->nSamplesPerSec = format->nSamplesPerSec;
     runtime_sound_output_format->nAvgBytesPerSec = runtime_sound_output_format->nChannels * runtime_sound_output_format->wBitsPerSample * runtime_sound_output_format->nSamplesPerSec >> 3;
-    const std::int32_t block_width = static_cast<std::int32_t>(runtime_sound_output_format->nChannels) * static_cast<std::int32_t>(runtime_sound_output_format->wBitsPerSample);
+    const int32_t block_width = static_cast<int32_t>(runtime_sound_output_format->nChannels) * static_cast<int32_t>(runtime_sound_output_format->wBitsPerSample);
     runtime_sound_output_format->nBlockAlign = static_cast<WORD>((block_width + (block_width < 0 ? 7 : 0)) >> 3);
     if(runtime_sound_output_format->wBitsPerSample == 8)
     {
@@ -18168,7 +18243,7 @@ std::uint32_t __fastcall initialize_runtime_wave_out_mixer(WAVEFORMATEX *format,
 }
 
 // GAG.EXE: 0x00401000
-void __fastcall initialize_runtime_sound_class(HINSTANCE instance)
+void initialize_runtime_sound_class(HINSTANCE instance)
 {
     if(runtime_sound_enabled != 0)
     {
@@ -18188,7 +18263,7 @@ void __fastcall initialize_runtime_sound_class(HINSTANCE instance)
 }
 
 // GAG.EXE: 0x004012C0
-std::uint32_t __fastcall runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX *right)
+uint32_t runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX *right)
 {
     if(left == nullptr || right == nullptr)
     {
@@ -18198,9 +18273,9 @@ std::uint32_t __fastcall runtime_wave_formats_equal(const WAVEFORMATEX *left, co
 }
 
 // GAG.EXE: 0x00403410
-std::uint32_t __fastcall calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAVEFORMATEX *destination, std::uint16_t *conversion_flags)
+uint32_t calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAVEFORMATEX *destination, uint16_t *conversion_flags)
 {
-    std::uint16_t flags = 0;
+    uint16_t flags = 0;
     if(source == nullptr || destination == nullptr)
     {
         return 0;
@@ -18217,21 +18292,21 @@ std::uint32_t __fastcall calculate_runtime_wave_conversion(const WAVEFORMATEX *s
     {
         if(destination->nChannels < 2)
         {
-            flags = static_cast<std::uint16_t>((flags & 0xff00) | 1);
+            flags = static_cast<uint16_t>((flags & 0xff00) | 1);
         }
     }
     else if(destination->nChannels > 1)
     {
         flags |= 0x80;
     }
-    const std::uint32_t source_rate = source->nSamplesPerSec;
-    const std::uint32_t destination_rate = destination->nSamplesPerSec;
-    std::uint8_t low_flags = static_cast<std::uint8_t>(flags);
+    const uint32_t source_rate = source->nSamplesPerSec;
+    const uint32_t destination_rate = destination->nSamplesPerSec;
+    uint8_t low_flags = static_cast<uint8_t>(flags);
     if(source_rate <= destination_rate)
     {
         if(destination_rate > source_rate)
         {
-            const std::uint32_t ratio = destination_rate / source_rate;
+            const uint32_t ratio = destination_rate / source_rate;
             if(ratio * source_rate != destination_rate || (ratio != 2 && ratio != 4))
             {
                 return 0;
@@ -18246,14 +18321,14 @@ std::uint32_t __fastcall calculate_runtime_wave_conversion(const WAVEFORMATEX *s
             }
             else
             {
-                low_flags = static_cast<std::uint8_t>((low_flags >> 2) | (low_flags << 7));
+                low_flags = static_cast<uint8_t>((low_flags >> 2) | (low_flags << 7));
             }
-            flags = static_cast<std::uint16_t>((flags & 0xff00) | low_flags);
+            flags = static_cast<uint16_t>((flags & 0xff00) | low_flags);
         }
         *conversion_flags = flags;
         return 1;
     }
-    const std::uint32_t ratio = source_rate / destination_rate;
+    const uint32_t ratio = source_rate / destination_rate;
     if(ratio * destination_rate != source_rate || (ratio != 2 && ratio != 4))
     {
         return 0;
@@ -18264,13 +18339,13 @@ std::uint32_t __fastcall calculate_runtime_wave_conversion(const WAVEFORMATEX *s
     }
     else if(ratio == 2)
     {
-        low_flags = static_cast<std::uint8_t>(low_flags << 1);
+        low_flags = static_cast<uint8_t>(low_flags << 1);
     }
     else
     {
-        low_flags = static_cast<std::uint8_t>((low_flags << 2) | (low_flags >> 7));
+        low_flags = static_cast<uint8_t>((low_flags << 2) | (low_flags >> 7));
     }
-    flags = static_cast<std::uint16_t>((flags & 0xff00) | low_flags);
+    flags = static_cast<uint16_t>((flags & 0xff00) | low_flags);
     *conversion_flags = flags;
     return 1;
 }
@@ -18287,7 +18362,7 @@ void cleanup_runtime_sound_format_buffer()
 }
 
 // Non-original helper: exact pre-dispatch normalization from ConstructRuntimeResourceObject.
-RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t flags)
+RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags)
 {
     RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y };
     if((flags & 0x40) == 0)
@@ -18334,8 +18409,7 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(std::uint3
 }
 
 // GAG.EXE: 0x00424EC0
-void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_identifier, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t scale_or_loop,
-    std::uint32_t flags)
+void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t scale_or_loop, uint32_t flags)
 {
     const RuntimeResourceConstructionPlan plan = prepare_runtime_resource_construction(scene_identifier, x, y, flags);
     flags = plan.flags;
@@ -18346,23 +18420,23 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
     RuntimeResourceObject *resource = nullptr;
     void *result = nullptr;
     bool constructed = false;
-    const std::uint32_t type = runtime_resource_construction_api.detect_type(path);
+    const uint32_t type = runtime_resource_construction_api.detect_type(path);
     if(type == 1)
     {
-        const std::uint32_t scene_flags = plan.scene_flags & ~1U;
+        const uint32_t scene_flags = plan.scene_flags & ~1U;
         runtime_resource_construction_api.update_host(path, 0);
         void *data = nullptr;
-        std::uint32_t data_size = 0;
-        std::int32_t storage = 0;
+        uint32_t data_size = 0;
+        int32_t storage = 0;
         runtime_resource_construction_api.load(path, &data, &data_size, &storage, 0x20000000);
         if(data != nullptr)
         {
             RuntimeMediaBackend *backend = runtime_resource_construction_api.create_bitmap(0, 0, data);
             if(backend != nullptr && backend->error_state == 0)
             {
-                const auto *format = static_cast<const std::int32_t *>(backend->format_data);
-                const std::uint32_t source_width = static_cast<std::uint32_t>(format[1]);
-                const std::uint32_t source_height = static_cast<std::uint32_t>(format[2] < 0 ? -format[2] : format[2]);
+                const auto *format = static_cast<const int32_t *>(backend->format_data);
+                const uint32_t source_width = static_cast<uint32_t>(format[1]);
+                const uint32_t source_height = static_cast<uint32_t>(format[2] < 0 ? -format[2] : format[2]);
                 if((flags & 2) != 0)
                 {
                     if(width == 0)
@@ -18383,7 +18457,7 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                     resource->backend = backend;
                     resource->data = data;
                     resource->presentation_owner = runtime_resource_presentation_owner;
-                    const std::uint32_t high_flags = flags & 0xffffff00;
+                    const uint32_t high_flags = flags & 0xffffff00;
                     resource->backend_flags = backend->media_flags | high_flags;
                     resource->x = x;
                     resource->y = y;
@@ -18393,20 +18467,19 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                     resource->requested_height = height;
                     resource->output_width = source_width;
                     resource->output_height = source_height;
-                    resource->scene_identifier = reinterpret_cast<std::intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, source_width, source_height, scene_flags,
-                        reinterpret_cast<std::int32_t>(resource), reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor), nullptr));
+                    resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, source_width, source_height, scene_flags,
+                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, nullptr));
                     if(resource->scene_identifier != 0)
                     {
-                        resource->callback_position = reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor)->pixels;
-                        DisplayRectangle source_rectangle{ 0, 0, static_cast<std::int32_t>(source_width), static_cast<std::int32_t>(source_height) };
+                        resource->callback_position = resource->scene_descriptor.pixels;
+                        DisplayRectangle source_rectangle{ 0, 0, static_cast<int32_t>(source_width), static_cast<int32_t>(source_height) };
                         if((flags & 6) == 0)
                         {
                             ++runtime_resource_count;
                         }
                         if((flags & 1) != 0)
                         {
-                            runtime_resource_construction_api.configure_bitmap(backend, reinterpret_cast<const std::uint32_t *>(runtime_display_context.command_target),
-                                reinterpret_cast<const std::uint32_t *>(resource->scene_descriptor), nullptr, high_flags | 0x4000100);
+                            runtime_resource_construction_api.configure_bitmap(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000100);
                             runtime_resource_construction_api.begin_scene(resource->scene_identifier);
                             runtime_resource_construction_api.finalize_media(backend);
                             runtime_resource_construction_api.configure_palette(resource);
@@ -18415,14 +18488,14 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                         }
                         else
                         {
-                            runtime_resource_construction_api.configure_bitmap(backend, reinterpret_cast<const std::uint32_t *>(runtime_display_context.command_target),
-                                reinterpret_cast<const std::uint32_t *>(resource->scene_descriptor), reinterpret_cast<std::uint8_t *>(&runtime_display_context) + 0x48c, high_flags | 0x4000100);
+                            runtime_resource_construction_api.configure_bitmap(backend, &runtime_display_context.command_target, &resource->scene_descriptor, runtime_game_host_context.palette_entries,
+                                high_flags | 0x4000100);
                             if((flags & 0x10) == 0)
                             {
                                 runtime_resource_construction_api.begin_scene(resource->scene_identifier);
                                 runtime_resource_construction_api.finalize_media(backend);
                                 runtime_resource_construction_api.configure_palette(resource);
-                                runtime_resource_construction_api.end_scene(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor),
+                                runtime_resource_construction_api.end_scene(resource->scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&resource->scene_descriptor),
                                     &source_rectangle);
                             }
                         }
@@ -18450,16 +18523,16 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
     {
         runtime_resource_construction_api.update_host(path, 0);
         void *data = nullptr;
-        std::uint32_t data_size = 0;
-        std::int32_t storage = 0;
+        uint32_t data_size = 0;
+        int32_t storage = 0;
         runtime_resource_construction_api.load(path, &data, &data_size, &storage, 0x20000000);
         if(data != nullptr)
         {
-            const std::uint32_t sound = runtime_resource_construction_api.create_sound(reinterpret_cast<WAVEFORMATEX *>(static_cast<std::uint8_t *>(data) + 0x14));
+            const uint32_t sound = runtime_resource_construction_api.create_sound(reinterpret_cast<WAVEFORMATEX *>(static_cast<uint8_t *>(data) + 0x14));
             if(sound != 0)
             {
                 RuntimeSoundSlot *slot = runtime_resource_construction_api.get_sound_slot(sound);
-                auto *wave = static_cast<std::uint8_t *>(data) + 0x24;
+                auto *wave = static_cast<uint8_t *>(data) + 0x24;
                 constexpr char wave_data_chunk_id[4]{ 'd', 'a', 't', 'a' };
                 while(!fixed_dword_memory_equal(wave, wave_data_chunk_id, sizeof(wave_data_chunk_id)))
                 {
@@ -18470,10 +18543,10 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                 if(resource != nullptr)
                 {
                     resource->type_flags = (flags & 0xff) | 0x8000;
-                    resource->backend = reinterpret_cast<void *>(sound);
+                    resource->backend = reinterpret_cast<void *>(static_cast<uintptr_t>(sound));
                     resource->data = data;
                     runtime_resource_construction_api.start_sound(sound, 1);
-                    runtime_resource_construction_api.queue_sound(sound, wave + 8, *reinterpret_cast<std::uint32_t *>(wave + 4), 1);
+                    runtime_resource_construction_api.queue_sound(sound, wave + 8, *reinterpret_cast<uint32_t *>(wave + 4), 1);
                     runtime_resource_construction_api.set_sound_loop(sound, (flags & 0x400) != 0 ? 0xffffffff : (scale_or_loop == 0 ? 1 : scale_or_loop));
                     slot->playback_state = 0xffffffff;
                     if((flags & 0x200) == 0)
@@ -18499,8 +18572,8 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
     {
         runtime_resource_construction_api.update_host(path, 0);
         void *data = nullptr;
-        std::uint32_t data_size = 0;
-        std::int32_t storage = 0;
+        uint32_t data_size = 0;
+        int32_t storage = 0;
         runtime_resource_construction_api.load(path, &data, &data_size, &storage, 0);
         if(data != nullptr)
         {
@@ -18512,9 +18585,9 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                     flags |= 0x400;
                 }
                 const bool half_size = (flags & 2) != 0;
-                const auto *format = static_cast<const std::uint8_t *>(backend->base.format_data);
-                const std::uint32_t source_width = *reinterpret_cast<const std::uint16_t *>(format + 8);
-                const std::uint32_t source_height = *reinterpret_cast<const std::uint16_t *>(format + 10);
+                const auto *format = static_cast<const uint8_t *>(backend->base.format_data);
+                const uint32_t source_width = *reinterpret_cast<const uint16_t *>(format + 8);
+                const uint32_t source_height = *reinterpret_cast<const uint16_t *>(format + 10);
                 if(half_size)
                 {
                     if(width == 0)
@@ -18539,15 +18612,15 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                     backend->base.scale_x = width;
                     backend->base.scale_y = height;
                 }
-                const std::uint32_t output_width = half_size ? source_width : source_width * width;
-                const std::uint32_t output_height = half_size ? source_height : source_height * height;
+                const uint32_t output_width = half_size ? source_width : source_width * width;
+                const uint32_t output_height = half_size ? source_height : source_height * height;
                 resource = static_cast<RuntimeResourceObject *>(
                     runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeResourceObject)));
                 if(resource != nullptr)
                 {
                     backend->base.extension_data = resource;
                     resource->type_flags = (flags & 0xff) | 0x2000;
-                    const std::uint32_t high_flags = flags & 0xffffff00;
+                    const uint32_t high_flags = flags & 0xffffff00;
                     resource->backend = backend;
                     resource->data = data;
                     resource->presentation_owner = runtime_resource_presentation_owner;
@@ -18562,28 +18635,28 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                     resource->requested_height = height;
                     resource->output_width = output_width;
                     resource->output_height = output_height;
-                    resource->scene_identifier = reinterpret_cast<std::intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
-                        reinterpret_cast<std::int32_t>(resource), reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor), nullptr));
+                    resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
+                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, nullptr));
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
                     trace_animation_startup("resource animation path=%s backend=%p error=%u size=%ux%u scene=%08X", path, backend, backend->base.error_state, output_width, output_height,
-                        static_cast<std::uint32_t>(resource->scene_identifier));
+                        static_cast<uint32_t>(resource->scene_identifier));
 #endif
                     if(resource->scene_identifier != 0)
                     {
-                        resource->callback_position = reinterpret_cast<DisplaySceneDescriptor *>(resource->scene_descriptor)->pixels;
+                        resource->callback_position = resource->scene_descriptor.pixels;
                         if((flags & 1) != 0)
                         {
-                            runtime_resource_construction_api.configure_animation(backend, reinterpret_cast<const std::uint32_t *>(runtime_display_context.command_target),
-                                reinterpret_cast<const std::uint32_t *>(resource->scene_descriptor), nullptr, high_flags | 0x4000200, update_runtime_resource_animation_backend);
-                            const std::uint32_t count = runtime_resource_count + 1;
+                            runtime_resource_construction_api.configure_animation(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000200,
+                                update_runtime_resource_animation_backend);
+                            const uint32_t count = runtime_resource_count + 1;
                             runtime_resource_construction_api.finalize_media(backend);
                             runtime_resource_construction_api.wait_for_count(count);
                             current_runtime_resource = resource;
                         }
                         else
                         {
-                            runtime_resource_construction_api.configure_animation(backend, reinterpret_cast<const std::uint32_t *>(runtime_display_context.command_target),
-                                reinterpret_cast<const std::uint32_t *>(resource->scene_descriptor), nullptr, high_flags | 0x4000000, update_runtime_resource_animation_backend);
+                            runtime_resource_construction_api.configure_animation(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000000,
+                                update_runtime_resource_animation_backend);
                             if((flags & 0x10) == 0)
                             {
                                 runtime_resource_construction_api.finalize_media(backend);
@@ -18602,7 +18675,7 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
                 }
                 if(resource != nullptr)
                 {
-                    const std::uint32_t storage_flags = resource->backend_flags & 0x3000000;
+                    const uint32_t storage_flags = resource->backend_flags & 0x3000000;
                     if(storage_flags == 0x1000000)
                     {
                         runtime_resource_construction_api.release_memory(path);
@@ -18630,12 +18703,12 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
     {
         runtime_resource_construction_api.update_host(path, 0);
         void *data = nullptr;
-        std::uint32_t size = 0;
-        std::int32_t storage = 0;
+        uint32_t size = 0;
+        int32_t storage = 0;
         runtime_resource_construction_api.load(path, &data, &size, &storage, 0x20000000);
         if(data != nullptr)
         {
-            RuntimeGenericBackend *backend = runtime_resource_construction_api.create_generic(reinterpret_cast<std::uint32_t>(data), size);
+            RuntimeGenericBackend *backend = runtime_resource_construction_api.create_generic(reinterpret_cast<uintptr_t>(data), size);
             result = backend;
             if(backend != nullptr)
             {
@@ -18670,7 +18743,7 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
         if(result != nullptr)
         {
             runtime_resource_archive = static_cast<CdfArchive *>(result);
-            copy_string(reinterpret_cast<char *>(&runtime_display_context) + 0x0c, path);
+            copy_string(runtime_graphics_resource_directory, path);
             runtime_display_context.flags |= 0x10000000;
             if((flags & 0x200) == 0)
             {
@@ -18689,7 +18762,7 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
             RuntimeResourceVisibilityCallbackContext context{};
             context.resource_flags = resource->type_flags;
             copy_string(context.resource_name, path);
-            runtime_resource_construction_api.add_scene_callback(resource->scene_identifier, reinterpret_cast<int(__fastcall *)(DisplayTraversalState *)>(update_runtime_resource_visibility), &context,
+            runtime_resource_construction_api.add_scene_callback(resource->scene_identifier, reinterpret_cast<int (*)(DisplayTraversalState *)>(update_runtime_resource_visibility), &context,
                 sizeof(context), 0);
         }
         runtime_display_context.flags &= ~0x200U;
@@ -18699,16 +18772,16 @@ void *__fastcall construct_runtime_resource(char *path, std::uint32_t scene_iden
 }
 
 // GAG.EXE: 0x00428160
-std::uint32_t __fastcall update_runtime_resource_visibility(DisplayTraversalState *state)
+uint32_t update_runtime_resource_visibility(DisplayTraversalState *state)
 {
     auto *context = static_cast<RuntimeResourceVisibilityCallbackContext *>(state->callback_context);
-    std::uint32_t visible = (context->resource_flags & 0x80001000) != 0x80001000;
+    uint32_t visible = (context->resource_flags & 0x80001000) != 0x80001000;
     if(visible != 0 && (context->resource_flags & 0x2000) != 0)
     {
         const auto *rectangle = static_cast<const DisplayRectangle *>(state->data);
         visible = rectangle->left < rectangle->right && rectangle->top < rectangle->bottom;
     }
-    std::uint32_t result;
+    uint32_t result = 0;
     if((state->flags & 0x1000000) != 0)
     {
         visible |= context->palette_state != (runtime_scene_control_flags & 0x8000);
@@ -18720,20 +18793,20 @@ std::uint32_t __fastcall update_runtime_resource_visibility(DisplayTraversalStat
         visible &= (runtime_scene_control_flags & 0x8000) >> 15;
         if(visible != 0)
         {
-            auto *source = static_cast<const std::uint8_t *>(reinterpret_cast<const void *>(state->first_position));
-            auto *destination = static_cast<std::uint8_t *>(reinterpret_cast<void *>(state->current_position));
-            std::uint8_t row_mask = 0xff;
-            std::uint32_t rows = state->value_0c;
+            auto *source = static_cast<const uint8_t *>(reinterpret_cast<const void *>(state->first_position));
+            auto *destination = static_cast<uint8_t *>(reinterpret_cast<void *>(state->current_position));
+            uint8_t row_mask = 0xff;
+            uint32_t rows = state->value_0c;
             do
             {
-                std::uint8_t mask = row_mask;
-                std::uint32_t columns = state->value_08;
+                uint8_t mask = row_mask;
+                uint32_t columns = state->value_08;
                 do
                 {
                     *destination++ = *source++ & mask;
-                    mask = static_cast<std::uint8_t>(~mask);
+                    mask = static_cast<uint8_t>(~mask);
                 } while(--columns != 0);
-                row_mask = static_cast<std::uint8_t>(~row_mask);
+                row_mask = static_cast<uint8_t>(~row_mask);
             } while(--rows != 0);
             context->resource_flags |= 0x80000000;
         }
@@ -18747,15 +18820,15 @@ std::uint32_t __fastcall update_runtime_resource_visibility(DisplayTraversalStat
 }
 
 // GAG.EXE: 0x00425BD0
-void __fastcall request_runtime_resource_destruction(void *identity)
+void request_runtime_resource_destruction(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
     if(resource == nullptr)
     {
         return;
     }
-    const std::uint32_t flags = resource->type_flags;
-    const std::uint32_t type = flags & 0xff000;
+    const uint32_t flags = resource->type_flags;
+    const uint32_t type = flags & 0xff000;
     if(type == 0x1000)
     {
         runtime_resource_control_api.destroy_resource(identity);
@@ -18775,35 +18848,35 @@ void __fastcall request_runtime_resource_destruction(void *identity)
 }
 
 // GAG.EXE: 0x00425FB0
-std::uint32_t __fastcall query_runtime_resource_frame_limit(void *identity)
+uint32_t query_runtime_resource_frame_limit(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
     if(resource == nullptr)
     {
         return 0;
     }
-    const std::uint32_t result = resource->frame_limit;
+    const uint32_t result = resource->frame_limit;
     runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
     return result;
 }
 
 // GAG.EXE: 0x004258C0
-void __fastcall set_runtime_property_value(std::uint32_t value)
+void set_runtime_property_value(uint32_t value)
 {
     runtime_property_value = value;
 }
 
 // GAG.EXE: 0x00425F00
-std::uint32_t get_runtime_property_value()
+uint32_t get_runtime_property_value()
 {
     return runtime_property_value;
 }
 
 // GAG.EXE: 0x00426080
-std::uint16_t __fastcall query_runtime_resource_frame_number(void *identity)
+uint16_t query_runtime_resource_frame_number(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
-    std::uint16_t result = 0;
+    uint16_t result = 0;
     if(resource != nullptr)
     {
         if((resource->type_flags & 0x3000) == 0x2000 && resource->backend != nullptr)
@@ -18816,7 +18889,7 @@ std::uint16_t __fastcall query_runtime_resource_frame_number(void *identity)
 }
 
 // GAG.EXE: 0x004244E0
-void __fastcall select_runtime_resource(char *path)
+void select_runtime_resource(char *path)
 {
     runtime_resource_selection_api.enter_critical_section(&runtime_resource_critical_section);
     if((runtime_scene_control_flags & 0x10000000) != 0)
@@ -18824,7 +18897,7 @@ void __fastcall select_runtime_resource(char *path)
         runtime_resource_selection_api.close_archive(runtime_resource_archive);
         runtime_resource_archive = nullptr;
         runtime_scene_control_flags &= 0xefffffff;
-        graphics_host_storage[0x0c] = 0;
+        runtime_graphics_resource_directory[0] = '\0';
     }
     runtime_resource_selection_api.leave_critical_section(&runtime_resource_critical_section);
     if(path != nullptr)
@@ -18835,15 +18908,15 @@ void __fastcall select_runtime_resource(char *path)
 }
 
 // GAG.EXE: 0x00425FF0
-std::uint32_t __fastcall query_runtime_resource_playback_flags(void *identity)
+uint32_t query_runtime_resource_playback_flags(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
     if(resource == nullptr)
     {
         return 0;
     }
-    std::uint32_t result = 0;
-    const std::uint32_t type = resource->type_flags & 0xff000;
+    uint32_t result = 0;
+    const uint32_t type = resource->type_flags & 0xff000;
     if(type == 0x1000 || type == 0x2000)
     {
         result = static_cast<RuntimeMediaBackend *>(resource->backend)->media_flags;
@@ -18851,7 +18924,7 @@ std::uint32_t __fastcall query_runtime_resource_playback_flags(void *identity)
     else if(type == 0x8000)
     {
         result = 0x1000000;
-        auto *slot = runtime_resource_control_api.get_sound_slot(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->backend)));
+        auto *slot = runtime_resource_control_api.get_sound_slot(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource->backend)));
         if(slot->playing != 0)
         {
             result = 0x1000001;
@@ -18872,105 +18945,80 @@ std::uint32_t __fastcall query_runtime_resource_playback_flags(void *identity)
 // GAG.EXE: 0x004260B0
 void unload_runtime_game_dll()
 {
-    runtime_game_dll_unload_api.enter_critical_section(&runtime_game_dll_critical_section);
+    runtime_game_lifecycle_api.enter_critical_section(&runtime_game_dll_critical_section);
     if((runtime_scene_control_flags & 0x10) != 0)
     {
-        runtime_game_dll_unload_api.free_library(runtime_game_dll_module);
+        runtime_game_integration_api.shutdown();
         if((runtime_scene_control_flags & 0x1000) != 0)
         {
-            runtime_game_dll_unload_api.leave_runtime_state();
+            runtime_game_lifecycle_api.leave_runtime_state();
         }
+        runtime_game_dll_window_procedure = nullptr;
+        runtime_game_dll_execute = nullptr;
         runtime_scene_control_flags = (runtime_scene_control_flags & ~0x10u) | 0x20;
     }
-    runtime_game_dll_unload_api.leave_critical_section(&runtime_game_dll_critical_section);
+    runtime_game_lifecycle_api.leave_critical_section(&runtime_game_dll_critical_section);
 }
 
 // GAG.EXE: 0x00426110
-bool __fastcall load_and_initialize_runtime_game_dll(const char *path)
+bool load_and_initialize_runtime_game_dll(const char *path)
 {
+    if(path == nullptr)
+    {
+        throw std::invalid_argument("Unsupported /GAME library: <null>");
+    }
+    char file_name[MAX_PATH]{};
+    copy_file_name_from_path(file_name, path);
+    if(_stricmp(file_name, "XTETDLL.DLL") != 0)
+    {
+        throw std::invalid_argument(std::string("Unsupported /GAME library: ") + path);
+    }
+    std::string sfs_name(file_name);
+    sfs_name.replace(sfs_name.size() - 4, 4, ".SFS");
+
     bool result = false;
-    runtime_game_dll_load_api.enter_critical_section(&runtime_game_dll_critical_section);
+    runtime_game_lifecycle_api.enter_critical_section(&runtime_game_dll_critical_section);
     if((runtime_scene_control_flags & 0x10) == 0)
     {
         result = true;
-        runtime_game_dll_load_api.update_resource_host(path, 0);
-        char full_path[MAX_PATH];
-        runtime_game_dll_load_api.build_resource_path(full_path, path);
+        runtime_game_lifecycle_api.update_resource_host(path, 0);
         static constexpr char loading_scene[] = "m_DEF_LOAD";
-        runtime_game_dll_load_api.activate_comment_scene(loading_scene);
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility: prefer a portable game DLL beside the executable, then retain the original active-resource-directory lookup.
-        char executable_dll[MAX_PATH];
-        const DWORD executable_length = runtime_game_dll_load_api.get_module_file_name(nullptr, executable_dll, sizeof(executable_dll));
-        if(executable_length != 0 && executable_length < sizeof(executable_dll))
+        runtime_game_lifecycle_api.activate_comment_scene(loading_scene);
+        runtime_game_dll_window_procedure = runtime_game_integration_api.window_procedure;
+        runtime_game_dll_execute = runtime_game_integration_api.execute;
+        runtime_scene_control_flags = (runtime_scene_control_flags | 0x10) & ~0x20u;
+        try
         {
-            char file_name[MAX_PATH];
-            copy_file_name_from_path(file_name, path);
-            copy_directory_from_path(executable_dll, executable_dll);
-            if(std::strlen(executable_dll) + std::strlen(file_name) < sizeof(executable_dll))
-            {
-                append_string(executable_dll, file_name);
-                runtime_game_dll_module = runtime_game_dll_load_api.load_library(executable_dll);
-            }
-            else
-            {
-                runtime_game_dll_module = nullptr;
-            }
+            runtime_game_integration_api.initialize(&runtime_game_host_context, runtime_game_host_callbacks, sfs_name.c_str());
         }
-        else
+        catch(...)
         {
-            runtime_game_dll_module = nullptr;
+            runtime_game_integration_api.shutdown();
+            runtime_game_dll_window_procedure = nullptr;
+            runtime_game_dll_execute = nullptr;
+            runtime_scene_control_flags = (runtime_scene_control_flags & ~0x10u) | 0x20;
+            runtime_game_lifecycle_api.deactivate_comment_scene(loading_scene);
+            runtime_game_lifecycle_api.reset_byte_queue();
+            runtime_game_lifecycle_api.reset_pair_queue();
+            runtime_game_lifecycle_api.leave_critical_section(&runtime_game_dll_critical_section);
+            throw;
         }
-        if(runtime_game_dll_module == nullptr)
-        {
-            runtime_game_dll_module = runtime_game_dll_load_api.load_library(full_path);
-        }
-#else
-        runtime_game_dll_module = runtime_game_dll_load_api.load_library(full_path);
-#endif
-        if(runtime_game_dll_module == nullptr)
-        {
-            result = false;
-        }
-        if(result)
-        {
-            runtime_game_dll_initialize = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(1));
-            if(runtime_game_dll_initialize == nullptr)
-            {
-                result = false;
-            }
-            runtime_game_dll_window_procedure = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(2));
-            if(runtime_game_dll_window_procedure == nullptr)
-            {
-                result = false;
-            }
-            runtime_game_dll_execute = runtime_game_dll_load_api.get_proc_address(runtime_game_dll_module, MAKEINTRESOURCEA(3));
-            if(runtime_game_dll_execute == nullptr)
-            {
-                result = false;
-            }
-            if(result)
-            {
-                runtime_scene_control_flags = (runtime_scene_control_flags | 0x10) & ~0x20u;
-                reinterpret_cast<RuntimeGameDllInitialize>(runtime_game_dll_initialize)(&runtime_game_host_context, runtime_game_host_callbacks);
-            }
-        }
-        runtime_game_dll_load_api.deactivate_comment_scene(loading_scene);
-        runtime_game_dll_load_api.reset_byte_queue();
-        runtime_game_dll_load_api.reset_pair_queue();
+        runtime_game_lifecycle_api.deactivate_comment_scene(loading_scene);
+        runtime_game_lifecycle_api.reset_byte_queue();
+        runtime_game_lifecycle_api.reset_pair_queue();
     }
-    runtime_game_dll_load_api.leave_critical_section(&runtime_game_dll_critical_section);
+    runtime_game_lifecycle_api.leave_critical_section(&runtime_game_dll_critical_section);
     return result;
 }
 
 // GAG.EXE: 0x00426210
-std::uint32_t stop_runtime_game_dll()
+uint32_t stop_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
     {
         return 0;
     }
-    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(1);
+    runtime_game_dll_execute(1);
     const DWORD start = runtime_game_dll_dispatch_api.time_get_time();
     while((runtime_scene_control_flags & 0x10) != 0 && runtime_game_dll_dispatch_api.time_get_time() - start < 5000)
     {
@@ -18980,31 +19028,31 @@ std::uint32_t stop_runtime_game_dll()
 }
 
 // GAG.EXE: 0x00426270
-std::uint32_t pause_runtime_game_dll()
+uint32_t pause_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
     {
         return 0;
     }
-    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(2);
+    runtime_game_dll_execute(2);
     return 1;
 }
 
 // GAG.EXE: 0x00426290
-std::uint32_t resume_runtime_game_dll()
+uint32_t resume_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
     {
         return 0;
     }
-    reinterpret_cast<RuntimeGameDllExecute>(runtime_game_dll_execute)(4);
+    runtime_game_dll_execute(4);
     return 1;
 }
 
 // GAG.EXE: 0x004243F0
-void __fastcall update_runtime_pointer_position(std::int32_t x, std::int32_t y)
+void update_runtime_pointer_position(int32_t x, int32_t y)
 {
-    RuntimeSceneRecord *record = nullptr;
+    RuntimeResourceObject *record = nullptr;
     RuntimeNamedNode *node = nullptr;
     if((runtime_scene_control_flags & 0x1000) == 0)
     {
@@ -19016,7 +19064,7 @@ void __fastcall update_runtime_pointer_position(std::int32_t x, std::int32_t y)
             node = runtime_pointer_position_api.find_child(runtime_named_lock_parent_identity, current_runtime_scene_identity);
             if(node != nullptr)
             {
-                record = static_cast<RuntimeSceneRecord *>(node->identity);
+                record = static_cast<RuntimeResourceObject *>(node->identity);
                 if(record->recursion_count == 0 || record->owner_thread == thread)
                 {
                     ++record->recursion_count;
@@ -19036,9 +19084,11 @@ void __fastcall update_runtime_pointer_position(std::int32_t x, std::int32_t y)
         }
         if(node != nullptr)
         {
-            runtime_pointer_position_api.offset_scene(record->scene_identifier, (x - record->x_offset) - record->x, (y - record->y_offset) - record->y);
-            record->x = x - record->x_offset;
-            record->y = y - record->y_offset;
+            const int32_t hotspot_x = static_cast<int32_t>(record->requested_width);
+            const int32_t hotspot_y = static_cast<int32_t>(record->requested_height);
+            runtime_pointer_position_api.offset_scene(record->scene_identifier, (x - hotspot_x) - record->x, (y - hotspot_y) - record->y);
+            record->x = x - hotspot_x;
+            record->y = y - hotspot_y;
         }
     }
     runtime_pointer_x = x;
@@ -19065,10 +19115,8 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
             && (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN
                 || message == WM_MBUTTONUP))
         {
-            const std::int32_t x =
-                map_modern_windows_presentation_coordinate(static_cast<std::uint16_t>(LOWORD(lparam)), modern_windows_presentation_state.viewport_width, runtime_game_host_context.width);
-            const std::int32_t y =
-                map_modern_windows_presentation_coordinate(static_cast<std::uint16_t>(HIWORD(lparam)), modern_windows_presentation_state.viewport_height, runtime_game_host_context.height);
+            const int32_t x = map_modern_windows_presentation_coordinate(static_cast<uint16_t>(LOWORD(lparam)), modern_windows_presentation_state.viewport_width, runtime_game_host_context.width);
+            const int32_t y = map_modern_windows_presentation_coordinate(static_cast<uint16_t>(HIWORD(lparam)), modern_windows_presentation_state.viewport_height, runtime_game_host_context.height);
             return static_cast<LPARAM>(MAKELONG(x, y));
         }
 #endif
@@ -19077,12 +19125,12 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     const auto translated_lparam = [&]() -> LPARAM
     {
         const LPARAM input = input_lparam();
-        const std::uint16_t x = static_cast<std::uint16_t>(static_cast<std::uint16_t>(LOWORD(input)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_0038));
-        const std::uint16_t y = static_cast<std::uint16_t>(static_cast<std::uint16_t>(HIWORD(input)) + static_cast<std::uint16_t>(runtime_game_host_context.unknown_003c));
+        const uint16_t x = static_cast<uint16_t>(static_cast<uint16_t>(LOWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.unknown_0038));
+        const uint16_t y = static_cast<uint16_t>(static_cast<uint16_t>(HIWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.unknown_003c));
         return static_cast<LPARAM>(MAKELONG(x, y));
     };
 
-    if((runtime_scene_control_flags & 0x10) != 0 && reinterpret_cast<RuntimeGameDllWindowProcedure>(runtime_game_dll_window_procedure)(window, message, wparam, input_lparam()) == 0x10000)
+    if((runtime_scene_control_flags & 0x10) != 0 && runtime_game_dll_window_procedure(window, message, wparam, input_lparam()) == 0x10000)
     {
         if(message == 0x30f)
         {
@@ -19119,17 +19167,17 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     else if(message == WM_CHAR)
     {
-        runtime_game_window_api.enqueue_byte(static_cast<std::uint8_t>(wparam));
+        runtime_game_window_api.enqueue_byte(static_cast<uint8_t>(wparam));
     }
     else if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
     {
         if(message == WM_MOUSEMOVE)
         {
             const LPARAM input = input_lparam();
-            runtime_game_window_api.update_pointer_position(static_cast<std::uint16_t>(LOWORD(input)), static_cast<std::uint16_t>(HIWORD(input)));
+            runtime_game_window_api.update_pointer_position(static_cast<uint16_t>(LOWORD(input)), static_cast<uint16_t>(HIWORD(input)));
         }
         runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
-        runtime_game_window_api.enqueue_pair(message, static_cast<std::uint32_t>(input_lparam()));
+        runtime_game_window_api.enqueue_pair(message, static_cast<uint32_t>(input_lparam()));
         return 0;
     }
     else if(message == 0x30f)
@@ -19151,7 +19199,7 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     else if(message == 0x7ffc)
     {
-        switch(static_cast<std::uint32_t>(lparam))
+        switch(static_cast<uint32_t>(lparam))
         {
         case 0:
         case 1:
@@ -19165,10 +19213,16 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
             runtime_game_window_api.leave_runtime_state();
             break;
         case 0x10:
-            runtime_game_window_api.set_runtime_flag();
+            if(!gagboy_startup_mode)
+            {
+                runtime_game_window_api.set_runtime_flag();
+            }
             break;
         case 0x20:
-            runtime_game_window_api.clear_runtime_flag();
+            if(!gagboy_startup_mode)
+            {
+                runtime_game_window_api.clear_runtime_flag();
+            }
             break;
         case 0x40:
         {
@@ -19187,7 +19241,7 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     else if(message == 0x7ffe)
     {
-        if(static_cast<std::uint32_t>(lparam) == 0x80000000)
+        if(static_cast<uint32_t>(lparam) == 0x80000000)
         {
             runtime_game_window_api.send_message(runtime_game_main_window, 0x7ffd, 0xd0000000, 0);
         }
@@ -19201,10 +19255,10 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
 }
 
 // GAG.EXE: 0x00424D80
-std::uint32_t __fastcall destroy_runtime_resource(void *identity)
+uint32_t destroy_runtime_resource(void *identity)
 {
     auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_destroy_api.acquire_record(identity));
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if(record == nullptr)
     {
         runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_critical_section);
@@ -19218,7 +19272,7 @@ std::uint32_t __fastcall destroy_runtime_resource(void *identity)
         return result;
     }
 
-    const std::uint32_t type = record->type_flags & 0xff000;
+    const uint32_t type = record->type_flags & 0xff000;
     bool release_scene = true;
     if(type == 0x1000)
     {
@@ -19228,7 +19282,7 @@ std::uint32_t __fastcall destroy_runtime_resource(void *identity)
     else if(type == 0x2000)
     {
         result = runtime_resource_destroy_api.destroy_media_backend(record->backend);
-        const std::uint32_t storage = record->backend_flags & 0x03000000;
+        const uint32_t storage = record->backend_flags & 0x03000000;
         if(storage == 0x01000000)
         {
             result &= runtime_resource_destroy_api.release_memory_data(record->data);
@@ -19240,7 +19294,7 @@ std::uint32_t __fastcall destroy_runtime_resource(void *identity)
     }
     else if(type == 0x8000)
     {
-        runtime_resource_destroy_api.destroy_sound(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->backend)));
+        runtime_resource_destroy_api.destroy_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->backend)));
         result = runtime_resource_destroy_api.release_memory_data(record->data);
     }
     else if(type == 0x10000)
@@ -19254,7 +19308,7 @@ std::uint32_t __fastcall destroy_runtime_resource(void *identity)
     }
     if(release_scene)
     {
-        result &= runtime_resource_destroy_api.release_scene(0, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(identity))) == 0;
+        result &= runtime_resource_destroy_api.release_scene(0, reinterpret_cast<intptr_t>(identity)) == 0;
     }
     if(current_runtime_resource == identity)
     {
@@ -19268,7 +19322,7 @@ std::uint32_t __fastcall destroy_runtime_resource(void *identity)
 }
 
 // GAG.EXE: 0x00405000
-void __fastcall remove_runtime_generic_resource(void *identity)
+void remove_runtime_generic_resource(void *identity)
 {
     if(script_runtime_root == nullptr || script_runtime_root->generic_resources == nullptr)
     {
@@ -19301,7 +19355,7 @@ void __fastcall remove_runtime_generic_resource(void *identity)
 }
 
 // GAG.EXE: 0x00407810
-RuntimeNamedNode *__fastcall find_runtime_named_child(void *parent_identity, void *child_identity)
+RuntimeNamedNode *find_runtime_named_child(void *parent_identity, void *child_identity)
 {
     for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
     {
@@ -19325,7 +19379,7 @@ RuntimeNamedNode *__fastcall find_runtime_named_child(void *parent_identity, voi
 }
 
 // GAG.EXE: 0x00407720
-RuntimeResourceCacheEntry *__fastcall find_runtime_resource_cache_entry(void *parent_identity, const char *name)
+RuntimeResourceCacheEntry *find_runtime_resource_cache_entry(void *parent_identity, const char *name)
 {
     for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
     {
@@ -19352,7 +19406,7 @@ RuntimeResourceCacheEntry *__fastcall find_runtime_resource_cache_entry(void *pa
 }
 
 // GAG.EXE: 0x00407D10
-void __fastcall append_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
+void append_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
 {
     ++parent->status;
     auto *head = reinterpret_cast<RuntimeResourceCacheEntry *>(parent->children);
@@ -19376,7 +19430,7 @@ void __fastcall append_runtime_named_child(RuntimeNamedNode *parent, RuntimeReso
 }
 
 // GAG.EXE: 0x00407D50
-void __fastcall remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
+void remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
 {
     if(reinterpret_cast<RuntimeResourceCacheEntry *>(parent->child_cursor) == entry)
     {
@@ -19409,7 +19463,7 @@ void __fastcall remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeReso
 }
 
 // GAG.EXE: 0x00407A20
-std::uint32_t __fastcall remove_runtime_named_child_by_identity(void *parent_identity, void *child_identity)
+uint32_t remove_runtime_named_child_by_identity(void *parent_identity, void *child_identity)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
     while(parent != nullptr && parent->identity != parent_identity)
@@ -19439,7 +19493,7 @@ std::uint32_t __fastcall remove_runtime_named_child_by_identity(void *parent_ide
 }
 
 // GAG.EXE: 0x00407780
-RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_resource_cache_entry(void *parent_identity, const char *name)
+RuntimeResourceCacheEntry *get_or_create_runtime_resource_cache_entry(void *parent_identity, const char *name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
     while(parent != nullptr && parent->identity != parent_identity)
@@ -19462,7 +19516,7 @@ RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_resource_cache_entry
 }
 
 // GAG.EXE: 0x00407860
-RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_child_by_data(void *parent_identity, void *data)
+RuntimeResourceCacheEntry *get_or_create_runtime_child_by_data(void *parent_identity, void *data)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
     while(parent != nullptr && parent->identity != parent_identity)
@@ -19494,7 +19548,7 @@ RuntimeResourceCacheEntry *__fastcall get_or_create_runtime_child_by_data(void *
 }
 
 // GAG.EXE: 0x004078D0
-void __fastcall add_script_object_to_runtime_named_node(const void *node_name, const char *object_name)
+void add_script_object_to_runtime_named_node(const void *node_name, const char *object_name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
     while(parent != nullptr && !fixed_dword_memory_equal(node_name, parent->name, 0x20))
@@ -19538,7 +19592,7 @@ void __fastcall add_script_object_to_runtime_named_node(const void *node_name, c
 }
 
 // GAG.EXE: 0x00407490
-std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
+uint32_t parse_runtime_named_node(ScriptParserState *parser)
 {
     char value[0x80];
     if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
@@ -19574,7 +19628,7 @@ std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
 
     for(;;)
     {
-        std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+        uint32_t result = parse_script_value_token(parser, value, 0x20);
         if(result == 0xffffffff)
         {
             result = parse_script_scope_code(parser);
@@ -19589,19 +19643,18 @@ std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
             }
             else if(result == 0x0f000000)
             {
-                std::int32_t integer = parse_script_integer_expression(parser);
-                auto *bytes = reinterpret_cast<std::uint8_t *>(parent);
+                int32_t integer = parse_script_integer_expression(parser);
                 if(integer != 0x7fffffff)
                 {
-                    *reinterpret_cast<std::int32_t *>(bytes + 0x30) = integer;
+                    parent->zone_left = integer;
                 }
                 integer = parse_script_integer_expression(parser);
                 if(integer != 0x7fffffff)
                 {
-                    *reinterpret_cast<std::int32_t *>(bytes + 0x34) = integer;
+                    parent->zone_top = integer;
                 }
                 integer = parse_script_integer_expression(parser);
-                parent->unknown_0028 = static_cast<std::uint32_t>(integer);
+                parent->unknown_0028 = static_cast<uint32_t>(integer);
                 if(integer == 0x7fffffff)
                 {
                     parent->unknown_0028 = 1;
@@ -19609,13 +19662,13 @@ std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
                 integer = parse_script_integer_expression(parser);
                 if(integer != 0x7fffffff)
                 {
-                    *reinterpret_cast<std::int32_t *>(bytes + 0x38) = integer;
+                    parent->zone_right = integer;
                 }
                 integer = parse_script_integer_expression(parser);
-                result = static_cast<std::uint32_t>(integer);
+                result = static_cast<uint32_t>(integer);
                 if(integer != 0x7fffffff)
                 {
-                    *reinterpret_cast<std::int32_t *>(bytes + 0x3c) = integer;
+                    parent->zone_bottom = integer;
                 }
             }
         }
@@ -19651,7 +19704,7 @@ std::uint32_t __fastcall parse_runtime_named_node(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x00407990
-void __fastcall remove_script_object_from_runtime_named_node(const void *node_name, const char *object_name)
+void remove_script_object_from_runtime_named_node(const void *node_name, const char *object_name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
     while(parent != nullptr && !fixed_dword_memory_equal(node_name, parent->name, 0x20))
@@ -19691,7 +19744,7 @@ void __fastcall remove_script_object_from_runtime_named_node(const void *node_na
 }
 
 // GAG.EXE: 0x00407C00
-std::uint32_t __fastcall rotate_runtime_named_node_cursor_previous(const void *node_name, std::int32_t count)
+uint32_t rotate_runtime_named_node_cursor_previous(const void *node_name, int32_t count)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
     while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
@@ -19715,7 +19768,7 @@ std::uint32_t __fastcall rotate_runtime_named_node_cursor_previous(const void *n
 }
 
 // GAG.EXE: 0x00407C60
-std::uint32_t __fastcall rotate_runtime_named_node_cursor_next(const void *node_name, std::int32_t count)
+uint32_t rotate_runtime_named_node_cursor_next(const void *node_name, int32_t count)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
     while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
@@ -19739,7 +19792,7 @@ std::uint32_t __fastcall rotate_runtime_named_node_cursor_next(const void *node_
 }
 
 // GAG.EXE: 0x00407CC0
-std::uint32_t __fastcall clear_runtime_named_node_children(const void *node_name)
+uint32_t clear_runtime_named_node_children(const void *node_name)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
     while(node != nullptr && !fixed_dword_memory_equal(node_name, node->name, 0x20))
@@ -19758,7 +19811,7 @@ std::uint32_t __fastcall clear_runtime_named_node_children(const void *node_name
 }
 
 // GAG.EXE: 0x00407DD0
-void __fastcall serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
+void serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->runtime_nodes == nullptr)
     {
@@ -19780,12 +19833,11 @@ void __fastcall serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
             entry = entry->next;
         } while(entry != reinterpret_cast<RuntimeResourceCacheEntry *>(node->children));
         append_script_text_scope(buffer, 0x0f000000);
-        const auto *bytes = reinterpret_cast<const std::uint8_t *>(node);
-        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x30), ',');
-        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x34), ',');
+        append_script_text_integer(buffer, node->zone_left, ',');
+        append_script_text_integer(buffer, node->zone_top, ',');
         append_script_text_integer(buffer, node->unknown_0028, ',');
-        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x38), ',');
-        append_script_text_integer(buffer, *reinterpret_cast<const std::uint32_t *>(bytes + 0x3c), ' ');
+        append_script_text_integer(buffer, node->zone_right, ',');
+        append_script_text_integer(buffer, node->zone_bottom, ' ');
         end_script_text_statement(buffer);
     }
 }
@@ -19806,7 +19858,7 @@ void purge_disabled_runtime_named_nodes()
         if((node->flags & 1) == 0)
         {
             auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(node->children);
-            for(std::uint32_t index = 0; index < node->status; ++index)
+            for(uint32_t index = 0; index < node->status; ++index)
             {
                 RuntimeResourceCacheEntry *next_entry = entry->next;
                 runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, entry);
@@ -19833,7 +19885,7 @@ void purge_disabled_runtime_named_nodes()
 }
 
 // GAG.EXE: 0x00407690
-RuntimeNamedNode *__fastcall get_or_create_runtime_named_node(const char *name)
+RuntimeNamedNode *get_or_create_runtime_named_node(const char *name)
 {
     RuntimeNamedNode *last = script_runtime_root->runtime_nodes;
     for(RuntimeNamedNode *node = last; node != nullptr; node = node->next)
@@ -19849,7 +19901,7 @@ RuntimeNamedNode *__fastcall get_or_create_runtime_named_node(const char *name)
     {
         return nullptr;
     }
-    std::int32_t index = 0;
+    int32_t index = 0;
     while(name[index] != '\0')
     {
         node->name[index] = name[index];
@@ -19914,7 +19966,7 @@ bool clear_runtime_plans_inactive()
 }
 
 // GAG.EXE: 0x0040CD60
-RuntimeTreeNode *__fastcall find_runtime_tree_node(RuntimeTreeNode *root, void *identity)
+RuntimeTreeNode *find_runtime_tree_node(RuntimeTreeNode *root, void *identity)
 {
     while(root != nullptr)
     {
@@ -19937,13 +19989,13 @@ RuntimeTreeNode *__fastcall find_runtime_tree_node(RuntimeTreeNode *root, void *
 }
 
 // GAG.EXE: 0x004065E0
-RuntimeTreeNode *__fastcall find_runtime_tree_node_by_identity(void *identity)
+RuntimeTreeNode *find_runtime_tree_node_by_identity(void *identity)
 {
     return find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
 }
 
 // GAG.EXE: 0x004097D0
-void *__fastcall find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
+void *find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -19970,7 +20022,7 @@ void *__fastcall find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
 }
 
 // GAG.EXE: 0x00409B60
-void *__fastcall find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode *root)
+void *find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -19997,7 +20049,7 @@ void *__fastcall find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode 
 }
 
 // GAG.EXE: 0x0040A500
-void *__fastcall find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *root)
+void *find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -20024,31 +20076,31 @@ void *__fastcall find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *r
 }
 
 // GAG.EXE: 0x00406860
-void *__fastcall find_last_runtime_scene_link_by_identity(void *identity)
+void *find_last_runtime_scene_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_scene_link(root);
 }
 
 // GAG.EXE: 0x00406880
-void *__fastcall find_last_runtime_primary_resource_link_by_identity(void *identity)
+void *find_last_runtime_primary_resource_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_primary_resource_link(root);
 }
 
 // GAG.EXE: 0x004068A0
-void *__fastcall find_last_runtime_secondary_resource_link_by_identity(void *identity)
+void *find_last_runtime_secondary_resource_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_secondary_resource_link(root);
 }
 
 // GAG.EXE: 0x00426BD0
-void __fastcall destroy_runtime_tree_resources(void *identity)
+void destroy_runtime_tree_resources(void *identity)
 {
     RuntimeTreeNode *root = runtime_tree_destruction_api.resolve_tree(identity);
-    std::uint32_t count = runtime_resource_count;
+    uint32_t count = runtime_resource_count;
     if(root == nullptr)
     {
         return;
@@ -20057,13 +20109,13 @@ void __fastcall destroy_runtime_tree_resources(void *identity)
     if(root->identity == runtime_pointer_root_identity)
     {
         runtime_tree_destruction_api.set_resource_state(current_runtime_resource, 1);
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
         runtime_tree_destruction_api.stop_game_dll();
         runtime_tree_destruction_api.reset_display_state();
     }
     else
     {
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<std::uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
     }
 
     auto *primary_tail = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_tree_destruction_api.find_primary_tail(identity));
@@ -20074,7 +20126,7 @@ void __fastcall destroy_runtime_tree_resources(void *identity)
         {
             if(link->resource_identity != nullptr)
             {
-                std::uint32_t flags = runtime_tree_destruction_api.query_scene_flags(link->resource_identity);
+                uint32_t flags = runtime_tree_destruction_api.query_scene_flags(link->resource_identity);
                 if(flags != 0)
                 {
                     if((flags & 0x3000) == 0)
@@ -20147,26 +20199,26 @@ void __fastcall destroy_runtime_tree_resources(void *identity)
 }
 
 // GAG.EXE: 0x00425C40
-void __fastcall finalize_runtime_resource_destruction(void *identity)
+void finalize_runtime_resource_destruction(void *identity)
 {
-    std::int32_t scene_identifier = 0;
-    std::int32_t x;
-    std::int32_t y;
-    std::int32_t width;
-    std::int32_t height;
+    intptr_t scene_identifier = 0;
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
     RuntimeLockRecord *record = runtime_resource_scene_destruction_api.acquire_record(identity);
     if(record != nullptr)
     {
         auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
-        std::uint32_t type_flags = resource->type_flags;
-        std::uint32_t type = type_flags & 0xff000;
+        uint32_t type_flags = resource->type_flags;
+        uint32_t type = type_flags & 0xff000;
         if(type == 0x1000)
         {
             scene_identifier = resource->scene_identifier;
-            x = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor);
-            y = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor + 2);
-            width = static_cast<std::int32_t>(resource->output_width);
-            height = static_cast<std::int32_t>(resource->output_height);
+            x = resource->scene_descriptor.x;
+            y = resource->scene_descriptor.y;
+            width = static_cast<int32_t>(resource->output_width);
+            height = static_cast<int32_t>(resource->output_height);
             runtime_resource_scene_destruction_api.destroy_resource(identity);
             if((type_flags & 6) == 0)
             {
@@ -20176,11 +20228,11 @@ void __fastcall finalize_runtime_resource_destruction(void *identity)
         else if(type == 0x2000)
         {
             scene_identifier = resource->scene_identifier;
-            x = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor);
-            y = *reinterpret_cast<std::uint16_t *>(resource->scene_descriptor + 2);
-            width = static_cast<std::int32_t>(resource->output_width);
-            height = static_cast<std::int32_t>(resource->output_height);
-            std::uint32_t target_count = runtime_resource_count - 1;
+            x = resource->scene_descriptor.x;
+            y = resource->scene_descriptor.y;
+            width = static_cast<int32_t>(resource->output_width);
+            height = static_cast<int32_t>(resource->output_height);
+            uint32_t target_count = runtime_resource_count - 1;
             static_cast<RuntimeMediaBackend *>(resource->backend)->media_flags |= 0x10000;
             runtime_resource_scene_destruction_api.release_record(record);
             if((type_flags & 2) == 0)
@@ -20200,7 +20252,7 @@ void __fastcall finalize_runtime_resource_destruction(void *identity)
 }
 
 // GAG.EXE: 0x00427900
-void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifier, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
+void update_runtime_resource_scene_region(intptr_t scene_identifier, int32_t x, int32_t y, int32_t width, int32_t height)
 {
     DisplayRectangle rectangle{ x, y, x + width, y + height };
     if(scene_identifier == 0)
@@ -20212,7 +20264,7 @@ void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifi
     {
         return;
     }
-    RuntimeLockRecord *record = runtime_resource_scene_region_api.acquire_record(reinterpret_cast<void *>(static_cast<std::uintptr_t>(scene->primary_owner)));
+    RuntimeLockRecord *record = runtime_resource_scene_region_api.acquire_record(reinterpret_cast<void *>(static_cast<uintptr_t>(scene->primary_owner)));
     if(record != nullptr)
     {
         auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
@@ -20225,7 +20277,7 @@ void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifi
             if(runtime_resource_scene_region_api.begin_scene_update(scene_identifier) == 0)
             {
                 runtime_resource_scene_region_api.render_backend_region(resource->backend, &rectangle);
-                runtime_resource_scene_region_api.end_scene_update(scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(resource->scene_descriptor), &rectangle);
+                runtime_resource_scene_region_api.end_scene_update(scene_identifier, reinterpret_cast<const DisplayRectangleTransform *>(&resource->scene_descriptor), &rectangle);
             }
         }
         else
@@ -20234,7 +20286,7 @@ void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifi
             rectangle.top -= scene->y;
             rectangle.right -= scene->x;
             rectangle.bottom -= scene->y;
-            runtime_resource_scene_region_api.update_root_scene_region(reinterpret_cast<DisplaySceneNode *>(static_cast<std::uintptr_t>(scene_identifier)), &rectangle, 0);
+            runtime_resource_scene_region_api.update_root_scene_region(reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(scene_identifier)), &rectangle, 0);
         }
         runtime_resource_scene_region_api.release_record(record);
     }
@@ -20242,21 +20294,20 @@ void __fastcall update_runtime_resource_scene_region(std::int32_t scene_identifi
 }
 
 // GAG.EXE: 0x00417370
-void __fastcall copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle)
+void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle)
 {
     auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
-    std::int32_t bitmap_width = format->biWidth;
-    std::int32_t source_stride = (bitmap_width + 3) & ~3;
-    std::int32_t copy_width = rectangle->right - rectangle->left;
-    std::int32_t copy_height = rectangle->bottom - rectangle->top;
-    std::int32_t source_skip = bitmap_width - source_stride + bitmap_width - copy_width;
-    std::int32_t destination_stride = backend->destination_stride;
-    std::int32_t destination_skip = destination_stride - copy_width;
-    std::uint32_t pixel_offset;
-    std::memcpy(&pixel_offset, static_cast<std::uint8_t *>(backend->source_data) + 10, sizeof(pixel_offset));
-    std::uint8_t *source = static_cast<std::uint8_t *>(backend->source_data) + pixel_offset + rectangle->top * source_stride + rectangle->left;
-    std::uint8_t *destination =
-        backend->destination_pixels + (static_cast<std::uint32_t>(backend->destination_y) + rectangle->top) * backend->destination_stride + backend->destination_x + rectangle->left;
+    int32_t bitmap_width = format->biWidth;
+    int32_t source_stride = (bitmap_width + 3) & ~3;
+    int32_t copy_width = rectangle->right - rectangle->left;
+    int32_t copy_height = rectangle->bottom - rectangle->top;
+    int32_t source_skip = bitmap_width - source_stride + bitmap_width - copy_width;
+    int32_t destination_stride = backend->destination_stride;
+    int32_t destination_skip = destination_stride - copy_width;
+    uint32_t pixel_offset;
+    std::memcpy(&pixel_offset, static_cast<uint8_t *>(backend->source_data) + 10, sizeof(pixel_offset));
+    uint8_t *source = static_cast<uint8_t *>(backend->source_data) + pixel_offset + rectangle->top * source_stride + rectangle->left;
+    uint8_t *destination = backend->destination_pixels + (static_cast<uint32_t>(backend->destination_y) + rectangle->top) * backend->destination_stride + backend->destination_x + rectangle->left;
     if(format->biHeight >= 0)
     {
         source += source_stride * (format->biHeight - rectangle->top - rectangle->top - copy_height);
@@ -20267,7 +20318,7 @@ void __fastcall copy_runtime_bitmap_region(RuntimeMediaBackend *backend, Display
     {
         do
         {
-            std::int32_t remaining = copy_width;
+            int32_t remaining = copy_width;
             do
             {
                 *destination++ = backend->palette_remap[*source++];
@@ -20291,9 +20342,9 @@ void __fastcall copy_runtime_bitmap_region(RuntimeMediaBackend *backend, Display
 }
 
 // GAG.EXE: 0x0042B140
-std::uint32_t __fastcall render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)
+uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     runtime_bitmap_region_render_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     try
     {
@@ -20304,7 +20355,7 @@ std::uint32_t __fastcall render_runtime_bitmap_backend_region(void *identity, Di
                 if(backend->type == 0xac)
                 {
                     auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
-                    std::int32_t height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
+                    int32_t height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
                     if(rectangle->left < 0)
                     {
                         rectangle->left = 0;
@@ -20341,15 +20392,15 @@ std::uint32_t __fastcall render_runtime_bitmap_backend_region(void *identity, Di
 }
 
 // GAG.EXE: 0x00426D50
-void __fastcall select_runtime_scene_transition(std::uint32_t flags)
+void select_runtime_scene_transition(uint32_t flags)
 {
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
     trace_animation_startup("select scene transition flags=%08X", flags);
 #endif
-    std::uint32_t available;
+    uint32_t available;
     if((flags & 0x10000000) != 0)
     {
-        std::uint32_t depth_offset = runtime_game_host_context.bits_per_pixel - 8;
+        uint32_t depth_offset = runtime_game_host_context.bits_per_pixel - 8;
         available = (depth_offset < 1 ? 2U : 0U) + 0xffd;
     }
     else
@@ -20360,7 +20411,7 @@ void __fastcall select_runtime_scene_transition(std::uint32_t flags)
             available &= 0xfffffffd;
         }
     }
-    std::uint32_t selected = available & flags & 0xfff;
+    uint32_t selected = available & flags & 0xfff;
     if(selected == 0 && available != 0 && (flags & 0xfff) != 1 && (flags & 0x10000000) == 0)
     {
         selected = 1U << (runtime_scene_transition_selection_api.random() % 3);
@@ -20379,19 +20430,19 @@ void __fastcall select_runtime_scene_transition(std::uint32_t flags)
         runtime_scene_transition_selection_api.apply_palette(graphics_host_value_1, flags);
         break;
     case 4:
-        runtime_scene_transition_selection_api.apply_rectangle(static_cast<std::uint8_t>(graphics_host_value_2), flags);
+        runtime_scene_transition_selection_api.apply_rectangle(static_cast<uint8_t>(graphics_host_value_2), flags);
         break;
     }
 }
 
 // GAG.EXE: 0x00426E30
-void __fastcall apply_immediate_runtime_scene_transition(std::uint32_t, std::uint32_t flags)
+void apply_immediate_runtime_scene_transition(uint32_t, uint32_t flags)
 {
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
     trace_animation_startup("apply immediate transition flags=%08X current=%p", flags, current_runtime_resource);
 #endif
     DisplayRectangle rectangle{ 0, 0, 0, 0 };
-    std::uint32_t type = flags & 0xff000;
+    uint32_t type = flags & 0xff000;
     if(type == 0x1000)
     {
         if(runtime_immediate_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
@@ -20425,7 +20476,7 @@ void __fastcall apply_immediate_runtime_scene_transition(std::uint32_t, std::uin
         if((flags & 0x20000000) != 0)
         {
             auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
-            runtime_immediate_scene_transition_api.apply_palette(reinterpret_cast<PALETTEENTRY *>(reinterpret_cast<std::uint8_t *>(backend) + 0x1c), 0x10000);
+            runtime_immediate_scene_transition_api.apply_palette(backend->palette_entries, 0x10000);
             runtime_immediate_scene_transition_api.synchronize_region(&rectangle, 1);
         }
         runtime_immediate_scene_transition_api.set_clip_rectangle(&rectangle);
@@ -20435,10 +20486,10 @@ void __fastcall apply_immediate_runtime_scene_transition(std::uint32_t, std::uin
 }
 
 // GAG.EXE: 0x00426F40
-void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::uint32_t flags)
+void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
 {
-    std::uint8_t palette_step = static_cast<std::uint8_t>(step);
-    std::uint8_t transition_active = 0;
+    uint8_t palette_step = static_cast<uint8_t>(step);
+    uint8_t transition_active = 0;
     DisplayRectangle rectangle{};
     PALETTEENTRY temporary_palette[0xec];
     RuntimeLockRecord *record = runtime_palette_scene_transition_api.acquire_record(current_runtime_resource);
@@ -20449,9 +20500,10 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
     else
     {
         auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
-        auto *backend_bytes = static_cast<std::uint8_t *>(resource->backend);
-        std::memcpy(runtime_transition_palette, backend_bytes + 0x1c, 0x101 * sizeof(PALETTEENTRY));
-        const std::uint32_t type = flags & 0xff000;
+        auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
+        std::memcpy(&runtime_transition_palette[0], &backend->field_001c, sizeof(PALETTEENTRY));
+        std::memcpy(&runtime_transition_palette[1], backend->palette_entries, sizeof(backend->palette_entries));
+        const uint32_t type = flags & 0xff000;
         if(type == 0x1000)
         {
             ++transition_active;
@@ -20465,10 +20517,10 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
                 ++transition_active;
                 if((flags & 0x20000000) != 0)
                 {
-                    runtime_palette_scene_transition_api.apply_palette(reinterpret_cast<const PALETTEENTRY *>(backend_bytes + 0x1c), 0x10000);
+                    runtime_palette_scene_transition_api.apply_palette(backend->palette_entries, 0x10000);
                     runtime_palette_scene_transition_api.operate_surface(runtime_game_host_context.width >> 1, runtime_game_host_context.height >> 1, 4, 4, 1);
                 }
-                for(std::size_t index = 0; index != 0xec; ++index)
+                for(size_t index = 0; index != 0xec; ++index)
                 {
                     const PALETTEENTRY source = runtime_transition_palette[index + 1];
                     temporary_palette[index].peRed = static_cast<BYTE>(source.peRed + 1);
@@ -20490,13 +20542,13 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
     {
         return;
     }
-    std::uint32_t completed = 0;
+    uint32_t completed = 0;
     DWORD deadline = runtime_palette_scene_transition_api.time_get_time();
     if((runtime_scene_control_flags & 0x40000) != 0)
     {
         palette_step = 0xff;
     }
-    const std::uint32_t type = flags & 0xff000;
+    const uint32_t type = flags & 0xff000;
     if(type == 0x2000)
     {
         while(completed < 0xec)
@@ -20509,11 +20561,11 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
             else
             {
                 deadline = runtime_palette_scene_transition_api.time_get_time() + 2;
-                std::uint8_t passes = palette_step;
+                uint8_t passes = palette_step;
                 do
                 {
                     completed = 0;
-                    for(std::size_t reverse = 0xec; reverse != 0; --reverse)
+                    for(size_t reverse = 0xec; reverse != 0; --reverse)
                     {
                         PALETTEENTRY &temporary = temporary_palette[reverse - 1];
                         PALETTEENTRY &destination = runtime_transition_palette[reverse];
@@ -20522,9 +20574,9 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
                             ++completed;
                             continue;
                         }
-                        auto *temporary_channels = reinterpret_cast<std::uint8_t *>(&temporary);
-                        auto *destination_channels = reinterpret_cast<std::uint8_t *>(&destination);
-                        for(std::size_t channel = 0; channel != 3; ++channel)
+                        auto *temporary_channels = reinterpret_cast<uint8_t *>(&temporary);
+                        auto *destination_channels = reinterpret_cast<uint8_t *>(&destination);
+                        for(size_t channel = 0; channel != 3; ++channel)
                         {
                             if(temporary_channels[channel] == 0)
                             {
@@ -20563,14 +20615,14 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
         {
             deadline = runtime_palette_scene_transition_api.time_get_time() + 2;
             completed = 0;
-            for(std::size_t reverse = 0xec; reverse != 0; --reverse)
+            for(size_t reverse = 0xec; reverse != 0; --reverse)
             {
-                auto *channels = reinterpret_cast<std::uint8_t *>(&runtime_transition_palette[reverse]);
-                for(std::size_t channel = 0; channel != 3; ++channel)
+                auto *channels = reinterpret_cast<uint8_t *>(&runtime_transition_palette[reverse]);
+                for(size_t channel = 0; channel != 3; ++channel)
                 {
                     if(channels[channel] > palette_step)
                     {
-                        channels[channel] = static_cast<std::uint8_t>(channels[channel] - palette_step);
+                        channels[channel] = static_cast<uint8_t>(channels[channel] - palette_step);
                     }
                     else
                     {
@@ -20595,7 +20647,7 @@ void __fastcall apply_palette_runtime_scene_transition(std::uint32_t step, std::
 }
 
 // GAG.EXE: 0x004272D0
-void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std::uint32_t flags)
+void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags)
 {
     RuntimeLockRecord *record = runtime_rectangle_scene_transition_api.acquire_record(current_runtime_resource);
     if(record == nullptr || (reinterpret_cast<RuntimeResourceObject *>(record)->type_flags & 0x3000) == 0)
@@ -20604,10 +20656,10 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
         return;
     }
 
-    const std::uint32_t width = runtime_game_host_context.width;
-    const std::uint32_t height = runtime_game_host_context.height;
-    std::uint32_t horizontal_step;
-    std::uint32_t vertical_step;
+    const uint32_t width = runtime_game_host_context.width;
+    const uint32_t height = runtime_game_host_context.height;
+    uint32_t horizontal_step;
+    uint32_t vertical_step;
     if(size == 0xff)
     {
         horizontal_step = width;
@@ -20619,17 +20671,17 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
         vertical_step = (horizontal_step * 15) / 20;
     }
 
-    const std::uint32_t type = flags & 0xff000;
+    const uint32_t type = flags & 0xff000;
     if(type == 0x1000)
     {
-        DisplayRectangle clip{ 0, 0, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) };
+        DisplayRectangle clip{ 0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height) };
         if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
         {
             runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
             runtime_rectangle_scene_transition_api.release_display_lock();
         }
         DWORD deadline = runtime_rectangle_scene_transition_api.time_get_time();
-        while((clip.bottom - clip.top) > static_cast<std::int32_t>(vertical_step * 2) || (clip.right - clip.left) > static_cast<std::int32_t>(horizontal_step * 2))
+        while((clip.bottom - clip.top) > static_cast<int32_t>(vertical_step * 2) || (clip.right - clip.left) > static_cast<int32_t>(horizontal_step * 2))
         {
             DWORD now = runtime_rectangle_scene_transition_api.time_get_time();
             if(now < deadline)
@@ -20639,23 +20691,23 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
             }
             deadline = runtime_rectangle_scene_transition_api.time_get_time() + 2;
 
-            const std::int32_t old_left = clip.left;
-            const std::int32_t old_top = clip.top;
-            const std::int32_t old_right = clip.right;
-            const std::int32_t old_bottom = clip.bottom;
-            const std::int32_t next_right = old_right - static_cast<std::int32_t>(horizontal_step);
-            const std::int32_t next_bottom = old_bottom - static_cast<std::int32_t>(vertical_step);
+            const int32_t old_left = clip.left;
+            const int32_t old_top = clip.top;
+            const int32_t old_right = clip.right;
+            const int32_t old_bottom = clip.bottom;
+            const int32_t next_right = old_right - static_cast<int32_t>(horizontal_step);
+            const int32_t next_bottom = old_bottom - static_cast<int32_t>(vertical_step);
             DisplayRectangle strips[4]{
-                { old_left,   old_top,                                            next_right - old_left,                      static_cast<std::int32_t>(vertical_step)                            },
-                { next_right, old_top,                                            static_cast<std::int32_t>(horizontal_step), old_bottom - old_top                                                },
-                { old_left,   next_bottom,                                        next_right - old_left,                      static_cast<std::int32_t>(vertical_step)                            },
-                { old_left,   old_top + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>(horizontal_step), old_bottom - old_top - static_cast<std::int32_t>(vertical_step * 2) },
+                { old_left,   old_top,                                       next_right - old_left,                 static_cast<int32_t>(vertical_step)                            },
+                { next_right, old_top,                                       static_cast<int32_t>(horizontal_step), old_bottom - old_top                                           },
+                { old_left,   next_bottom,                                   next_right - old_left,                 static_cast<int32_t>(vertical_step)                            },
+                { old_left,   old_top + static_cast<int32_t>(vertical_step), static_cast<int32_t>(horizontal_step), old_bottom - old_top - static_cast<int32_t>(vertical_step * 2) },
             };
 
-            clip.left = std::min(old_left + static_cast<std::int32_t>(horizontal_step), static_cast<std::int32_t>((width >> 1) - horizontal_step));
-            clip.top = std::min(old_top + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>((height >> 1) - vertical_step));
-            clip.right = std::max(next_right, static_cast<std::int32_t>((width >> 1) + horizontal_step));
-            clip.bottom = std::max(next_bottom, static_cast<std::int32_t>((height >> 1) + vertical_step));
+            clip.left = std::min(old_left + static_cast<int32_t>(horizontal_step), static_cast<int32_t>((width >> 1) - horizontal_step));
+            clip.top = std::min(old_top + static_cast<int32_t>(vertical_step), static_cast<int32_t>((height >> 1) - vertical_step));
+            clip.right = std::max(next_right, static_cast<int32_t>((width >> 1) + horizontal_step));
+            clip.bottom = std::max(next_bottom, static_cast<int32_t>((height >> 1) + vertical_step));
             if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
             {
                 runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
@@ -20680,19 +20732,19 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
         DisplayRectangle clip;
         if(size == 0xff)
         {
-            clip = { 0, 0, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height) };
+            clip = { 0, 0, static_cast<int32_t>(width), static_cast<int32_t>(height) };
         }
         else
         {
-            clip = { static_cast<std::int32_t>((width >> 1) - horizontal_step), static_cast<std::int32_t>((height >> 1) - vertical_step), static_cast<std::int32_t>((width >> 1) + horizontal_step),
-                static_cast<std::int32_t>((height >> 1) + vertical_step) };
+            clip = { static_cast<int32_t>((width >> 1) - horizontal_step), static_cast<int32_t>((height >> 1) - vertical_step), static_cast<int32_t>((width >> 1) + horizontal_step),
+                static_cast<int32_t>((height >> 1) + vertical_step) };
         }
         if(runtime_rectangle_scene_transition_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
         {
             if((flags & 0x20000000) != 0)
             {
                 auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
-                auto *backend = static_cast<std::uint8_t *>(resource->backend);
+                auto *backend = static_cast<uint8_t *>(resource->backend);
                 runtime_rectangle_scene_transition_api.apply_palette(reinterpret_cast<const PALETTEENTRY *>(backend + 0x1c), 0x10000);
             }
             runtime_rectangle_scene_transition_api.dispatch_scene_update(&clip, 0);
@@ -20700,7 +20752,7 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
             runtime_rectangle_scene_transition_api.release_display_lock();
         }
         DWORD deadline = runtime_rectangle_scene_transition_api.get_tick_count();
-        while((clip.right - clip.left) < static_cast<std::int32_t>(width) || (clip.bottom - clip.top) < static_cast<std::int32_t>(height))
+        while((clip.right - clip.left) < static_cast<int32_t>(width) || (clip.bottom - clip.top) < static_cast<int32_t>(height))
         {
             DWORD now = runtime_rectangle_scene_transition_api.get_tick_count();
             if(now < deadline)
@@ -20709,14 +20761,14 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
                 continue;
             }
             deadline = runtime_rectangle_scene_transition_api.get_tick_count() + 2;
-            const std::int32_t old_left = clip.left;
-            const std::int32_t old_top = clip.top;
-            const std::int32_t old_right = clip.right;
-            const std::int32_t old_bottom = clip.bottom;
-            clip.left = std::max(old_left - static_cast<std::int32_t>(horizontal_step), 0);
-            clip.top = std::max(old_top - static_cast<std::int32_t>(vertical_step), 0);
-            clip.right = std::min(old_right + static_cast<std::int32_t>(horizontal_step), static_cast<std::int32_t>(width));
-            clip.bottom = std::min(old_bottom + static_cast<std::int32_t>(vertical_step), static_cast<std::int32_t>(height));
+            const int32_t old_left = clip.left;
+            const int32_t old_top = clip.top;
+            const int32_t old_right = clip.right;
+            const int32_t old_bottom = clip.bottom;
+            clip.left = std::max(old_left - static_cast<int32_t>(horizontal_step), 0);
+            clip.top = std::max(old_top - static_cast<int32_t>(vertical_step), 0);
+            clip.right = std::min(old_right + static_cast<int32_t>(horizontal_step), static_cast<int32_t>(width));
+            clip.bottom = std::min(old_bottom + static_cast<int32_t>(vertical_step), static_cast<int32_t>(height));
             DisplayRectangle strips[4]{
                 { clip.left, clip.top,   old_right,  old_top     },
                 { old_right, clip.top,   clip.right, clip.bottom },
@@ -20738,7 +20790,7 @@ void __fastcall apply_rectangle_runtime_scene_transition(std::uint8_t size, std:
 }
 
 // GAG.EXE: 0x00425930
-void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
+void set_runtime_resource_state(void *identity, uint32_t state)
 {
     RuntimeLockRecord *record = runtime_resource_state_api.acquire_record(identity);
     if(record == nullptr)
@@ -20751,7 +20803,7 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
     }
 
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
-    std::uint32_t type = resource->type_flags & 0xff000;
+    uint32_t type = resource->type_flags & 0xff000;
     if(type == 0x1000)
     {
         auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
@@ -20759,11 +20811,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
         if(force_refresh || (backend->media_flags & 0x20) != 0)
         {
             backend->media_flags |= 0x20;
-            DisplayRectangle rectangle{ 0, 0, static_cast<std::int32_t>(resource->output_width), static_cast<std::int32_t>(resource->output_height) };
+            DisplayRectangle rectangle{ 0, 0, static_cast<int32_t>(resource->output_width), static_cast<int32_t>(resource->output_height) };
             runtime_resource_state_api.begin_scene_update(resource->scene_identifier);
             runtime_resource_state_api.finalize_backend(backend);
             runtime_resource_state_api.configure_palette(resource);
-            runtime_resource_state_api.end_scene_update(resource->scene_identifier, reinterpret_cast<DisplayRectangleTransform *>(resource->scene_descriptor), &rectangle);
+            runtime_resource_state_api.end_scene_update(resource->scene_identifier, reinterpret_cast<DisplayRectangleTransform *>(&resource->scene_descriptor), &rectangle);
             if(resource->field_0074 != 0)
             {
                 runtime_resource_state_api.clear_child_ready(reinterpret_cast<void *>(resource->field_0074));
@@ -20788,7 +20840,7 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
     else if(type == 0x2000)
     {
         auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
-        std::uint32_t transition_flag = backend->frame_number == 1 ? 0x20000000 : 0;
+        uint32_t transition_flag = backend->frame_number == 1 ? 0x20000000 : 0;
         backend->media_flags = (backend->media_flags & (state ^ 0xfffffdfe)) | state;
         if(current_runtime_resource == identity)
         {
@@ -20805,7 +20857,7 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
     else if(type == 0x8000)
     {
         bool force_refresh = (state & 0x20000) != 0;
-        std::uint32_t handle = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(resource->backend));
+        uint32_t handle = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource->backend));
         if(force_refresh)
         {
             RuntimeSoundSlot *slot = runtime_resource_state_api.get_sound_slot(handle);
@@ -20863,12 +20915,11 @@ void __fastcall set_runtime_resource_state(void *identity, std::uint32_t state)
 }
 
 // GAG.EXE: 0x00409370
-std::uint32_t __fastcall parse_runtime_command_definition(ScriptParserState *parser)
+uint32_t parse_runtime_command_definition(ScriptParserState *parser)
 {
-    auto *root_bytes = reinterpret_cast<std::uint8_t *>(script_runtime_root);
-    auto *count = reinterpret_cast<std::uint32_t *>(root_bytes + 0x0a70);
-    auto *definitions = reinterpret_cast<RuntimeCommandDefinition *>(root_bytes + 0x0a74);
-    const std::uint32_t original_count = *count;
+    uint32_t &count = script_runtime_root->command_definition_count;
+    RuntimeCommandDefinition *definitions = script_runtime_root->command_definitions;
+    const uint32_t original_count = count;
     if(original_count > 0x1f)
     {
         return 0;
@@ -20880,7 +20931,7 @@ std::uint32_t __fastcall parse_runtime_command_definition(ScriptParserState *par
         return 0;
     }
 
-    std::uint32_t index = 0;
+    uint32_t index = 0;
     while(index < original_count && !fixed_dword_memory_equal(name, definitions[index].name, sizeof(name)))
     {
         ++index;
@@ -20892,7 +20943,7 @@ std::uint32_t __fastcall parse_runtime_command_definition(ScriptParserState *par
 
     for(;;)
     {
-        std::uint32_t code = parse_script_scope_code(parser);
+        uint32_t code = parse_script_scope_code(parser);
         if(code == 0x0a000000)
         {
             code = parse_image_flag(parser);
@@ -20924,12 +20975,12 @@ std::uint32_t __fastcall parse_runtime_command_definition(ScriptParserState *par
         }
     }
 
-    ++*count;
-    return *count;
+    ++count;
+    return count;
 }
 
 // GAG.EXE: 0x004094C0
-void __fastcall append_dual_image_flag(ScriptTextBuffer *buffer, std::uint32_t flags)
+void append_dual_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer != nullptr && flags != 0 && (flags & 0x00200000) != 0)
     {
@@ -20940,21 +20991,20 @@ void __fastcall append_dual_image_flag(ScriptTextBuffer *buffer, std::uint32_t f
 }
 
 // GAG.EXE: 0x00409510
-void __fastcall serialize_runtime_command_definitions(ScriptTextBuffer *buffer)
+void serialize_runtime_command_definitions(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr)
     {
         return;
     }
-    const auto *root_bytes = reinterpret_cast<const std::uint8_t *>(script_runtime_root);
-    const std::uint32_t count = *reinterpret_cast<const std::uint32_t *>(root_bytes + 0x0a70);
-    const auto *definitions = reinterpret_cast<const RuntimeCommandDefinition *>(root_bytes + 0x0a74);
+    const uint32_t count = script_runtime_root->command_definition_count;
+    const RuntimeCommandDefinition *definitions = script_runtime_root->command_definitions;
     if(count != 0)
     {
         append_script_text_delimiter(buffer, nullptr, '\r');
         append_script_text_delimiter(buffer, nullptr, '\n');
     }
-    for(std::uint32_t index = 0; index < count; ++index)
+    for(uint32_t index = 0; index < count; ++index)
     {
         append_script_text_property(buffer, 7, definitions[index].name);
         if(definitions[index].visual_object != nullptr)
@@ -20972,12 +21022,17 @@ void clear_runtime_command_definitions()
 {
     if(script_runtime_root != nullptr)
     {
-        std::memset(reinterpret_cast<std::uint8_t *>(script_runtime_root) + 0x0a70, 0, 0x504);
+        script_runtime_root->command_definition_count = 0;
+        std::memset(script_runtime_root->command_definitions, 0, sizeof(script_runtime_root->command_definitions));
+        if(runtime_scene_slots != reinterpret_cast<RuntimeSceneSlot *>(script_runtime_root->command_definitions))
+        {
+            std::memset(runtime_scene_slots, 0, sizeof(RuntimeSceneSlot) * 32);
+        }
     }
 }
 
 // GAG.EXE: 0x00409600
-std::uint32_t __fastcall parse_runtime_tree_scene_link(ScriptParserState *parser)
+uint32_t parse_runtime_tree_scene_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
     char name[0x104];
@@ -20994,34 +21049,34 @@ std::uint32_t __fastcall parse_runtime_tree_scene_link(ScriptParserState *parser
     link->identity = link;
     for(;;)
     {
-        std::uint32_t code = parse_script_scope_code(parser);
+        uint32_t code = parse_script_scope_code(parser);
         if(code == 0x02000000)
         {
-            const std::int32_t left = parse_script_integer_expression(parser);
+            const int32_t left = parse_script_integer_expression(parser);
             if(left != 0x7fffffff)
             {
                 link->x = left;
             }
-            const std::int32_t top = parse_script_integer_expression(parser);
+            const int32_t top = parse_script_integer_expression(parser);
             if(top != 0x7fffffff)
             {
                 link->y = top;
             }
-            const std::int32_t right = parse_script_integer_expression(parser);
+            const int32_t right = parse_script_integer_expression(parser);
             if(right != 0x7fffffff)
             {
                 link->width = right - link->x + 1;
             }
-            const std::int32_t bottom = parse_script_integer_expression(parser);
+            const int32_t bottom = parse_script_integer_expression(parser);
             if(bottom != 0x7fffffff)
             {
                 link->height = bottom - link->y + 1;
             }
-            code = static_cast<std::uint32_t>(bottom);
+            code = static_cast<uint32_t>(bottom);
         }
         else if(code == 0x00040000)
         {
-            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            code = static_cast<uint32_t>(parse_script_integer_expression(parser));
             if(code != 0x7fffffff)
             {
                 link->z = code;
@@ -21037,27 +21092,27 @@ std::uint32_t __fastcall parse_runtime_tree_scene_link(ScriptParserState *parser
         }
         else if(code == 0x0b000000)
         {
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 link->x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 link->y = y;
             }
-            const std::int32_t width = parse_script_integer_expression(parser);
+            const int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
                 link->width = width;
             }
-            const std::int32_t height = parse_script_integer_expression(parser);
+            const int32_t height = parse_script_integer_expression(parser);
             if(height != 0x7fffffff)
             {
                 link->height = height;
             }
-            code = static_cast<std::uint32_t>(height);
+            code = static_cast<uint32_t>(height);
         }
         if(code == 0xffffffff)
         {
@@ -21079,7 +21134,7 @@ std::uint32_t __fastcall parse_runtime_tree_scene_link(ScriptParserState *parser
 }
 
 // GAG.EXE: 0x00409A80
-std::uint32_t __fastcall parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
+uint32_t parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
     char name[0x80];
@@ -21094,7 +21149,7 @@ std::uint32_t __fastcall parse_runtime_tree_secondary_resource_link(ScriptParser
     }
     std::memcpy(link->name, name, sizeof(link->name));
     link->identity = link;
-    std::uint32_t code;
+    uint32_t code;
     do
     {
         code = parse_script_scope_code(parser);
@@ -21123,7 +21178,7 @@ std::uint32_t __fastcall parse_runtime_tree_secondary_resource_link(ScriptParser
 }
 
 // GAG.EXE: 0x00409E50
-std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
+uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
     char value[0x80];
@@ -21150,7 +21205,7 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
     link->image_flags |= script_runtime_root->palette_flags;
     for(;;)
     {
-        std::uint32_t code = parse_script_scope_code(parser);
+        uint32_t code = parse_script_scope_code(parser);
         if(code == 0x00050000)
         {
             if(parse_script_value_token(parser, value, 0x20) != 0xffffffff)
@@ -21173,12 +21228,12 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
         }
         else if(code == 0x00300000)
         {
-            const std::int32_t ratio_x = parse_script_integer_expression(parser);
+            const int32_t ratio_x = parse_script_integer_expression(parser);
             if(ratio_x != 0x7fffffff)
             {
-                link->ratio_x = static_cast<std::uint32_t>(ratio_x);
+                link->ratio_x = static_cast<uint32_t>(ratio_x);
             }
-            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            code = static_cast<uint32_t>(parse_script_integer_expression(parser));
             if(code != 0x7fffffff)
             {
                 link->ratio_y = code;
@@ -21186,7 +21241,7 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
         }
         else if(code == 0x00900000)
         {
-            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            code = static_cast<uint32_t>(parse_script_integer_expression(parser));
             if(code != 0x7fffffff)
             {
                 link->loop_count = code;
@@ -21230,22 +21285,22 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
         }
         else if(code == 0x0b000000)
         {
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 link->x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 link->y = y;
             }
-            const std::int32_t width = parse_script_integer_expression(parser);
+            const int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
-                link->width = static_cast<std::uint32_t>(width);
+                link->width = static_cast<uint32_t>(width);
             }
-            code = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
+            code = static_cast<uint32_t>(parse_script_integer_expression(parser));
             if(code != 0x7fffffff)
             {
                 link->height = code;
@@ -21301,20 +21356,19 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
     }
     if(named != nullptr)
     {
-        std::int32_t x = link->x;
-        const std::int32_t y = link->y;
+        int32_t x = link->x;
+        const int32_t y = link->y;
         auto *child = reinterpret_cast<RuntimeResourceCacheEntry *>(named->child_cursor);
-        const auto *named_bytes = reinterpret_cast<const std::uint8_t *>(named);
-        for(std::uint32_t index = 0; index < named->unknown_0028; ++index)
+        for(uint32_t index = 0; index < named->unknown_0028; ++index)
         {
             char generated_name[0x80];
             append_three_digit_decimal_suffix(link->identifier, index, generated_name);
             void *resource_object = nullptr;
             void *primary_identity;
-            std::uint32_t resource_value = 0;
+            uint32_t resource_value = 0;
             if(child == nullptr)
             {
-                primary_identity = create_or_update_runtime_tree_primary_resource_link(node, generated_name, nullptr, static_cast<std::int32_t>(link->source_value), x, y, link->image_flags);
+                primary_identity = create_or_update_runtime_tree_primary_resource_link(node, generated_name, nullptr, static_cast<int32_t>(link->source_value), x, y, link->image_flags);
                 if(primary_identity != nullptr)
                 {
                     static_cast<RuntimeTreePrimaryResourceLink *>(primary_identity)->flags |= 0x80000000;
@@ -21323,14 +21377,12 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
             else
             {
                 resource_object = child->data;
-                auto *resource_bytes = static_cast<std::uint8_t *>(resource_object);
-                resource_value = *reinterpret_cast<std::uint32_t *>(resource_bytes + 0x47c);
-                primary_identity =
-                    create_or_update_runtime_tree_primary_resource_link(node, generated_name, resource_bytes + 0x430, static_cast<std::int32_t>(link->source_value), x, y, link->image_flags);
+                auto *resource_bytes = static_cast<uint8_t *>(resource_object);
+                resource_value = *reinterpret_cast<uint32_t *>(resource_bytes + 0x47c);
+                primary_identity = create_or_update_runtime_tree_primary_resource_link(node, generated_name, resource_bytes + 0x430, static_cast<int32_t>(link->source_value), x, y, link->image_flags);
             }
-            create_or_update_runtime_tree_link_0084(node, generated_name, x, y, x + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x30),
-                y + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x34), 0, resource_object, primary_identity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(named)),
-                resource_value, *reinterpret_cast<const std::uint32_t *>(named_bytes + 0x3c));
+            create_or_update_runtime_tree_link_0084(node, generated_name, x, y, x + named->zone_left, y + named->zone_top, 0, resource_object, primary_identity, reinterpret_cast<uintptr_t>(named),
+                resource_value, named->zone_bottom);
             if(child != nullptr)
             {
                 child = child->next;
@@ -21339,7 +21391,7 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
                     child = nullptr;
                 }
             }
-            x += *reinterpret_cast<const std::int32_t *>(named_bytes + 0x38) + *reinterpret_cast<const std::int32_t *>(named_bytes + 0x30);
+            x += named->zone_right + named->zone_left;
         }
     }
     runtime_named_node_memory_api.heap_free(script_runtime_root->heap, 0, link);
@@ -21347,7 +21399,7 @@ std::uint32_t __fastcall parse_runtime_tree_primary_resource_link(ScriptParserSt
 }
 
 // GAG.EXE: 0x00408DD0
-std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
+uint32_t parse_runtime_visual_object(ScriptParserState *parser)
 {
     bool invert_no_palette = false;
     bool parsed_file = false;
@@ -21391,10 +21443,10 @@ std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
     object->flags |= 0x00100000;
     for(;;)
     {
-        std::uint32_t code = parse_script_scope_code(parser);
+        uint32_t code = parse_script_scope_code(parser);
         if(code == 0x01000000)
         {
-            const std::uint32_t file_result = parse_script_file_value(parser, value, object->serialized_file);
+            const uint32_t file_result = parse_script_file_value(parser, value, object->serialized_file);
             if(file_result != 0xffffffff)
             {
                 parsed_file = true;
@@ -21427,7 +21479,7 @@ std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
                     current->flags &= 0xfffffffe;
                 }
                 object->flags |= 1;
-                *reinterpret_cast<RuntimeVisualObject **>(reinterpret_cast<std::uint8_t *>(parser) + 0x70) = object;
+                *reinterpret_cast<RuntimeVisualObject **>(reinterpret_cast<uint8_t *>(parser) + 0x70) = object;
             }
             else
             {
@@ -21436,17 +21488,17 @@ std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
         }
         else if(code == 0x0b000000)
         {
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 object->position_x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 object->position_y = y;
             }
-            code = static_cast<std::uint32_t>(y);
+            code = static_cast<uint32_t>(y);
         }
         if(code == 0xffffffff)
         {
@@ -21473,7 +21525,7 @@ std::uint32_t __fastcall parse_runtime_visual_object(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x00409060
-void *__fastcall create_or_update_runtime_visual_object(const void *name, const void *file_name, std::int32_t position_x, std::int32_t position_y, std::uint32_t flags, std::uint32_t palette_flags)
+void *create_or_update_runtime_visual_object(const void *name, const void *file_name, int32_t position_x, int32_t position_y, uint32_t flags, uint32_t palette_flags)
 {
     RuntimeVisualObject *previous = nullptr;
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
@@ -21531,7 +21583,7 @@ void *__fastcall create_or_update_runtime_visual_object(const void *name, const 
 }
 
 // GAG.EXE: 0x00409210
-void __fastcall serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
+void serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
 {
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
     if(object == nullptr)
@@ -21559,7 +21611,7 @@ void __fastcall serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x00408B80
-void __fastcall serialize_script_object_states(ScriptTextBuffer *buffer)
+void serialize_script_object_states(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->objects == nullptr)
     {
@@ -21570,8 +21622,8 @@ void __fastcall serialize_script_object_states(ScriptTextBuffer *buffer)
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
     {
         append_script_text_property(buffer, 1, object->name);
-        std::uint32_t field_mask = 1;
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        uint32_t field_mask = 1;
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(object->integer_values[index] != 0)
             {
@@ -21600,7 +21652,7 @@ void __fastcall serialize_script_object_states(ScriptTextBuffer *buffer)
         serialize_image_flag_overrides(buffer, object->image_flags);
         append_natural_mouse_image_flag(buffer, object->flags_042c);
         field_mask = 1;
-        for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+        for(uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
         {
             if((object->command_mask & field_mask) != 0)
             {
@@ -21614,7 +21666,7 @@ void __fastcall serialize_script_object_states(ScriptTextBuffer *buffer)
 }
 
 // GAG.EXE: 0x00409330
-RuntimeVisualObject *__fastcall find_runtime_visual_object(const char *name)
+RuntimeVisualObject *find_runtime_visual_object(const char *name)
 {
     for(RuntimeVisualObject *object = script_runtime_root->visual_objects; object != nullptr; object = object->next)
     {
@@ -21627,11 +21679,11 @@ RuntimeVisualObject *__fastcall find_runtime_visual_object(const char *name)
 }
 
 // GAG.EXE: 0x0040C3D0
-void __fastcall enqueue_runtime_event_record(const std::uint32_t *record)
+void enqueue_runtime_event_record(const uintptr_t *record)
 {
     if(script_runtime_root != nullptr && record != nullptr)
     {
-        std::memcpy(script_runtime_root->event_records[script_runtime_root->transient_index_2], record, 0x40);
+        std::memcpy(script_runtime_root->event_records[script_runtime_root->transient_index_2], record, sizeof(script_runtime_root->event_records[0]));
         ++script_runtime_root->transient_index_2;
         if(script_runtime_root->transient_index_2 > 0x1f)
         {
@@ -21653,7 +21705,7 @@ void acknowledge_current_runtime_event_record()
 {
     if(script_runtime_root != nullptr && script_runtime_root->transient_index_2 != script_runtime_root->transient_index_1)
     {
-        std::uint32_t &flags = script_runtime_root->event_records[script_runtime_root->transient_index_1][14];
+        uintptr_t &flags = script_runtime_root->event_records[script_runtime_root->transient_index_1][14];
         if((flags & 0x20000) != 0)
         {
             read_runtime_event_record(nullptr, 1);
@@ -21666,7 +21718,7 @@ void acknowledge_current_runtime_event_record()
 }
 
 // GAG.EXE: 0x0040C440
-std::uint32_t __fastcall read_runtime_event_record(std::uint32_t *record, std::int32_t advance)
+uint32_t read_runtime_event_record(uintptr_t *record, int32_t advance)
 {
     if(record != nullptr)
     {
@@ -21678,7 +21730,7 @@ std::uint32_t __fastcall read_runtime_event_record(std::uint32_t *record, std::i
     }
     if(record != nullptr)
     {
-        std::memcpy(record, script_runtime_root->event_records[script_runtime_root->transient_index_1], 0x40);
+        std::memcpy(record, script_runtime_root->event_records[script_runtime_root->transient_index_1], sizeof(script_runtime_root->event_records[0]));
     }
     if(advance != 0)
     {
@@ -21692,7 +21744,7 @@ std::uint32_t __fastcall read_runtime_event_record(std::uint32_t *record, std::i
 }
 
 // GAG.EXE: 0x004237F0
-std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region)
+int32_t select_pointer_region_scene(RuntimePointerRegion *region)
 {
     region->current_scene_bit = 0;
     if(region->scene_mask == 0)
@@ -21700,14 +21752,14 @@ std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region
         return -1;
     }
     region->current_scene_bit = region->first_scene_bit != 0 ? region->first_scene_bit : 1;
-    std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
-    for(std::int32_t attempts = 0; attempts < 32; ++attempts)
+    uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
+    for(int32_t attempts = 0; attempts < 32; ++attempts)
     {
-        std::uint32_t bit = region->current_scene_bit;
+        uint32_t bit = region->current_scene_bit;
         if((bit & region->scene_mask) != 0)
         {
-            std::int32_t index = 0;
-            for(std::uint32_t shifted = bit; shifted != 1; shifted >>= 1)
+            int32_t index = 0;
+            for(uint32_t shifted = bit; shifted != 1; shifted >>= 1)
             {
                 ++index;
             }
@@ -21723,7 +21775,7 @@ std::int32_t __fastcall select_pointer_region_scene(RuntimePointerRegion *region
 }
 
 // GAG.EXE: 0x00407A80
-std::uint32_t __fastcall synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tree_identity, RuntimePointerRegion *region)
+uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tree_identity, RuntimePointerRegion *region)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
     while(node != nullptr && node->identity != owner_identity)
@@ -21737,11 +21789,11 @@ std::uint32_t __fastcall synchronize_runtime_pointer_owner_slots(void *owner_ide
 
     auto *child = reinterpret_cast<RuntimeResourceCacheEntry *>(node->child_cursor);
     RuntimeTreeLink84 *link = find_global_runtime_tree_link_0084_by_identity(region);
-    for(std::uint32_t index = 0; index < node->unknown_0028; ++index)
+    for(uint32_t index = 0; index < node->unknown_0028; ++index)
     {
         if(child == nullptr)
         {
-            if(link != nullptr && link->value_0054 == static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(owner_identity)))
+            if(link != nullptr && link->value_0054 == reinterpret_cast<uintptr_t>(owner_identity))
             {
                 link->value_0040 = 0;
                 if(link->identity_005c != nullptr)
@@ -21750,13 +21802,13 @@ std::uint32_t __fastcall synchronize_runtime_pointer_owner_slots(void *owner_ide
                 }
             }
         }
-        else if(link != nullptr && link->value_0054 == static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(owner_identity)))
+        else if(link != nullptr && link->value_0054 == reinterpret_cast<uintptr_t>(owner_identity))
         {
             auto *object = static_cast<ScriptObjectState *>(child->data);
             update_runtime_tree_link_0084(tree_identity, link->identity, 0, 0, 0, 0, 0, object, nullptr, 0, object->command_mask, 0x7fffffff);
             if(link->identity_005c != nullptr)
             {
-                std::uint8_t file_name_bytes[sizeof(void *)];
+                uint8_t file_name_bytes[sizeof(void *)];
                 const void *file_name;
                 if((object->flags_042c & 0x10000) == 0)
                 {
@@ -21791,8 +21843,7 @@ std::uint32_t __fastcall synchronize_runtime_pointer_owner_slots(void *owner_ide
 }
 
 // GAG.EXE: 0x00425D50
-RuntimeGenericBackendChild *__fastcall attach_runtime_generic_backend_child(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, std::uint32_t selection,
-    std::uint32_t flags)
+RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, uintptr_t selection, uint32_t flags)
 {
     RuntimeGenericBackendChild *child = nullptr;
     RuntimeLockRecord *resource_record = runtime_generic_child_attachment_api.acquire_resource(resource_identity);
@@ -21818,13 +21869,13 @@ RuntimeGenericBackendChild *__fastcall attach_runtime_generic_backend_child(void
     RuntimeLockRecord *fixed_record = runtime_generic_child_attachment_api.acquire_resource(fixed_resource_identity);
     if(secondary_record != nullptr && fixed_record != nullptr)
     {
-        const std::uint32_t context[2]{ static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(owner_identity)), runtime_generic_child_attachment_api.find_scene_index(0x80000) };
+        const uintptr_t context[2]{ reinterpret_cast<uintptr_t>(owner_identity), runtime_generic_child_attachment_api.find_scene_index(0x80000) };
         auto *secondary_resource = reinterpret_cast<RuntimeResourceObject *>(secondary_record);
         auto *fixed_resource = reinterpret_cast<RuntimeResourceObject *>(fixed_record);
         child = runtime_generic_child_attachment_api.create_child(secondary_resource->backend, fixed_resource->backend, context, selection, flags);
         if(child != nullptr)
         {
-            const std::int32_t identifier = (fixed_resource->backend_flags & 0x04000000) != 0 ? runtime_display_scene_identifier : fixed_resource->scene_identifier;
+            const intptr_t identifier = (fixed_resource->backend_flags & 0x04000000) != 0 ? runtime_display_scene_identifier : fixed_resource->scene_identifier;
             DisplaySceneNode *locked_scene = runtime_generic_child_attachment_api.lock_scene(identifier);
             if(locked_scene == nullptr)
             {
@@ -21833,9 +21884,8 @@ RuntimeGenericBackendChild *__fastcall attach_runtime_generic_backend_child(void
             else
             {
                 DisplaySceneDescriptor descriptor;
-                DisplaySceneNode *scene =
-                    runtime_generic_child_attachment_api.acquire_scene(context[1], 10000, 10000, 0x10, 0x10, 0, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(owner_identity)),
-                        &descriptor, reinterpret_cast<const DisplayPixelFormatDescriptor *>(&locked_scene->rectangle_callback_state));
+                DisplaySceneNode *scene = runtime_generic_child_attachment_api.acquire_scene(static_cast<uint32_t>(context[1]), 10000, 10000, 0x10, 0x10, 0, reinterpret_cast<intptr_t>(owner_identity),
+                    &descriptor, &locked_scene->rectangle_callback_format);
                 if(scene == nullptr)
                 {
                     runtime_generic_child_attachment_api.destroy_child(child);
@@ -21872,13 +21922,13 @@ void set_runtime_generic_child_attachment_api_for_testing(const RuntimeGenericCh
     runtime_generic_child_attachment_api = api;
 }
 
-void set_runtime_generic_child_attachment_scene_for_testing(std::int32_t identifier)
+void set_runtime_generic_child_attachment_scene_for_testing(intptr_t identifier)
 {
     runtime_display_scene_identifier = identifier;
 }
 
 // GAG.EXE: 0x004268B0
-void __fastcall rebuild_runtime_tree_resources(void *identity)
+void rebuild_runtime_tree_resources(void *identity)
 {
     RuntimeTreeNode *root = runtime_tree_resource_rebuild_api.resolve_tree(identity);
     if(root == nullptr)
@@ -21893,8 +21943,8 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
     {
         if(link->scene_identifier == 0)
         {
-            link->scene_identifier = static_cast<std::int32_t>(
-                reinterpret_cast<std::uintptr_t>(runtime_tree_resource_rebuild_api.acquire_scene(link->z, link->x, link->y, link->width, link->height, link->flags | 0x20000, 0, nullptr, nullptr)));
+            link->scene_identifier =
+                reinterpret_cast<intptr_t>(runtime_tree_resource_rebuild_api.acquire_scene(link->z, link->x, link->y, link->width, link->height, link->flags | 0x20000, 0, nullptr, nullptr));
         }
     }
     for(RuntimeTreeSecondaryResourceLink *link = root->secondary_resource_link_head; link != nullptr; link = link->next)
@@ -21915,7 +21965,7 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
         }
     }
 
-    std::uint32_t count = runtime_resource_count;
+    uint32_t count = runtime_resource_count;
     auto *primary_head = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
     RuntimeTreePrimaryResourceLink *first_primary = primary_head;
     while(first_primary != nullptr && (first_primary->image_flags & 1) == 0)
@@ -21926,7 +21976,7 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
     {
         first_primary->resource_identity = runtime_tree_resource_rebuild_api.construct_resource(first_primary->file_name, first_primary->source_value, first_primary->x, first_primary->y,
             first_primary->ratio_x, first_primary->ratio_y, first_primary->loop_count, first_primary->image_flags);
-        const std::uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(first_primary->resource_identity);
+        const uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(first_primary->resource_identity);
         if(flags == 0)
         {
             first_primary->flags |= 0x80000000;
@@ -21959,8 +22009,8 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
         }
         if((visual->flags & 0x100000) != 0)
         {
-            visual->scene_identity = runtime_tree_resource_rebuild_api.construct_resource(visual->file_name, 0, 0, 0, static_cast<std::uint32_t>(visual->position_x),
-                static_cast<std::uint32_t>(visual->position_y), 0, visual->palette_flags | 2);
+            visual->scene_identity = runtime_tree_resource_rebuild_api.construct_resource(visual->file_name, 0, 0, 0, static_cast<uint32_t>(visual->position_x),
+                static_cast<uint32_t>(visual->position_y), 0, visual->palette_flags | 2);
             visual->flags &= 0xffefffff;
         }
     }
@@ -21978,7 +22028,7 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
             link->resource_identity =
                 runtime_tree_resource_rebuild_api.construct_resource(link->file_name, link->source_value, link->x, link->y, link->ratio_x, link->ratio_y, link->loop_count, link->image_flags);
         }
-        const std::uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(link->resource_identity);
+        const uint32_t flags = runtime_tree_resource_rebuild_api.query_scene_flags(link->resource_identity);
         if(flags == 0)
         {
             link->flags |= 0x80000000;
@@ -21990,7 +22040,7 @@ void __fastcall rebuild_runtime_tree_resources(void *identity)
         }
         if((flags & 0x01000000) == 0 && link->fixed_name_node != nullptr && link->secondary_link != nullptr)
         {
-            std::uint32_t configuration_flags = 0;
+            uint32_t configuration_flags = 0;
             if((link->image_flags & 0x10) != 0 || ((flags & 0x8000) != 0 && (link->image_flags & 0x200) != 0))
             {
                 configuration_flags = 0x200;
@@ -22025,7 +22075,7 @@ void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResource
 void rebuild_runtime_pointer_resources()
 {
     RuntimeTreeNode *root = runtime_pointer_resource_rebuild_api.resolve_tree(runtime_pointer_root_identity);
-    std::uint32_t count = runtime_resource_count;
+    uint32_t count = runtime_resource_count;
     auto *primary = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
     if(root == nullptr)
     {
@@ -22051,7 +22101,7 @@ void rebuild_runtime_pointer_resources()
         {
             if(link->previous_resource_identity != nullptr)
             {
-                const std::uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->previous_resource_identity);
+                const uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->previous_resource_identity);
                 if(scene_flags != 0)
                 {
                     if((scene_flags & 0x3000) != 0)
@@ -22078,7 +22128,7 @@ void rebuild_runtime_pointer_resources()
                 {
                     link->resource_identity = runtime_pointer_resource_rebuild_api.construct_resource(link->file_name, link->source_value, link->x, link->y, link->ratio_x, link->ratio_y,
                         link->loop_count, link->image_flags);
-                    const std::uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->resource_identity);
+                    const uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->resource_identity);
                     if(scene_flags == 0)
                     {
                         link->flags |= 0x80000000;
@@ -22097,7 +22147,7 @@ void rebuild_runtime_pointer_resources()
             }
             else
             {
-                const std::uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->resource_identity);
+                const uint32_t scene_flags = runtime_pointer_resource_rebuild_api.query_scene_flags(link->resource_identity);
                 if(scene_flags != 0)
                 {
                     if((scene_flags & 0x3000) == 0)
@@ -22132,7 +22182,7 @@ void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerRe
 }
 
 // GAG.EXE: 0x00423BC0
-std::uint32_t handle_runtime_left_button_up()
+uint32_t handle_runtime_left_button_up()
 {
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
     {
@@ -22144,7 +22194,7 @@ std::uint32_t handle_runtime_left_button_up()
         RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
         if(region != nullptr && region->scene_mask != 0)
         {
-            std::int32_t scene_index;
+            int32_t scene_index;
             if(region->current_scene_bit == 0)
             {
                 scene_index = select_pointer_region_scene(region);
@@ -22152,7 +22202,7 @@ std::uint32_t handle_runtime_left_button_up()
             else
             {
                 scene_index = 0;
-                for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+                for(uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
                 {
                     ++scene_index;
                 }
@@ -22167,7 +22217,7 @@ std::uint32_t handle_runtime_left_button_up()
                     runtime_pointer_event_record[11] = (runtime_pointer_event_record[11] & ~1u) | 5;
                 }
                 runtime_pointer_event_record[11] |= 8;
-                runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+                runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(region);
             }
         }
     }
@@ -22176,7 +22226,7 @@ std::uint32_t handle_runtime_left_button_up()
 }
 
 // GAG.EXE: 0x004238B0
-std::uint32_t handle_runtime_left_button_down()
+uint32_t handle_runtime_left_button_down()
 {
     if((runtime_scene_control_flags & 0x100000) == 0)
     {
@@ -22192,7 +22242,7 @@ std::uint32_t handle_runtime_left_button_down()
     }
     bool set_flag_2 = false;
     bool set_flag_4 = false;
-    const std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+    const uint32_t mode = runtime_scene_control_flags & 0x30000;
     if(mode != 0x30000)
     {
         const char empty_name[0x20]{};
@@ -22213,13 +22263,13 @@ std::uint32_t handle_runtime_left_button_down()
         RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
         if(region != nullptr)
         {
-            const std::uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
-            const std::uint32_t original_bit = region->current_scene_bit;
-            const std::uint32_t eligible_mask = region->scene_mask | state_mask;
+            const uint32_t state_mask = region->state_object != nullptr ? region->state_object->command_mask : 0;
+            const uint32_t original_bit = region->current_scene_bit;
+            const uint32_t eligible_mask = region->scene_mask | state_mask;
             if(eligible_mask != 0 && original_bit != 0)
             {
-                std::uint32_t attempts = 0;
-                std::int32_t scene_index = 0;
+                uint32_t attempts = 0;
+                int32_t scene_index = 0;
                 do
                 {
                     do
@@ -22228,7 +22278,7 @@ std::uint32_t handle_runtime_left_button_down()
                         ++attempts;
                     } while(attempts < 32 && (eligible_mask & region->current_scene_bit) == 0);
                     scene_index = 0;
-                    for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+                    for(uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
                     {
                         ++scene_index;
                     }
@@ -22256,7 +22306,7 @@ std::uint32_t handle_runtime_left_button_down()
                             runtime_pointer_event_state_object = region->state_object;
                         }
                         runtime_pointer_event_record[11] |= 8;
-                        runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+                        runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(region);
                         enqueue_runtime_pointer_event();
                     }
                     else
@@ -22303,7 +22353,7 @@ std::uint32_t handle_runtime_left_button_down()
 }
 
 // GAG.EXE: 0x00423CA0
-std::uint32_t handle_runtime_right_button_down()
+uint32_t handle_runtime_right_button_down()
 {
     if((runtime_scene_control_flags & 0x100000) == 0)
     {
@@ -22318,7 +22368,7 @@ std::uint32_t handle_runtime_right_button_down()
         return 0;
     }
     runtime_pointer_event_record[11] &= 0xefffffff;
-    const std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+    const uint32_t mode = runtime_scene_control_flags & 0x30000;
     if(mode == 0x10000)
     {
         RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
@@ -22326,7 +22376,7 @@ std::uint32_t handle_runtime_right_button_down()
         {
             return 0;
         }
-        std::int32_t scene_index;
+        int32_t scene_index;
         if(region->current_scene_bit == 0)
         {
             scene_index = select_pointer_region_scene(region);
@@ -22334,7 +22384,7 @@ std::uint32_t handle_runtime_right_button_down()
         else
         {
             scene_index = 0;
-            for(std::uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
+            for(uint32_t bit = region->current_scene_bit; bit != 1; bit >>= 1)
             {
                 ++scene_index;
             }
@@ -22343,7 +22393,7 @@ std::uint32_t handle_runtime_right_button_down()
         {
             return 0;
         }
-        const std::uint32_t slot_flags = runtime_scene_slots[scene_index].flags;
+        const uint32_t slot_flags = runtime_scene_slots[scene_index].flags;
         if((slot_flags & 0x200000) == 0)
         {
             runtime_pointer_state_mask = region->current_scene_bit;
@@ -22354,7 +22404,7 @@ std::uint32_t handle_runtime_right_button_down()
                 runtime_pointer_event_state_object = region->state_object;
             }
             runtime_pointer_event_record[11] |= 8;
-            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+            runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(region);
             enqueue_runtime_pointer_event();
             return 0;
         }
@@ -22395,7 +22445,7 @@ std::uint32_t handle_runtime_right_button_down()
         RuntimePointerRegion *region = reinterpret_cast<RuntimePointerRegion *>(find_global_runtime_tree_link_0084_by_identity(active_runtime_pointer_region));
         if(region != nullptr)
         {
-            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(region));
+            runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(region);
             runtime_pointer_event_record[11] |= 8;
             if(region->state_object != nullptr && runtime_pointer_state_owner != region->state_object)
             {
@@ -22419,7 +22469,7 @@ std::uint32_t handle_runtime_right_button_down()
 }
 
 // GAG.EXE: 0x00423FA0
-std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int32_t y)
+uint32_t update_runtime_pointer_region(int32_t x, int32_t y)
 {
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
     {
@@ -22445,14 +22495,14 @@ std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int3
             return 0;
         }
         runtime_pointer_event_record[11] = 0;
-        std::uint32_t mode = runtime_scene_control_flags & 0x30000;
+        uint32_t mode = runtime_scene_control_flags & 0x30000;
         if(mode == 0 || mode == 0x10000)
         {
             runtime_pointer_event_record[11] = 8;
-            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selected));
+            runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(selected);
             enqueue_runtime_pointer_event();
             runtime_scene_control_flags = runtime_scene_control_flags & 0xffff7fffU | 0x10000;
-            std::int32_t scene_index = select_pointer_region_scene(selected);
+            int32_t scene_index = select_pointer_region_scene(selected);
             if(scene_index != -1)
             {
                 RuntimeVisualObject *visual = runtime_scene_slots[scene_index].visual_object;
@@ -22489,13 +22539,13 @@ std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int3
         }
         else
         {
-            std::uint32_t mask = selected->scene_mask;
+            uint32_t mask = selected->scene_mask;
             if(selected->state_object != nullptr)
             {
                 mask |= selected->state_object->command_mask;
             }
             runtime_pointer_event_record[11] = 8;
-            runtime_pointer_event_record[0] = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(selected));
+            runtime_pointer_event_record[0] = reinterpret_cast<uintptr_t>(selected);
             enqueue_runtime_pointer_event();
             if(selected->state_object != runtime_pointer_state_owner)
             {
@@ -22537,14 +22587,14 @@ std::uint32_t __fastcall update_runtime_pointer_region(std::int32_t x, std::int3
 }
 
 // GAG.EXE: 0x004236C0
-std::uint32_t refresh_runtime_pointer_region()
+uint32_t refresh_runtime_pointer_region()
 {
     active_runtime_pointer_region = nullptr;
     return runtime_pointer_refresh_api.update_region(runtime_scene_x, runtime_scene_y);
 }
 
 // GAG.EXE: 0x004237B0
-std::uint32_t has_runtime_pointer_tree_flag_1000()
+uint32_t has_runtime_pointer_tree_flag_1000()
 {
     RuntimeTreeNode *node = begin_runtime_tree_enumeration(runtime_pointer_root_identity);
     while(node != nullptr)
@@ -22564,7 +22614,7 @@ void set_runtime_pointer_refresh_api_for_testing(const RuntimePointerRefreshApi 
 }
 
 // GAG.EXE: 0x004235E0
-std::int32_t __fastcall activate_default_comment_scene(const char *name)
+int32_t activate_default_comment_scene(const char *name)
 {
     if((runtime_scene_control_flags & 0x20008) != 0 || (runtime_scene_control_flags & 0x100000) == 0 || current_runtime_scene_identity == nullptr)
     {
@@ -22585,7 +22635,7 @@ std::int32_t __fastcall activate_default_comment_scene(const char *name)
 }
 
 // GAG.EXE: 0x004236E0
-void __fastcall activate_runtime_tree_node_comment(RuntimeTreeNode *node)
+void activate_runtime_tree_node_comment(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr && (runtime_scene_control_flags & 8) == 0 && activate_default_comment_scene("m_DEF_COMMENT") > 0)
     {
@@ -22594,7 +22644,7 @@ void __fastcall activate_runtime_tree_node_comment(RuntimeTreeNode *node)
 }
 
 // GAG.EXE: 0x00423660
-void __fastcall deactivate_default_comment_scene(const char *name)
+void deactivate_default_comment_scene(const char *name)
 {
     if((runtime_scene_control_flags & 0x100080) == 0x100080)
     {
@@ -22610,7 +22660,7 @@ void __fastcall deactivate_default_comment_scene(const char *name)
 }
 
 // GAG.EXE: 0x00423710
-void __fastcall deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
+void deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr && (runtime_scene_control_flags & 8) != 0)
     {
@@ -22620,12 +22670,12 @@ void __fastcall deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
 }
 
 // GAG.EXE: 0x00426320
-void __fastcall set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled)
+void set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled)
 {
     RuntimeTreeNode *node = root;
     while(node != nullptr)
     {
-        std::uint32_t old_flags = node->flags;
+        uint32_t old_flags = node->flags;
         if(enabled == 0)
         {
             node->flags = old_flags & ~0x8000U;
@@ -22647,7 +22697,7 @@ void __fastcall set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled
 }
 
 // GAG.EXE: 0x00406770
-RuntimeTreeNode *__fastcall begin_runtime_tree_enumeration(void *identity)
+RuntimeTreeNode *begin_runtime_tree_enumeration(void *identity)
 {
     if(script_runtime_root == nullptr)
     {
@@ -22675,7 +22725,7 @@ RuntimeTreeNode *__fastcall begin_runtime_tree_enumeration(void *identity)
 }
 
 // GAG.EXE: 0x004067F0
-RuntimeTreeNode *__fastcall get_next_runtime_tree_node(RuntimeTreeNode *root)
+RuntimeTreeNode *get_next_runtime_tree_node(RuntimeTreeNode *root)
 {
     while(true)
     {
@@ -22736,9 +22786,9 @@ int destroy_runtime_comment_trees()
 }
 
 // GAG.EXE: 0x00426600
-std::uint32_t __fastcall deactivate_runtime_tree_and_visuals(void *identity, void *second)
+intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
 {
-    std::uint32_t result = 0;
+    intptr_t result = 0;
     RuntimeTreeNode *node = runtime_tree_deactivate_api.resolve_identity(identity);
     if(node != nullptr)
     {
@@ -22783,7 +22833,7 @@ void set_runtime_tree_deactivate_api_for_testing(const RuntimeTreeDeactivateApi 
 }
 
 // GAG.EXE: 0x00406640
-void *__fastcall find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name)
+void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -22810,7 +22860,7 @@ void *__fastcall find_runtime_tree_identity_by_name_recursive(void *start_identi
 }
 
 // GAG.EXE: 0x004066C0
-void *__fastcall find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name)
+void *find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -22838,7 +22888,7 @@ void *find_runtime_drag_cleanup_descendant()
 }
 
 // GAG.EXE: 0x00406720
-void *__fastcall find_runtime_tree_root_identity_by_name(const void *name)
+void *find_runtime_tree_root_identity_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -22855,7 +22905,7 @@ void *__fastcall find_runtime_tree_root_identity_by_name(const void *name)
 }
 
 // GAG.EXE: 0x00425FA0
-void __fastcall release_runtime_lock_record(RuntimeLockRecord *record)
+void release_runtime_lock_record(RuntimeLockRecord *record)
 {
     if(record != nullptr && record->recursion_count != 0)
     {
@@ -22864,7 +22914,7 @@ void __fastcall release_runtime_lock_record(RuntimeLockRecord *record)
 }
 
 // GAG.EXE: 0x00425F10
-RuntimeLockRecord *__fastcall acquire_runtime_lock_record(void *child_identity)
+RuntimeLockRecord *acquire_runtime_lock_record(void *child_identity)
 {
     DWORD thread_id = runtime_named_lock_api.get_current_thread_id();
     while(true)
@@ -22980,7 +23030,7 @@ void reset_runtime_session()
 }
 
 // GAG.EXE: 0x004242C0
-void __fastcall switch_runtime_scene(void *identity)
+void switch_runtime_scene(void *identity)
 {
     if((graphics_host_flags & 0x1000) != 0)
     {
@@ -22988,28 +23038,28 @@ void __fastcall switch_runtime_scene(void *identity)
         return;
     }
     void *selected_identity = nullptr;
-    auto *previous = reinterpret_cast<RuntimeSceneRecord *>(runtime_scene_switch_api.acquire(current_runtime_scene_identity));
+    auto *previous = reinterpret_cast<RuntimeResourceObject *>(runtime_scene_switch_api.acquire(current_runtime_scene_identity));
     if(previous != nullptr)
     {
-        auto *context_flags = reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(previous->context) + 0x95c);
-        *context_flags |= 1;
+        auto *backend = static_cast<RuntimeMediaBackend *>(previous->backend);
+        backend->media_flags |= 1;
         runtime_scene_switch_api.offset_scene(previous->scene_identifier, 10000 - previous->x, 10000 - previous->y);
         previous->x = 10000;
         previous->y = 10000;
     }
-    auto *selected = reinterpret_cast<RuntimeSceneRecord *>(runtime_scene_switch_api.acquire(identity));
+    auto *selected = reinterpret_cast<RuntimeResourceObject *>(runtime_scene_switch_api.acquire(identity));
     if(selected != nullptr)
     {
-        std::uint32_t mode = selected->flags & 0xff000;
+        uint32_t mode = selected->type_flags & 0xff000;
         if(mode == 0x1000 || mode == 0x2000)
         {
             if(mode == 0x2000)
             {
-                auto *context_flags = reinterpret_cast<std::uint32_t *>(static_cast<std::uint8_t *>(selected->context) + 0x95c);
-                *context_flags &= 0xfffffdfe;
+                auto *backend = static_cast<RuntimeMediaBackend *>(selected->backend);
+                backend->media_flags &= 0xfffffdfe;
             }
-            std::int32_t new_x = runtime_scene_x - selected->x_offset;
-            std::int32_t new_y = runtime_scene_y - selected->y_offset;
+            int32_t new_x = runtime_scene_x - static_cast<int32_t>(selected->requested_width);
+            int32_t new_y = runtime_scene_y - static_cast<int32_t>(selected->requested_height);
             runtime_scene_switch_api.offset_scene(selected->scene_identifier, new_x - selected->x, new_y - selected->y);
             selected->x = new_x;
             selected->y = new_y;
@@ -23037,17 +23087,25 @@ void reset_runtime_display_state()
     runtime_display_reset_api.reset_transient_indices();
     runtime_display_reset_api.reset_byte_queue();
     runtime_display_reset_api.reset_pair_queue();
-    runtime_display_reset_api.release_scene(0, static_cast<std::int32_t>(reinterpret_cast<std::uintptr_t>(&runtime_display_context)));
-    runtime_display_reset_value_1 = 0;
+    runtime_display_reset_api.release_scene(0, reinterpret_cast<intptr_t>(&runtime_display_context));
+    runtime_display_context.input_scene_identifier = 0;
     runtime_display_reset_byte = 0;
-    runtime_display_reset_value_2 = 0;
-    std::memset(runtime_display_scene_state, 0, sizeof(runtime_display_scene_state));
+    saved_default_comment_scene_identity = nullptr;
+    current_runtime_scene_identity = nullptr;
+    current_runtime_resource = nullptr;
+    runtime_pointer_root_identity = nullptr;
+    runtime_display_context.active_script_link = nullptr;
+    active_runtime_pointer_region = nullptr;
+    runtime_pointer_state_mask = 0;
+    runtime_pointer_state_owner = nullptr;
+    runtime_pointer_event_state_object = nullptr;
+    std::memset(runtime_pointer_event_record, 0, sizeof(runtime_pointer_event_record));
 }
 
 // GAG.EXE: 0x00420130
-std::uint32_t shutdown_runtime_display()
+uint32_t shutdown_runtime_display()
 {
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if((graphics_host_flags & 0x600) == 0x600)
     {
         auto *media_objects = static_cast<RuntimeNamedNode *>(runtime_display_shutdown_api.get_named_node("MMediaObjectsList"));
@@ -23058,7 +23116,7 @@ std::uint32_t shutdown_runtime_display()
             runtime_display_shutdown_api.wait_for_single_object(runtime_display_thread, INFINITE);
             result = runtime_display_shutdown_api.close_handle(runtime_display_thread);
         }
-        std::uint32_t cleaned = 0;
+        uint32_t cleaned = 0;
         if(result != 0)
         {
             cleaned = runtime_display_shutdown_api.release_scene(runtime_display_scene_identifier, 0) == 0;
@@ -23068,8 +23126,8 @@ std::uint32_t shutdown_runtime_display()
         result = 0;
         if(cleaned != 0)
         {
-            std::memset(runtime_display_context.command_target, 0, 10 * sizeof(std::uint32_t));
-            std::memset(runtime_display_context.display_pixel_format, 0, 8 * sizeof(std::uint32_t));
+            runtime_display_context.command_target = {};
+            runtime_display_context.display_pixel_format = {};
             runtime_display_scene_identifier = 0;
             runtime_display_host = nullptr;
             runtime_display_thread = nullptr;
@@ -23085,7 +23143,7 @@ std::uint32_t shutdown_runtime_display()
 }
 
 // GAG.EXE: 0x004258D0
-void __fastcall set_runtime_resource_loop_count(void *identity, std::uint32_t count)
+void set_runtime_resource_loop_count(void *identity, uint32_t count)
 {
     auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_loop_api.acquire_record(identity));
     if(record == nullptr)
@@ -23094,7 +23152,7 @@ void __fastcall set_runtime_resource_loop_count(void *identity, std::uint32_t co
     }
     if((record->type_flags & 0xff000) == 0x8000)
     {
-        runtime_resource_loop_api.set_sound_loop(static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(record->backend)), count);
+        runtime_resource_loop_api.set_sound_loop(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->backend)), count);
     }
     else
     {
@@ -23112,20 +23170,20 @@ void set_runtime_resource_loop_api_for_testing(const RuntimeResourceLoopApi &api
 }
 
 // GAG.EXE: 0x00425FD0
-std::uint32_t __fastcall query_runtime_scene_flags(void *identity)
+uint32_t query_runtime_scene_flags(void *identity)
 {
     RuntimeLockRecord *record = acquire_runtime_lock_record(identity);
     if(record == nullptr)
     {
         return 0;
     }
-    std::uint32_t flags = reinterpret_cast<RuntimeSceneRecord *>(record)->flags;
+    uint32_t flags = reinterpret_cast<RuntimeResourceObject *>(record)->type_flags;
     release_runtime_lock_record(record);
     return flags;
 }
 
 // GAG.EXE: 0x00426D20
-void __fastcall wait_for_runtime_resource_count(std::uint32_t count)
+void wait_for_runtime_resource_count(uint32_t count)
 {
     while(runtime_resource_count != count)
     {
@@ -23134,9 +23192,9 @@ void __fastcall wait_for_runtime_resource_count(std::uint32_t count)
 }
 
 // GAG.EXE: 0x00425EB0
-void __fastcall update_runtime_scene_position(void *identity, std::int32_t x, std::int32_t y)
+void update_runtime_scene_position(void *identity, int32_t x, int32_t y)
 {
-    auto *record = reinterpret_cast<RuntimeSceneRecord *>(acquire_runtime_lock_record(identity));
+    auto *record = reinterpret_cast<RuntimeResourceObject *>(acquire_runtime_lock_record(identity));
     if(record != nullptr)
     {
         record->previous_x = record->x;
@@ -23149,7 +23207,7 @@ void __fastcall update_runtime_scene_position(void *identity, std::int32_t x, st
 }
 
 // GAG.EXE: 0x004246B0
-void __fastcall build_runtime_resource_path(char *destination, const char *source)
+void build_runtime_resource_path(char *destination, const char *source)
 {
     char directory[0x80];
     char file_name[0x80];
@@ -23160,7 +23218,7 @@ void __fastcall build_runtime_resource_path(char *destination, const char *sourc
 }
 
 // GAG.EXE: 0x00424570
-void __fastcall update_runtime_resource_host(const char *path, std::int32_t reset)
+void update_runtime_resource_host(const char *path, int32_t reset)
 {
     char drive_prefix[32];
     char directory[260];
@@ -23211,12 +23269,12 @@ void __fastcall update_runtime_resource_host(const char *path, std::int32_t rese
 }
 
 // GAG.EXE: 0x00424710
-std::uint32_t __fastcall detect_runtime_resource_type(const char *path)
+uint32_t detect_runtime_resource_type(const char *path)
 {
-    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
-    static constexpr std::uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
-    static constexpr std::uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
-    std::uint32_t type = 0;
+    static constexpr uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    static constexpr uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
+    static constexpr uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
+    uint32_t type = 0;
     LRESULT retry;
     do
     {
@@ -23226,6 +23284,12 @@ std::uint32_t __fastcall detect_runtime_resource_type(const char *path)
         if(entry != nullptr)
         {
             type = entry->flags_and_references >> 16;
+        }
+        else if(is_gagboy_startup_resource(path))
+        {
+            // Fixes-owned virtual startup content must be classified before archive/file probing. Resource construction dispatches configuration parsing from this result and only loads its bytes
+            // afterward.
+            type = 4;
         }
         else if((runtime_scene_control_flags & 0x10000000) == 0)
         {
@@ -23239,19 +23303,19 @@ std::uint32_t __fastcall detect_runtime_resource_type(const char *path)
             }
             else
             {
-                std::uint8_t header[16];
+                uint8_t header[16];
                 DWORD bytes_read = 0;
                 runtime_resource_type_api.read_file(file, header, sizeof(header), &bytes_read, nullptr);
                 runtime_resource_type_api.close_handle(file);
                 if(bytes_read == sizeof(header))
                 {
-                    std::int16_t animation_marker;
+                    int16_t animation_marker;
                     std::memcpy(&animation_marker, header + 4, sizeof(animation_marker));
-                    if(animation_marker == static_cast<std::int16_t>(0xaf12))
+                    if(animation_marker == static_cast<int16_t>(0xaf12))
                     {
                         type = 3;
                     }
-                    std::uint16_t bitmap_marker;
+                    uint16_t bitmap_marker;
                     std::memcpy(&bitmap_marker, header, sizeof(bitmap_marker));
                     if(bitmap_marker == 0x4d42)
                     {
@@ -23282,13 +23346,13 @@ std::uint32_t __fastcall detect_runtime_resource_type(const char *path)
 }
 
 // GAG.EXE: 0x00428720
-void *__fastcall open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
+void *open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
 {
     if(archive == nullptr)
     {
         return nullptr;
     }
-    for(std::uint32_t index = 0; index < archive->entry_count; ++index)
+    for(uint32_t index = 0; index < archive->entry_count; ++index)
     {
         CdfEntry *entry = archive->entries[index];
         if(runtime_cdf_stream_api.compare_names(entry->name, name) == 0)
@@ -23306,15 +23370,15 @@ void *__fastcall open_runtime_cdf_entry_stream(CdfArchive *archive, const char *
 }
 
 // GAG.EXE: 0x00424870
-void __fastcall load_runtime_resource(const char *path, void **data, std::uint32_t *size, std::int32_t *storage, std::uint32_t flags)
+void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_t *storage, uint32_t flags)
 {
     static constexpr char loading_scene[] = "m_DEF_LOAD";
-    static constexpr std::uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
-    static constexpr std::uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
-    static constexpr std::uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
-    std::uint32_t resource_size = 0;
+    static constexpr uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
+    static constexpr uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
+    static constexpr uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
+    uint32_t resource_size = 0;
     void *resource_data = nullptr;
-    std::int32_t resource_storage = 0;
+    int32_t resource_storage = 0;
     while(true)
     {
         LRESULT retry = 0;
@@ -23329,6 +23393,24 @@ void __fastcall load_runtime_resource(const char *path, void **data, std::uint32
             resource_data = entry->data;
             resource_storage = 0x01000000;
             ++entry->flags_and_references;
+        }
+        else if(gagboy_startup_mode && _stricmp(name, "GAGBOY.CFG") == 0)
+        {
+            resource_size = static_cast<uint32_t>(sizeof(gagboy_startup_script) - 1);
+            resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, HEAP_ZERO_MEMORY, resource_size + 1);
+            if(resource_data != nullptr)
+            {
+                std::memcpy(resource_data, gagboy_startup_script, resource_size);
+                resource_storage = 0x01000000;
+                RuntimeResourceCacheEntry *new_entry = runtime_resource_load_api.get_or_create_cache_entry(runtime_resource_cache_parent_identity, name);
+                if(new_entry != nullptr)
+                {
+                    new_entry->size = resource_size;
+                    new_entry->data = resource_data;
+                    new_entry->flags_and_references = (4u << 16) | 1;
+                }
+                goto resource_loaded;
+            }
         }
         else if((runtime_scene_control_flags & 0x10000000) == 0)
         {
@@ -23347,7 +23429,7 @@ void __fastcall load_runtime_resource(const char *path, void **data, std::uint32
                     resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, 0, resource_size);
                     if(resource_data != nullptr)
                     {
-                        std::uint32_t resource_type = 0;
+                        uint32_t resource_type = 0;
                         if(runtime_resource_load_api.read_async_record(record, resource_data, resource_size, &resource_type, 0) == 0)
                         {
                             resource_size = 0;
@@ -23371,14 +23453,14 @@ void __fastcall load_runtime_resource(const char *path, void **data, std::uint32
                             {
                                 new_entry->size = resource_size;
                                 new_entry->data = resource_data;
-                                const auto *bytes = static_cast<const std::uint8_t *>(resource_data);
-                                std::int16_t animation_marker;
+                                const auto *bytes = static_cast<const uint8_t *>(resource_data);
+                                int16_t animation_marker;
                                 std::memcpy(&animation_marker, bytes + 4, sizeof(animation_marker));
-                                if(animation_marker == static_cast<std::int16_t>(0xaf12))
+                                if(animation_marker == static_cast<int16_t>(0xaf12))
                                 {
                                     resource_type = 3;
                                 }
-                                std::uint16_t bitmap_marker;
+                                uint16_t bitmap_marker;
                                 std::memcpy(&bitmap_marker, bytes, sizeof(bitmap_marker));
                                 if(bitmap_marker == 0x4d42)
                                 {
@@ -23414,7 +23496,7 @@ void __fastcall load_runtime_resource(const char *path, void **data, std::uint32
         }
         else if((runtime_scene_control_flags & 0x10000000) == 0x10000000)
         {
-            const std::uint8_t selector = runtime_resource_load_api.get_archive_flags(runtime_resource_archive, path);
+            const uint8_t selector = runtime_resource_load_api.get_archive_flags(runtime_resource_archive, path);
             if((selector & 0x10) == 0 && (flags & 0x20000000) == 0)
             {
                 resource_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
@@ -23457,7 +23539,7 @@ void __fastcall load_runtime_resource(const char *path, void **data, std::uint32
                     {
                         new_entry->size = resource_size;
                         new_entry->data = resource_data;
-                        new_entry->flags_and_references = (static_cast<std::uint32_t>(selector & ~0x10U) << 16) | 1;
+                        new_entry->flags_and_references = (static_cast<uint32_t>(selector & ~0x10U) << 16) | 1;
                     }
                 }
             }
@@ -23484,7 +23566,7 @@ resource_loaded:
 }
 
 // GAG.EXE: 0x00424C50
-BOOL __fastcall release_runtime_memory_resource(const char *name)
+BOOL release_runtime_memory_resource(const char *name)
 {
     BOOL result = FALSE;
     runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
@@ -23503,7 +23585,7 @@ BOOL __fastcall release_runtime_memory_resource(const char *name)
 }
 
 // GAG.EXE: 0x00424CC0
-BOOL __fastcall release_runtime_memory_resource_by_data(void *data)
+BOOL release_runtime_memory_resource_by_data(void *data)
 {
     BOOL result = FALSE;
     runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
@@ -23522,10 +23604,10 @@ BOOL __fastcall release_runtime_memory_resource_by_data(void *data)
 }
 
 // GAG.EXE: 0x00424D30
-std::uint32_t __fastcall release_runtime_streamed_resource(AsyncFileRecord *record)
+uint32_t release_runtime_streamed_resource(AsyncFileRecord *record)
 {
     runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
-    std::uint32_t result = runtime_resource_release_api.close_async_record(record);
+    uint32_t result = runtime_resource_release_api.close_async_record(record);
     if(result != 0 && runtime_resource_streamed_count != 0)
     {
         --runtime_resource_streamed_count;
@@ -23539,9 +23621,9 @@ std::uint32_t __fastcall release_runtime_streamed_resource(AsyncFileRecord *reco
 }
 
 // GAG.EXE: 0x00414DD0
-std::uint32_t __fastcall extract_runtime_drive_prefix(char *destination, const char *source)
+uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
 {
-    std::uint32_t index = 0;
+    uint32_t index = 0;
     do
     {
         char value = source[index];
@@ -23563,11 +23645,11 @@ std::uint32_t __fastcall extract_runtime_drive_prefix(char *destination, const c
 }
 
 // GAG.EXE: 0x00417990
-std::uint32_t __fastcall measure_archive_read_speed(const char *archive_path, std::uint32_t bytes_to_measure)
+uint32_t measure_archive_read_speed(const char *archive_path, uint32_t bytes_to_measure)
 {
-    std::uint8_t buffer[0x8000];
-    std::uint32_t speed = 0;
-    std::uint32_t bytes_read;
+    uint8_t buffer[0x8000];
+    uint32_t speed = 0;
+    uint32_t bytes_read;
     char drive_prefix[4];
 
     archive_read_speed_api.initialize_async();
@@ -23578,8 +23660,8 @@ std::uint32_t __fastcall measure_archive_read_speed(const char *archive_path, st
         AsyncFileRecord *record = archive_read_speed_api.open_record(host, archive_path, 0, 0, 0);
         if(record != nullptr)
         {
-            const std::uint32_t size = archive_read_speed_api.get_size(record);
-            std::uint32_t measured_bytes = size - 0x8000;
+            const uint32_t size = archive_read_speed_api.get_size(record);
+            uint32_t measured_bytes = size - 0x8000;
             if(size < bytes_to_measure)
             {
                 bytes_to_measure = measured_bytes;
@@ -23591,10 +23673,10 @@ std::uint32_t __fastcall measure_archive_read_speed(const char *archive_path, st
 
             archive_read_speed_api.read_record(record, buffer, 0x8000, &bytes_read, 0);
             const DWORD start = archive_read_speed_api.get_time();
-            for(std::uint32_t remaining = measured_bytes; static_cast<std::int32_t>(remaining) > 0;)
+            for(uint32_t remaining = measured_bytes; static_cast<int32_t>(remaining) > 0;)
             {
-                std::uint32_t chunk = remaining;
-                if(static_cast<std::int32_t>(remaining) > 0x7fff)
+                uint32_t chunk = remaining;
+                if(static_cast<int32_t>(remaining) > 0x7fff)
                 {
                     chunk = 0x8000;
                 }
@@ -23619,7 +23701,7 @@ void set_archive_read_speed_api_for_testing(const ArchiveReadSpeedApi &api)
 }
 
 // GAG.EXE: 0x0042B6B0
-HANDLE __fastcall open_runtime_resource_file(const char *path)
+HANDLE open_runtime_resource_file(const char *path)
 {
     OSVERSIONINFOA version{};
     version.dwOSVersionInfoSize = sizeof(version);
@@ -23630,34 +23712,34 @@ HANDLE __fastcall open_runtime_resource_file(const char *path)
 }
 
 // GAG.EXE: 0x004148B0
-void __fastcall advance_async_host_read(AsyncFileHost *host, std::uint32_t bytes)
+void advance_async_host_read(AsyncFileHost *host, uint32_t bytes)
 {
-    const std::uint32_t sector_size = host->bytes_per_sector;
-    const std::uint32_t aligned = (static_cast<std::uint32_t>(static_cast<std::uint8_t *>(host->secondary_cursor) - static_cast<std::uint8_t *>(host->buffer)) % sector_size + bytes);
+    const uint32_t sector_size = host->bytes_per_sector;
+    const uint32_t aligned = (static_cast<uint32_t>(static_cast<uint8_t *>(host->secondary_cursor) - static_cast<uint8_t *>(host->buffer)) % sector_size + bytes);
     host->available_bytes += aligned - aligned % sector_size;
-    host->secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor) + bytes;
+    host->secondary_cursor = static_cast<uint8_t *>(host->secondary_cursor) + bytes;
     host->current_offset += bytes;
-    if(static_cast<std::uint8_t *>(host->buffer) + host->buffer_size <= host->secondary_cursor)
+    if(static_cast<uint8_t *>(host->buffer) + host->buffer_size <= host->secondary_cursor)
     {
-        host->secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor) - host->buffer_size;
+        host->secondary_cursor = static_cast<uint8_t *>(host->secondary_cursor) - host->buffer_size;
     }
 }
 
 // GAG.EXE: 0x00414900
-void __fastcall advance_async_host_write(AsyncFileHost *host, std::uint32_t bytes)
+void advance_async_host_write(AsyncFileHost *host, uint32_t bytes)
 {
     host->buffered_bytes += bytes;
     host->file_offset += bytes;
-    host->write_cursor = static_cast<std::uint8_t *>(host->write_cursor) + bytes;
+    host->write_cursor = static_cast<uint8_t *>(host->write_cursor) + bytes;
     host->available_bytes -= bytes;
-    if(static_cast<std::uint8_t *>(host->buffer) + host->buffer_size <= host->write_cursor)
+    if(static_cast<uint8_t *>(host->buffer) + host->buffer_size <= host->write_cursor)
     {
         host->write_cursor = host->buffer;
     }
 }
 
 // GAG.EXE: 0x00414A50
-void __fastcall invalidate_shared_async_records(AsyncFileRecord *record)
+void invalidate_shared_async_records(AsyncFileRecord *record)
 {
     HANDLE file = record->file;
     async_file_lock_api.enter_critical_section(&async_file_global_lock);
@@ -23681,15 +23763,15 @@ void __fastcall invalidate_shared_async_records(AsyncFileRecord *record)
 }
 
 // GAG.EXE: 0x00414930
-void __fastcall position_async_host(AsyncFileHost *host, std::uint32_t offset)
+void position_async_host(AsyncFileHost *host, uint32_t offset)
 {
     AsyncFileRecord *record = host->active_file;
     if((record->flags & 0x20) == 0)
     {
-        const std::uint32_t sector_size = host->bytes_per_sector;
+        const uint32_t sector_size = host->bytes_per_sector;
         host->file_offset = offset / sector_size * sector_size;
         host->write_cursor = host->buffer;
-        host->secondary_cursor = static_cast<std::uint8_t *>(host->buffer) + offset % sector_size;
+        host->secondary_cursor = static_cast<uint8_t *>(host->buffer) + offset % sector_size;
         host->buffer_start_cursor = host->secondary_cursor;
         host->buffered_bytes = 0;
         host->available_bytes = host->buffer_size;
@@ -23703,11 +23785,11 @@ void __fastcall position_async_host(AsyncFileHost *host, std::uint32_t offset)
             async_file_host_api.set_file_pointer(record->file, record->next_offset, nullptr, FILE_BEGIN);
             invalidate_shared_async_records(record);
         }
-        const std::uint32_t previous_offset = record->previous_offset;
-        std::uint32_t copied_bytes = record->next_offset - previous_offset;
-        const std::uint32_t skipped_prefix = previous_offset < record->start_offset ? record->start_offset - previous_offset : 0;
-        const std::uint32_t consumed_bytes = copied_bytes - record->buffered_bytes;
-        auto *buffer = static_cast<std::uint8_t *>(host->buffer);
+        const uint32_t previous_offset = record->previous_offset;
+        uint32_t copied_bytes = record->next_offset - previous_offset;
+        const uint32_t skipped_prefix = previous_offset < record->start_offset ? record->start_offset - previous_offset : 0;
+        const uint32_t consumed_bytes = copied_bytes - record->buffered_bytes;
+        auto *buffer = static_cast<uint8_t *>(host->buffer);
         host->file_offset = record->next_offset;
         host->secondary_cursor = buffer + consumed_bytes;
         host->buffer_start_cursor = buffer + skipped_prefix;
@@ -23721,9 +23803,9 @@ void __fastcall position_async_host(AsyncFileHost *host, std::uint32_t offset)
 }
 
 // GAG.EXE: 0x00414AE0
-void __fastcall seek_async_host(AsyncFileHost *host, std::uint32_t offset)
+void seek_async_host(AsyncFileHost *host, uint32_t offset)
 {
-    const std::uint32_t current_offset = host->current_offset;
+    const uint32_t current_offset = host->current_offset;
     if(offset == current_offset)
     {
         return;
@@ -23737,18 +23819,18 @@ void __fastcall seek_async_host(AsyncFileHost *host, std::uint32_t offset)
     async_file_lock_api.enter_critical_section(&host->primary_lock);
     if((host->flags & 0x20) == 0)
     {
-        if((host->flags & 0x10) != 0 && 0 < static_cast<std::int32_t>(host->file_offset - offset))
+        if((host->flags & 0x10) != 0 && 0 < static_cast<int32_t>(host->file_offset - offset))
         {
-            std::uint32_t bytes_to_advance = host->start_offset % host->bytes_per_sector + (offset - host->start_offset);
-            auto *read_cursor = static_cast<std::uint8_t *>(host->read_cursor);
-            auto *secondary_cursor = static_cast<std::uint8_t *>(host->secondary_cursor);
+            uint32_t bytes_to_advance = host->start_offset % host->bytes_per_sector + (offset - host->start_offset);
+            auto *read_cursor = static_cast<uint8_t *>(host->read_cursor);
+            auto *secondary_cursor = static_cast<uint8_t *>(host->secondary_cursor);
             if(secondary_cursor <= read_cursor)
             {
-                bytes_to_advance += static_cast<std::uint32_t>(read_cursor - secondary_cursor);
+                bytes_to_advance += static_cast<uint32_t>(read_cursor - secondary_cursor);
             }
             else
             {
-                bytes_to_advance += host->buffer_size - static_cast<std::uint32_t>(secondary_cursor - read_cursor);
+                bytes_to_advance += host->buffer_size - static_cast<uint32_t>(secondary_cursor - read_cursor);
             }
             advance_async_host_read(host, bytes_to_advance);
         }
@@ -23759,12 +23841,12 @@ void __fastcall seek_async_host(AsyncFileHost *host, std::uint32_t offset)
     }
     else
     {
-        auto *cursor = static_cast<std::uint8_t *>(host->buffer_start_cursor) + (offset - host->start_offset);
-        auto *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
+        auto *cursor = static_cast<uint8_t *>(host->buffer_start_cursor) + (offset - host->start_offset);
+        auto *buffer_end = static_cast<uint8_t *>(host->buffer) + host->buffer_size;
         host->secondary_cursor = cursor;
         if(buffer_end < cursor)
         {
-            host->secondary_cursor = reinterpret_cast<void *>(reinterpret_cast<std::uintptr_t>(cursor) - reinterpret_cast<std::uintptr_t>(buffer_end));
+            host->secondary_cursor = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(cursor) - reinterpret_cast<uintptr_t>(buffer_end));
         }
     }
     async_file_lock_api.leave_critical_section(&host->primary_lock);
@@ -23773,14 +23855,14 @@ void __fastcall seek_async_host(AsyncFileHost *host, std::uint32_t offset)
 }
 
 // GAG.EXE: 0x00414BB0
-std::uint32_t __fastcall copy_async_host_bytes(AsyncFileHost *host, void *destination, std::uint32_t bytes, std::uint32_t *total_bytes)
+uint32_t copy_async_host_bytes(AsyncFileHost *host, void *destination, uint32_t bytes, uint32_t *total_bytes)
 {
     if(host->file_size < host->current_offset + bytes)
     {
         bytes = host->file_size - host->current_offset;
     }
-    auto *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
-    const std::uint32_t sector_size = host->bytes_per_sector;
+    auto *buffer_end = static_cast<uint8_t *>(host->buffer) + host->buffer_size;
+    const uint32_t sector_size = host->bytes_per_sector;
     *total_bytes += bytes;
     if(bytes == 0)
     {
@@ -23788,18 +23870,18 @@ std::uint32_t __fastcall copy_async_host_bytes(AsyncFileHost *host, void *destin
     }
     if((host->flags & 0x20) == 0)
     {
-        std::uint32_t used_bytes = host->buffer_size - host->available_bytes;
+        uint32_t used_bytes = host->buffer_size - host->available_bytes;
         while(used_bytes <= bytes + sector_size * 2)
         {
             async_file_lock_api.sleep(0);
             used_bytes = host->buffer_size - host->available_bytes;
         }
     }
-    auto *source = static_cast<std::uint8_t *>(host->secondary_cursor);
-    auto *output = static_cast<std::uint8_t *>(destination);
+    auto *source = static_cast<uint8_t *>(host->secondary_cursor);
+    auto *output = static_cast<uint8_t *>(destination);
     if(buffer_end < source + bytes)
     {
-        const std::uint32_t tail_bytes = static_cast<std::uint32_t>(buffer_end - source);
+        const uint32_t tail_bytes = static_cast<uint32_t>(buffer_end - source);
         std::memcpy(output, source, tail_bytes);
         advance_async_host_read(host, tail_bytes);
         bytes -= tail_bytes;
@@ -23811,7 +23893,7 @@ std::uint32_t __fastcall copy_async_host_bytes(AsyncFileHost *host, void *destin
 }
 
 // GAG.EXE: 0x00414CB0
-void __fastcall activate_async_file_record(AsyncFileRecord *record)
+void activate_async_file_record(AsyncFileRecord *record)
 {
     AsyncFileHost *host = record->host;
     if(host->active_file == record)
@@ -23819,7 +23901,7 @@ void __fastcall activate_async_file_record(AsyncFileRecord *record)
         return;
     }
     async_file_lock_api.enter_critical_section(&host->primary_lock);
-    const std::uint32_t read_chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
+    const uint32_t read_chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
     host->active_file = record;
     host->file = record->file;
     host->file_size = record->file_size;
@@ -23828,24 +23910,24 @@ void __fastcall activate_async_file_record(AsyncFileRecord *record)
     host->end_offset = record->end_offset;
     host->current_offset = record->current_offset;
     position_async_host(host, host->current_offset);
-    std::uint32_t initial_read_size = 0;
-    const std::uint32_t flags = record->flags;
+    uint32_t initial_read_size = 0;
+    const uint32_t flags = record->flags;
     if((flags & 1) != 0)
     {
         if((flags & 0x10) != 0)
         {
-            const std::uint32_t limit = host->remaining_size < host->buffer_size ? host->remaining_size : host->buffer_size;
+            const uint32_t limit = host->remaining_size < host->buffer_size ? host->remaining_size : host->buffer_size;
             initial_read_size = (limit / host->bytes_per_sector >> 2) * host->bytes_per_sector;
         }
         record->flags = flags & ~1U;
     }
     if(initial_read_size != 0)
     {
-        std::uint32_t remaining = initial_read_size;
-        auto *output = static_cast<std::uint8_t *>(host->write_cursor);
+        uint32_t remaining = initial_read_size;
+        auto *output = static_cast<uint8_t *>(host->write_cursor);
         do
         {
-            std::uint32_t bytes_to_read = remaining;
+            uint32_t bytes_to_read = remaining;
             if(read_chunk_size <= remaining)
             {
                 bytes_to_read = read_chunk_size;
@@ -23862,21 +23944,21 @@ void __fastcall activate_async_file_record(AsyncFileRecord *record)
 }
 
 // GAG.EXE: 0x00415AE0
-void __fastcall handle_async_host_short_read(AsyncFileHost *host)
+void handle_async_host_short_read(AsyncFileHost *host)
 {
-    const std::uint32_t sector_size = host->bytes_per_sector;
-    const std::uint32_t value = host->end_offset - reinterpret_cast<std::uintptr_t>(host->buffer_start_cursor) % sector_size - host->file_offset + host->buffered_bytes;
+    const uint32_t sector_size = host->bytes_per_sector;
+    const uint32_t value = host->end_offset - reinterpret_cast<uintptr_t>(host->buffer_start_cursor) % sector_size - host->file_offset + host->buffered_bytes;
     host->buffered_bytes = value;
     if(host->remaining_size <= host->buffer_size && host->remaining_size <= value)
     {
-        const std::uint32_t flags = host->flags;
+        const uint32_t flags = host->flags;
         host->flags = flags | 0x20;
         host->flags = (flags & ~0x10U) | 0x20;
         return;
     }
     host->flags |= 0x10;
     host->buffered_bytes = 0;
-    host->buffer_start_cursor = static_cast<std::uint8_t *>(host->write_cursor) + host->start_offset % sector_size;
+    host->buffer_start_cursor = static_cast<uint8_t *>(host->write_cursor) + host->start_offset % sector_size;
     host->read_cursor = host->write_cursor;
     host->file_offset = host->start_offset / sector_size * sector_size;
     async_file_lock_api.sleep(0);
@@ -23887,15 +23969,15 @@ void __fastcall handle_async_host_short_read(AsyncFileHost *host)
 DWORD WINAPI run_async_file_worker(LPVOID parameter)
 {
     AsyncFileHost *host = static_cast<AsyncFileHost *>(parameter);
-    std::uint8_t *buffer_end = static_cast<std::uint8_t *>(host->buffer) + host->buffer_size;
-    const std::uint32_t sector_size = host->bytes_per_sector;
-    const std::uint32_t maximum_read = 0xc000 / sector_size * sector_size;
-    const std::uint32_t minimum_available = 0x4000 / sector_size * sector_size;
+    uint8_t *buffer_end = static_cast<uint8_t *>(host->buffer) + host->buffer_size;
+    const uint32_t sector_size = host->bytes_per_sector;
+    const uint32_t maximum_read = 0xc000 / sector_size * sector_size;
+    const uint32_t minimum_available = 0x4000 / sector_size * sector_size;
     bool restart_timing = true;
-    std::uint32_t delay = minimum_available;
-    std::uint32_t target_time = 0;
-    std::uint32_t rate = 0;
-    std::uint32_t flags = host->flags;
+    uint32_t delay = minimum_available;
+    uint32_t target_time = 0;
+    uint32_t rate = 0;
+    uint32_t flags = host->flags;
     while(true)
     {
         if((flags & 1) != 0)
@@ -23916,7 +23998,7 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                 target_time = async_file_host_api.time_get_time();
                 restart_timing = false;
             }
-            std::uint32_t next_target = target_time;
+            uint32_t next_target = target_time;
             async_file_lock_api.enter_critical_section(&host->primary_lock);
             if(host->active_file == nullptr || host->available_bytes < minimum_available)
             {
@@ -23925,15 +24007,15 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
             }
             else
             {
-                std::uint32_t bytes_to_read = maximum_read;
+                uint32_t bytes_to_read = maximum_read;
                 if(host->available_bytes <= maximum_read)
                 {
                     bytes_to_read = host->available_bytes;
                 }
                 next_target = bytes_to_read / rate + target_time;
-                if(buffer_end < static_cast<std::uint8_t *>(host->write_cursor) + bytes_to_read)
+                if(buffer_end < static_cast<uint8_t *>(host->write_cursor) + bytes_to_read)
                 {
-                    const std::uint32_t tail_bytes = static_cast<std::uint32_t>(buffer_end - static_cast<std::uint8_t *>(host->write_cursor));
+                    const uint32_t tail_bytes = static_cast<uint32_t>(buffer_end - static_cast<uint8_t *>(host->write_cursor));
                     DWORD bytes_read = 0;
                     async_file_lock_api.sleep(0);
                     async_file_host_api.read_file(host->file, host->write_cursor, tail_bytes, &bytes_read, nullptr);
@@ -23968,23 +24050,23 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                 async_file_lock_api.leave_critical_section(&host->primary_lock);
             }
             const DWORD now = async_file_host_api.time_get_time();
-            const std::uint32_t requested_rate = host->mode;
+            const uint32_t requested_rate = host->mode;
             if(rate != requested_rate)
             {
-                std::int32_t adjustment = static_cast<std::int32_t>(requested_rate - rate) >> 1;
+                int32_t adjustment = static_cast<int32_t>(requested_rate - rate) >> 1;
                 if(adjustment == 0)
                 {
                     adjustment = 1;
                 }
                 rate += adjustment;
-                if(static_cast<std::int32_t>(requested_rate) < static_cast<std::int32_t>(rate))
+                if(static_cast<int32_t>(requested_rate) < static_cast<int32_t>(rate))
                 {
                     rate = requested_rate;
                 }
             }
             delay = delay - now + next_target;
             target_time = now;
-            if(0 < static_cast<std::int32_t>(delay))
+            if(0 < static_cast<int32_t>(delay))
             {
                 async_file_lock_api.sleep(delay);
                 target_time = delay + now;
@@ -24001,7 +24083,7 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
 }
 
 // GAG.EXE: 0x00414EC0
-AsyncFileHost *__fastcall create_async_file_host(const char *root, std::uint32_t requested_bytes, std::int32_t mode)
+AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes, int32_t mode)
 {
     if(!async_file_enabled)
     {
@@ -24045,7 +24127,7 @@ AsyncFileHost *__fastcall create_async_file_host(const char *root, std::uint32_t
 }
 
 // GAG.EXE: 0x00415040
-AsyncFileHost *__fastcall acquire_async_file_host(AsyncFileHost *identity)
+AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
 {
     if(!async_file_enabled)
     {
@@ -24053,7 +24135,7 @@ AsyncFileHost *__fastcall acquire_async_file_host(AsyncFileHost *identity)
     }
     while(true)
     {
-        std::uint32_t busy = 0;
+        uint32_t busy = 0;
         AsyncFileHost *result = nullptr;
         async_file_lock_api.enter_critical_section(&async_file_global_lock);
         for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
@@ -24079,7 +24161,7 @@ AsyncFileHost *__fastcall acquire_async_file_host(AsyncFileHost *identity)
 }
 
 // GAG.EXE: 0x004150D0
-void __fastcall release_async_file_host(AsyncFileHost *identity)
+void release_async_file_host(AsyncFileHost *identity)
 {
     async_file_lock_api.enter_critical_section(&async_file_global_lock);
     for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
@@ -24094,7 +24176,7 @@ void __fastcall release_async_file_host(AsyncFileHost *identity)
 }
 
 // GAG.EXE: 0x00415120
-std::uint32_t __fastcall destroy_async_file_host(AsyncFileHost *identity)
+uint32_t destroy_async_file_host(AsyncFileHost *identity)
 {
     if(!async_file_enabled)
     {
@@ -24137,7 +24219,7 @@ std::uint32_t __fastcall destroy_async_file_host(AsyncFileHost *identity)
 }
 
 // GAG.EXE: 0x00414E40
-std::uint32_t shutdown_async_file_subsystem()
+uint32_t shutdown_async_file_subsystem()
 {
     if(!async_file_enabled)
     {
@@ -24168,7 +24250,7 @@ void set_async_file_shutdown_api_for_testing(const AsyncFileShutdownApi &api)
 }
 
 // GAG.EXE: 0x004155C0
-AsyncFileRecord *__fastcall acquire_async_file_record(AsyncFileRecord *identity)
+AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
 {
     if(!async_file_enabled)
     {
@@ -24176,7 +24258,7 @@ AsyncFileRecord *__fastcall acquire_async_file_record(AsyncFileRecord *identity)
     }
     while(true)
     {
-        std::uint32_t busy = 0;
+        uint32_t busy = 0;
         AsyncFileRecord *result = nullptr;
         async_file_lock_api.enter_critical_section(&async_file_global_lock);
         for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
@@ -24185,7 +24267,7 @@ AsyncFileRecord *__fastcall acquire_async_file_record(AsyncFileRecord *identity)
             {
                 if(record->self == identity)
                 {
-                    std::uint32_t flags = record->flags;
+                    uint32_t flags = record->flags;
                     busy = flags & 0x10000;
                     if(busy == 0)
                     {
@@ -24221,7 +24303,7 @@ AsyncFileRecord *__fastcall acquire_async_file_record(AsyncFileRecord *identity)
 }
 
 // GAG.EXE: 0x00415690
-void __fastcall release_async_file_record(AsyncFileRecord *identity)
+void release_async_file_record(AsyncFileRecord *identity)
 {
     if(async_file_enabled)
     {
@@ -24232,7 +24314,7 @@ void __fastcall release_async_file_record(AsyncFileRecord *identity)
             {
                 if(record->self == identity)
                 {
-                    std::uint32_t flags = record->flags;
+                    uint32_t flags = record->flags;
                     if((flags & 0x10000) != 0)
                     {
                         record->flags = flags & ~0x10000U;
@@ -24261,7 +24343,7 @@ void __fastcall release_async_file_record(AsyncFileRecord *identity)
 }
 
 // GAG.EXE: 0x00415210
-void __fastcall set_async_file_host_mode(AsyncFileHost *identity, std::int32_t mode)
+void set_async_file_host_mode(AsyncFileHost *identity, int32_t mode)
 {
     AsyncFileHost *host = acquire_async_file_host(identity);
     if(host != nullptr)
@@ -24275,40 +24357,40 @@ void __fastcall set_async_file_host_mode(AsyncFileHost *identity, std::int32_t m
 }
 
 // GAG.EXE: 0x00415AC0
-std::uint32_t __fastcall get_async_file_size(AsyncFileRecord *identity)
+uint32_t get_async_file_size(AsyncFileRecord *identity)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
     if(record == nullptr)
     {
         return 0;
     }
-    std::uint32_t size = record->file_size;
+    uint32_t size = record->file_size;
     release_async_file_record(identity);
     return size;
 }
 
 // GAG.EXE: 0x00415AA0
-std::uint32_t __fastcall get_async_file_position(AsyncFileRecord *identity)
+uint32_t get_async_file_position(AsyncFileRecord *identity)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
     if(record == nullptr)
     {
         return 0;
     }
-    const std::uint32_t position = record->current_offset;
+    const uint32_t position = record->current_offset;
     release_async_file_record(identity);
     return position;
 }
 
 // GAG.EXE: 0x00415A20
-std::uint32_t __fastcall set_async_file_position(AsyncFileRecord *identity, std::uint32_t position)
+uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
     if(record == nullptr)
     {
         return 0;
     }
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     if(record->start_offset <= position && position <= record->end_offset)
     {
         if((record->flags & 0x20) != 0)
@@ -24319,7 +24401,7 @@ std::uint32_t __fastcall set_async_file_position(AsyncFileRecord *identity, std:
             }
             else
             {
-                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer) + (position - record->previous_offset);
+                record->buffer_cursor = static_cast<uint8_t *>(record->buffer) + (position - record->previous_offset);
                 record->buffered_bytes = record->next_offset - position;
             }
         }
@@ -24335,7 +24417,7 @@ std::uint32_t __fastcall set_async_file_position(AsyncFileRecord *identity, std:
 }
 
 // GAG.EXE: 0x00415230
-AsyncFileRecord *__fastcall open_async_file_record(AsyncFileHost *host_identity, const char *path, std::uint32_t start_offset, std::uint32_t end_offset, std::uint32_t flags)
+AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
 {
     AsyncFileHost *host = acquire_async_file_host(host_identity);
     if(host == nullptr)
@@ -24393,7 +24475,7 @@ AsyncFileRecord *__fastcall open_async_file_record(AsyncFileHost *host_identity,
 }
 
 // GAG.EXE: 0x00415360
-AsyncFileRecord *__fastcall duplicate_async_file_record(AsyncFileRecord *identity, std::uint32_t start_offset, std::uint32_t end_offset, std::uint32_t flags)
+AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
 {
     AsyncFileRecord *source = acquire_async_file_record(identity);
     if(source == nullptr)
@@ -24429,16 +24511,16 @@ AsyncFileRecord *__fastcall duplicate_async_file_record(AsyncFileRecord *identit
 }
 
 // GAG.EXE: 0x00415420
-std::uint32_t __fastcall close_async_file_record(AsyncFileRecord *identity)
+uint32_t close_async_file_record(AsyncFileRecord *identity)
 {
     if(!async_file_enabled)
     {
         return 0;
     }
-    std::uint32_t result = 0;
+    uint32_t result = 0;
     while(true)
     {
-        std::uint32_t busy = 0;
+        uint32_t busy = 0;
         async_file_lock_api.enter_critical_section(&async_file_global_lock);
         bool finished = false;
         for(AsyncFileHost *host = async_file_hosts; host != nullptr && !finished; host = host->next)
@@ -24468,7 +24550,7 @@ std::uint32_t __fastcall close_async_file_record(AsyncFileRecord *identity)
                             async_file_lock_api.leave_critical_section(&host->primary_lock);
                         }
                         async_file_lock_api.leave_critical_section(&host->secondary_lock);
-                        std::int32_t shared_count = 0;
+                        int32_t shared_count = 0;
                         AsyncFileRecord *single_shared = nullptr;
                         if((record->flags & 2) != 0)
                         {
@@ -24491,7 +24573,7 @@ std::uint32_t __fastcall close_async_file_record(AsyncFileRecord *identity)
                             BOOL freed_buffer = async_file_open_api.virtual_free(record->buffer, 0, MEM_RELEASE);
                             HANDLE heap = async_file_open_api.get_process_heap();
                             BOOL freed_record = async_file_open_api.heap_free(heap, 0, record);
-                            result = result & static_cast<std::uint32_t>(closed) & static_cast<std::uint32_t>(freed_buffer) & static_cast<std::uint32_t>(freed_record);
+                            result = result & static_cast<uint32_t>(closed) & static_cast<uint32_t>(freed_buffer) & static_cast<uint32_t>(freed_record);
                         }
                     }
                     finished = true;
@@ -24510,7 +24592,7 @@ std::uint32_t __fastcall close_async_file_record(AsyncFileRecord *identity)
 }
 
 // GAG.EXE: 0x0040D030
-void __fastcall copy_file_name_from_path(char *destination, const char *source)
+void copy_file_name_from_path(char *destination, const char *source)
 {
     int index = 0;
     while(source[index] != '\0')
@@ -24532,7 +24614,7 @@ void __fastcall copy_file_name_from_path(char *destination, const char *source)
 
 // GAG.EXE: 0x00408380
 // GAG.EXE: 0x00406580
-void __fastcall copy_runtime_tree_command_name(char *destination, std::uint32_t command)
+void copy_runtime_tree_command_name(char *destination, uint32_t command)
 {
     const char *source = nullptr;
     if(command == 0x40000000)
@@ -24560,7 +24642,7 @@ void __fastcall copy_runtime_tree_command_name(char *destination, std::uint32_t 
 }
 
 // GAG.EXE: 0x00408340
-ScriptObjectState *__fastcall create_script_object_state(const void *name)
+ScriptObjectState *create_script_object_state(const void *name)
 {
     auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectState)));
     if(object != nullptr)
@@ -24572,7 +24654,7 @@ ScriptObjectState *__fastcall create_script_object_state(const void *name)
 }
 
 // GAG.EXE: 0x00407FA0
-std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser)
+uint32_t parse_script_object_state(ScriptParserState *parser)
 {
     char name[0x80];
     if(script_object_parse_api.parse_value(parser, name, 0x20) == 0xffffffff)
@@ -24607,16 +24689,16 @@ std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser)
     bool invert_no_palette = false;
     while(true)
     {
-        std::uint32_t code = script_object_parse_api.parse_value(parser, name, 0x20);
+        uint32_t code = script_object_parse_api.parse_value(parser, name, 0x20);
         if(code != 0xffffffff)
         {
             if(object->field_count < 0x20)
             {
                 char string_value[0x80];
-                std::uint32_t value = static_cast<std::uint32_t>(script_object_parse_api.parse_integer(parser));
+                uint32_t value = static_cast<uint32_t>(script_object_parse_api.parse_integer(parser));
                 if(value == 0x7fffffff)
                 {
-                    const std::uint32_t cursor = parser->cursor;
+                    const uint32_t cursor = parser->cursor;
                     value = script_object_parse_api.parse_image_flag(parser);
                     if(value == 0)
                     {
@@ -24628,12 +24710,12 @@ std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser)
                         value = 0x7fffffff;
                     }
                 }
-                std::uint32_t index = 0;
+                uint32_t index = 0;
                 while(index < object->field_count && !script_object_parse_api.fixed_equal(name, object->field_names[index], 0x20))
                 {
                     ++index;
                 }
-                const std::uint32_t bit = 1u << (index & 0x1f);
+                const uint32_t bit = 1u << (index & 0x1f);
                 if(value == 0x03000000)
                 {
                     object->active_field_mask |= bit;
@@ -24649,8 +24731,8 @@ std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser)
                 }
                 else
                 {
-                    object->integer_values[index] = static_cast<std::int32_t>(value);
-                    if(static_cast<std::int32_t>(value) < 1)
+                    object->integer_values[index] = static_cast<int32_t>(value);
+                    if(static_cast<int32_t>(value) < 1)
                     {
                         object->active_field_mask &= ~bit;
                     }
@@ -24689,7 +24771,7 @@ std::uint32_t __fastcall parse_script_object_state(ScriptParserState *parser)
         {
             if(script_object_parse_api.parse_value(parser, name, 0x20) != 0xffffffff)
             {
-                for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+                for(uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
                 {
                     if(script_object_parse_api.fixed_equal(name, script_runtime_root->command_definitions[index].name, 0x20))
                     {
@@ -24738,7 +24820,7 @@ void reset_script_object_parse_api_for_testing()
 }
 
 // GAG.EXE: 0x00408420
-ScriptObjectState *__fastcall find_script_object_by_identity(void *identity)
+ScriptObjectState *find_script_object_by_identity(void *identity)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
     {
@@ -24749,7 +24831,7 @@ ScriptObjectState *__fastcall find_script_object_by_identity(void *identity)
     }
     for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
     {
-        for(std::uint32_t index = 0; index < container->slot_count; ++index)
+        for(uint32_t index = 0; index < container->slot_count; ++index)
         {
             ScriptObjectState *object = container->slots[index].object;
             if(object != nullptr && object->identity == identity)
@@ -24762,7 +24844,7 @@ ScriptObjectState *__fastcall find_script_object_by_identity(void *identity)
 }
 
 // GAG.EXE: 0x00408480
-std::int32_t __fastcall query_or_create_script_object_field(const char *object_name, const void *field_name, std::uint32_t *value, std::int32_t value_type)
+int32_t query_or_create_script_object_field(const char *object_name, const void *field_name, uint32_t *value, int32_t value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object == nullptr)
@@ -24770,22 +24852,22 @@ std::int32_t __fastcall query_or_create_script_object_field(const char *object_n
         *value = 0;
         return 0x7fffffff;
     }
-    for(std::uint32_t index = 0; index < object->field_count; ++index)
+    for(uint32_t index = 0; index < object->field_count; ++index)
     {
         if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
         {
-            std::uint32_t bit = 1u << index;
+            uint32_t bit = 1u << index;
             *value = bit;
             return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
         }
     }
-    std::uint32_t index = object->field_count;
+    uint32_t index = object->field_count;
     if(index >= 32)
     {
         *value = 0;
         return 0x7fffffff;
     }
-    std::uint32_t bit = 1u << index;
+    uint32_t bit = 1u << index;
     if(value_type == 1)
     {
         if(*value == 0x03000000)
@@ -24799,8 +24881,8 @@ std::int32_t __fastcall query_or_create_script_object_field(const char *object_n
     }
     else if(value_type == 2)
     {
-        object->integer_values[index] = static_cast<std::int32_t>(*value);
-        if(static_cast<std::int32_t>(*value) < 1)
+        object->integer_values[index] = static_cast<int32_t>(*value);
+        if(static_cast<int32_t>(*value) < 1)
         {
             object->active_field_mask &= ~bit;
         }
@@ -24833,12 +24915,12 @@ std::int32_t __fastcall query_or_create_script_object_field(const char *object_n
 }
 
 // GAG.EXE: 0x004087A0
-std::int32_t __fastcall get_script_object_integer(const char *object_name, const void *field_name)
+int32_t get_script_object_integer(const char *object_name, const void *field_name)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
@@ -24850,12 +24932,12 @@ std::int32_t __fastcall get_script_object_integer(const char *object_name, const
 }
 
 // GAG.EXE: 0x00408800
-std::uint32_t __fastcall get_script_object_string(const char *object_name, const void *field_name, void *destination)
+uint32_t get_script_object_string(const char *object_name, const void *field_name, void *destination)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
@@ -24868,17 +24950,17 @@ std::uint32_t __fastcall get_script_object_string(const char *object_name, const
 }
 
 // GAG.EXE: 0x00408870
-std::int32_t __fastcall add_script_object_integer(const char *object_name, const void *field_name, std::int32_t delta)
+int32_t add_script_object_integer(const char *object_name, const void *field_name, int32_t delta)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
-                std::int32_t value = object->integer_values[index] + delta;
-                std::uint32_t bit = 1u << index;
+                int32_t value = object->integer_values[index] + delta;
+                uint32_t bit = 1u << index;
                 if(value < 1)
                 {
                     object->active_field_mask &= ~bit;
@@ -24896,23 +24978,23 @@ std::int32_t __fastcall add_script_object_integer(const char *object_name, const
 }
 
 // GAG.EXE: 0x00408900
-bool __fastcall compare_script_object_field(const char *object_name, const void *field_name, const void *value, std::int32_t value_type)
+bool compare_script_object_field(const char *object_name, const void *field_name, const void *value, int32_t value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
                 if(value_type == 1)
                 {
-                    std::uint32_t field_value = (object->active_field_mask & (1u << index)) != 0 ? 0x03000000 : 0x07000000;
-                    return *static_cast<const std::uint32_t *>(value) == field_value;
+                    uint32_t field_value = (object->active_field_mask & (1u << index)) != 0 ? 0x03000000 : 0x07000000;
+                    return *static_cast<const uint32_t *>(value) == field_value;
                 }
                 if(value_type == 2)
                 {
-                    return object->integer_values[index] == *static_cast<const std::int32_t *>(value);
+                    return object->integer_values[index] == *static_cast<const int32_t *>(value);
                 }
                 if(value_type == 4)
                 {
@@ -24925,13 +25007,13 @@ bool __fastcall compare_script_object_field(const char *object_name, const void 
 }
 
 // GAG.EXE: 0x004089E0
-std::uint32_t __fastcall get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot)
+uint32_t get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot)
 {
     std::memset(snapshot, 0, sizeof(*snapshot));
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
-        for(std::uint32_t index = 0; index < object->field_count; ++index)
+        for(uint32_t index = 0; index < object->field_count; ++index)
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
@@ -24983,7 +25065,7 @@ RuntimeTreeNode *find_runtime_tree_tail()
 }
 
 // GAG.EXE: 0x00406600
-RuntimeTreeNode *__fastcall find_runtime_tree_ancestor_root(void *identity)
+RuntimeTreeNode *find_runtime_tree_ancestor_root(void *identity)
 {
     if(script_runtime_root == nullptr)
     {
@@ -25002,7 +25084,7 @@ RuntimeTreeNode *__fastcall find_runtime_tree_ancestor_root(void *identity)
 }
 
 // GAG.EXE: 0x00409A40
-RuntimeTreeSceneLink *__fastcall find_global_runtime_tree_scene_link_by_name(const void *name)
+RuntimeTreeSceneLink *find_global_runtime_tree_scene_link_by_name(const void *name)
 {
     for(RuntimeTreeSceneLink *link = script_runtime_root->global_scene_links; link != nullptr; link = link->next)
     {
@@ -25015,7 +25097,7 @@ RuntimeTreeSceneLink *__fastcall find_global_runtime_tree_scene_link_by_name(con
 }
 
 // GAG.EXE: 0x00409830
-RuntimeTreeSceneLink *__fastcall find_runtime_tree_scene_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreeSceneLink *find_runtime_tree_scene_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -25034,7 +25116,7 @@ RuntimeTreeSceneLink *__fastcall find_runtime_tree_scene_insertion_predecessor(R
 }
 
 // GAG.EXE: 0x00409880
-void __fastcall insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTreeSceneLink *link)
+void insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTreeSceneLink *link)
 {
     while(true)
     {
@@ -25079,7 +25161,7 @@ void __fastcall insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTre
 }
 
 // GAG.EXE: 0x00409920
-void __fastcall remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->scene_link_tail == nullptr)
     {
@@ -25150,7 +25232,7 @@ void __fastcall remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, Ru
 }
 
 // GAG.EXE: 0x00409E00
-RuntimeTreeSecondaryResourceLink *__fastcall find_global_runtime_tree_secondary_resource_link_by_name(const void *name)
+RuntimeTreeSecondaryResourceLink *find_global_runtime_tree_secondary_resource_link_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -25167,7 +25249,7 @@ RuntimeTreeSecondaryResourceLink *__fastcall find_global_runtime_tree_secondary_
 }
 
 // GAG.EXE: 0x00409BC0
-RuntimeTreeSecondaryResourceLink *__fastcall find_runtime_tree_secondary_resource_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreeSecondaryResourceLink *find_runtime_tree_secondary_resource_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -25186,7 +25268,7 @@ RuntimeTreeSecondaryResourceLink *__fastcall find_runtime_tree_secondary_resourc
 }
 
 // GAG.EXE: 0x00409C10
-void __fastcall insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *node, RuntimeTreeSecondaryResourceLink *link)
+void insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *node, RuntimeTreeSecondaryResourceLink *link)
 {
     while(true)
     {
@@ -25231,7 +25313,7 @@ void __fastcall insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *nod
 }
 
 // GAG.EXE: 0x00409CB0
-void __fastcall remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->secondary_resource_link_tail == nullptr)
     {
@@ -25302,7 +25384,7 @@ void __fastcall remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNod
 }
 
 // GAG.EXE: 0x0040A560
-RuntimeTreePrimaryResourceLink *__fastcall find_runtime_tree_primary_resource_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreePrimaryResourceLink *find_runtime_tree_primary_resource_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -25321,7 +25403,7 @@ RuntimeTreePrimaryResourceLink *__fastcall find_runtime_tree_primary_resource_in
 }
 
 // GAG.EXE: 0x0040A5B0
-void __fastcall insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTreePrimaryResourceLink *link)
+void insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTreePrimaryResourceLink *link)
 {
     while(true)
     {
@@ -25366,7 +25448,7 @@ void __fastcall insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node,
 }
 
 // GAG.EXE: 0x0040A650
-void __fastcall remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->primary_resource_link_tail == nullptr)
     {
@@ -25437,7 +25519,7 @@ void __fastcall remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode 
 }
 
 // GAG.EXE: 0x0040A860
-void __fastcall update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, std::int32_t x_delta, std::int32_t y_delta, std::uint32_t value_0054)
+void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t value_0054)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -25476,18 +25558,18 @@ void __fastcall update_runtime_tree_primary_resource_link(void *tree_identity, v
 }
 
 // GAG.EXE: 0x0040A920
-void __fastcall append_three_digit_decimal_suffix(const char *prefix, std::uint32_t value, char *output)
+void append_three_digit_decimal_suffix(const char *prefix, uint32_t value, char *output)
 {
     std::memset(output, 0, 0x20);
-    std::size_t index = 0;
+    size_t index = 0;
     while(prefix[index] != '\0')
     {
         output[index] = prefix[index];
         ++index;
     }
-    for(std::uint32_t divisor = 100; divisor != 0; divisor /= 10)
+    for(uint32_t divisor = 100; divisor != 0; divisor /= 10)
     {
-        std::uint32_t digit = value / divisor;
+        uint32_t digit = value / divisor;
         output[index++] = static_cast<char>(digit + '0');
         value -= divisor * digit;
     }
@@ -25495,7 +25577,7 @@ void __fastcall append_three_digit_decimal_suffix(const char *prefix, std::uint3
 }
 
 // GAG.EXE: 0x0040AAC0
-std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
+uint32_t parse_runtime_tree_link_0084(ScriptParserState *parser)
 {
     char value[0x80];
     if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
@@ -25510,18 +25592,18 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
     RuntimeTreeNode *node = parser->owner;
     std::memcpy(link->name, value, sizeof(link->name));
     link->identity = link;
-    std::uint32_t code;
+    uint32_t code;
     do
     {
         code = parse_script_scope_code(parser);
         if(code == 0x00b00000)
         {
-            const std::int32_t parameter = parse_script_integer_expression(parser);
+            const int32_t parameter = parse_script_integer_expression(parser);
             if(parameter != 0x7fffffff)
             {
                 link->parameter = parameter;
             }
-            code = static_cast<std::uint32_t>(parameter);
+            code = static_cast<uint32_t>(parameter);
         }
         else if(code == 0x00800000)
         {
@@ -25534,27 +25616,27 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
         else if(code == 0x0b000000 || code == 0x02000000)
         {
             const bool position = code == 0x0b000000;
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 link->x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 link->y = y;
             }
-            const std::int32_t width = parse_script_integer_expression(parser);
+            const int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
                 link->width = position ? width + link->x : width;
             }
-            const std::int32_t height = parse_script_integer_expression(parser);
+            const int32_t height = parse_script_integer_expression(parser);
             if(height != 0x7fffffff)
             {
                 link->height = position ? height + link->y : height;
             }
-            code = static_cast<std::uint32_t>(height);
+            code = static_cast<uint32_t>(height);
         }
         else if(code == 0x0d000000)
         {
@@ -25573,15 +25655,15 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
         }
         else if(code == 0x0c000000 || code == 0x10000000)
         {
-            const std::uint32_t command_code = code;
+            const uint32_t command_code = code;
             code = parse_script_value_token(parser, value, 0x20);
             if(code != 0xffffffff)
             {
-                for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+                for(uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
                 {
                     if(fixed_dword_memory_equal(value, script_runtime_root->command_definitions[index].name, 0x20))
                     {
-                        const std::uint32_t bit = 1u << (index & 31);
+                        const uint32_t bit = 1u << (index & 31);
                         link->command_mask |= bit;
                         if(command_code == 0x10000000)
                         {
@@ -25624,8 +25706,8 @@ std::uint32_t __fastcall parse_runtime_tree_link_0084(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040A3C0
-void *__fastcall create_or_update_runtime_tree_primary_resource_link(void *tree_identity, const void *identifier, const void *file_name, std::int32_t source_value, std::int32_t x_delta,
-    std::int32_t y_delta, std::uint32_t image_flags)
+void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, const void *identifier, const void *file_name, int32_t source_value, int32_t x_delta, int32_t y_delta,
+    uint32_t image_flags)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -25677,7 +25759,7 @@ void *__fastcall create_or_update_runtime_tree_primary_resource_link(void *tree_
     }
     if(source_value != 0x7fffffff)
     {
-        link->source_value = static_cast<std::uint32_t>(source_value);
+        link->source_value = static_cast<uint32_t>(source_value);
     }
     if(image_flags != 0)
     {
@@ -25687,8 +25769,8 @@ void *__fastcall create_or_update_runtime_tree_primary_resource_link(void *tree_
 }
 
 // GAG.EXE: 0x0040AE40
-void *__fastcall create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t value_0050,
-    void *identity_0058, void *identity_005c, std::uint32_t value_0054, std::uint32_t value_0040, std::uint32_t value_004c)
+void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058,
+    void *identity_005c, uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -25766,7 +25848,7 @@ void *__fastcall create_or_update_runtime_tree_link_0084(void *tree_identity, co
 }
 
 // GAG.EXE: 0x0040A990
-RuntimeTreePrimaryResourceLink *__fastcall find_global_runtime_tree_primary_resource_link_by_name(const void *name)
+RuntimeTreePrimaryResourceLink *find_global_runtime_tree_primary_resource_link_by_name(const void *name)
 {
     auto *link = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(script_runtime_root->plan_nodes);
     while(link != nullptr)
@@ -25781,7 +25863,7 @@ RuntimeTreePrimaryResourceLink *__fastcall find_global_runtime_tree_primary_reso
 }
 
 // GAG.EXE: 0x0040AFE0
-RuntimeTreeLink84 *__fastcall find_last_runtime_tree_link_0084(RuntimeTreeNode *root)
+RuntimeTreeLink84 *find_last_runtime_tree_link_0084(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -25808,7 +25890,7 @@ RuntimeTreeLink84 *__fastcall find_last_runtime_tree_link_0084(RuntimeTreeNode *
 }
 
 // GAG.EXE: 0x0040B040
-RuntimeTreeLink84 *__fastcall find_runtime_tree_link_0084_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreeLink84 *find_runtime_tree_link_0084_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -25827,7 +25909,7 @@ RuntimeTreeLink84 *__fastcall find_runtime_tree_link_0084_insertion_predecessor(
 }
 
 // GAG.EXE: 0x0040B090
-void __fastcall insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *link)
+void insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *link)
 {
     while(true)
     {
@@ -25872,7 +25954,7 @@ void __fastcall insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTree
 }
 
 // GAG.EXE: 0x0040B130
-void __fastcall remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_0084_tail == nullptr)
     {
@@ -25943,8 +26025,8 @@ void __fastcall remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, Run
 }
 
 // GAG.EXE: 0x0040B280
-void __fastcall update_runtime_tree_link_0084(void *tree_identity, void *link_identity, std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height, std::uint32_t value_0050,
-    void *identity_0058, void *identity_005c, std::uint32_t value_0054, std::uint32_t value_0040, std::uint32_t value_004c)
+void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058, void *identity_005c,
+    uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -26000,7 +26082,7 @@ void __fastcall update_runtime_tree_link_0084(void *tree_identity, void *link_id
 }
 
 // GAG.EXE: 0x0040B380
-RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_name(const void *name)
+RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_name(const void *name)
 {
     for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
     {
@@ -26013,7 +26095,7 @@ RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_name(const v
 }
 
 // GAG.EXE: 0x0040B3C0
-RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_identity(void *identity)
+RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_identity(void *identity)
 {
     for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
     {
@@ -26026,7 +26108,7 @@ RuntimeTreeLink84 *__fastcall find_global_runtime_tree_link_0084_by_identity(voi
 }
 
 // GAG.EXE: 0x0040B3E0
-std::uint32_t __fastcall parse_runtime_tree_link_008c(ScriptParserState *parser)
+uint32_t parse_runtime_tree_link_008c(ScriptParserState *parser)
 {
     char value[0x80];
     if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
@@ -26041,24 +26123,24 @@ std::uint32_t __fastcall parse_runtime_tree_link_008c(ScriptParserState *parser)
     RuntimeTreeNode *node = parser->owner;
     std::memcpy(link->name, value, sizeof(link->name));
     link->identity = link;
-    std::uint32_t code;
+    uint32_t code;
     do
     {
         code = parse_script_scope_code(parser);
         if(code == 0x00500000)
         {
-            const std::int32_t first = parse_script_integer_expression(parser);
+            const int32_t first = parse_script_integer_expression(parser);
             if(first != 0x7fffffff)
             {
                 link->line_first = first;
             }
-            const std::int32_t second = parse_script_integer_expression(parser);
+            const int32_t second = parse_script_integer_expression(parser);
             if(second != 0x7fffffff)
             {
                 link->line_second = second;
             }
             link->flags |= 1;
-            code = static_cast<std::uint32_t>(second);
+            code = static_cast<uint32_t>(second);
         }
         else if(code == 0x00400000)
         {
@@ -26066,36 +26148,36 @@ std::uint32_t __fastcall parse_runtime_tree_link_008c(ScriptParserState *parser)
         }
         else if(code == 0x00600000)
         {
-            const std::int32_t time = parse_script_integer_expression(parser);
+            const int32_t time = parse_script_integer_expression(parser);
             if(time != 0x7fffffff)
             {
                 link->time = time;
             }
-            code = static_cast<std::uint32_t>(time);
+            code = static_cast<uint32_t>(time);
         }
         else if(code == 0x02000000)
         {
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 link->x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 link->y = y;
             }
-            const std::int32_t width = parse_script_integer_expression(parser);
+            const int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
                 link->width = width;
             }
-            const std::int32_t height = parse_script_integer_expression(parser);
+            const int32_t height = parse_script_integer_expression(parser);
             if(height != 0x7fffffff)
             {
                 link->height = height;
             }
-            code = static_cast<std::uint32_t>(height);
+            code = static_cast<uint32_t>(height);
         }
     } while(code != 0xffffffff);
 
@@ -26115,7 +26197,7 @@ std::uint32_t __fastcall parse_runtime_tree_link_008c(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040B850
-std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
+uint32_t parse_runtime_tree_link_007c(ScriptParserState *parser)
 {
     char value[0x80];
     if(parse_script_value_token(parser, value, 0x20) == 0xffffffff)
@@ -26138,7 +26220,7 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
         link->owner_flags |= 0x10000000;
     }
 
-    std::uint32_t code;
+    uint32_t code;
     do
     {
         code = parse_script_scope_code(parser);
@@ -26152,18 +26234,18 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
         }
         else if(code == 0x00a00000)
         {
-            const std::int32_t minimum = parse_script_integer_expression(parser);
+            const int32_t minimum = parse_script_integer_expression(parser);
             if(minimum != 0x7fffffff)
             {
                 link->random_minimum = minimum;
             }
-            const std::int32_t maximum = parse_script_integer_expression(parser);
+            const int32_t maximum = parse_script_integer_expression(parser);
             if(maximum != 0x7fffffff)
             {
                 link->random_maximum = maximum;
             }
             link->flags |= 0x80;
-            code = static_cast<std::uint32_t>(maximum);
+            code = static_cast<uint32_t>(maximum);
         }
         else if(code == 0x00800000)
         {
@@ -26212,35 +26294,35 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
         }
         else if(code == 0x02000000)
         {
-            const std::int32_t x = parse_script_integer_expression(parser);
+            const int32_t x = parse_script_integer_expression(parser);
             if(x != 0x7fffffff)
             {
                 link->x = x;
             }
-            const std::int32_t y = parse_script_integer_expression(parser);
+            const int32_t y = parse_script_integer_expression(parser);
             if(y != 0x7fffffff)
             {
                 link->y = y;
             }
-            const std::int32_t width = parse_script_integer_expression(parser);
+            const int32_t width = parse_script_integer_expression(parser);
             if(width != 0x7fffffff)
             {
                 link->width = width;
             }
-            const std::int32_t height = parse_script_integer_expression(parser);
+            const int32_t height = parse_script_integer_expression(parser);
             if(height != 0x7fffffff)
             {
                 link->height = height;
             }
             link->flags |= 0x20;
-            code = static_cast<std::uint32_t>(height);
+            code = static_cast<uint32_t>(height);
         }
         else if(code == 0x0c000000)
         {
             code = parse_script_value_token(parser, value, 0x20);
             if(code != 0xffffffff)
             {
-                for(std::uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
+                for(uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
                 {
                     if(fixed_dword_memory_equal(value, script_runtime_root->command_definitions[index].name, 0x20))
                     {
@@ -26253,7 +26335,7 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
         }
         else if(code == 0x0e000000)
         {
-            const std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+            const uint32_t result = parse_script_value_token(parser, value, 0x20);
             if(result != 0xffffffff)
             {
                 link->condition = find_script_condition_container_by_name(value);
@@ -26265,7 +26347,7 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
         }
         else if(code == 0x0f000000)
         {
-            const std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+            const uint32_t result = parse_script_value_token(parser, value, 0x20);
             if(result != 0xffffffff)
             {
                 link->zone_link = find_global_runtime_tree_link_0084_by_name(value);
@@ -26293,14 +26375,20 @@ std::uint32_t __fastcall parse_runtime_tree_link_007c(ScriptParserState *parser)
 }
 
 // GAG.EXE: 0x0040BF60
-std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t *state, const std::uint32_t *criteria)
+RuntimeTreeInteractionCriteria make_runtime_tree_interaction_criteria(const RuntimeTreeLink7C *link)
 {
-    std::uint32_t criteria_flags = criteria[14];
+    return { link->command_bit, link->source_object, link->destination_object, link->zone_link, link->unknown_0084, link->x, link->y, link->width, link->height, link->primary_resource,
+        link->condition, link->random_minimum, link->random_maximum, link->unknown_00a8, link->flags, link->unknown_00b0, link };
+}
+
+uint32_t match_runtime_tree_link_007c_interaction_internal(uintptr_t *state, const RuntimeTreeInteractionCriteria *criteria, const RuntimeTreeLink7C *criteria_link)
+{
+    uint32_t criteria_flags = criteria->flags;
     if(criteria_flags == 0)
     {
         return 1;
     }
-    const std::uint32_t state_flags = state[14];
+    const uint32_t state_flags = static_cast<uint32_t>(state[14]);
     if((criteria_flags & 0x00100000) != 0)
     {
         criteria_flags |= state_flags & 0x10000000;
@@ -26316,37 +26404,38 @@ std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t 
             return 0;
         }
     }
-    for(std::uint32_t index = 0; index < 5; ++index)
+    for(uint32_t index = 0; index < 5; ++index)
     {
-        if((criteria_flags & (1u << index)) != 0 && criteria[index] != state[index])
+        const uintptr_t values[]{ criteria->command_bit, reinterpret_cast<uintptr_t>(criteria->source_object), reinterpret_cast<uintptr_t>(criteria->destination_object),
+            reinterpret_cast<uintptr_t>(criteria->zone_link), criteria->unknown_0084 };
+        if((criteria_flags & (1u << index)) != 0 && values[index] != state[index])
         {
             return 0;
         }
     }
     if((criteria_flags & 0x80) != 0)
     {
-        const std::int32_t value = select_bounded_random_value(-10000, 10000);
-        if(value < static_cast<std::int32_t>(criteria[11]) || value > static_cast<std::int32_t>(criteria[12]))
+        const int32_t value = select_bounded_random_value(-10000, 10000);
+        if(value < criteria->random_minimum || value > criteria->random_maximum)
         {
             return 0;
         }
     }
-    if((criteria_flags & 0x100) != 0 && !script_object_container_state_matches_by_identity(reinterpret_cast<void *>(static_cast<std::uintptr_t>(criteria[10]))))
+    if((criteria_flags & 0x100) != 0 && !script_object_container_state_matches_by_identity(criteria->condition))
     {
         return 0;
     }
     if((criteria_flags & 0x40) != 0)
     {
-        auto *primary = reinterpret_cast<RuntimeTreePrimaryResourceLink *>(static_cast<std::uintptr_t>(criteria[9]));
+        RuntimeTreePrimaryResourceLink *primary = criteria->primary_resource;
         if(primary == nullptr)
         {
             return 0;
         }
         if((criteria_flags & 0x20) != 0)
         {
-            if(static_cast<std::int32_t>(criteria[7]) < primary->x || static_cast<std::int32_t>(criteria[8]) < primary->y
-                || primary->x + static_cast<std::int32_t>(primary->width) < static_cast<std::int32_t>(criteria[5])
-                || primary->y + static_cast<std::int32_t>(primary->height) < static_cast<std::int32_t>(criteria[6]))
+            if(static_cast<int32_t>(criteria->width) < primary->x || static_cast<int32_t>(criteria->height) < primary->y || primary->x + static_cast<int32_t>(primary->width) < criteria->x
+                || primary->y + static_cast<int32_t>(primary->height) < criteria->y)
             {
                 return 0;
             }
@@ -26356,12 +26445,12 @@ std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t 
     {
         for(RuntimeTreeLink7C *candidate = script_runtime_root->global_link_007c_head; candidate != nullptr; candidate = candidate->next)
         {
-            const auto *candidate_criteria = reinterpret_cast<const std::uint32_t *>(&candidate->command_bit);
-            if(candidate_criteria != criteria && ((candidate->flags ^ state_flags) & 0xf0000fff) == 0)
+            if(candidate != criteria_link && ((candidate->flags ^ state_flags) & 0xf0000fff) == 0)
             {
-                std::uint32_t state_copy[16];
+                const RuntimeTreeInteractionCriteria candidate_criteria = make_runtime_tree_interaction_criteria(candidate);
+                uintptr_t state_copy[16];
                 std::memcpy(state_copy, state, sizeof(state_copy));
-                if(match_runtime_tree_link_007c_interaction(state_copy, candidate_criteria) != 0)
+                if(match_runtime_tree_link_007c_interaction_internal(state_copy, &candidate_criteria, candidate) != 0)
                 {
                     return 0;
                 }
@@ -26376,8 +26465,13 @@ std::uint32_t __fastcall match_runtime_tree_link_007c_interaction(std::uint32_t 
     return 1;
 }
 
+uint32_t match_runtime_tree_link_007c_interaction(uintptr_t *state, const RuntimeTreeInteractionCriteria *criteria)
+{
+    return match_runtime_tree_link_007c_interaction_internal(state, criteria, criteria->source_link);
+}
+
 // GAG.EXE: 0x0040C1E0
-void __fastcall seek_runtime_tree_link_007c_label(void *identity, const char *label)
+void seek_runtime_tree_link_007c_label(void *identity, const char *label)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
     while(link != nullptr && link->identity != identity)
@@ -26388,9 +26482,9 @@ void __fastcall seek_runtime_tree_link_007c_label(void *identity, const char *la
     {
         return;
     }
-    const std::uint32_t saved_cursor = link->parser.cursor;
+    const uint32_t saved_cursor = link->parser.cursor;
     link->parser.cursor = link->parser.start_offset;
-    std::uint32_t opcode;
+    uint32_t opcode;
     do
     {
         opcode = parse_script_opcode(&link->parser);
@@ -26412,7 +26506,7 @@ void __fastcall seek_runtime_tree_link_007c_label(void *identity, const char *la
 }
 
 // GAG.EXE: 0x0040C260
-std::uint32_t __fastcall find_runtime_tree_link_007c_opcode_value(void *identity, std::uint32_t opcode, const char *value, int restore_cursor)
+uint32_t find_runtime_tree_link_007c_opcode_value(void *identity, uint32_t opcode, const char *value, int restore_cursor)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
     while(link != nullptr && link->identity != identity)
@@ -26423,9 +26517,9 @@ std::uint32_t __fastcall find_runtime_tree_link_007c_opcode_value(void *identity
     {
         return 0xffffffff;
     }
-    const std::uint32_t saved_cursor = link->parser.cursor;
+    const uint32_t saved_cursor = link->parser.cursor;
     link->parser.cursor = link->parser.start_offset;
-    std::uint32_t result;
+    uint32_t result;
     do
     {
         result = parse_script_opcode(&link->parser);
@@ -26453,7 +26547,7 @@ std::uint32_t __fastcall find_runtime_tree_link_007c_opcode_value(void *identity
 }
 
 // GAG.EXE: 0x0040C2F0
-std::uint32_t __fastcall scan_runtime_tree_link_007c_control_boundary(void *identity, std::uint32_t requested_boundary)
+uint32_t scan_runtime_tree_link_007c_control_boundary(void *identity, uint32_t requested_boundary)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
     while(link != nullptr && link->identity != identity)
@@ -26464,10 +26558,10 @@ std::uint32_t __fastcall scan_runtime_tree_link_007c_control_boundary(void *iden
     {
         return 0;
     }
-    std::int32_t nesting = 0;
+    int32_t nesting = 0;
     for(;;)
     {
-        const std::uint32_t opcode = parse_script_opcode(&link->parser);
+        const uint32_t opcode = parse_script_opcode(&link->parser);
         if(opcode == 0x00006000)
         {
             if(nesting == 0)
@@ -26492,20 +26586,21 @@ std::uint32_t __fastcall scan_runtime_tree_link_007c_control_boundary(void *iden
 }
 
 // GAG.EXE: 0x0040C4B0
-std::uint32_t __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link)
+uint32_t activate_runtime_tree_link_007c(RuntimeTreeLink7C *link)
 {
     ScriptRuntimeRoot *root = script_runtime_root;
     if(root == nullptr || link == nullptr || (link->owner_flags & 0x80000000) != 0)
     {
         return root != nullptr && link != nullptr ? 1u : 0u;
     }
-    const std::uint32_t index = root->transient_index_1;
+    const uint32_t index = root->transient_index_1;
     const bool empty = root->transient_index_2 == index;
     if(empty)
     {
         root->event_records[index][14] = 0;
     }
-    const std::uint32_t matched = match_runtime_tree_link_007c_interaction(root->event_records[index], reinterpret_cast<const std::uint32_t *>(&link->command_bit));
+    const RuntimeTreeInteractionCriteria criteria = make_runtime_tree_interaction_criteria(link);
+    const uint32_t matched = match_runtime_tree_link_007c_interaction_internal(root->event_records[index], &criteria, link);
     if(matched != 0)
     {
         link->owner_flags |= 0x80000000;
@@ -26523,7 +26618,7 @@ std::uint32_t __fastcall activate_runtime_tree_link_007c(RuntimeTreeLink7C *link
 }
 
 // GAG.EXE: 0x0040BCD0
-RuntimeTreeLink7C *__fastcall find_last_runtime_tree_link_007c(RuntimeTreeNode *root)
+RuntimeTreeLink7C *find_last_runtime_tree_link_007c(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -26550,7 +26645,7 @@ RuntimeTreeLink7C *__fastcall find_last_runtime_tree_link_007c(RuntimeTreeNode *
 }
 
 // GAG.EXE: 0x0040BD30
-RuntimeTreeLink7C *__fastcall find_runtime_tree_link_007c_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreeLink7C *find_runtime_tree_link_007c_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -26569,7 +26664,7 @@ RuntimeTreeLink7C *__fastcall find_runtime_tree_link_007c_insertion_predecessor(
 }
 
 // GAG.EXE: 0x0040BD80
-void __fastcall insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTreeLink7C *link)
+void insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTreeLink7C *link)
 {
     while(true)
     {
@@ -26614,7 +26709,7 @@ void __fastcall insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTree
 }
 
 // GAG.EXE: 0x0040BE20
-void __fastcall remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_007c_tail == nullptr)
     {
@@ -26685,7 +26780,7 @@ void __fastcall remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, Run
 }
 
 // GAG.EXE: 0x0040C8A0
-ScriptObjectContainer *__fastcall find_last_script_object_container(RuntimeTreeNode *root)
+ScriptObjectContainer *find_last_script_object_container(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -26712,7 +26807,7 @@ ScriptObjectContainer *__fastcall find_last_script_object_container(RuntimeTreeN
 }
 
 // GAG.EXE: 0x0040C900
-ScriptObjectContainer *__fastcall find_script_object_container_insertion_predecessor(RuntimeTreeNode *node)
+ScriptObjectContainer *find_script_object_container_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -26731,12 +26826,12 @@ ScriptObjectContainer *__fastcall find_script_object_container_insertion_predece
 }
 
 // GAG.EXE: 0x0040C570
-std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser)
+uint32_t parse_script_object_container(ScriptParserState *parser)
 {
     char object_name[0x80];
     char field_name[0x80];
-    std::uint32_t value[32];
-    std::uint32_t value_type;
+    uint32_t value[32];
+    uint32_t value_type;
     if(parse_script_value_token(parser, object_name, 0x20) == 0xffffffff)
     {
         return 0;
@@ -26768,7 +26863,7 @@ std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser
     // stack buffer before the first entry and retains it for value types 0/3.
     // Copying its object representation preserves that native stack-byte read
     // without triggering MSVC's uninitialized-scalar runtime check.
-    std::uint32_t truth_value;
+    uint32_t truth_value;
     std::memcpy(&truth_value, field_name, sizeof(truth_value));
     while(true)
     {
@@ -26782,8 +26877,8 @@ std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser
         }
         parse_script_typed_value(parser, value, &value_type);
 
-        const std::uint32_t parsed_value = value[0];
-        std::uint32_t next_truth_value = truth_value;
+        const uint32_t parsed_value = value[0];
+        uint32_t next_truth_value = truth_value;
         if(!strings_equal(object_name, "GLOBAL_SYSTEM_STATE"))
         {
             if(value_type != 0)
@@ -26811,14 +26906,14 @@ std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser
                 }
             }
             ++container->slot_count;
-            query_or_create_script_object_field(object_name, field_name, value, static_cast<std::int32_t>(value_type));
+            query_or_create_script_object_field(object_name, field_name, value, static_cast<int32_t>(value_type));
             if(value[0] == 0)
             {
                 --container->slot_count;
             }
             else
             {
-                if(next_truth_value != 0x07000000 && static_cast<std::int32_t>(next_truth_value) > 0)
+                if(next_truth_value != 0x07000000 && static_cast<int32_t>(next_truth_value) > 0)
                 {
                     container->required_mask |= 1u << ((container->slot_count - 1) & 31);
                 }
@@ -26829,7 +26924,7 @@ std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser
         }
         else if(value_type == 1)
         {
-            const auto append_system_slot = [&](std::uint32_t field_mask)
+            const auto append_system_slot = [&](uint32_t field_mask)
             {
                 ++container->slot_count;
                 if(parsed_value != 0x07000000)
@@ -26863,7 +26958,7 @@ std::uint32_t __fastcall parse_script_object_container(ScriptParserState *parser
 }
 
 // GAG.EXE: 0x0040C950
-void __fastcall insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer *container)
+void insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer *container)
 {
     while(true)
     {
@@ -26908,7 +27003,7 @@ void __fastcall insert_script_object_container(RuntimeTreeNode *node, ScriptObje
 }
 
 // GAG.EXE: 0x0040C9F0
-void __fastcall remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->container_tail == nullptr)
     {
@@ -26979,10 +27074,10 @@ void __fastcall remove_script_object_container_range(RuntimeTreeNode *parent, Ru
 }
 
 // GAG.EXE: 0x0040CB40
-BOOL __fastcall destroy_script_object_container(ScriptObjectContainer *container)
+BOOL destroy_script_object_container(ScriptObjectContainer *container)
 {
     BOOL result = TRUE;
-    for(std::uint32_t index = 0; index < container->slot_count; ++index)
+    for(uint32_t index = 0; index < container->slot_count; ++index)
     {
         if(container->slots[index].object != nullptr)
         {
@@ -26996,7 +27091,7 @@ BOOL __fastcall destroy_script_object_container(ScriptObjectContainer *container
 static bool script_object_container_state_matches(ScriptObjectContainer *container)
 {
     container->current_mask = 0;
-    for(std::uint32_t index = 0; index < container->slot_count; ++index)
+    for(uint32_t index = 0; index < container->slot_count; ++index)
     {
         if((*container->slots[index].active_field_mask & container->slots[index].field_mask) != 0)
         {
@@ -27007,7 +27102,7 @@ static bool script_object_container_state_matches(ScriptObjectContainer *contain
 }
 
 // GAG.EXE: 0x0040CBA0
-bool __fastcall script_object_container_state_matches_by_identity(void *identity)
+bool script_object_container_state_matches_by_identity(void *identity)
 {
     if(script_runtime_root == nullptr)
     {
@@ -27024,7 +27119,7 @@ bool __fastcall script_object_container_state_matches_by_identity(void *identity
 }
 
 // GAG.EXE: 0x0040CC20
-bool __fastcall script_object_container_state_matches_by_name(const void *name)
+bool script_object_container_state_matches_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -27041,7 +27136,7 @@ bool __fastcall script_object_container_state_matches_by_name(const void *name)
 }
 
 // GAG.EXE: 0x0040CCB0
-ScriptObjectContainer *__fastcall find_script_condition_container_by_name(const void *name)
+ScriptObjectContainer *find_script_condition_container_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -27058,7 +27153,7 @@ ScriptObjectContainer *__fastcall find_script_condition_container_by_name(const 
 }
 
 // GAG.EXE: 0x0040B560
-RuntimeTreeLink8C *__fastcall find_last_runtime_tree_link_008c(RuntimeTreeNode *root)
+RuntimeTreeLink8C *find_last_runtime_tree_link_008c(RuntimeTreeNode *root)
 {
     if(root == nullptr)
     {
@@ -27085,7 +27180,7 @@ RuntimeTreeLink8C *__fastcall find_last_runtime_tree_link_008c(RuntimeTreeNode *
 }
 
 // GAG.EXE: 0x0040B5C0
-RuntimeTreeLink8C *__fastcall find_runtime_tree_link_008c_insertion_predecessor(RuntimeTreeNode *node)
+RuntimeTreeLink8C *find_runtime_tree_link_008c_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
     if(parent == nullptr || parent == reinterpret_cast<RuntimeTreeNode *>(-1))
@@ -27104,7 +27199,7 @@ RuntimeTreeLink8C *__fastcall find_runtime_tree_link_008c_insertion_predecessor(
 }
 
 // GAG.EXE: 0x0040B610
-void __fastcall insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTreeLink8C *link)
+void insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTreeLink8C *link)
 {
     while(true)
     {
@@ -27149,7 +27244,7 @@ void __fastcall insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTree
 }
 
 // GAG.EXE: 0x0040B6B0
-void __fastcall remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
+void remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_008c_tail == nullptr)
     {
@@ -27220,7 +27315,7 @@ void __fastcall remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, Run
 }
 
 // GAG.EXE: 0x0040B800
-RuntimeTreeLink8C *__fastcall find_global_runtime_tree_link_008c_by_name(const void *name)
+RuntimeTreeLink8C *find_global_runtime_tree_link_008c_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -27237,7 +27332,7 @@ RuntimeTreeLink8C *__fastcall find_global_runtime_tree_link_008c_by_name(const v
 }
 
 // GAG.EXE: 0x00407380
-RuntimeFixedNameListNode *__fastcall find_runtime_fixed_name_list_node(const void *name)
+RuntimeFixedNameListNode *find_runtime_fixed_name_list_node(const void *name)
 {
     if(script_runtime_root == nullptr)
     {
@@ -27254,19 +27349,19 @@ RuntimeFixedNameListNode *__fastcall find_runtime_fixed_name_list_node(const voi
 }
 
 // GAG.EXE: 0x0040CDA0
-std::uint32_t __fastcall parse_script_file_value(ScriptParserState *parser, char *value, char *serialized_value)
+uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *serialized_value)
 {
-    std::uint32_t result = parse_script_value_token(parser, value, 0x20);
+    uint32_t result = parse_script_value_token(parser, value, 0x20);
     if(result == 0xffffffff)
     {
         return result;
     }
 
-    const char *language_suffix = reinterpret_cast<const char *>(script_runtime_root) + 0x828;
+    const char *language_suffix = script_runtime_root->language;
     if(*language_suffix != '\0')
     {
         bool has_extension = false;
-        for(std::uint32_t index = 0; value[index] != '\0'; ++index)
+        for(uint32_t index = 0; value[index] != '\0'; ++index)
         {
             if(value[index] == '.')
             {
@@ -27283,7 +27378,7 @@ std::uint32_t __fastcall parse_script_file_value(ScriptParserState *parser, char
     if(serialized_value != nullptr)
     {
         append_string(serialized_value, value);
-        const std::uint32_t saved_cursor = parser->cursor;
+        const uint32_t saved_cursor = parser->cursor;
         char next_value[0x20];
         if(parse_script_value_token(parser, next_value, sizeof(next_value)) != 0xffffffff)
         {
@@ -27294,8 +27389,8 @@ std::uint32_t __fastcall parse_script_file_value(ScriptParserState *parser, char
         append_string(serialized_value, " ");
     }
 
-    result = static_cast<std::uint32_t>(parse_script_integer_expression(parser));
-    const std::uint32_t required_value = *reinterpret_cast<const std::uint32_t *>(reinterpret_cast<const std::uint8_t *>(script_runtime_root) + 0x824);
+    result = static_cast<uint32_t>(parse_script_integer_expression(parser));
+    const uint32_t required_value = script_runtime_root->state_value_0824;
     if(result != 0x7fffffff && result != required_value)
     {
         value[0] = '\0';
@@ -27305,7 +27400,7 @@ std::uint32_t __fastcall parse_script_file_value(ScriptParserState *parser, char
 }
 
 // GAG.EXE: 0x00407240
-std::uint32_t __fastcall create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
+uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
 {
     char name[0x20];
     if(parse_script_value_token(parser, name, sizeof(name)) == 0)
@@ -27330,17 +27425,17 @@ std::uint32_t __fastcall create_or_update_runtime_fixed_name_node(ScriptParserSt
             return 0;
         }
         node->identity = node;
-        *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) = 0x04000000;
+        *reinterpret_cast<uint32_t *>(node->serialized_value + 0x20) = 0x04000000;
         std::memcpy(node->name, name, sizeof(name));
     }
 
     for(;;)
     {
-        std::uint32_t code = parse_script_scope_code(parser);
+        uint32_t code = parse_script_scope_code(parser);
         if(code == 0x01000000)
         {
-            *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x28) = *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24);
-            *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x24) = 0;
+            *reinterpret_cast<uint32_t *>(node->serialized_value + 0x28) = *reinterpret_cast<uint32_t *>(node->serialized_value + 0x24);
+            *reinterpret_cast<uint32_t *>(node->serialized_value + 0x24) = 0;
             parse_script_file_value(parser, node->serialized_value, nullptr);
         }
         else if(code == 0x0a000000)
@@ -27348,11 +27443,11 @@ std::uint32_t __fastcall create_or_update_runtime_fixed_name_node(ScriptParserSt
             code = parse_image_flag(parser);
             if(code == 1)
             {
-                *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) &= 0xfbffffff;
+                *reinterpret_cast<uint32_t *>(node->serialized_value + 0x20) &= 0xfbffffff;
             }
             else if(code == 0x04000000)
             {
-                *reinterpret_cast<std::uint32_t *>(node->serialized_value + 0x20) |= 0x04000000;
+                *reinterpret_cast<uint32_t *>(node->serialized_value + 0x20) |= 0x04000000;
                 continue;
             }
             node->flags |= code;
@@ -27409,7 +27504,7 @@ void destroy_script_object_states()
 }
 
 // GAG.EXE: 0x004091B0
-BOOL __fastcall remove_runtime_visual_object(void *identity)
+BOOL remove_runtime_visual_object(void *identity)
 {
     RuntimeVisualObject *previous = nullptr;
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
@@ -27447,7 +27542,7 @@ void destroy_runtime_visual_objects()
 }
 
 // GAG.EXE: 0x00408380
-ScriptObjectState *__fastcall find_script_object_by_name(const char *name)
+ScriptObjectState *find_script_object_by_name(const char *name)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
     {
@@ -27458,7 +27553,7 @@ ScriptObjectState *__fastcall find_script_object_by_name(const char *name)
     }
     for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
     {
-        for(std::uint32_t index = 0; index < container->slot_count; ++index)
+        for(uint32_t index = 0; index < container->slot_count; ++index)
         {
             ScriptObjectState *object = container->slots[index].object;
             if(object != nullptr && fixed_dword_memory_equal(name, object->name, 0x20))
@@ -27471,14 +27566,14 @@ ScriptObjectState *__fastcall find_script_object_by_name(const char *name)
 }
 
 // GAG.EXE: 0x00408660
-ScriptObjectState *__fastcall resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type)
+ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object == nullptr)
     {
         return nullptr;
     }
-    std::uint32_t index = 0;
+    uint32_t index = 0;
     while(index < object->field_count && !fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
     {
         ++index;
@@ -27487,10 +27582,10 @@ ScriptObjectState *__fastcall resolve_state_field_reference(const char *object_n
     {
         return object;
     }
-    std::uint32_t bit = 1u << index;
+    uint32_t bit = 1u << index;
     if(value_type == 1)
     {
-        std::uint32_t boolean_value = *static_cast<const std::uint32_t *>(value);
+        uint32_t boolean_value = *static_cast<const uint32_t *>(value);
         if(boolean_value == 0x03000000)
         {
             object->active_field_mask |= bit;
@@ -27502,7 +27597,7 @@ ScriptObjectState *__fastcall resolve_state_field_reference(const char *object_n
     }
     else if(value_type == 2)
     {
-        object->integer_values[index] = *static_cast<const std::int32_t *>(value);
+        object->integer_values[index] = *static_cast<const int32_t *>(value);
         if(object->integer_values[index] < 1)
         {
             object->active_field_mask &= ~bit;
@@ -27563,7 +27658,7 @@ void set_script_integer_expression_api_for_testing(const ScriptIntegerExpression
 }
 
 // GAG.EXE: 0x00415720
-std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void *destination, std::uint32_t bytes, std::uint32_t *bytes_read, std::int32_t force_host_buffer)
+uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer)
 {
     *bytes_read = 0;
     AsyncFileRecord *record = acquire_async_file_record(identity);
@@ -27572,7 +27667,7 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
         return 0;
     }
     AsyncFileHost *host = record->host;
-    std::uint32_t result = 1;
+    uint32_t result = 1;
     if(force_host_buffer != 0 || host->active_file == record)
     {
         while(true)
@@ -27592,11 +27687,11 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
         {
             activate_async_file_record(record);
         }
-        const std::uint32_t chunk_size = (host->buffer_size / host->bytes_per_sector >> 2) * host->bytes_per_sector;
-        auto *output = static_cast<std::uint8_t *>(destination);
+        const uint32_t chunk_size = (host->buffer_size / host->bytes_per_sector >> 2) * host->bytes_per_sector;
+        auto *output = static_cast<uint8_t *>(destination);
         while(bytes != 0)
         {
-            std::uint32_t chunk = chunk_size;
+            uint32_t chunk = chunk_size;
             if(bytes <= chunk_size)
             {
                 chunk = bytes;
@@ -27614,12 +27709,12 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
     }
     else
     {
-        std::uint32_t copied = 0;
-        const std::uint32_t chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
-        auto *output = static_cast<std::uint8_t *>(destination);
+        uint32_t copied = 0;
+        const uint32_t chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
+        auto *output = static_cast<uint8_t *>(destination);
         while(bytes != 0)
         {
-            std::uint32_t chunk = record->buffered_bytes;
+            uint32_t chunk = record->buffered_bytes;
             if(chunk != 0 && (record->flags & 0x20) != 0)
             {
                 if(bytes < chunk)
@@ -27627,7 +27722,7 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
                     chunk = bytes;
                 }
                 std::memcpy(output, record->buffer_cursor, chunk);
-                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer_cursor) + chunk;
+                record->buffer_cursor = static_cast<uint8_t *>(record->buffer_cursor) + chunk;
                 record->buffered_bytes -= chunk;
                 output += chunk;
                 bytes -= chunk;
@@ -27642,7 +27737,7 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
             DWORD file_bytes = 0;
             if((record->flags & 0x20) == 0)
             {
-                const std::uint32_t aligned_offset = record->current_offset / host->bytes_per_sector * host->bytes_per_sector;
+                const uint32_t aligned_offset = record->current_offset / host->bytes_per_sector * host->bytes_per_sector;
                 record->next_offset = aligned_offset;
                 record->previous_offset = aligned_offset;
                 async_file_host_api.set_file_pointer(record->file, aligned_offset, nullptr, FILE_BEGIN);
@@ -27660,8 +27755,8 @@ std::uint32_t __fastcall read_async_file_record(AsyncFileRecord *identity, void 
                     invalidate_shared_async_records(record);
                 }
                 record->flags |= 0x20;
-                const std::uint32_t prefix = record->current_offset % host->bytes_per_sector;
-                record->buffer_cursor = static_cast<std::uint8_t *>(record->buffer) + prefix;
+                const uint32_t prefix = record->current_offset % host->bytes_per_sector;
+                record->buffer_cursor = static_cast<uint8_t *>(record->buffer) + prefix;
                 record->buffered_bytes = file_bytes - prefix;
             }
             else
@@ -27732,7 +27827,7 @@ void set_runtime_scene_transition_selection_api_for_testing(const RuntimeSceneTr
     runtime_scene_transition_selection_api = api;
 }
 
-void set_runtime_scene_transition_selection_state_for_testing(std::uint32_t available_transitions, std::uint32_t palette_value, std::uint32_t rectangle_value, std::uint16_t bits_per_pixel)
+void set_runtime_scene_transition_selection_state_for_testing(uint32_t available_transitions, uint32_t palette_value, uint32_t rectangle_value, uint16_t bits_per_pixel)
 {
     graphics_host_value_3 = available_transitions;
     graphics_host_value_1 = palette_value;
@@ -27745,7 +27840,7 @@ void set_runtime_resource_state_api_for_testing(const RuntimeResourceStateApi &a
     runtime_resource_state_api = api;
 }
 
-void set_runtime_resource_state_globals_for_testing(void *current_resource, std::uint32_t scene_flags)
+void set_runtime_resource_state_globals_for_testing(void *current_resource, uint32_t scene_flags)
 {
     current_runtime_resource = current_resource;
     runtime_resource_transition_flags = scene_flags;
@@ -27762,7 +27857,7 @@ void set_runtime_palette_scene_transition_api_for_testing(const RuntimePaletteSc
     runtime_palette_scene_transition_api = api;
 }
 
-void set_runtime_palette_scene_transition_state_for_testing(void *current_resource, std::uint32_t scene_flags, std::uint16_t width, std::uint16_t height)
+void set_runtime_palette_scene_transition_state_for_testing(void *current_resource, uint32_t scene_flags, uint16_t width, uint16_t height)
 {
     current_runtime_resource = current_resource;
     runtime_scene_control_flags = scene_flags;
@@ -27780,7 +27875,7 @@ void set_runtime_rectangle_scene_transition_api_for_testing(const RuntimeRectang
     runtime_rectangle_scene_transition_api = api;
 }
 
-void set_runtime_rectangle_scene_transition_state_for_testing(void *current_resource, std::uint16_t width, std::uint16_t height)
+void set_runtime_rectangle_scene_transition_state_for_testing(void *current_resource, uint16_t width, uint16_t height)
 {
     current_runtime_resource = current_resource;
     runtime_game_host_context.width = width;
@@ -27797,9 +27892,16 @@ void set_graphics_host_api_for_testing(const GraphicsHostApi &api)
     graphics_host_api = api;
 }
 
-void reset_graphics_host_state_for_testing(std::uint32_t scene_flags)
+void reset_graphics_host_state_for_testing(uint32_t scene_flags)
 {
-    std::memset(graphics_host_storage, 0, sizeof(graphics_host_storage));
+    runtime_display_context = {};
+    runtime_graphics_instance = nullptr;
+    std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
+    std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
+    std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
+    graphics_host_state = {};
+    runtime_game_host_context = {};
+    graphics_script_runtime_root = {};
     std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
     runtime_scene_control_flags = scene_flags;
     runtime_target_flags = 0;
@@ -27808,8 +27910,7 @@ void reset_graphics_host_state_for_testing(std::uint32_t scene_flags)
     runtime_pointer_y = 0;
 }
 
-void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, std::int32_t *pointer_x, std::int32_t *pointer_y, std::uint32_t *target_flags,
-    HANDLE *resource_heap)
+void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, int32_t *pointer_x, int32_t *pointer_y, uint32_t *target_flags, HANDLE *resource_heap)
 {
     *context = runtime_game_host_context;
     std::memcpy(callbacks, runtime_game_host_callbacks, sizeof(runtime_game_host_callbacks));
@@ -27834,9 +27935,9 @@ void set_runtime_bootstrap_api_for_testing(const RuntimeBootstrapApi &api)
     runtime_bootstrap_api = api;
 }
 
-void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *format, std::int32_t *scene_identifier, HANDLE *thread)
+void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *format, intptr_t *scene_identifier, HANDLE *thread)
 {
-    *format = *reinterpret_cast<DisplayPixelFormatDescriptor *>(runtime_display_context.display_pixel_format);
+    *format = runtime_display_context.display_pixel_format;
     *scene_identifier = runtime_display_scene_identifier;
     *thread = runtime_display_thread;
 }
@@ -27871,7 +27972,7 @@ void set_runtime_resource_palette_configure_api_for_testing(const RuntimeResourc
     runtime_resource_palette_configure_api = api;
 }
 
-void set_runtime_resource_palette_bits_per_pixel_for_testing(std::uint32_t bits_per_pixel)
+void set_runtime_resource_palette_bits_per_pixel_for_testing(uint32_t bits_per_pixel)
 {
     runtime_resource_palette_bits_per_pixel = bits_per_pixel;
 }
@@ -27886,12 +27987,12 @@ void set_runtime_animation_failure_api_for_testing(const RuntimeAnimationFailure
     runtime_animation_failure_api = api;
 }
 
-void set_runtime_animation_control_flags_for_testing(std::uint32_t flags)
+void set_runtime_animation_control_flags_for_testing(uint32_t flags)
 {
     runtime_animation_control_flags = flags;
 }
 
-std::uint32_t get_runtime_animation_control_flags_for_testing()
+uint32_t get_runtime_animation_control_flags_for_testing()
 {
     return runtime_animation_control_flags;
 }
@@ -27957,7 +28058,7 @@ void set_runtime_generic_backend_create_api_for_testing(const RuntimeGenericBack
     runtime_generic_backend_create_api = api;
 }
 
-void set_runtime_generic_backend_create_state_for_testing(std::uint32_t enabled)
+void set_runtime_generic_backend_create_state_for_testing(uint32_t enabled)
 {
     runtime_generic_backend_enabled = enabled;
 }
@@ -27972,7 +28073,7 @@ void set_runtime_sound_destroy_api_for_testing(const RuntimeSoundDestroyApi &api
     runtime_sound_destroy_api = api;
 }
 
-void set_runtime_sound_destroy_state_for_testing(std::int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, std::uint32_t maximum_handle)
+void set_runtime_sound_destroy_state_for_testing(int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, uint32_t maximum_handle)
 {
     runtime_sound_enabled = enabled;
     runtime_sound_mutex = mutex;
@@ -27986,7 +28087,7 @@ RuntimeSoundSlot *use_runtime_sound_backing_storage_for_testing()
     return runtime_sound_slots;
 }
 
-std::uint32_t get_runtime_sound_maximum_handle_for_testing()
+uint32_t get_runtime_sound_maximum_handle_for_testing()
 {
     return runtime_sound_maximum_handle;
 }
@@ -27997,7 +28098,7 @@ void set_runtime_sound_create_api_for_testing(const RuntimeSoundCreateApi &api)
 }
 
 void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEFORMATEX *output_format, WAVEHDR *header_1, WAVEHDR *header_2, HWND window, HANDLE thread,
-    DWORD thread_id, std::uint32_t output_ready, std::uint32_t ready, std::uint32_t fault)
+    DWORD thread_id, uint32_t output_ready, uint32_t ready, uint32_t fault)
 {
     runtime_sound_lifecycle_mutex = lifecycle_mutex;
     runtime_sound_wave_out = wave_out;
@@ -28012,7 +28113,7 @@ void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT
     runtime_sound_fault = fault;
 }
 
-void get_runtime_sound_create_state_for_testing(HANDLE *thread, DWORD *thread_id, std::uint32_t *output_initialized, std::uint32_t *ready)
+void get_runtime_sound_create_state_for_testing(HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized, uint32_t *ready)
 {
     *thread = runtime_sound_thread;
     *thread_id = runtime_sound_thread_id;
@@ -28025,19 +28126,19 @@ void set_runtime_sound_format_cleanup_api_for_testing(const RuntimeSoundFormatCl
     runtime_sound_format_cleanup_api = api;
 }
 
-void set_runtime_sound_format_cleanup_state_for_testing(void *buffer, std::uint32_t base_state)
+void set_runtime_sound_format_cleanup_state_for_testing(void *buffer, uint32_t base_state)
 {
     runtime_sound_format_buffer = buffer;
     runtime_sound_base_state = base_state;
 }
 
-void get_runtime_sound_format_cleanup_state_for_testing(void **buffer, std::uint32_t *base_state)
+void get_runtime_sound_format_cleanup_state_for_testing(void **buffer, uint32_t *base_state)
 {
     *buffer = runtime_sound_format_buffer;
     *base_state = runtime_sound_base_state;
 }
 
-void set_runtime_sound_fade_state_for_testing(WAVEFORMATEX *output_format, std::uint32_t mixer_data_size)
+void set_runtime_sound_fade_state_for_testing(WAVEFORMATEX *output_format, uint32_t mixer_data_size)
 {
     runtime_sound_output_format = output_format;
     runtime_sound_mixer_data_size = mixer_data_size;
@@ -28048,13 +28149,13 @@ void set_runtime_wave_out_callback_api_for_testing(const RuntimeWaveOutCallbackA
     runtime_wave_out_callback_api = api;
 }
 
-void set_runtime_wave_out_callback_state_for_testing(HWND window, std::uint32_t output_ready)
+void set_runtime_wave_out_callback_state_for_testing(HWND window, uint32_t output_ready)
 {
     runtime_sound_window = window;
     runtime_sound_output_ready = output_ready;
 }
 
-std::uint32_t get_runtime_wave_out_callback_state_for_testing()
+uint32_t get_runtime_wave_out_callback_state_for_testing()
 {
     return runtime_sound_output_ready;
 }
@@ -28064,8 +28165,8 @@ void set_runtime_sound_shutdown_api_for_testing(const RuntimeSoundShutdownApi &a
     runtime_sound_shutdown_api = api;
 }
 
-void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEHDR *header_1, WAVEHDR *header_2, HANDLE thread, DWORD thread_id, std::uint32_t output_ready,
-    std::uint32_t output_initialized)
+void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEHDR *header_1, WAVEHDR *header_2, HANDLE thread, DWORD thread_id, uint32_t output_ready,
+    uint32_t output_initialized)
 {
     runtime_sound_lifecycle_mutex = lifecycle_mutex;
     runtime_sound_wave_out = wave_out;
@@ -28077,7 +28178,7 @@ void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEO
     runtime_sound_output_initialized = output_initialized;
 }
 
-void get_runtime_sound_shutdown_state_for_testing(std::int32_t *enabled, HANDLE *thread, DWORD *thread_id, std::uint32_t *output_initialized)
+void get_runtime_sound_shutdown_state_for_testing(int32_t *enabled, HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized)
 {
     *enabled = runtime_sound_enabled;
     *thread = runtime_sound_thread;
@@ -28095,8 +28196,8 @@ void set_runtime_sound_pause_resume_api_for_testing(const RuntimeSoundPauseResum
     runtime_sound_pause_resume_api = api;
 }
 
-void set_runtime_sound_pause_resume_state_for_testing(std::uint32_t toggle_state, std::uint32_t mixing_suppressed, std::uint32_t output_initialized, std::uint32_t output_ready, HANDLE thread,
-    DWORD thread_id, HWND window, std::uint32_t fault)
+void set_runtime_sound_pause_resume_state_for_testing(uint32_t toggle_state, uint32_t mixing_suppressed, uint32_t output_initialized, uint32_t output_ready, HANDLE thread, DWORD thread_id,
+    HWND window, uint32_t fault)
 {
     runtime_sound_toggle_state = toggle_state;
     runtime_sound_mixing_suppressed = mixing_suppressed;
@@ -28108,7 +28209,7 @@ void set_runtime_sound_pause_resume_state_for_testing(std::uint32_t toggle_state
     runtime_sound_fault = fault;
 }
 
-void get_runtime_sound_pause_resume_state_for_testing(std::uint32_t *toggle_state, std::uint32_t *mixing_suppressed, std::uint32_t *output_initialized, HANDLE *thread, DWORD *thread_id)
+void get_runtime_sound_pause_resume_state_for_testing(uint32_t *toggle_state, uint32_t *mixing_suppressed, uint32_t *output_initialized, HANDLE *thread, DWORD *thread_id)
 {
     *toggle_state = runtime_sound_toggle_state;
     *mixing_suppressed = runtime_sound_mixing_suppressed;
@@ -28117,12 +28218,12 @@ void get_runtime_sound_pause_resume_state_for_testing(std::uint32_t *toggle_stat
     *thread_id = runtime_sound_thread_id;
 }
 
-void set_runtime_sound_readiness_state_for_testing(std::uint32_t ready)
+void set_runtime_sound_readiness_state_for_testing(uint32_t ready)
 {
     runtime_sound_ready = ready;
 }
 
-std::uint32_t get_runtime_sound_readiness_state_for_testing()
+uint32_t get_runtime_sound_readiness_state_for_testing()
 {
     return runtime_sound_ready;
 }
@@ -28132,14 +28233,14 @@ void set_runtime_sound_thread_api_for_testing(const RuntimeSoundThreadApi &api)
     runtime_sound_thread_api = api;
 }
 
-void set_runtime_sound_thread_state_for_testing(HINSTANCE instance, HWND window, std::uint32_t creation_failed)
+void set_runtime_sound_thread_state_for_testing(HINSTANCE instance, HWND window, uint32_t creation_failed)
 {
     runtime_sound_instance = instance;
     runtime_sound_window = window;
     runtime_sound_window_creation_failed = creation_failed;
 }
 
-void get_runtime_sound_thread_state_for_testing(HWND *window, std::uint32_t *creation_failed)
+void get_runtime_sound_thread_state_for_testing(HWND *window, uint32_t *creation_failed)
 {
     *window = runtime_sound_window;
     *creation_failed = runtime_sound_window_creation_failed;
@@ -28155,8 +28256,8 @@ void set_runtime_sound_window_api_for_testing(const RuntimeSoundWindowApi &api)
     runtime_sound_window_api = api;
 }
 
-void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs, WAVEFORMATEX *output_format, std::uint32_t mixer_data_size, std::uint32_t output_initialized,
-    std::uint32_t output_index, void(__fastcall *mixer)(std::uint32_t marker))
+void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs, WAVEFORMATEX *output_format, uint32_t mixer_data_size, uint32_t output_initialized, uint32_t output_index,
+    void (*mixer)(uint32_t marker))
 {
     runtime_sound_outputs = outputs;
     runtime_sound_output_format = output_format;
@@ -28166,7 +28267,7 @@ void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs
     runtime_sound_mixer = mixer;
 }
 
-void set_runtime_sound_mixing_suppressed_for_testing(std::uint8_t suppressed)
+void set_runtime_sound_mixing_suppressed_for_testing(uint8_t suppressed)
 {
     runtime_sound_mixing_suppressed = suppressed;
 }
@@ -28176,13 +28277,13 @@ void set_runtime_wave_mixer_initialize_api_for_testing(const RuntimeWaveMixerIni
     runtime_wave_mixer_initialize_api = api;
 }
 
-void set_runtime_wave_mixer_initialize_state_for_testing(std::uint32_t fault, std::uint32_t window_creation_failed)
+void set_runtime_wave_mixer_initialize_state_for_testing(uint32_t fault, uint32_t window_creation_failed)
 {
     runtime_sound_fault = fault;
     runtime_sound_window_creation_failed = window_creation_failed;
 }
 
-void get_runtime_wave_mixer_initialize_state_for_testing(std::uint32_t *fault, void **buffer, std::uint32_t *mixer_data_size, void(__fastcall **mixer)(std::uint32_t marker))
+void get_runtime_wave_mixer_initialize_state_for_testing(uint32_t *fault, void **buffer, uint32_t *mixer_data_size, void (**mixer)(uint32_t marker))
 {
     *fault = runtime_sound_fault;
     *buffer = runtime_sound_format_buffer;
@@ -28190,7 +28291,7 @@ void get_runtime_wave_mixer_initialize_state_for_testing(std::uint32_t *fault, v
     *mixer = runtime_sound_mixer;
 }
 
-void get_runtime_sound_window_state_for_testing(std::uint32_t *output_ready, std::uint32_t *output_initialized, std::uint32_t *output_index)
+void get_runtime_sound_window_state_for_testing(uint32_t *output_ready, uint32_t *output_initialized, uint32_t *output_index)
 {
     *output_ready = runtime_sound_output_ready;
     *output_initialized = runtime_sound_output_initialized;
@@ -28207,14 +28308,14 @@ void set_runtime_resource_control_api_for_testing(const RuntimeResourceControlAp
     runtime_resource_control_api = api;
 }
 
-void set_runtime_game_dll_unload_api_for_testing(const RuntimeGameDllUnloadApi &api)
+void set_runtime_game_lifecycle_api_for_testing(const RuntimeGameLifecycleApi &api)
 {
-    runtime_game_dll_unload_api = api;
+    runtime_game_lifecycle_api = api;
 }
 
-void set_runtime_game_dll_load_api_for_testing(const RuntimeGameDllLoadApi &api)
+void set_runtime_game_integration_api_for_testing(const RuntimeGameIntegrationApi &api)
 {
-    runtime_game_dll_load_api = api;
+    runtime_game_integration_api = api;
 }
 
 void set_runtime_game_dll_dispatch_api_for_testing(const RuntimeGameDllDispatchApi &api)
@@ -28222,15 +28323,14 @@ void set_runtime_game_dll_dispatch_api_for_testing(const RuntimeGameDllDispatchA
     runtime_game_dll_dispatch_api = api;
 }
 
-void set_runtime_game_dll_state_for_testing(HMODULE module, std::uint32_t flags)
+void set_runtime_game_dll_state_for_testing(uint32_t flags)
 {
-    runtime_game_dll_module = module;
     runtime_scene_control_flags = flags;
 }
 
 void set_runtime_game_dll_execute_for_testing(RuntimeGameDllExecute execute)
 {
-    runtime_game_dll_execute = reinterpret_cast<FARPROC>(execute);
+    runtime_game_dll_execute = execute;
 }
 
 void set_runtime_game_window_api_for_testing(const RuntimeGameWindowApi &api)
@@ -28238,15 +28338,15 @@ void set_runtime_game_window_api_for_testing(const RuntimeGameWindowApi &api)
     runtime_game_window_api = api;
 }
 
-void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllWindowProcedure window_procedure, std::uint16_t x_offset, std::uint16_t y_offset)
+void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllWindowProcedure window_procedure, uint16_t x_offset, uint16_t y_offset)
 {
     runtime_game_main_window = main_window;
-    runtime_game_dll_window_procedure = reinterpret_cast<FARPROC>(window_procedure);
+    runtime_game_dll_window_procedure = window_procedure;
     runtime_game_host_context.unknown_0038 = x_offset;
     runtime_game_host_context.unknown_003c = y_offset;
 }
 
-void get_runtime_game_result_for_testing(std::uint32_t *type, void *data, std::uint32_t size)
+void get_runtime_game_result_for_testing(uint32_t *type, void *data, uint32_t size)
 {
     *type = runtime_display_context.game_result_type;
     std::memcpy(data, runtime_display_context.game_result_data, size);
@@ -28257,7 +28357,7 @@ void set_runtime_pointer_position_api_for_testing(const RuntimePointerPositionAp
     runtime_pointer_position_api = api;
 }
 
-void get_runtime_pointer_position_for_testing(std::int32_t *x, std::int32_t *y)
+void get_runtime_pointer_position_for_testing(int32_t *x, int32_t *y)
 {
     *x = runtime_pointer_x;
     *y = runtime_pointer_y;
@@ -28269,10 +28369,13 @@ void set_runtime_game_host_state_for_testing(const RuntimeGameHostContext &conte
     std::memcpy(runtime_game_host_callbacks, callbacks, sizeof(runtime_game_host_callbacks));
 }
 
-void get_runtime_game_dll_state_for_testing(HMODULE *module, FARPROC *initialize, FARPROC *window_procedure, FARPROC *execute)
+RuntimeGameHostContext get_runtime_game_host_state_for_testing()
 {
-    *module = runtime_game_dll_module;
-    *initialize = runtime_game_dll_initialize;
+    return runtime_game_host_context;
+}
+
+void get_runtime_game_dll_state_for_testing(RuntimeGameDllWindowProcedure *window_procedure, RuntimeGameDllExecute *execute)
+{
     *window_procedure = runtime_game_dll_window_procedure;
     *execute = runtime_game_dll_execute;
 }
@@ -28322,7 +28425,7 @@ void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api)
     runtime_scene_switch_api = api;
 }
 
-void set_runtime_scene_switch_state_for_testing(void *current_identity, std::int32_t x, std::int32_t y)
+void set_runtime_scene_switch_state_for_testing(void *current_identity, int32_t x, int32_t y)
 {
     current_runtime_scene_identity = current_identity;
     runtime_scene_x = x;
@@ -28334,13 +28437,13 @@ void *get_current_runtime_scene_identity_for_testing()
     return current_runtime_scene_identity;
 }
 
-void set_runtime_scene_control_state_for_testing(std::uint32_t flags, void *saved_identity)
+void set_runtime_scene_control_state_for_testing(uint32_t flags, void *saved_identity)
 {
     runtime_scene_control_flags = flags;
     saved_default_comment_scene_identity = saved_identity;
 }
 
-std::uint32_t get_runtime_scene_control_flags_for_testing()
+uint32_t get_runtime_scene_control_flags_for_testing()
 {
     return runtime_scene_control_flags;
 }
@@ -28355,7 +28458,7 @@ const RuntimeSceneSlot *get_runtime_scene_slots_for_testing()
     return runtime_scene_slots;
 }
 
-void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, std::uint32_t state_mask, void *state_owner)
+void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, uint32_t state_mask, void *state_owner)
 {
     runtime_pointer_root_identity = root_identity;
     runtime_pointer_regions = regions;
@@ -28374,9 +28477,9 @@ RuntimePointerRegion *get_runtime_pointer_regions_for_testing()
     return runtime_pointer_regions;
 }
 
-std::uint32_t get_runtime_pointer_event_flags_for_testing()
+uint32_t get_runtime_pointer_event_flags_for_testing()
 {
-    return runtime_pointer_event_record[11];
+    return static_cast<uint32_t>(runtime_pointer_event_record[11]);
 }
 
 void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api)
@@ -28384,20 +28487,42 @@ void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api
     runtime_display_reset_api = api;
 }
 
-void set_runtime_display_reset_state_for_testing(std::uint32_t value_1, std::uint8_t byte_value, std::uint32_t value_2, const std::uint32_t *scene_state)
+void set_runtime_display_reset_state_for_testing(uint32_t value_1, uint8_t byte_value, uint32_t value_2, const uint32_t *scene_state)
 {
-    runtime_display_reset_value_1 = value_1;
+    runtime_display_context.input_scene_identifier = value_1;
     runtime_display_reset_byte = byte_value;
-    runtime_display_reset_value_2 = value_2;
-    std::memcpy(runtime_display_scene_state, scene_state, sizeof(runtime_display_scene_state));
+    saved_default_comment_scene_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(value_2));
+    current_runtime_scene_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[0]));
+    current_runtime_resource = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[1]));
+    runtime_pointer_root_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[2]));
+    runtime_display_context.active_script_link = reinterpret_cast<RuntimeTreeLink7C *>(static_cast<uintptr_t>(scene_state[3]));
+    active_runtime_pointer_region = reinterpret_cast<RuntimePointerRegion *>(static_cast<uintptr_t>(scene_state[4]));
+    runtime_pointer_state_mask = scene_state[5];
+    runtime_pointer_state_owner = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[6]));
+    runtime_pointer_event_state_object = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[7]));
+    for(size_t index = 0; index < 13; ++index)
+    {
+        runtime_pointer_event_record[index] = scene_state[index + 8];
+    }
 }
 
-void get_runtime_display_reset_state_for_testing(std::uint32_t *value_1, std::uint8_t *byte_value, std::uint32_t *value_2, std::uint32_t *scene_state)
+void get_runtime_display_reset_state_for_testing(uint32_t *value_1, uint8_t *byte_value, uint32_t *value_2, uint32_t *scene_state)
 {
-    *value_1 = runtime_display_reset_value_1;
+    *value_1 = static_cast<uint32_t>(runtime_display_context.input_scene_identifier);
     *byte_value = runtime_display_reset_byte;
-    *value_2 = runtime_display_reset_value_2;
-    std::memcpy(scene_state, runtime_display_scene_state, sizeof(runtime_display_scene_state));
+    *value_2 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(saved_default_comment_scene_identity));
+    scene_state[0] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(current_runtime_scene_identity));
+    scene_state[1] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(current_runtime_resource));
+    scene_state[2] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_root_identity));
+    scene_state[3] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_display_context.active_script_link));
+    scene_state[4] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(active_runtime_pointer_region));
+    scene_state[5] = runtime_pointer_state_mask;
+    scene_state[6] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_state_owner));
+    scene_state[7] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_event_state_object));
+    for(size_t index = 0; index < 13; ++index)
+    {
+        scene_state[index + 8] = static_cast<uint32_t>(runtime_pointer_event_record[index]);
+    }
 }
 
 void set_runtime_display_shutdown_api_for_testing(const RuntimeDisplayShutdownApi &api)
@@ -28405,22 +28530,23 @@ void set_runtime_display_shutdown_api_for_testing(const RuntimeDisplayShutdownAp
     runtime_display_shutdown_api = api;
 }
 
-void set_runtime_display_shutdown_state_for_testing(HANDLE thread, std::int32_t scene_identifier, void *host, const std::uint32_t *backend_state, const std::uint32_t *pixel_format_state)
+void set_runtime_display_shutdown_state_for_testing(HANDLE thread, intptr_t scene_identifier, void *host, const RuntimePresentationTarget *backend_state,
+    const DisplayPixelFormatDescriptor *pixel_format_state)
 {
     runtime_display_thread = thread;
     runtime_display_scene_identifier = scene_identifier;
     runtime_display_host = host;
-    std::memcpy(runtime_display_context.command_target, backend_state, 10 * sizeof(std::uint32_t));
-    std::memcpy(runtime_display_context.display_pixel_format, pixel_format_state, 8 * sizeof(std::uint32_t));
+    runtime_display_context.command_target = *backend_state;
+    runtime_display_context.display_pixel_format = *pixel_format_state;
 }
 
-void get_runtime_display_shutdown_state_for_testing(HANDLE *thread, std::int32_t *scene_identifier, void **host, std::uint32_t *backend_state, std::uint32_t *pixel_format_state)
+void get_runtime_display_shutdown_state_for_testing(HANDLE *thread, intptr_t *scene_identifier, void **host, RuntimePresentationTarget *backend_state, DisplayPixelFormatDescriptor *pixel_format_state)
 {
     *thread = runtime_display_thread;
     *scene_identifier = runtime_display_scene_identifier;
     *host = runtime_display_host;
-    std::memcpy(backend_state, runtime_display_context.command_target, 10 * sizeof(std::uint32_t));
-    std::memcpy(pixel_format_state, runtime_display_context.display_pixel_format, 8 * sizeof(std::uint32_t));
+    *backend_state = runtime_display_context.command_target;
+    *pixel_format_state = runtime_display_context.display_pixel_format;
 }
 
 void set_runtime_resource_wait_api_for_testing(const RuntimeResourceWaitApi &api)
@@ -28428,7 +28554,7 @@ void set_runtime_resource_wait_api_for_testing(const RuntimeResourceWaitApi &api
     runtime_resource_wait_api = api;
 }
 
-void set_runtime_resource_count_for_testing(std::uint32_t count)
+void set_runtime_resource_count_for_testing(uint32_t count)
 {
     runtime_resource_count = count;
 }
@@ -28448,19 +28574,19 @@ void set_runtime_resource_scene_region_api_for_testing(const RuntimeResourceScen
     runtime_resource_scene_region_api = api;
 }
 
-void set_runtime_resource_scene_region_default_for_testing(std::int32_t scene_identifier)
+void set_runtime_resource_scene_region_default_for_testing(intptr_t scene_identifier)
 {
     runtime_display_scene_identifier = scene_identifier;
 }
 
-void set_runtime_tree_destruction_state_for_testing(void *pointer_root_identity, void *current_resource, std::uint32_t resource_count)
+void set_runtime_tree_destruction_state_for_testing(void *pointer_root_identity, void *current_resource, uint32_t resource_count)
 {
     runtime_pointer_root_identity = pointer_root_identity;
     current_runtime_resource = current_resource;
     runtime_resource_count = resource_count;
 }
 
-std::uint32_t get_runtime_resource_count_for_testing()
+uint32_t get_runtime_resource_count_for_testing()
 {
     return runtime_resource_count;
 }
@@ -28480,7 +28606,7 @@ void set_runtime_resource_host_api_for_testing(const RuntimeResourceHostApi &api
     runtime_resource_host_api = api;
 }
 
-void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive *archive, std::int32_t mode, std::uint8_t archive_state)
+void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive *archive, int32_t mode, uint8_t archive_state)
 {
     runtime_resource_host = host;
     runtime_resource_archive = archive;
@@ -28488,7 +28614,7 @@ void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive
     runtime_resource_archive_state = archive_state;
 }
 
-void get_runtime_resource_host_state_for_testing(AsyncFileHost **host, CdfArchive **archive, std::int32_t *mode, std::uint8_t *archive_state)
+void get_runtime_resource_host_state_for_testing(AsyncFileHost **host, CdfArchive **archive, int32_t *mode, uint8_t *archive_state)
 {
     *host = runtime_resource_host;
     *archive = runtime_resource_archive;
@@ -28506,14 +28632,14 @@ void set_runtime_script_property_get_api_for_testing(const RuntimeScriptProperty
     runtime_script_property_get_api = api;
 }
 
-void set_runtime_script_property_get_state_for_testing(const char *path, std::int32_t pointer_x, std::int32_t pointer_y)
+void set_runtime_script_property_get_state_for_testing(const char *path, int32_t pointer_x, int32_t pointer_y)
 {
-    copy_string(reinterpret_cast<char *>(graphics_host_storage + 0xc), path);
+    copy_string(runtime_graphics_resource_directory, path);
     runtime_pointer_x = pointer_x;
     runtime_pointer_y = pointer_y;
 }
 
-void reset_runtime_script_property_state_for_testing(std::uint32_t value_1, std::uint32_t value_2, std::uint32_t value_3, std::uint32_t state_1000_count, std::uint32_t state_4_count)
+void reset_runtime_script_property_state_for_testing(uint32_t value_1, uint32_t value_2, uint32_t value_3, uint32_t state_1000_count, uint32_t state_4_count)
 {
     graphics_host_value_1 = value_1;
     graphics_host_value_2 = value_2;
@@ -28522,8 +28648,8 @@ void reset_runtime_script_property_state_for_testing(std::uint32_t value_1, std:
     runtime_state_4_count = state_4_count;
 }
 
-void get_runtime_script_property_state_for_testing(std::uint32_t *value_1, std::uint32_t *value_2, std::uint32_t *value_3, std::uint32_t *state_1000_count, std::uint32_t *state_4_count,
-    std::uint32_t *scene_flags, std::int32_t *host_mode)
+void get_runtime_script_property_state_for_testing(uint32_t *value_1, uint32_t *value_2, uint32_t *value_3, uint32_t *state_1000_count, uint32_t *state_4_count, uint32_t *scene_flags,
+    int32_t *host_mode)
 {
     *value_1 = graphics_host_value_1;
     *value_2 = graphics_host_value_2;
@@ -28555,13 +28681,13 @@ void set_runtime_resource_load_api_for_testing(const RuntimeResourceLoadApi &api
     runtime_resource_load_api = api;
 }
 
-void set_runtime_resource_load_state_for_testing(HANDLE heap, std::uint32_t streamed_count)
+void set_runtime_resource_load_state_for_testing(HANDLE heap, uint32_t streamed_count)
 {
     runtime_resource_heap = heap;
     runtime_resource_streamed_count = streamed_count;
 }
 
-std::uint32_t get_runtime_resource_streamed_count_for_testing()
+uint32_t get_runtime_resource_streamed_count_for_testing()
 {
     return runtime_resource_streamed_count;
 }
@@ -28588,7 +28714,7 @@ void set_async_file_host_api_for_testing(const AsyncFileHostApi &api)
 }
 
 // GAG.EXE: 0x0040CFD0
-int __fastcall append_string(char *destination, const char *source)
+int append_string(char *destination, const char *source)
 {
     int length = 0;
     while(destination[length] != '\0')
@@ -28602,7 +28728,7 @@ namespace
 {
 
 // GAG.EXE: 0x0040CF90
-bool __fastcall strings_equal(const char *left, const char *right)
+bool strings_equal(const char *left, const char *right)
 {
     for(;;)
     {
@@ -28620,7 +28746,7 @@ bool __fastcall strings_equal(const char *left, const char *right)
 }
 
 // GAG.EXE: 0x0040CFF0
-void __fastcall copy_directory_from_path(char *destination, const char *source)
+void copy_directory_from_path(char *destination, const char *source)
 {
     int index = 0;
     while(source[index] != '\0')
@@ -28642,9 +28768,9 @@ void __fastcall copy_directory_from_path(char *destination, const char *source)
 } // namespace
 
 // GAG.EXE: 0x0041EDF0
-std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *state, const RegistryApi &api)
+uint32_t load_installation_registry_settings(ApplicationState *state, const RegistryApi &api)
 {
-    std::uint32_t result;
+    uint32_t result;
     if(state->archive_context != nullptr)
     {
         copy_directory_from_path(state->installation_path, state->executable_directory);
@@ -28656,7 +28782,7 @@ std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *s
         HKEY key;
 #if defined(FREEGAG_WINDOWS_FIXES)
         // Non-original modern-Windows compatibility behavior: loading requires value-query access, not full control of the HKLM key.
-        constexpr REGSAM registry_access = KEY_QUERY_VALUE;
+        constexpr REGSAM registry_access = KEY_QUERY_VALUE | modern_windows_registry_view;
 #else
         constexpr REGSAM registry_access = KEY_ALL_ACCESS;
 #endif
@@ -28687,11 +28813,11 @@ std::uint32_t __fastcall load_installation_registry_settings(ApplicationState *s
                     }
 
                     bool settings_loaded = false;
-                    std::uint32_t settings = 0;
+                    uint32_t settings = 0;
 #if defined(FREEGAG_WINDOWS_FIXES)
                     // Non-original modern-Windows compatibility: prefer the per-user settings store. If it has not been created yet, retain the original HKLM value as a migration fallback.
                     HKEY user_key;
-                    if(api.open_key(HKEY_CURRENT_USER, registry_key, 0, KEY_QUERY_VALUE, &user_key) == ERROR_SUCCESS)
+                    if(api.open_key(HKEY_CURRENT_USER, registry_key, 0, KEY_QUERY_VALUE | modern_windows_registry_view, &user_key) == ERROR_SUCCESS)
                     {
                         data_size = sizeof(settings);
                         if(api.query_value(user_key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD
@@ -28730,14 +28856,14 @@ RegistryApi make_win32_registry_api()
 }
 
 // Non-original test state accessors.
-void set_compressor_input_state_for_testing(const void *input, std::uint32_t input_size, std::uint32_t input_position)
+void set_compressor_input_state_for_testing(const void *input, uint32_t input_size, uint32_t input_position)
 {
-    compressor_input = static_cast<const std::uint8_t *>(input);
+    compressor_input = static_cast<const uint8_t *>(input);
     compressor_input_size = input_size;
     compressor_input_position = input_position;
 }
 
-std::uint32_t get_compressor_input_position_for_testing()
+uint32_t get_compressor_input_position_for_testing()
 {
     return compressor_input_position;
 }

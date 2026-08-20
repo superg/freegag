@@ -1,22 +1,22 @@
 #include "asset_manifest.h"
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
+#include <stdint.h>
 
 namespace xtet
 {
 namespace
 {
 
-bool is_space(std::uint8_t value)
+bool is_space(uint8_t value)
 {
     return value == 0x1a || std::isspace((unsigned char)value) != 0;
 }
 
-bool tokenize(const std::vector<std::uint8_t> &bytes, std::vector<std::string> &tokens)
+bool tokenize(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
 {
     tokens.clear();
-    std::size_t offset = 0;
+    size_t offset = 0;
     while(offset < bytes.size())
     {
         while(offset < bytes.size() && is_space(bytes[offset]))
@@ -34,7 +34,7 @@ bool tokenize(const std::vector<std::uint8_t> &bytes, std::vector<std::string> &
             tokens.emplace_back(1, (char)bytes[offset++]);
             continue;
         }
-        const std::size_t start = offset;
+        const size_t start = offset;
         while(offset < bytes.size() && !is_space(bytes[offset]) && bytes[offset] != '{' && bytes[offset] != '}' && bytes[offset] != ';')
             ++offset;
         if(start == offset)
@@ -56,7 +56,7 @@ bool load_script(const SfsArchive &archive, const std::string &path, AssetManife
     if(contains(manifest.script_paths, path))
         return true;
 
-    std::vector<std::uint8_t> bytes;
+    std::vector<uint8_t> bytes;
     std::vector<std::string> tokens;
     if(!archive.read(path, bytes) || !tokenize(bytes, tokens))
         return false;
@@ -64,7 +64,7 @@ bool load_script(const SfsArchive &archive, const std::string &path, AssetManife
     active_scripts.push_back(path);
     manifest.script_paths.push_back(path);
     int depth = 0;
-    for(std::size_t index = 0; index < tokens.size(); ++index)
+    for(size_t index = 0; index < tokens.size(); ++index)
     {
         const std::string &token = tokens[index];
         if(token == "{")

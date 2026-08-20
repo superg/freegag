@@ -1,27 +1,27 @@
 #pragma once
 
 #include <array>
-#include <cstddef>
+#include <stddef.h>
 #include <vector>
 
 namespace xtet
 {
 
-constexpr std::size_t kRuntimeTableCount = 20;
+constexpr size_t kRuntimeTableCount = 20;
 
 class RuntimeTables
 {
 public:
-    bool initialize(std::size_t slot_count);
+    bool initialize(size_t slot_count);
     void clear();
-    std::size_t slotCount() const;
+    size_t slotCount() const;
     const std::array<std::vector<void *>, kRuntimeTableCount> &tables() const;
-    bool set(std::size_t table_index, std::size_t slot_index, void *value);
+    bool set(size_t table_index, size_t slot_index, void *value);
     void clearValue(const void *value);
 
 private:
     std::array<std::vector<void *>, kRuntimeTableCount> tables_;
-    std::size_t slot_count_{};
+    size_t slot_count_{};
 };
 
 } // namespace xtet

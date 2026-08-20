@@ -10,7 +10,7 @@ ProgressUpdate update_progress_after_figurine_removal(GameProgress &progress)
         return result;
     ++progress.score;
     result.score_changed = true;
-    const std::uint32_t next_level = progress.base_level + progress.score / 30;
+    const uint32_t next_level = progress.base_level + progress.score / 30;
     if(next_level < 11)
     {
         result.level_changed = next_level != progress.level;

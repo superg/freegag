@@ -1,23 +1,18 @@
-set(XTET_ASSET_DIR "" CACHE PATH "Directory prepared by xtet_resource_extractor")
+set(XTET_ASSET_DIR "" CACHE PATH "Directory containing XTETDLL.SFS produced by xtet_resource_extractor")
 
 if(NOT XTET_ASSET_DIR)
-  message(FATAL_ERROR "XTET_ASSET_DIR is required. Build xtet_resource_extractor, run it on the original XTETDLL.DLL, then configure this directory to its output.")
+  message(FATAL_ERROR "XTET_ASSET_DIR is required. Run xtet_resource_extractor on the original XTETDLL.DLL from that directory, then configure this path to it.")
 endif()
 
 get_filename_component(XTET_ASSET_DIR_ABSOLUTE "${XTET_ASSET_DIR}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
-set(XTET_RESOURCE_SCRIPT "${XTET_ASSET_DIR_ABSOLUTE}/XTETSFS.rc")
-set(XTET_RESOURCE_PAYLOAD "${XTET_ASSET_DIR_ABSOLUTE}/XTETSFS.bin")
-set(XTET_RESOURCE_METADATA "${XTET_ASSET_DIR_ABSOLUTE}/XTETSFS.json")
+set(XTET_RESOURCE_PAYLOAD "${XTET_ASSET_DIR_ABSOLUTE}/XTETDLL.SFS")
+set(XTET_DEPLOY_PAYLOAD "${XTET_RESOURCE_PAYLOAD}" PARENT_SCOPE)
 
-foreach(required_file IN ITEMS "${XTET_RESOURCE_SCRIPT}" "${XTET_RESOURCE_PAYLOAD}" "${XTET_RESOURCE_METADATA}")
-  if(NOT EXISTS "${required_file}")
-    message(FATAL_ERROR "Prepared XTET resource file is missing: ${required_file}")
-  endif()
-endforeach()
+if(NOT EXISTS "${XTET_RESOURCE_PAYLOAD}")
+  message(FATAL_ERROR "Prepared XTET resource file is missing: ${XTET_RESOURCE_PAYLOAD}")
+endif()
 
-set_source_files_properties("${XTET_RESOURCE_SCRIPT}" PROPERTIES OBJECT_DEPENDS "${XTET_RESOURCE_PAYLOAD}")
-
-add_library(xtet SHARED
+add_library(xtet_core STATIC
   action_definitions.cpp
   action_definitions.h
   audio_coordinator.cpp
@@ -54,24 +49,20 @@ add_library(xtet SHARED
   scene_description.h
   sfs_archive.cpp
   sfs_archive.h
-  xtet.def
-  "${XTET_RESOURCE_SCRIPT}"
   "${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c"
 )
 
 set_source_files_properties("${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c" PROPERTIES LANGUAGE CXX)
 
-target_compile_features(xtet PRIVATE cxx_std_17)
-target_compile_definitions(xtet PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_include_directories(xtet PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
-target_link_libraries(xtet PRIVATE winmm)
-set_target_properties(xtet PROPERTIES PREFIX "" OUTPUT_NAME "XTETDLL")
+target_compile_features(xtet_core PRIVATE cxx_std_23)
+target_compile_definitions(xtet_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_include_directories(xtet_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_link_libraries(xtet_core PUBLIC winmm)
 
 if(MSVC)
-  target_compile_options(xtet PRIVATE /W4 /permissive-)
-  target_link_options(xtet PRIVATE "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/xtet.def")
+  target_compile_options(xtet_core PRIVATE /W4 /permissive- /EHsc)
 else()
-  target_compile_options(xtet PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(xtet_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(BUILD_TESTING)
@@ -88,6 +79,7 @@ if(BUILD_TESTING)
     gameplay_state.cpp
     indexed_renderer.cpp
     match_animation.cpp
+    resource_provider.cpp
     rli_animation.cpp
     runtime_tables.cpp
     scene_description.cpp
@@ -96,12 +88,16 @@ if(BUILD_TESTING)
     "${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c"
   )
   set_source_files_properties("${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c" PROPERTIES LANGUAGE CXX)
-  target_compile_features(xtet_sfs_test PRIVATE cxx_std_17)
+  target_compile_features(xtet_sfs_test PRIVATE cxx_std_23)
   target_include_directories(xtet_sfs_test PRIVATE "${CMAKE_SOURCE_DIR}")
   if(MSVC)
-    target_compile_options(xtet_sfs_test PRIVATE /W4 /permissive-)
+    target_compile_options(xtet_sfs_test PRIVATE /W4 /permissive- /EHsc)
   else()
     target_compile_options(xtet_sfs_test PRIVATE -Wall -Wextra -Wpedantic)
   endif()
   add_test(NAME xtet_sfs COMMAND xtet_sfs_test "${XTET_RESOURCE_PAYLOAD}")
+  add_custom_command(TARGET xtet_sfs_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${XTET_RESOURCE_PAYLOAD}" "$<TARGET_FILE_DIR:xtet_sfs_test>/XTETDLL.SFS"
+  )
 endif()

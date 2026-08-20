@@ -2,13 +2,13 @@
 #include <array>
 #include <chrono>
 #include <condition_variable>
-#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <stdint.h>
 #include <vector>
 #include "action_definitions.h"
 #include "asset_decoders.h"
@@ -30,9 +30,9 @@
 namespace
 {
 
-void count_scene_nodes(const xtet::SceneNode &node, std::array<std::size_t, 5> &counts)
+void count_scene_nodes(const xtet::SceneNode &node, std::array<size_t, 5> &counts)
 {
-    ++counts[(std::size_t)node.type];
+    ++counts[(size_t)node.type];
     for(const xtet::SceneNode &child : node.children)
         count_scene_nodes(child, counts);
 }
@@ -49,10 +49,15 @@ int main(int argc, char **argv)
     const std::streamoff size = input.tellg();
     if(size <= 0)
         return 4;
-    std::vector<std::uint8_t> archive_bytes((std::size_t)size);
+    std::vector<uint8_t> archive_bytes((size_t)size);
     input.seekg(0);
     if(!input.read((char *)archive_bytes.data(), size))
         return 5;
+
+    std::vector<uint8_t> executable_archive_bytes;
+    std::string executable_archive_error;
+    if(!xtet::load_executable_sfs("XTETDLL.SFS", executable_archive_bytes, executable_archive_error) || executable_archive_bytes != archive_bytes || !executable_archive_error.empty())
+        return 114;
 
     xtet::SfsArchive archive;
     if(!archive.mount({ archive_bytes.data(), archive_bytes.size() }))
@@ -60,7 +65,7 @@ int main(int argc, char **argv)
     const xtet::SfsEntry *entry = archive.find("acts.txt");
     if(!entry || entry->hash_a != 0xfb32894c || entry->hash_b != 0xa8cf14d6 || entry->virtual_offset != 0x302678 || entry->size != 0x3171)
         return 7;
-    std::vector<std::uint8_t> contents;
+    std::vector<uint8_t> contents;
     if(!archive.read(*entry, contents) || contents.size() != entry->size)
         return 8;
     std::vector<xtet::ActionDefinition> definitions;
@@ -76,10 +81,10 @@ int main(int argc, char **argv)
     xtet::SceneDescription scene;
     if(!xtet::load_scene_description(archive, { "base_scr.txt", "man.txt", "woman.txt" }, scene))
         return 21;
-    std::array<std::size_t, 5> scene_counts{};
+    std::array<size_t, 5> scene_counts{};
     for(const xtet::SceneNode &root : scene.roots)
         count_scene_nodes(root, scene_counts);
-    if(scene.roots.size() != 22 || scene_counts != std::array<std::size_t, 5>{ 7, 69, 71, 18, 104 })
+    if(scene.roots.size() != 22 || scene_counts != std::array<size_t, 5>{ 7, 69, 71, 18, 104 })
         return 22;
     const xtet::SceneNode &home = scene.roots[0];
     const xtet::SceneNode &digit = scene.roots[1];
@@ -97,7 +102,7 @@ int main(int argc, char **argv)
     if(xtet::find_scene_links(scene, "home_scr").size() != 1 || xtet::find_scene_links(scene, "map_digit").size() != 1 || xtet::find_scene_links(scene, "loop").size() != 8
         || xtet::find_scene_links(scene, "act").size() != 6 || xtet::find_scene_links(scene, "pal_none").size() != 63 || !xtet::find_scene_links(scene, "missing_link").empty())
         return 26;
-    std::size_t free_figurine_slot = 0;
+    size_t free_figurine_slot = 0;
     if(!xtet::find_free_figurine_scene_slot(6, {}, free_figurine_slot) || free_figurine_slot != 3)
         return 103;
     int used_slot_marker = 0;
@@ -106,15 +111,15 @@ int main(int argc, char **argv)
     };
     if(!xtet::find_free_figurine_scene_slot(6, used_slot_entries, free_figurine_slot) || free_figurine_slot != 4)
         return 104;
-    std::size_t decoded_bitmaps = 0;
-    std::size_t decoded_waves = 0;
+    size_t decoded_bitmaps = 0;
+    size_t decoded_waves = 0;
     std::map<std::string, xtet::IndexedBitmap> decoded_bitmap_assets;
     std::map<std::string, xtet::WavePcm> decoded_wave_assets;
     for(const std::string &path : manifest.bitmap_paths)
     {
-        std::vector<std::uint8_t> asset_bytes;
+        std::vector<uint8_t> asset_bytes;
         xtet::IndexedBitmap bitmap;
-        if(!archive.read(path, asset_bytes) || !xtet::decode_indexed_bitmap(asset_bytes, bitmap) || bitmap.pixels.size() != (std::size_t)bitmap.width * bitmap.height)
+        if(!archive.read(path, asset_bytes) || !xtet::decode_indexed_bitmap(asset_bytes, bitmap) || bitmap.pixels.size() != (size_t)bitmap.width * bitmap.height)
             return 14;
         ++decoded_bitmaps;
         decoded_bitmap_assets.emplace(path, bitmap);
@@ -126,7 +131,7 @@ int main(int argc, char **argv)
         || xtet::map_scaled_cursor_coordinate(719, 1440, 640) != 319 || xtet::map_scaled_cursor_coordinate(1079, 1080, 480) != 479 || xtet::map_scaled_cursor_coordinate(-1, 1280, 640) != -1
         || xtet::map_scaled_cursor_coordinate(1280, 1280, 640) != 1280)
         return 138;
-    for(std::size_t index = 0; index < controls.children.size(); ++index)
+    for(size_t index = 0; index < controls.children.size(); ++index)
     {
         const xtet::SceneNode &control = controls.children[index];
         if(control.type != xtet::SceneNodeType::sprite_bitmap || !control.position || control.children.size() != 1 || control.children[0].type != xtet::SceneNodeType::bitmap)
@@ -134,18 +139,18 @@ int main(int argc, char **argv)
         const auto bitmap = decoded_bitmap_assets.find(control.children[0].loaded_path);
         if(bitmap == decoded_bitmap_assets.end())
             return 135;
-        const auto opaque_pixel = std::find_if(bitmap->second.pixels.begin(), bitmap->second.pixels.end(), [](std::uint8_t pixel) { return pixel != 0; });
+        const auto opaque_pixel = std::find_if(bitmap->second.pixels.begin(), bitmap->second.pixels.end(), [](uint8_t pixel) { return pixel != 0; });
         if(opaque_pixel == bitmap->second.pixels.end())
             return 136;
-        const std::size_t pixel_offset = (std::size_t)(opaque_pixel - bitmap->second.pixels.begin());
-        const std::int32_t hit_x = control.position->x + (std::int32_t)(pixel_offset % bitmap->second.width);
-        const std::int32_t hit_y = control.position->y + (std::int32_t)(pixel_offset / bitmap->second.width);
+        const size_t pixel_offset = (size_t)(opaque_pixel - bitmap->second.pixels.begin());
+        const int32_t hit_x = control.position->x + (int32_t)(pixel_offset % bitmap->second.width);
+        const int32_t hit_y = control.position->y + (int32_t)(pixel_offset / bitmap->second.width);
         if(xtet::hit_test_sprite_collection(controls, decoded_bitmap_assets, hit_x, hit_y) != (int)index)
             return 137;
     }
     for(const std::string &path : manifest.wave_paths)
     {
-        std::vector<std::uint8_t> asset_bytes;
+        std::vector<uint8_t> asset_bytes;
         xtet::WavePcm wave;
         if(!archive.read(path, asset_bytes) || !xtet::decode_wave_pcm(asset_bytes, wave) || wave.samples.empty())
         {
@@ -155,26 +160,26 @@ int main(int argc, char **argv)
         ++decoded_waves;
         decoded_wave_assets.emplace(path, std::move(wave));
     }
-    std::uint32_t next_sound_handle = 1;
-    std::vector<std::uint32_t> destroyed_sound_handles;
+    uint32_t next_sound_handle = 1;
+    std::vector<uint32_t> destroyed_sound_handles;
     std::vector<bool> queued_replace_flags;
-    std::size_t stop_count = 0;
-    std::size_t start_count = 0;
+    size_t stop_count = 0;
+    size_t start_count = 0;
     const xtet::AudioHostCallbacks audio_callbacks{ [&next_sound_handle](const xtet::PcmFormat *) { return next_sound_handle++; },
-        [&destroyed_sound_handles](std::uint32_t handle) { destroyed_sound_handles.push_back(handle); },
-        [&queued_replace_flags](std::uint32_t, const void *samples, std::uint32_t size, bool replace)
+        [&destroyed_sound_handles](uint32_t handle) { destroyed_sound_handles.push_back(handle); },
+        [&queued_replace_flags](uint32_t, const void *samples, uint32_t size, bool replace)
         {
             if(samples == nullptr || size == 0)
                 return false;
             queued_replace_flags.push_back(replace);
             return true;
         },
-        [&stop_count](std::uint32_t, bool)
+        [&stop_count](uint32_t, bool)
         {
             ++stop_count;
             return true;
         },
-        [&start_count](std::uint32_t, bool)
+        [&start_count](uint32_t, bool)
         {
             ++start_count;
             return true;
@@ -188,7 +193,7 @@ int main(int argc, char **argv)
     audio.destroy();
     if(destroyed_sound_handles.size() != 6 || audio.valid())
         return 108;
-    std::vector<std::uint8_t> malformed_asset;
+    std::vector<uint8_t> malformed_asset;
     xtet::IndexedBitmap malformed_bitmap;
     if(!archive.read("xtet.bmp", malformed_asset))
         return 17;
@@ -207,28 +212,28 @@ int main(int argc, char **argv)
     std::vector<xtet::RliAnimation> animations;
     if(!xtet::load_rli_animations(archive, { "m.rli", "rm.rli", "w.rli", "rw.rli" }, animations) || animations.size() != 4)
         return 31;
-    const std::array<std::size_t, 4> animation_sizes{ 40048, 38598, 57538, 56818 };
-    const std::array<std::size_t, 4> animation_record_counts{ 40, 40, 51, 51 };
-    for(std::size_t index = 0; index < animations.size(); ++index)
+    const std::array<size_t, 4> animation_sizes{ 40048, 38598, 57538, 56818 };
+    const std::array<size_t, 4> animation_record_counts{ 40, 40, 51, 51 };
+    for(size_t index = 0; index < animations.size(); ++index)
         if(animations[index].resident_bytes.size() != animation_sizes[index] || animations[index].frame_records.size() != animation_record_counts[index] || animations[index].width != 108
             || animations[index].height != 108 || animations[index].flags != 0x1000)
             return 32;
-    const std::array<std::uint64_t, 4> animation_pixel_hashes{ 2783471652202405095ull, 2892418359157948333ull, 1871060767316094678ull, 6540132390339871046ull };
-    for(std::size_t animation_index = 0; animation_index < animations.size(); ++animation_index)
+    const std::array<uint64_t, 4> animation_pixel_hashes{ 2783471652202405095ull, 2892418359157948333ull, 1871060767316094678ull, 6540132390339871046ull };
+    for(size_t animation_index = 0; animation_index < animations.size(); ++animation_index)
     {
         const xtet::RliAnimation &animation = animations[animation_index];
-        std::size_t raw_frames = 0;
-        std::size_t rle_frames = 0;
-        std::size_t palette_frames = 0;
-        std::size_t pixel_frames = 0;
-        std::uint64_t pixel_hash = 14695981039346656037ull;
-        for(std::size_t index = 0; index < animation.frame_records.size(); ++index)
+        size_t raw_frames = 0;
+        size_t rle_frames = 0;
+        size_t palette_frames = 0;
+        size_t pixel_frames = 0;
+        uint64_t pixel_hash = 14695981039346656037ull;
+        for(size_t index = 0; index < animation.frame_records.size(); ++index)
         {
             raw_frames += (animation.frame_records[index].flags & 1) != 0;
             rle_frames += (animation.frame_records[index].flags & 2) != 0;
             palette_frames += (animation.frame_records[index].flags & 4) != 0;
             pixel_frames += !animation.frame_records[index].pixels.empty();
-            for(std::uint8_t pixel : animation.frame_records[index].pixels)
+            for(uint8_t pixel : animation.frame_records[index].pixels)
             {
                 pixel_hash ^= pixel;
                 pixel_hash *= 1099511628211ull;
@@ -237,7 +242,7 @@ int main(int argc, char **argv)
         if(raw_frames != 0 || rle_frames != animation.frame_records.size() || palette_frames != 0 || pixel_frames != rle_frames || pixel_hash != animation_pixel_hashes[animation_index])
             return 35;
     }
-    std::vector<std::uint8_t> malformed_rli = animations[0].resident_bytes;
+    std::vector<uint8_t> malformed_rli = animations[0].resident_bytes;
     xtet::RliAnimation rejected_animation;
     malformed_rli[0] = 0;
     if(xtet::decode_rli_animation("m.rli", malformed_rli, rejected_animation))
@@ -296,15 +301,15 @@ int main(int argc, char **argv)
         one_offsets, one_offsets };
     if(figurine_geometry.second_family != expected_geometry || !std::equal(figurine_geometry.first_family.begin(), figurine_geometry.first_family.end(), expected_geometry.begin()))
         return 43;
-    const std::array<std::uint32_t, 10> tick_intervals{ 300, 200, 150, 135, 125, 117, 110, 105, 100, 90 };
-    for(std::uint32_t level = 1; level <= tick_intervals.size(); ++level)
+    const std::array<uint32_t, 10> tick_intervals{ 300, 200, 150, 135, 125, 117, 110, 105, 100, 90 };
+    for(uint32_t level = 1; level <= tick_intervals.size(); ++level)
         if(xtet::get_game_tick_interval(level) != tick_intervals[level - 1])
             return 46;
     if(xtet::get_game_tick_interval(0) != 500 || xtet::get_game_tick_interval(11) != 500)
         return 47;
     if(!runtime_tables.initialize(15))
         return 49;
-    std::int32_t family_balance = 0;
+    int32_t family_balance = 0;
     xtet::FallingFigurine falling_figurine = xtet::select_falling_figurine(0, 17, 1, family_balance, runtime_tables.slotCount());
     if(falling_figurine.first_family || falling_figurine.shape_index != 7 || falling_figurine.orientation != 1 || falling_figurine.column != 7 || falling_figurine.row != 2 || family_balance != -1
         || !xtet::can_place_figurine(falling_figurine, runtime_tables))
@@ -335,8 +340,8 @@ int main(int argc, char **argv)
     if(!blocked_spawn_board.initialize(15))
         return 112;
     int blocked_marker = 0;
-    for(std::size_t row = 0; row < blocked_spawn_board.tables().size(); ++row)
-        for(std::size_t column = 0; column < blocked_spawn_board.slotCount(); ++column)
+    for(size_t row = 0; row < blocked_spawn_board.tables().size(); ++row)
+        for(size_t column = 0; column < blocked_spawn_board.slotCount(); ++column)
             if(!blocked_spawn_board.set(row, column, &blocked_marker))
                 return 113;
     int failed_spawn_marker = 0;
@@ -367,14 +372,14 @@ int main(int argc, char **argv)
         || runtime_tick_result != xtet::GameTickResult::moved || gameplay_runtime.activeValue() == nullptr || runtime_phases != std::vector<bool>{ false, true })
         return 116;
     runtime_phases.clear();
-    std::uint32_t runtime_drain_count = 0;
+    uint32_t runtime_drain_count = 0;
     xtet::GameplayInputOutcome runtime_input_outcome;
     if(!gameplay_runtime.handleInput(
            xtet::GameplayInput::hard_drop, figurine_geometry, definitions, [](const xtet::FallingFigurine &, const xtet::FallingFigurine &, const xtet::ActionDefinition &) { return true; },
            [&runtime_drain_count]() { ++runtime_drain_count; }, [&runtime_phases](const xtet::FallingFigurine &, bool adding) { runtime_phases.push_back(adding); }, runtime_input_outcome,
            runtime_cascade_result)
         || runtime_input_outcome.result != xtet::GameplayInputResult::rejected || runtime_input_outcome.moves == 0 || gameplay_runtime.activeValue() == nullptr || runtime_drain_count != 0
-        || runtime_phases.size() != (std::size_t)runtime_input_outcome.moves * 2)
+        || runtime_phases.size() != (size_t)runtime_input_outcome.moves * 2)
         return 117;
     runtime_phases.clear();
     if(!gameplay_runtime.updateTick(
@@ -382,10 +387,10 @@ int main(int argc, char **argv)
            [&runtime_phases](const xtet::FallingFigurine &, bool adding) { runtime_phases.push_back(adding); }, runtime_tick_result, runtime_cascade_result)
         || runtime_tick_result != xtet::GameTickResult::settled || gameplay_runtime.activeValue() != nullptr || !runtime_phases.empty() || gameplay_runtime.entries().size() != 1)
         return 118;
-    std::uint32_t dispatched_destroy_count = 0;
-    std::uint32_t dispatched_key = 0;
+    uint32_t dispatched_destroy_count = 0;
+    uint32_t dispatched_key = 0;
     std::vector<bool> dispatched_mouse_buttons;
-    const xtet::GameWindowMessageCallbacks message_callbacks{ [&dispatched_destroy_count]() { ++dispatched_destroy_count; }, [&dispatched_key](std::uint32_t key) { dispatched_key = key; },
+    const xtet::GameWindowMessageCallbacks message_callbacks{ [&dispatched_destroy_count]() { ++dispatched_destroy_count; }, [&dispatched_key](uint32_t key) { dispatched_key = key; },
         [&dispatched_mouse_buttons](bool pressed) { dispatched_mouse_buttons.push_back(pressed); } };
     if(xtet::dispatch_game_window_message(0, 0x100, 0x25, message_callbacks) != 1 || xtet::dispatch_game_window_message(5, 0x100, 0x25, message_callbacks) != 1 || dispatched_key != 0
         || xtet::dispatch_game_window_message(1, 0x100, 0x27, message_callbacks) != 0 || dispatched_key != 0x27 || xtet::dispatch_game_window_message(2, 0x0002, 0, message_callbacks) != 0
@@ -393,10 +398,10 @@ int main(int argc, char **argv)
         || dispatched_mouse_buttons != std::vector<bool>{ true, false } || xtet::dispatch_game_window_message(1, 0x0200, 0, message_callbacks) != 0)
         return 119;
     std::vector<std::string> key_events;
-    const xtet::GameKeyDownCallbacks key_callbacks{ [&key_events]() { key_events.push_back("stop"); }, [&key_events](std::uint32_t score) { key_events.push_back("result:" + std::to_string(score)); },
-        [&key_events]() { key_events.push_back("terminate"); }, [&key_events](std::uint32_t key) { key_events.push_back("key:" + std::to_string(key)); },
+    const xtet::GameKeyDownCallbacks key_callbacks{ [&key_events]() { key_events.push_back("stop"); }, [&key_events](uint32_t score) { key_events.push_back("result:" + std::to_string(score)); },
+        [&key_events]() { key_events.push_back("terminate"); }, [&key_events](uint32_t key) { key_events.push_back("key:" + std::to_string(key)); },
         [&key_events]() { key_events.push_back("drain"); } };
-    std::uint32_t key_state = 1;
+    uint32_t key_state = 1;
     xtet::handle_game_key_down(key_state, 0x25, 0, 0, 42, key_callbacks);
     if(key_state != 1 || key_events != std::vector<std::string>{ "key:37" })
         return 120;
@@ -436,7 +441,7 @@ int main(int argc, char **argv)
     xtet::GameWorker game_worker;
     std::mutex worker_test_mutex;
     std::condition_variable worker_test_condition;
-    std::uint32_t worker_tick_count = 0;
+    uint32_t worker_tick_count = 0;
     if(!game_worker.start([]() { return 1; },
            [&]()
            {
@@ -459,8 +464,8 @@ int main(int argc, char **argv)
     if(!failed_runtime.initialize(15, 6, runtime_progress))
         return 125;
     int failed_runtime_blocker = 0;
-    for(std::size_t row = 0; row < failed_runtime.board().tables().size(); ++row)
-        for(std::size_t column = 0; column < failed_runtime.board().slotCount(); ++column)
+    for(size_t row = 0; row < failed_runtime.board().tables().size(); ++row)
+        for(size_t column = 0; column < failed_runtime.board().slotCount(); ++column)
             if(!failed_runtime.board().set(row, column, &failed_runtime_blocker))
                 return 126;
     if(!failed_runtime.updateTick(
@@ -480,10 +485,10 @@ int main(int argc, char **argv)
     int collision_marker = 0;
     for(int shape_row = 0; shape_row < 5 && !collision_installed; ++shape_row)
         for(int shape_column = 0; shape_column < 5 && !collision_installed; ++shape_column)
-            if(falling_shape[(std::size_t)shape_row * 5 + shape_column] != 0)
+            if(falling_shape[(size_t)shape_row * 5 + shape_column] != 0)
             {
-                const std::size_t board_row = (std::size_t)(falling_figurine.row + shape_row - 2);
-                const std::size_t board_column = (std::size_t)(falling_figurine.column + shape_column - 2);
+                const size_t board_row = (size_t)(falling_figurine.row + shape_row - 2);
+                const size_t board_column = (size_t)(falling_figurine.column + shape_column - 2);
                 collision_installed = runtime_tables.set(board_row, board_column, &collision_marker);
             }
     if(!collision_installed || xtet::can_place_figurine(falling_figurine, runtime_tables) || !xtet::can_place_figurine(falling_figurine, runtime_tables, &collision_marker))
@@ -511,8 +516,8 @@ int main(int argc, char **argv)
          { true,  true  },
          { true,  true  }
     };
-    const std::array<std::int8_t, 8> orientations{ -4, -3, -2, -1, 1, 2, 3, 4 };
-    for(std::size_t index = 0; index < orientations.size(); ++index)
+    const std::array<int8_t, 8> orientations{ -4, -3, -2, -1, 1, 2, 3, 4 };
+    for(size_t index = 0; index < orientations.size(); ++index)
     {
         man_figurine.orientation = orientations[index];
         if(!xtet::select_figurine_sprite(man_figurine, sprite_selection) || sprite_selection.mirror_horizontal != expected_mirroring[index][0]
@@ -522,14 +527,14 @@ int main(int argc, char **argv)
     falling_figurine.orientation = -3;
     if(!xtet::select_figurine_sprite(falling_figurine, sprite_selection))
         return 59;
-    std::vector<std::uint8_t> figurine_pixels(640 * 480, 0x55);
-    std::vector<std::uint8_t> expected_figurine_pixels = figurine_pixels;
+    std::vector<uint8_t> figurine_pixels(640 * 480, 0x55);
+    std::vector<uint8_t> expected_figurine_pixels = figurine_pixels;
     xtet::FigurineRenderRegion figurine_region;
     const xtet::IndexedBitmap &woman_frame = decoded_bitmap_assets.at("w8_.bmp");
     if(!xtet::blit_transparent(woman_frame, { expected_figurine_pixels.data(), 640, 480, 640 }, 317, 66, false, true))
         return 60;
-    for(std::size_t y = 0; y < 480; ++y)
-        for(std::size_t x = 0; x < 640; ++x)
+    for(size_t y = 0; y < 480; ++y)
+        for(size_t x = 0; x < 640; ++x)
             if(x < 243 || x >= 498 || y < 77 || y >= 417)
                 expected_figurine_pixels[y * 640 + x] = 0x55;
     if(!xtet::render_figurine_sprite(sprite_selection, scene, decoded_bitmap_assets, { figurine_pixels.data(), 640, 480, 640 }, figurine_region) || figurine_pixels != expected_figurine_pixels
@@ -538,7 +543,7 @@ int main(int argc, char **argv)
     std::vector<xtet::FigurineRenderRegion> board_regions;
     if(!xtet::collect_figurine_board_regions(falling_figurine, 160, 120, board_regions) || board_regions.empty())
         return 99;
-    for(std::size_t index = 0; index < board_regions.size(); ++index)
+    for(size_t index = 0; index < board_regions.size(); ++index)
     {
         const xtet::FigurineRenderRegion &region = board_regions[index];
         if(region.width == 0 || region.height == 0 || region.width > 17 || region.height > 17 || region.x % 17 != 0 || region.y % 17 != 0
@@ -555,22 +560,22 @@ int main(int argc, char **argv)
     if(board_region_phases.size() != board_regions.size() * 2 || !std::all_of(board_region_phases.begin(), board_region_phases.begin() + board_regions.size(), [](bool adding) { return !adding; })
         || !std::all_of(board_region_phases.begin() + board_regions.size(), board_region_phases.end(), [](bool adding) { return adding; }))
         return 102;
-    const std::size_t board_region_area = std::accumulate(board_regions.begin(), board_regions.end(), (std::size_t)0,
-        [](std::size_t area, const xtet::FigurineRenderRegion &region) { return area + (std::size_t)region.width * region.height; });
-    std::vector<std::uint8_t> board_change_pixels(160 * 120, 0xaa);
+    const size_t board_region_area =
+        std::accumulate(board_regions.begin(), board_regions.end(), (size_t)0, [](size_t area, const xtet::FigurineRenderRegion &region) { return area + (size_t)region.width * region.height; });
+    std::vector<uint8_t> board_change_pixels(160 * 120, 0xaa);
     std::vector<bool> framebuffer_region_phases;
     const xtet::FigurineBoardChangeCallback framebuffer_change_callback = xtet::make_figurine_framebuffer_change_callback({ board_change_pixels.data(), 160, 120, 160 },
         [&framebuffer_region_phases](const xtet::FigurineRenderRegion &, bool adding) { framebuffer_region_phases.push_back(adding); });
     if(!framebuffer_change_callback)
         return 105;
     framebuffer_change_callback(falling_figurine, false);
-    if((std::size_t)std::count(board_change_pixels.begin(), board_change_pixels.end(), (std::uint8_t)0x13) != board_region_area)
+    if((size_t)std::count(board_change_pixels.begin(), board_change_pixels.end(), (uint8_t)0x13) != board_region_area)
         return 106;
     framebuffer_change_callback(falling_figurine, true);
-    if((std::size_t)std::count(board_change_pixels.begin(), board_change_pixels.end(), (std::uint8_t)0) != board_region_area || framebuffer_region_phases.size() != board_regions.size() * 2)
+    if((size_t)std::count(board_change_pixels.begin(), board_change_pixels.end(), (uint8_t)0) != board_region_area || framebuffer_region_phases.size() != board_regions.size() * 2)
         return 107;
-    std::vector<std::uint8_t> presentation_pixels(640 * 480, 0xaa);
-    std::vector<std::uint8_t> expected_presentation_pixels = presentation_pixels;
+    std::vector<uint8_t> presentation_pixels(640 * 480, 0xaa);
+    std::vector<uint8_t> expected_presentation_pixels = presentation_pixels;
     std::vector<xtet::FigurineRenderRegion> presentation_board_regions;
     if(!xtet::collect_figurine_board_regions(falling_figurine, 640, 480, presentation_board_regions, 243, 77))
         return 108;
@@ -603,14 +608,14 @@ int main(int argc, char **argv)
         return 62;
     const auto count_figurine_slots = [&movement_board, &figurine_marker]()
     {
-        std::size_t count = 0;
+        size_t count = 0;
         for(const std::vector<void *> &table : movement_board.tables())
-            count += (std::size_t)std::count(table.begin(), table.end(), &figurine_marker);
+            count += (size_t)std::count(table.begin(), table.end(), &figurine_marker);
         return count;
     };
-    const std::size_t occupied_slot_count = count_figurine_slots();
+    const size_t occupied_slot_count = count_figurine_slots();
     std::vector<bool> board_change_additions;
-    std::vector<std::int8_t> board_change_columns;
+    std::vector<int8_t> board_change_columns;
     if(occupied_slot_count == 0
         || !xtet::try_move_falling_figurine(moving_figurine, xtet::FigurineMove::right, figurine_geometry, movement_board, &figurine_marker, nullptr,
             [&board_change_additions, &board_change_columns](const xtet::FallingFigurine &figurine, bool adding)
@@ -619,13 +624,13 @@ int main(int argc, char **argv)
                 board_change_columns.push_back(figurine.column);
             })
         || moving_figurine.column != forced_first_family.column + 1 || moving_figurine.previous_column != moving_figurine.column || count_figurine_slots() != occupied_slot_count
-        || board_change_additions != std::vector<bool>{ false, true } || board_change_columns != std::vector<std::int8_t>{ forced_first_family.column, (std::int8_t)(forced_first_family.column + 1) })
+        || board_change_additions != std::vector<bool>{ false, true } || board_change_columns != std::vector<int8_t>{ forced_first_family.column, (int8_t)(forced_first_family.column + 1) })
         return 63;
     const xtet::FallingFigurine before_rotation = moving_figurine;
-    const std::int8_t expected_orientation = before_rotation.orientation == 4  ? 1
-                                           : before_rotation.orientation == -4 ? -1
-                                           : before_rotation.orientation < 0   ? (std::int8_t)(before_rotation.orientation - 1)
-                                                                               : (std::int8_t)(before_rotation.orientation + 1);
+    const int8_t expected_orientation = before_rotation.orientation == 4  ? 1
+                                      : before_rotation.orientation == -4 ? -1
+                                      : before_rotation.orientation < 0   ? (int8_t)(before_rotation.orientation - 1)
+                                                                          : (int8_t)(before_rotation.orientation + 1);
     const int rotation_offset_index = expected_orientation < 1 ? 3 - expected_orientation : expected_orientation - 1;
     const xtet::FigurineOffset rotation_offset = figurine_geometry.first_family[moving_figurine.shape_index][rotation_offset_index];
     if(!xtet::try_move_falling_figurine(moving_figurine, xtet::FigurineMove::rotate, figurine_geometry, movement_board, &figurine_marker) || moving_figurine.orientation != expected_orientation
@@ -639,7 +644,7 @@ int main(int argc, char **argv)
     {
     }
     const xtet::FallingFigurine rejected_position = moving_figurine;
-    const std::size_t rejected_slot_count = count_figurine_slots();
+    const size_t rejected_slot_count = count_figurine_slots();
     if(xtet::try_move_falling_figurine(moving_figurine, xtet::FigurineMove::left, figurine_geometry, movement_board, &figurine_marker) || moving_figurine.orientation != rejected_position.orientation
         || moving_figurine.column != rejected_position.column || moving_figurine.row != rejected_position.row || count_figurine_slots() != rejected_slot_count)
         return 65;
@@ -655,15 +660,15 @@ int main(int argc, char **argv)
     {
         xtet::FallingFigurine action_man;
         action_man.first_family = true;
-        action_man.shape_index = (std::uint8_t)definition.values[0];
+        action_man.shape_index = (uint8_t)definition.values[0];
         action_man.orientation = 1;
         action_man.column = 7;
         action_man.row = 8;
         xtet::FallingFigurine action_woman;
-        action_woman.shape_index = (std::uint8_t)definition.values[1];
+        action_woman.shape_index = (uint8_t)definition.values[1];
         action_woman.orientation = definition.values[2];
-        action_woman.column = (std::int8_t)(action_man.column + definition.values[3] - 2);
-        action_woman.row = (std::int8_t)(action_man.row + definition.values[4] - 2);
+        action_woman.column = (int8_t)(action_man.column + definition.values[3] - 2);
+        action_woman.row = (int8_t)(action_man.row + definition.values[4] - 2);
         const xtet::ActionDefinition *matched_action = xtet::find_matching_action(action_man, action_woman, definitions);
         if(matched_action == nullptr || !std::equal(matched_action->values.begin(), matched_action->values.begin() + 5, definition.values.begin())
             || xtet::find_matching_action(action_man, action_man, definitions) != nullptr)
@@ -674,8 +679,8 @@ int main(int argc, char **argv)
         const auto animation_index = [](xtet::MatchAnimationResource resource) {
             return resource == xtet::MatchAnimationResource::man ? 0u : resource == xtet::MatchAnimationResource::rotated_man ? 1u : resource == xtet::MatchAnimationResource::woman ? 2u : 3u;
         };
-        if((std::size_t)(animation_plan.man.first_frame + animation_plan.man.frame_count) > animations[animation_index(animation_plan.man.resource)].frame_records.size()
-            || (std::size_t)(animation_plan.woman.first_frame + animation_plan.woman.frame_count) > animations[animation_index(animation_plan.woman.resource)].frame_records.size())
+        if((size_t)(animation_plan.man.first_frame + animation_plan.man.frame_count) > animations[animation_index(animation_plan.man.resource)].frame_records.size()
+            || (size_t)(animation_plan.woman.first_frame + animation_plan.woman.frame_count) > animations[animation_index(animation_plan.woman.resource)].frame_records.size())
             return 72;
         if(animation_plan.man.x != action_man.column * 17 - 45 + definition.values[6] || animation_plan.man.y != action_man.row * 17 - 45 + definition.values[7]
             || animation_plan.woman.x != action_woman.column * 17 - 45 + definition.values[8] || animation_plan.woman.y != action_woman.row * 17 - 45 + definition.values[9])
@@ -696,20 +701,20 @@ int main(int argc, char **argv)
             return 68;
         xtet::FallingFigurine match_man;
         match_man.first_family = true;
-        match_man.shape_index = (std::uint8_t)definition.values[0];
+        match_man.shape_index = (uint8_t)definition.values[0];
         match_man.orientation = 1;
         match_man.column = 7;
         match_man.row = 8;
-        const std::int8_t target_man_column = match_man.column;
+        const int8_t target_man_column = match_man.column;
         xtet::FallingFigurine match_woman;
-        match_woman.shape_index = (std::uint8_t)definition.values[1];
+        match_woman.shape_index = (uint8_t)definition.values[1];
         match_woman.orientation = definition.values[2];
-        match_woman.column = (std::int8_t)(match_man.column + definition.values[3] - 2);
-        match_woman.row = (std::int8_t)(match_man.row + definition.values[4] - 2);
+        match_woman.column = (int8_t)(match_man.column + definition.values[3] - 2);
+        match_woman.row = (int8_t)(match_man.row + definition.values[4] - 2);
         match_woman.previous_orientation = match_woman.orientation;
         match_woman.previous_column = match_woman.column;
         match_woman.previous_row = match_woman.row;
-        match_man.column = (std::int8_t)(target_man_column - 3);
+        match_man.column = (int8_t)(target_man_column - 3);
         match_man.previous_orientation = match_man.orientation;
         match_man.previous_column = match_man.column;
         match_man.previous_row = match_man.row;
@@ -728,14 +733,14 @@ int main(int argc, char **argv)
         match_progress.base_level = 1;
         match_progress.level = 1;
         match_progress.gameplay_state = 1;
-        std::vector<std::uint32_t> presented_scores;
+        std::vector<uint32_t> presented_scores;
         const xtet::ProgressUpdateCallback progress_callback = [&presented_scores](const xtet::GameProgress &progress, const xtet::ProgressUpdate &update)
         {
             if(update.score_changed)
                 presented_scores.push_back(progress.score);
         };
         if(!xtet::remove_matched_pair(&match_man_marker, match, match_board, match_entries, match_progress, progress_callback) || !match_entries.empty() || match_progress.score != 2
-            || presented_scores != std::vector<std::uint32_t>{ 1, 2 }
+            || presented_scores != std::vector<uint32_t>{ 1, 2 }
             || std::any_of(match_board.tables().begin(), match_board.tables().end(),
                 [](const std::vector<void *> &table) { return std::any_of(table.begin(), table.end(), [](void *value) { return value != nullptr; }); }))
             return 83;
@@ -765,7 +770,7 @@ int main(int argc, char **argv)
     cascade_progress.base_level = 1;
     cascade_progress.level = 1;
     cascade_progress.gameplay_state = 1;
-    std::uint32_t cascade_callback_count = 0;
+    uint32_t cascade_callback_count = 0;
     xtet::CascadeResult cascade_result;
     if(!xtet::settle_board_after_match(
            figurine_geometry, definitions, cascade_board, cascade_entries, cascade_progress,
@@ -778,7 +783,7 @@ int main(int argc, char **argv)
         || cascade_result.moves == 0 || cascade_result.matches != 0 || cascade_callback_count != 0 || cascade_entries.size() != 1 || cascade_progress.score != 0)
         return 88;
     xtet::FallingFigurine below_cascade = cascade_figurine;
-    below_cascade.row = (std::int8_t)(below_cascade.row + 1);
+    below_cascade.row = (int8_t)(below_cascade.row + 1);
     if(xtet::can_place_figurine(below_cascade, cascade_board, &cascade_marker))
         return 89;
     xtet::RuntimeTables tick_board;
@@ -795,7 +800,7 @@ int main(int argc, char **argv)
     tick_progress.base_level = 1;
     tick_progress.level = 1;
     tick_progress.gameplay_state = 1;
-    std::uint32_t spawn_count = 0;
+    uint32_t spawn_count = 0;
     const auto spawn_tick_figurine = [&]() -> void *
     {
         ++spawn_count;
@@ -813,16 +818,16 @@ int main(int argc, char **argv)
     if(!xtet::update_game_tick(figurine_geometry, definitions, tick_board, tick_entries, active_value, tick_progress, spawn_tick_figurine, reject_tick_match, tick_result, tick_cascade_result)
         || tick_result != xtet::GameTickResult::moved || active_value != &tick_marker || spawn_count != 1)
         return 92;
-    std::uint32_t drained_keyboard_count = 0;
+    uint32_t drained_keyboard_count = 0;
     xtet::GameplayInputOutcome input_outcome;
     std::vector<bool> input_board_changes;
     if(!xtet::handle_gameplay_input(
            xtet::GameplayInput::hard_drop, figurine_geometry, definitions, tick_board, tick_entries, active_value, tick_progress, reject_tick_match, [&drained_keyboard_count]()
            { ++drained_keyboard_count; }, input_outcome, tick_cascade_result, [&input_board_changes](const xtet::FallingFigurine &, bool adding) { input_board_changes.push_back(adding); })
         || input_outcome.result != xtet::GameplayInputResult::rejected || input_outcome.moves == 0 || active_value != &tick_marker || drained_keyboard_count != 0
-        || input_board_changes.size() != (std::size_t)input_outcome.moves * 2)
+        || input_board_changes.size() != (size_t)input_outcome.moves * 2)
         return 93;
-    for(std::size_t index = 0; index < input_board_changes.size(); index += 2)
+    for(size_t index = 0; index < input_board_changes.size(); index += 2)
         if(input_board_changes[index] || !input_board_changes[index + 1])
             return 98;
     if(!xtet::update_game_tick(figurine_geometry, definitions, tick_board, tick_entries, active_value, tick_progress, spawn_tick_figurine, reject_tick_match, tick_result, tick_cascade_result))
@@ -844,41 +849,41 @@ int main(int argc, char **argv)
     const xtet::ActionDefinition &rendered_action = definitions.front();
     xtet::FallingFigurine rendered_man;
     rendered_man.first_family = true;
-    rendered_man.shape_index = (std::uint8_t)rendered_action.values[0];
+    rendered_man.shape_index = (uint8_t)rendered_action.values[0];
     rendered_man.orientation = 1;
     rendered_man.column = 7;
     rendered_man.row = 8;
     xtet::FallingFigurine rendered_woman;
-    rendered_woman.shape_index = (std::uint8_t)rendered_action.values[1];
+    rendered_woman.shape_index = (uint8_t)rendered_action.values[1];
     rendered_woman.orientation = rendered_action.values[2];
-    rendered_woman.column = (std::int8_t)(rendered_man.column + rendered_action.values[3] - 2);
-    rendered_woman.row = (std::int8_t)(rendered_man.row + rendered_action.values[4] - 2);
+    rendered_woman.column = (int8_t)(rendered_man.column + rendered_action.values[3] - 2);
+    rendered_woman.row = (int8_t)(rendered_man.row + rendered_action.values[4] - 2);
     xtet::MatchAnimationPlan rendered_plan;
     if(!xtet::build_match_animation_plan(rendered_man, rendered_woman, rendered_action, false, rendered_plan))
         return 76;
-    std::vector<std::uint8_t> match_pixels(320 * 240, 0x33);
+    std::vector<uint8_t> match_pixels(320 * 240, 0x33);
     std::vector<xtet::FigurineRenderRegion> match_regions;
     if(!xtet::render_match_animation_plan(rendered_plan, animations, { match_pixels.data(), 320, 240, 320 },
            [&match_regions](const xtet::FigurineRenderRegion &region) { match_regions.push_back(region); })
         || match_regions.size() != 7)
         return 77;
-    for(std::size_t index = 0; index < match_regions.size(); ++index)
+    for(size_t index = 0; index < match_regions.size(); ++index)
     {
         const xtet::FigurineRenderRegion &region = match_regions[index];
         if(region.x != match_regions[0].x || region.y != match_regions[0].y || region.width != match_regions[0].width || region.height != match_regions[0].height || region.width == 0
             || region.height == 0)
             return 78;
     }
-    if(std::all_of(match_pixels.begin(), match_pixels.end(), [](std::uint8_t pixel) { return pixel == 0x33; }))
+    if(std::all_of(match_pixels.begin(), match_pixels.end(), [](uint8_t pixel) { return pixel == 0x33; }))
         return 79;
-    std::vector<std::uint8_t> blink_pixels(320 * 240, 0x44);
+    std::vector<uint8_t> blink_pixels(320 * 240, 0x44);
     std::vector<xtet::FigurineRenderRegion> blink_regions;
-    std::vector<std::uint32_t> blink_delays;
+    std::vector<uint32_t> blink_delays;
     if(!xtet::render_match_blink_sequence(
            rendered_man, rendered_woman, rendered_action, animations, { blink_pixels.data(), 320, 240, 320 },
-           [&blink_regions](const xtet::FigurineRenderRegion &region) { blink_regions.push_back(region); }, [&blink_delays](std::uint32_t delay) { blink_delays.push_back(delay); })
-        || blink_regions.size() != 6 || blink_delays != std::vector<std::uint32_t>{ 400, 400, 400, 400 }
-        || !std::all_of(blink_pixels.begin(), blink_pixels.end(), [](std::uint8_t pixel) { return pixel == 0x44; }))
+           [&blink_regions](const xtet::FigurineRenderRegion &region) { blink_regions.push_back(region); }, [&blink_delays](uint32_t delay) { blink_delays.push_back(delay); })
+        || blink_regions.size() != 6 || blink_delays != std::vector<uint32_t>{ 400, 400, 400, 400 }
+        || !std::all_of(blink_pixels.begin(), blink_pixels.end(), [](uint8_t pixel) { return pixel == 0x44; }))
         return 80;
     xtet::GameProgress progress;
     progress.score = 28;
@@ -896,27 +901,27 @@ int main(int argc, char **argv)
     if(!final_removal.score_changed || final_removal.level_changed || !final_removal.game_over || progress.score != 300 || progress.level != 10 || progress.gameplay_state != 3
         || xtet::update_progress_after_figurine_removal(progress).score_changed || progress.score != 300)
         return 82;
-    std::vector<std::uint8_t> rendered_pixels(640 * 480, 0xcc);
+    std::vector<uint8_t> rendered_pixels(640 * 480, 0xcc);
     const xtet::IndexedFramebuffer framebuffer{ rendered_pixels.data(), 640, 480, 640 };
     if(!xtet::render_initial_scene(scene, decoded_bitmap_assets, framebuffer))
         return 27;
-    std::vector<std::uint8_t> expected_pixels = decoded_bitmap_assets.at("xtet.bmp").pixels;
+    std::vector<uint8_t> expected_pixels = decoded_bitmap_assets.at("xtet.bmp").pixels;
     const xtet::IndexedBitmap &field = decoded_bitmap_assets.at("f01.bmp");
     if(!xtet::blit_opaque(field, { expected_pixels.data(), 640, 480, 640 }, 243, 77) || rendered_pixels != expected_pixels)
         return 28;
     const xtet::IndexedBitmap &digit_atlas = decoded_bitmap_assets.at("digit.bmp");
     if(!xtet::render_score(0, digit_atlas, framebuffer))
         return 44;
-    const std::uint32_t glyph_width = digit_atlas.width / 4;
-    const std::uint32_t glyph_height = digit_atlas.height / 10;
-    for(std::uint32_t digit_index = 0; digit_index < 4; ++digit_index)
-        for(std::uint32_t row = 0; row < glyph_height; ++row)
-            for(std::uint32_t column = 0; column < glyph_width; ++column)
+    const uint32_t glyph_width = digit_atlas.width / 4;
+    const uint32_t glyph_height = digit_atlas.height / 10;
+    for(uint32_t digit_index = 0; digit_index < 4; ++digit_index)
+        for(uint32_t row = 0; row < glyph_height; ++row)
+            for(uint32_t column = 0; column < glyph_width; ++column)
                 expected_pixels[(438 + row) * 640 + 359 + digit_index * glyph_width + column] = digit_atlas.pixels[row * digit_atlas.width + column];
     if(rendered_pixels != expected_pixels)
         return 45;
-    std::vector<std::uint8_t> capped_score_pixels(640 * 480, 0);
-    std::vector<std::uint8_t> maximum_score_pixels(640 * 480, 0);
+    std::vector<uint8_t> capped_score_pixels(640 * 480, 0);
+    std::vector<uint8_t> maximum_score_pixels(640 * 480, 0);
     if(!xtet::render_score(10000, digit_atlas, { capped_score_pixels.data(), 640, 480, 640 }) || !xtet::render_score(9999, digit_atlas, { maximum_score_pixels.data(), 640, 480, 640 })
         || capped_score_pixels != maximum_score_pixels || xtet::render_score(0, {}, { maximum_score_pixels.data(), 640, 480, 640 }))
         return 48;
@@ -924,8 +929,8 @@ int main(int argc, char **argv)
         3, 2, {},
           { 1, 2, 3, 4, 5, 6 }
     };
-    std::vector<std::uint8_t> clipped_pixels(12, 0);
-    if(!xtet::blit_opaque(clipping_source, { clipped_pixels.data(), 4, 3, 4 }, -1, 1) || clipped_pixels != std::vector<std::uint8_t>{ 0, 0, 0, 0, 2, 3, 0, 0, 5, 6, 0, 0 })
+    std::vector<uint8_t> clipped_pixels(12, 0);
+    if(!xtet::blit_opaque(clipping_source, { clipped_pixels.data(), 4, 3, 4 }, -1, 1) || clipped_pixels != std::vector<uint8_t>{ 0, 0, 0, 0, 2, 3, 0, 0, 5, 6, 0, 0 })
         return 29;
     if(xtet::blit_opaque(clipping_source, { clipped_pixels.data(), 4, 3, 3 }, 0, 0) || xtet::blit_opaque({}, { clipped_pixels.data(), 4, 3, 4 }, 0, 0))
         return 30;
@@ -933,11 +938,11 @@ int main(int argc, char **argv)
         3, 2, {},
           { 0, 2, 3, 4, 0, 6 }
     };
-    std::vector<std::uint8_t> transparent_pixels(12, 9);
-    if(!xtet::blit_transparent(transparent_source, { transparent_pixels.data(), 4, 3, 4 }, 1, 1) || transparent_pixels != std::vector<std::uint8_t>{ 9, 9, 9, 9, 9, 9, 2, 3, 9, 4, 9, 6 })
+    std::vector<uint8_t> transparent_pixels(12, 9);
+    if(!xtet::blit_transparent(transparent_source, { transparent_pixels.data(), 4, 3, 4 }, 1, 1) || transparent_pixels != std::vector<uint8_t>{ 9, 9, 9, 9, 9, 9, 2, 3, 9, 4, 9, 6 })
         return 36;
-    std::fill(transparent_pixels.begin(), transparent_pixels.end(), (std::uint8_t)9);
-    if(!xtet::blit_transparent(transparent_source, { transparent_pixels.data(), 4, 3, 4 }, -1, 0, true, true) || transparent_pixels != std::vector<std::uint8_t>{ 9, 4, 9, 9, 2, 9, 9, 9, 9, 9, 9, 9 })
+    std::fill(transparent_pixels.begin(), transparent_pixels.end(), (uint8_t)9);
+    if(!xtet::blit_transparent(transparent_source, { transparent_pixels.data(), 4, 3, 4 }, -1, 0, true, true) || transparent_pixels != std::vector<uint8_t>{ 9, 4, 9, 9, 2, 9, 9, 9, 9, 9, 9, 9 })
         return 37;
     xtet::RliFrameRecord rli_frame;
     rli_frame.left = 1;
@@ -946,17 +951,17 @@ int main(int argc, char **argv)
     rli_frame.bottom = 2;
     rli_frame.pixels = { 0, 2, 3, 4 };
     rli_frame.coverage = { 1, 0, 1, 1 };
-    std::vector<std::uint8_t> rli_pixels(16, 9);
-    if(!xtet::blit_rli_frame(rli_frame, { rli_pixels.data(), 4, 4, 4 }, 0, 0) || rli_pixels != std::vector<std::uint8_t>{ 9, 9, 9, 9, 9, 0, 9, 9, 9, 3, 4, 9, 9, 9, 9, 9 })
+    std::vector<uint8_t> rli_pixels(16, 9);
+    if(!xtet::blit_rli_frame(rli_frame, { rli_pixels.data(), 4, 4, 4 }, 0, 0) || rli_pixels != std::vector<uint8_t>{ 9, 9, 9, 9, 9, 0, 9, 9, 9, 3, 4, 9, 9, 9, 9, 9 })
         return 38;
     xtet::RliFrameRecord transparent_rli_frame;
     transparent_rli_frame.right = 1;
     transparent_rli_frame.pixels = { 0, 5 };
     transparent_rli_frame.coverage = { 1, 1 };
-    std::vector<std::uint8_t> transparent_rli_pixels{ 7, 7 };
-    if(!xtet::blit_rli_frame_canvas(transparent_rli_frame, 2, 1, { transparent_rli_pixels.data(), 2, 1, 2 }, 0, 0) || transparent_rli_pixels != std::vector<std::uint8_t>{ 7, 5 })
+    std::vector<uint8_t> transparent_rli_pixels{ 7, 7 };
+    if(!xtet::blit_rli_frame_canvas(transparent_rli_frame, 2, 1, { transparent_rli_pixels.data(), 2, 1, 2 }, 0, 0) || transparent_rli_pixels != std::vector<uint8_t>{ 7, 5 })
         return 113;
-    std::vector<std::uint8_t> corrupt_archive = archive_bytes;
+    std::vector<uint8_t> corrupt_archive = archive_bytes;
     corrupt_archive[0x24] ^= 1;
     xtet::SfsArchive rejected_archive;
     if(rejected_archive.mount({ corrupt_archive.data(), corrupt_archive.size() }))

@@ -2,14 +2,8 @@
 
 #include <windows.h>
 #include <array>
-#include <cstddef>
-#include <cstdint>
-
-#if defined(_M_IX86) || defined(__i386__)
-#define XTET_ABI __fastcall
-#else
-#define XTET_ABI
-#endif
+#include <stddef.h>
+#include <stdint.h>
 
 namespace xtet
 {
@@ -17,46 +11,51 @@ namespace xtet
 struct PcmFormat;
 
 constexpr UINT kGameMessage = 0x7ffc;
-constexpr std::size_t kCallbackCount = 35;
+constexpr size_t kCallbackCount = 35;
 
-#pragma pack(push, 1)
 struct GameHostContext
 {
     HWND window;
-    std::uint32_t unknown04{};
-    std::uint32_t bits_per_pixel{ 8 };
-    std::array<std::byte, 0x14> unknown0c{};
-    std::uint16_t width{ 640 };
-    std::uint16_t height{ 480 };
-    std::uint32_t unknown24{};
-    std::uint32_t unknown28{};
+    HDC palette_dc{};
+    uint32_t bits_per_pixel{ 8 };
+    HPALETTE palette{};
+    uint32_t unknown10{};
+    HDC palette_dib_dc{};
+    HBITMAP bitmap{};
+    HBITMAP selected_bitmap{};
+    uint16_t width{ 640 };
+    uint16_t height{ 480 };
+    void *display_surface{};
+    intptr_t unknown28{};
     void *framebuffer{};
-    std::array<std::byte, 0x10> unknown30{};
+    intptr_t unknown30{};
+    PALETTEENTRY *palette_entries{};
+    uint32_t x{};
+    uint32_t y{};
 };
 
 struct GameResultDescriptor
 {
-    std::uint32_t type;
-    std::uint32_t reserved;
-    std::uint32_t size;
+    uint32_t type;
+    uint32_t reserved;
+    uint32_t size;
     const void *data;
 };
-#pragma pack(pop)
-
 #if defined(_M_IX86) || defined(__i386__)
-static_assert(sizeof(GameHostContext) == 0x40);
-static_assert(offsetof(GameHostContext, width) == 0x20);
-static_assert(offsetof(GameHostContext, framebuffer) == 0x2c);
-static_assert(sizeof(GameResultDescriptor) == 0x10);
 #endif
 
-using GameInit = void(XTET_ABI *)(GameHostContext *, void **);
-using GameWndProc = std::uint32_t(XTET_ABI *)(HWND, UINT, WPARAM, LPARAM);
-using GameExec = void(XTET_ABI *)(std::uint32_t);
-using DirtyRegionCallback = void(XTET_ABI *)(std::int32_t, std::int32_t, std::int32_t, std::int32_t);
-using SoundCreateCallback = std::uint32_t(XTET_ABI *)(const PcmFormat *);
-using SoundDestroyCallback = void(XTET_ABI *)(std::uint32_t);
-using SoundQueueCallback = std::uint32_t(XTET_ABI *)(std::uint32_t, const void *, std::uint32_t, std::int32_t);
-using SoundControlCallback = std::uint32_t(XTET_ABI *)(std::uint32_t, std::int32_t);
+using GameInit = void (*)(GameHostContext *, void **, const char *);
+using GameWndProc = uint32_t (*)(HWND, UINT, WPARAM, LPARAM);
+using GameExec = void (*)(uint32_t);
+using DirtyRegionCallback = void (*)(int32_t, int32_t, int32_t, int32_t);
+using SoundCreateCallback = uint32_t (*)(const PcmFormat *);
+using SoundDestroyCallback = void (*)(uint32_t);
+using SoundQueueCallback = uint32_t (*)(uint32_t, const void *, uint32_t, int32_t);
+using SoundControlCallback = uint32_t (*)(uint32_t, int32_t);
+
+void initialize_game(GameHostContext *host_context, void **callback_table, const char *sfs_name);
+uint32_t dispatch_game_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+void execute_game_command(uint32_t command);
+void shutdown_game();
 
 } // namespace xtet

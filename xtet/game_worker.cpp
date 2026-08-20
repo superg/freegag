@@ -9,7 +9,7 @@ GameWorker::~GameWorker()
     stop();
 }
 
-bool GameWorker::start(const std::function<std::uint32_t()> &interval_callback, const std::function<void()> &tick_callback, const std::function<void()> &failure_callback)
+bool GameWorker::start(const std::function<uint32_t()> &interval_callback, const std::function<void()> &tick_callback, const std::function<void()> &failure_callback)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if(thread_.joinable() || !interval_callback || !tick_callback)
@@ -71,7 +71,7 @@ void GameWorker::run()
     {
         while(true)
         {
-            const std::uint32_t interval = interval_callback_();
+            const uint32_t interval = interval_callback_();
             std::unique_lock<std::mutex> lock(mutex_);
             condition_.wait_for(lock, std::chrono::milliseconds(interval), [this]() { return stopping_; });
             if(stopping_)
