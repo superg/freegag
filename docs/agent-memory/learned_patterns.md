@@ -1,5 +1,10 @@
 # Learned patterns
 
+# 2026-08-20 - Match zlib framing to the recovered stream format
+
+- Replacing a bundled inflater with zlib requires selecting the original framing explicitly: raw DEFLATE uses `inflateInit2(..., -MAX_WBITS)`, while ordinary `inflateInit` expects a zlib wrapper. Preserve recovered boundary behavior separately from framing; XTET accepts a logically complete 32 KiB SFS block when the fixed output buffer fills before the inflater consumes its end marker, but partial blocks still require `Z_STREAM_END`.
+- A static library that calls fetched zlib should link the exported zlib target publicly so its final consumers receive the required link dependency. Independently compiled test executables using the same source must link that target directly.
+
 # 2026-08-20 - Pin FetchContent archives by cryptographic hash
 
 - For a small upstream dependency with working CMake support, prefer an official immutable release archive plus `URL_HASH` over a floating Git branch/tag or a hand-maintained source manifest. Disable the dependency's unrelated shared-library, test, and install targets before `FetchContent_MakeAvailable`, then consume its exported target so generated headers and usage requirements propagate correctly.

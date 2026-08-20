@@ -49,15 +49,12 @@ add_library(xtet_core STATIC
   scene_description.h
   sfs_archive.cpp
   sfs_archive.h
-  "${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c"
 )
-
-set_source_files_properties("${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c" PROPERTIES LANGUAGE CXX)
 
 target_compile_features(xtet_core PRIVATE cxx_std_23)
 target_compile_definitions(xtet_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(xtet_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
-target_link_libraries(xtet_core PUBLIC winmm)
+target_link_libraries(xtet_core PUBLIC ZLIB::ZLIBSTATIC winmm)
 
 if(MSVC)
   target_compile_options(xtet_core PRIVATE /W4 /permissive- /EHsc)
@@ -85,11 +82,10 @@ if(BUILD_TESTING)
     scene_description.cpp
     sfs_archive.cpp
     sfs_archive_test.cpp
-    "${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c"
   )
-  set_source_files_properties("${CMAKE_SOURCE_DIR}/tools/cdf_extractor/inflate.c" PROPERTIES LANGUAGE CXX)
   target_compile_features(xtet_sfs_test PRIVATE cxx_std_23)
   target_include_directories(xtet_sfs_test PRIVATE "${CMAKE_SOURCE_DIR}")
+  target_link_libraries(xtet_sfs_test PRIVATE ZLIB::ZLIBSTATIC)
   if(MSVC)
     target_compile_options(xtet_sfs_test PRIVATE /W4 /permissive- /EHsc)
   else()

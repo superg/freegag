@@ -126,5 +126,4 @@ else()
   endif()
 endif()
 
-add_subdirectory(tools/cdf_extractor)
 add_subdirectory(tools/xtet_resource_extractor)

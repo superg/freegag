@@ -1,8 +1,0 @@
-*.256 - Windows BMP image, 256-color, indexed, almost all are 2-color, all of them using same palette as BMP's (to support 256-color display mode)
-*.BMP - Windows BMP image, 256-color, indexed
-*.CFG/*.CIN - game scripts
-*.RUS - i18n custom text files + font bmp
-VERSION.TXT - file with version string, inside executable there is same file
-*.WAV - game sounds, 11kHz, 2ch, s16le
-*.FLC - Autodesk FLI/FLC Animation, 14fps, no sound
-*.MOV,*.MVZ - Autodesk FLI/FLC Animation, + unrecognized chunks (probably sound)

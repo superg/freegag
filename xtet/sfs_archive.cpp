@@ -3,7 +3,7 @@
 #include <array>
 #include <cctype>
 #include <cstring>
-#include "tools/cdf_extractor/inflate.h"
+#include <zlib.h>
 
 namespace xtet
 {
@@ -212,12 +212,20 @@ bool SfsArchive::decode_block(size_t block_index, std::vector<uint8_t> &bytes) c
     if(encoding != 8)
         return false;
     bytes.resize(kAllocationBlockSize);
-    int ok = 0;
-    const uint32_t decoded_size = inflate_data_bounded(bytes.data(), (uint32_t)bytes.size(), (uint8_t *)source + 3, (uint32_t)source_size - 3, &ok);
+    z_stream stream{};
+    stream.next_in = (Bytef *)source + 3;
+    stream.avail_in = (uInt)source_size - 3;
+    stream.next_out = bytes.data();
+    stream.avail_out = (uInt)bytes.size();
+    if(inflateInit2(&stream, -MAX_WBITS) != Z_OK)
+        return false;
+    const int result = inflate(&stream, Z_FINISH);
+    const size_t decoded_size = stream.total_out;
+    inflateEnd(&stream);
     // Some full SFS blocks end exactly at the 32 KiB output boundary before the
-    // generic inflater can consume an end marker. The original cache accepts
+    // inflater can consume an end marker. The original cache accepts
     // that complete logical block; partial output still requires a clean end.
-    if(!ok && decoded_size != kAllocationBlockSize)
+    if(result != Z_STREAM_END && decoded_size != kAllocationBlockSize)
         return false;
     bytes.resize(decoded_size);
     return true;

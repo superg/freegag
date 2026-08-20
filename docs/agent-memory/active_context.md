@@ -4,6 +4,8 @@ Last updated: 2026-08-20
 
 ## GAG main executable reconstruction
 
+- Replaced XTET's deleted `tools/cdf_extractor/inflate.c` dependency with fetched zlib. `SfsArchive::decode_block` now decodes SFS encoding 8 as raw DEFLATE through `inflateInit2(..., -MAX_WBITS)`, preserves the recovered acceptance of a complete 32 KiB block even when the end marker cannot be consumed, and otherwise requires `Z_STREAM_END`. Both `xtet_core` and `xtet_sfs_test` link `ZLIB::ZLIBSTATIC`; the deleted source entries and language overrides are gone. The full AMD64 Debug build succeeds, all 4 CTest tests pass against the original `XTETDLL.SFS`, formatting passes, and no `cdf_extractor` or `inflate_data_bounded` references remain.
+
 - Replaced the extractor's PE resource high-bit literals `0x80000000` and `0x7fffffff` with the structural expressions `(1u << 31)` and `~(1u << 31)`. The unsigned literal avoids signed left-shift issues while making the flag-bit operation explicit.
 
 - Inlined the extractor's one-use PE32 magic, resource-directory index, and data-directory capacity constants at their use sites, removing the three namespace-level constants per the user's preference.
