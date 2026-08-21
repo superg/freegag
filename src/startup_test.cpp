@@ -8030,12 +8030,12 @@ void test_application_initialization()
     initialization_event_count = 0;
     initialization_validation_count = 0;
     initialization_copy_count = 0;
-    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("--other \"--gagboy\""), 7) == &initialization_state);
+    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("--other \"--xtet\""), 7) == &initialization_state);
     require(std::strcmp(initialization_state.startup_config, "GAGBOY.CFG") == 0);
     initialization_event_count = 0;
     initialization_validation_count = 0;
     initialization_copy_count = 0;
-    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("--gagboyish"), 7) == &initialization_state);
+    require(gag::initialize_gag_application(640, 480, reinterpret_cast<HINSTANCE>(0x102), const_cast<char *>("--xtetish"), 7) == &initialization_state);
     require(std::strcmp(initialization_state.startup_config, "Start.cfg") == 0);
 
 #if defined(FREEGAG_WINDOWS_FIXES)

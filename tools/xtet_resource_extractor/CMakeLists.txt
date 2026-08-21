@@ -9,3 +9,6 @@ if(MSVC)
 else()
   target_compile_options(xtet_resource_extractor PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+list(APPEND FREEGAG_FORMAT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+set(FREEGAG_FORMAT_FILES "${FREEGAG_FORMAT_FILES}" PARENT_SCOPE)
