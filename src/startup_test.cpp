@@ -358,7 +358,7 @@ RECT layout_client_rectangle;
 int layout_invalidate_count;
 #endif
 int runtime_state_transition_count;
-uint32_t runtime_state_transition_value;
+uintptr_t runtime_state_transition_value;
 uint32_t state_activation_status;
 void *state_activation_query_identity;
 uintptr_t state_activation_script_state;
@@ -789,6 +789,7 @@ LPARAM runtime_game_window_dll_lparam;
 int32_t runtime_game_window_pointer_x;
 int32_t runtime_game_window_pointer_y;
 LRESULT runtime_game_window_default_result;
+HCURSOR runtime_game_window_cursor;
 gag::RuntimeNamedNode runtime_pointer_position_node;
 gag::RuntimeResourceObject runtime_pointer_position_record;
 bool runtime_pointer_position_has_node;
@@ -1273,22 +1274,22 @@ void activate_test_runtime_tree_comment(gag::RuntimeTreeNode *node)
     runtime_tree_activation_events[runtime_tree_activation_event_count++] = 6;
 }
 
-void dispatch_test_runtime_generic_load(uint32_t operation, void **resource_data, void **resource_metadata)
+void dispatch_test_runtime_generic_load(uint32_t operation, void **resource_data, void *result)
 {
     ++runtime_generic_load_dispatch_count;
     runtime_generic_load_operation = operation;
     std::strcpy(runtime_generic_load_input_name, static_cast<const char *>(*resource_data));
     *resource_data = runtime_generic_load_output_data;
-    *resource_metadata = runtime_generic_load_output_metadata;
+    *static_cast<void **>(result) = runtime_generic_load_output_metadata;
 }
 
-void dispatch_test_runtime_serialization(uint32_t operation, void **resource_data, void **resource_metadata)
+void dispatch_test_runtime_serialization(uint32_t operation, void **resource_data, void *result)
 {
     require(resource_data == nullptr);
     runtime_serialization_operations[runtime_serialization_operation_count++] = operation;
     if(operation == 5)
     {
-        std::strcpy(reinterpret_cast<char *>(resource_metadata), "SOURCE.CFG");
+        std::strcpy(static_cast<char *>(result), "SOURCE.CFG");
         return;
     }
     uint32_t value = 0;
@@ -1312,7 +1313,7 @@ void dispatch_test_runtime_serialization(uint32_t operation, void **resource_dat
     default:
         require(false);
     }
-    *reinterpret_cast<uint32_t *>(resource_metadata) = value;
+    *static_cast<uint32_t *>(result) = value;
 }
 
 LPVOID WINAPI allocate_test_runtime_generic_load(HANDLE heap, DWORD flags, SIZE_T size)
@@ -2861,7 +2862,17 @@ gag::DisplayMode *find_mode_test_runtime_bootstrap()
 
 void *create_surface_test_runtime_bootstrap(int32_t width, int32_t height, const gag::LegacyDisplayPixelFormat *format, uint32_t options)
 {
-    require(width == 324 && height == 201 && format == runtime_bootstrap_expected_format && options == 0);
+    require(width == 324 && height == 201 && options == 0);
+    if(runtime_bootstrap_expected_format == reinterpret_cast<gag::LegacyDisplayPixelFormat *>(&runtime_bootstrap_mode.pixel_format_flags))
+    {
+        require(format != nullptr && format->flags == runtime_bootstrap_mode.pixel_format_flags && format->reserved == runtime_bootstrap_mode.unknown_0024
+                && format->bits_per_pixel == static_cast<uint32_t>(runtime_bootstrap_mode.bits_per_pixel) && format->red_mask == runtime_bootstrap_mode.red_mask
+                && format->green_mask == runtime_bootstrap_mode.green_mask && format->blue_mask == runtime_bootstrap_mode.blue_mask);
+    }
+    else
+    {
+        require(format == runtime_bootstrap_expected_format);
+    }
     runtime_bootstrap_events[runtime_bootstrap_event_count++] = 2;
     return runtime_bootstrap_failure_stage == 2 ? nullptr : reinterpret_cast<void *>(601);
 }
@@ -3224,8 +3235,9 @@ uint32_t render_test_scene_region(void *identity, gag::DisplayRectangle *rectang
 
 uint32_t end_test_scene_region(intptr_t identifier, const gag::DisplayRectangleTransform *transform, const gag::DisplayRectangle *rectangle)
 {
-    require(identifier == scene_region_expected_identifier
-            && transform == reinterpret_cast<gag::DisplayRectangleTransform *>(&reinterpret_cast<gag::RuntimeResourceObject *>(scene_region_record)->scene_descriptor));
+    const gag::DisplaySceneDescriptor &descriptor = reinterpret_cast<gag::RuntimeResourceObject *>(scene_region_record)->scene_descriptor;
+    require(identifier == scene_region_expected_identifier && transform->x == descriptor.x && transform->y == descriptor.y && transform->width == static_cast<uint16_t>(descriptor.width)
+            && transform->height == static_cast<uint16_t>(descriptor.height));
     scene_region_events[scene_region_event_count++] = 5;
     scene_region_observed_rectangle = *rectangle;
     return 0;
@@ -4057,7 +4069,7 @@ BOOL WINAPI release_test_generic_child_create(HANDLE handle)
     return TRUE;
 }
 
-uint32_t build_test_generic_child_create(void *identity, uint32_t selection, uint32_t *state_value, uint32_t *descriptor, uintptr_t *context)
+uint32_t build_test_generic_child_create(void *identity, uint32_t selection, uint32_t *state_value, gag::DisplaySceneDescriptor *descriptor, uintptr_t *context)
 {
     require(identity == &generic_child_create_storage && selection == 0 && state_value == nullptr && descriptor == nullptr && context == nullptr);
     generic_child_create_events[generic_child_create_event_count++] = 10;
@@ -4077,12 +4089,12 @@ void *find_test_generic_child_scene(uint32_t value)
     return generic_child_scene_find_count++ == 0 ? reinterpret_cast<void *>(41) : nullptr;
 }
 
-uint32_t build_test_generic_child_scene(void *identity, uint32_t selection, uint32_t *state_value, uint32_t *descriptor, uintptr_t *context)
+uint32_t build_test_generic_child_scene(void *identity, uint32_t selection, uint32_t *state_value, gag::DisplaySceneDescriptor *descriptor, uintptr_t *context)
 {
     require(identity == reinterpret_cast<void *>(41) && selection == 0);
     generic_child_scene_events[generic_child_scene_event_count++] = 2;
     std::memcpy(state_value, generic_child_scene_state, sizeof(generic_child_scene_state));
-    std::memcpy(descriptor, &generic_child_scene_descriptor, sizeof(generic_child_scene_descriptor));
+    *descriptor = generic_child_scene_descriptor;
     std::memcpy(context, generic_child_scene_context, sizeof(generic_child_scene_context));
     return generic_child_scene_build_result;
 }
@@ -4111,7 +4123,7 @@ uint32_t begin_test_generic_child_scene(intptr_t identifier)
     return generic_child_scene_begin_result;
 }
 
-void publish_test_generic_child_scene(void *identity, const uint32_t *, const uint32_t *, int32_t end_offset)
+void publish_test_generic_child_scene(void *identity, const uint32_t *, const gag::DisplaySceneDescriptor *, int32_t end_offset)
 {
     require(identity == reinterpret_cast<void *>(41) && end_offset == 77);
     generic_child_scene_events[generic_child_scene_event_count++] = 6;
@@ -4875,6 +4887,21 @@ void leave_state_test_runtime_game_window()
 void set_flag_test_runtime_game_window()
 {
     runtime_game_window_events[runtime_game_window_event_count++] = 15;
+}
+
+HCURSOR WINAPI set_cursor_test_runtime_game_window(HCURSOR cursor)
+{
+    runtime_game_window_events[runtime_game_window_event_count++] = 17;
+    HCURSOR previous = runtime_game_window_cursor;
+    runtime_game_window_cursor = cursor;
+    return previous;
+}
+
+BOOL WINAPI track_mouse_test_runtime_game_window(LPTRACKMOUSEEVENT event)
+{
+    require(event->cbSize == sizeof(*event) && event->dwFlags == TME_LEAVE && event->hwndTrack == reinterpret_cast<HWND>(317));
+    runtime_game_window_events[runtime_game_window_event_count++] = 18;
+    return TRUE;
 }
 
 LRESULT WINAPI default_test_runtime_game_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -6053,7 +6080,7 @@ void WINAPI sleep_test_async_file_worker(DWORD)
     async_file_worker_stop_host->flags |= 1;
 }
 
-void transition_runtime_state(uint32_t value)
+void transition_runtime_state(uintptr_t value)
 {
     ++runtime_state_transition_count;
     runtime_state_transition_value = value;
@@ -7739,6 +7766,7 @@ uint32_t initialization_detected_type;
 gag::ApplicationState initialization_state;
 gag::GraphicsHostInitializationResult initialization_graphics_result;
 gag::LegacyDisplayPixelFormat *initialization_runtime_format;
+gag::LegacyDisplayPixelFormat initialization_runtime_format_value;
 gag::DisplayMode *initialization_display_mode;
 uint32_t initialization_initial_flags;
 bool initialization_has_archive;
@@ -7917,6 +7945,10 @@ gag::GraphicsHostInitializationResult *initialization_initialize_runtime(const g
 {
     record_initialization_event(initialization_event_runtime);
     initialization_runtime_format = const_cast<gag::LegacyDisplayPixelFormat *>(format);
+    if(format != nullptr)
+    {
+        initialization_runtime_format_value = *format;
+    }
     return initialization_failure_stage == 7 ? nullptr : &initialization_graphics_result;
 }
 
@@ -8008,7 +8040,10 @@ void test_application_initialization()
     require(initialization_state.window_top_adjustment == 51);
     require(initialization_validation_count == 2 && initialization_copy_count == 3);
     require(std::strcmp(initialization_state.startup_config, "Version.cfg") == 0);
-    require(initialization_runtime_format == reinterpret_cast<gag::LegacyDisplayPixelFormat *>(&display_mode.pixel_format_flags));
+    require(initialization_runtime_format != nullptr && initialization_runtime_format_value.flags == display_mode.pixel_format_flags
+            && initialization_runtime_format_value.reserved == display_mode.unknown_0024 && initialization_runtime_format_value.bits_per_pixel == static_cast<uint32_t>(display_mode.bits_per_pixel)
+            && initialization_runtime_format_value.red_mask == display_mode.red_mask && initialization_runtime_format_value.green_mask == display_mode.green_mask
+            && initialization_runtime_format_value.blue_mask == display_mode.blue_mask);
     require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_enable_runtime) != initialization_events + initialization_event_count);
     require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_set_active) != initialization_events + initialization_event_count);
 
@@ -9577,7 +9612,7 @@ void test_runtime_left_button_up()
     attach_available[0] = true;
 
     gag::RuntimePointerRegion region{};
-    *reinterpret_cast<void **>(reinterpret_cast<uint8_t *>(&region) + 0x20) = &region;
+    region.identity = &region;
     root.global_link_0084_head = reinterpret_cast<gag::RuntimeTreeLink84 *>(&region);
     gag::set_runtime_pointer_region_state_for_testing(nullptr, nullptr, &region, 0, nullptr);
     gag::RuntimeSceneSlot slots[32]{};
@@ -11293,12 +11328,16 @@ void test_runtime_resource_construction()
     require(construction_destroy_media_count == 0 && construction_release_memory_count == 0);
 
     reset_test_construction();
-    *reinterpret_cast<uint32_t *>(data + 0x24) = 1;
-    std::memcpy(data + 0x2c, "data", 4);
-    *reinterpret_cast<uint32_t *>(data + 0x30) = 12;
+    auto *wave_file = reinterpret_cast<gag::RuntimePcmWaveFile *>(data);
+    auto *dummy_wave_chunk = reinterpret_cast<gag::RuntimeRiffChunk *>(wave_file + 1);
+    const uint32_t dummy_identifier = 1;
+    std::memcpy(dummy_wave_chunk->identifier, &dummy_identifier, sizeof(dummy_identifier));
+    auto *wave_chunk = reinterpret_cast<gag::RuntimeRiffChunk *>(dummy_wave_chunk->data);
+    std::memcpy(wave_chunk->identifier, "data", 4);
+    wave_chunk->size = 12;
     construction_type = 2;
     auto *sound = static_cast<gag::RuntimeResourceObject *>(gag::construct_runtime_resource(path, 0, 0, 0, 0, 0, 3, 0x200));
-    require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == data + 0x34 && construction_queued_size == 12
+    require(sound != nullptr && sound->type_flags == 0x8000 && sound->backend == reinterpret_cast<void *>(7) && construction_queued_data == wave_chunk->data && construction_queued_size == 12
             && construction_sound_loop == 3 && construction_sound_slot.playback_state == 0xffffffff && construction_register_count == 1);
     HeapFree(GetProcessHeap(), 0, sound);
 
@@ -13765,14 +13804,18 @@ int main()
     gag::set_credits_runtime_flag();
     require((gag::get_graphics_host_flags_for_testing() & 0x40000000) != 0);
     gag::set_graphics_host_flags_for_testing(0);
-    gag::set_runtime_state_transition_for_testing(17, 23, transition_runtime_state);
+    uintptr_t restored_runtime_scene_identity = 23;
+#if UINTPTR_MAX > UINT32_MAX
+    restored_runtime_scene_identity |= uintptr_t{ 1 } << 32;
+#endif
+    gag::set_runtime_state_transition_for_testing(17, restored_runtime_scene_identity, transition_runtime_state);
     gag::enter_runtime_state_1000();
     gag::enter_runtime_state_1000();
-    require(gag::get_runtime_state_value_for_testing() == 23 && runtime_state_transition_count == 1 && runtime_state_transition_value == 0);
+    require(gag::get_runtime_state_value_for_testing() == restored_runtime_scene_identity && runtime_state_transition_count == 1 && runtime_state_transition_value == 0);
     require((gag::get_graphics_host_flags_for_testing() & 0x1000) != 0);
     gag::leave_runtime_state_1000();
     gag::leave_runtime_state_1000();
-    require(runtime_state_transition_count == 2 && runtime_state_transition_value == 23 && (gag::get_graphics_host_flags_for_testing() & 0x1000) == 0);
+    require(runtime_state_transition_count == 2 && runtime_state_transition_value == restored_runtime_scene_identity && (gag::get_graphics_host_flags_for_testing() & 0x1000) == 0);
     gag::set_graphics_host_flags_for_testing(0x5000);
     gag::enter_runtime_state_1000();
     gag::leave_runtime_state_1000();
@@ -14975,7 +15018,7 @@ int main()
     gag::set_runtime_media_backend_state_for_testing(reinterpret_cast<HANDLE>(203), reinterpret_cast<HANDLE>(204), nullptr, nullptr);
     auto *runtime_animation_backend = gag::create_runtime_animation_backend(999, runtime_animation_memory, 8, 0x01000000);
     require(runtime_animation_backend != nullptr && runtime_bitmap_backend_allocation_size == sizeof(gag::RuntimeAnimationBackend) + 8 && runtime_animation_backend->base.type == 0xaa);
-    require(runtime_animation_backend->base.extension_data == runtime_animation_backend + 1 && runtime_animation_backend->base.format_data == runtime_animation_backend->header);
+    require(runtime_animation_backend->base.extension_data == runtime_animation_backend + 1 && runtime_animation_backend->base.format_data == &runtime_animation_backend->header);
     require(runtime_animation_backend->base.frame_duration == 40 && runtime_animation_backend->data_start == runtime_animation_memory + 0x80
             && runtime_animation_backend->data_end == runtime_animation_memory + 0x90 && runtime_animation_backend->source_cursor == runtime_animation_memory + 0x80);
     require(runtime_animation_backend->base.media_flags == (0x01000000u | 0x21) && runtime_animation_backend->base.scale_x == 1 && runtime_animation_backend->base.scale_y == 1
@@ -15007,8 +15050,8 @@ int main()
     runtime_animation_backend = gag::create_runtime_animation_backend(0, reinterpret_cast<void *>(306), 12, 0x02000000);
     require(runtime_animation_backend != nullptr && runtime_bitmap_backend_allocation_size == sizeof(gag::RuntimeAnimationBackend) + 12 && runtime_animation_backend->base.frame_duration == 12);
     require(runtime_animation_backend->data_start == reinterpret_cast<void *>(120) && runtime_animation_backend->data_end == reinterpret_cast<void *>(140));
-    require(runtime_animation_backend->base.frame_header == runtime_animation_backend->streamed_tail && runtime_animation_backend->base.chunk_header == runtime_animation_backend->streamed_tail + 0x10
-            && runtime_animation_backend->base.extension_data == runtime_animation_backend + 1);
+    require(runtime_animation_backend->base.frame_header == &runtime_animation_backend->streamed_headers.frame
+            && runtime_animation_backend->base.chunk_header == &runtime_animation_backend->streamed_headers.chunk && runtime_animation_backend->base.extension_data == runtime_animation_backend + 1);
     require(runtime_animation_get_position_count == 1 && runtime_animation_read_count == 1 && runtime_animation_set_position_count == 1 && runtime_animation_set_position_value == 120);
     animation_signature = 0xaf11;
     std::memcpy(runtime_animation_stream_header + 4, &animation_signature, sizeof(animation_signature));
@@ -15150,24 +15193,21 @@ int main()
     {
         generic_backend_child_1.state[index] = 100 + index;
     }
-    for(uint32_t index = 0; index < std::size(generic_backend_child_1.descriptor); ++index)
-    {
-        generic_backend_child_1.descriptor[index] = 200 + index;
-    }
+    generic_backend_child_1.descriptor = { 200, 201, 202, 203, 204, 205, 206 };
     generic_backend_child_1.flags = 0x402;
     uint32_t queried_child_state[15]{};
-    uint32_t queried_child_descriptor[std::size(generic_backend_child_1.descriptor)]{};
+    gag::DisplaySceneDescriptor queried_child_descriptor{};
     uintptr_t queried_child_context[2]{};
-    require(gag::query_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), queried_child_state, queried_child_descriptor, queried_child_context) == 1);
+    require(gag::query_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), queried_child_state, &queried_child_descriptor, queried_child_context) == 1);
     require(std::memcmp(queried_child_state, generic_backend_child_1.state, sizeof(queried_child_state)) == 0
-            && std::memcmp(queried_child_descriptor, generic_backend_child_1.descriptor, sizeof(queried_child_descriptor)) == 0
+            && std::memcmp(&queried_child_descriptor, &generic_backend_child_1.descriptor, sizeof(queried_child_descriptor)) == 0
             && std::memcmp(queried_child_context, generic_backend_child_1.context, sizeof(queried_child_context)) == 0 && generic_backend_child_1.flags == 0x402);
     generic_backend_child_1.flags = 0x400;
     queried_child_state[0] = 0;
     require(gag::query_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), queried_child_state, nullptr, nullptr) == 0 && queried_child_state[0] == 0xffffffff
             && generic_backend_child_1.flags == 0x400);
     queried_child_state[0] = 0;
-    require(gag::query_runtime_generic_backend_child_state(reinterpret_cast<void *>(999), queried_child_state, queried_child_descriptor, queried_child_context) == 0
+    require(gag::query_runtime_generic_backend_child_state(reinterpret_cast<void *>(999), queried_child_state, &queried_child_descriptor, queried_child_context) == 0
             && queried_child_state[0] == 0xffffffff);
 
     uint32_t parser_position = 0;
@@ -15316,17 +15356,18 @@ int main()
     generic_backend_child_1.computed_state[9] = 55;
     generic_backend_child_1.computed_state[0] = 300;
     generic_backend_child_1.computed_state[14] = 314;
-    generic_backend_child_1.descriptor[0] = 401;
+    generic_backend_child_1.descriptor.x = 401;
+    generic_backend_child_1.descriptor.y = 0;
     generic_backend_child_1.context[0] = 501;
     uint32_t built_child_state[15]{};
-    uint32_t built_child_descriptor[sizeof(gag::DisplaySceneDescriptor) / sizeof(uint32_t)]{};
+    gag::DisplaySceneDescriptor built_child_descriptor{};
     uintptr_t built_child_context[2]{};
-    require(gag::build_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), 55, built_child_state, built_child_descriptor, built_child_context) == 1);
-    require(built_child_state[0] == 300 && built_child_state[14] == 314 && built_child_descriptor[0] == 401 && built_child_context[0] == 501 && generic_backend_child_1.flags == 0x101);
+    require(gag::build_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), 55, built_child_state, &built_child_descriptor, built_child_context) == 1);
+    require(built_child_state[0] == 300 && built_child_state[14] == 314 && built_child_descriptor.x == 401 && built_child_context[0] == 501 && generic_backend_child_1.flags == 0x101);
     require(gag::build_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), 55, nullptr, nullptr, nullptr) == 1 && generic_backend_child_1.flags == 0x101);
     built_child_state[0] = 0;
     require(
-        gag::build_runtime_generic_backend_child_state(reinterpret_cast<void *>(999), 55, built_child_state, built_child_descriptor, built_child_context) == 0 && built_child_state[0] == 0xffffffff);
+        gag::build_runtime_generic_backend_child_state(reinterpret_cast<void *>(999), 55, built_child_state, &built_child_descriptor, built_child_context) == 0 && built_child_state[0] == 0xffffffff);
     generic_backend_1.text = "A";
     generic_backend_1.text_size = 1;
     generic_backend_child_1.font_identity = &font_backend;
@@ -15339,10 +15380,8 @@ int main()
     published_child_scene.width = 4;
     published_child_scene.height = 2;
     published_child_scene.pixels = reinterpret_cast<intptr_t>(glyph_destination_pixels);
-    uint32_t published_child_descriptor[sizeof(gag::DisplaySceneDescriptor) / sizeof(uint32_t)];
-    std::memcpy(published_child_descriptor, &published_child_scene, sizeof(published_child_scene));
     std::memset(glyph_destination_pixels, 0, sizeof(glyph_destination_pixels));
-    gag::publish_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), published_child_state, published_child_descriptor, 3);
+    gag::publish_runtime_generic_backend_child_state(reinterpret_cast<void *>(211), published_child_state, &published_child_scene, 3);
     require(generic_backend_child_1.flags == 2 && generic_backend_child_1.state_end_position == 8 && generic_backend_child_1.state[2] == 5 && glyph_destination_pixels[0] == 7);
     published_child_state[0] = 1;
     published_child_state[2] = 10;
@@ -16173,7 +16212,7 @@ int main()
     gag::RuntimeGameWindowApi runtime_game_window_api{ send_test_runtime_game_window, get_update_test_runtime_game_window, begin_paint_test_runtime_game_window,
         queue_rectangle_test_runtime_game_window, end_paint_test_runtime_game_window, update_pointer_test_runtime_game_window, enqueue_byte_test_runtime_game_window,
         enqueue_pair_test_runtime_game_window, enqueue_message_test_runtime_game_window, clear_flag_test_runtime_game_window, unload_test_runtime_game_window, enter_state_test_runtime_game_window,
-        leave_state_test_runtime_game_window, set_flag_test_runtime_game_window, default_test_runtime_game_window };
+        leave_state_test_runtime_game_window, set_flag_test_runtime_game_window, track_mouse_test_runtime_game_window, set_cursor_test_runtime_game_window, default_test_runtime_game_window };
     gag::set_runtime_game_window_api_for_testing(runtime_game_window_api);
     gag::set_runtime_game_window_state_for_testing(reinterpret_cast<HWND>(318), window_test_runtime_game_dll, 10, 20);
     require(gag::get_runtime_external_command_state_for_testing().window == reinterpret_cast<HWND>(318)
@@ -16191,21 +16230,58 @@ int main()
         runtime_game_window_pointer_y = 0;
         runtime_game_window_default_result = 0x1234;
         runtime_game_window_update_result = FALSE;
+        runtime_game_window_cursor = reinterpret_cast<HCURSOR>(0x1234);
     };
     reset_runtime_game_window();
     gag::set_runtime_game_dll_state_for_testing(0);
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_KEYDOWN, 7, 8) == 0x1234);
     require(runtime_game_window_event_count == 1 && runtime_game_window_events[0] == 16);
     reset_runtime_game_window();
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_SETCURSOR, reinterpret_cast<WPARAM>(reinterpret_cast<HWND>(317)), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE)) == TRUE);
+    require(runtime_game_window_event_count == 1 && runtime_game_window_events[0] == 17 && runtime_game_window_cursor == nullptr);
+#else
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_SETCURSOR, reinterpret_cast<WPARAM>(reinterpret_cast<HWND>(317)), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE)) == 0x1234);
+    require(runtime_game_window_event_count == 1 && runtime_game_window_events[0] == 16 && runtime_game_window_cursor == reinterpret_cast<HCURSOR>(0x1234));
+#endif
+    reset_runtime_game_window();
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_SETCURSOR, reinterpret_cast<WPARAM>(reinterpret_cast<HWND>(317)), MAKELPARAM(HTCAPTION, WM_MOUSEMOVE)) == 0x1234);
+    require(runtime_game_window_event_count == 1 && runtime_game_window_events[0] == 16 && runtime_game_window_cursor == reinterpret_cast<HCURSOR>(0x1234));
+    reset_runtime_game_window();
     gag::set_runtime_game_dll_state_for_testing(0x10);
     runtime_game_window_dll_result = 0x10000;
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_KEYDOWN, 7, 8) == 0);
     require(runtime_game_window_event_count == 1 && runtime_game_window_events[0] == 1);
     reset_runtime_game_window();
+#if defined(FREEGAG_WINDOWS_FIXES)
+    uintptr_t window_reentry_scene_identity = 23;
+#if UINTPTR_MAX > UINT32_MAX
+    window_reentry_scene_identity |= uintptr_t{ 1 } << 32;
+#endif
+    runtime_state_transition_count = 0;
+    gag::set_runtime_state_transition_for_testing(window_reentry_scene_identity, 17, transition_runtime_state);
+    gag::set_graphics_host_flags_for_testing(0x1010);
+    require(gag::get_graphics_host_flags_for_testing() == 0x1010);
+#endif
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MOUSEMOVE, 9, MAKELPARAM(5, 6)) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    const int runtime_game_window_consumed_mouse_events[] = { 17, 18, 1, 2 };
+#else
     const int runtime_game_window_consumed_mouse_events[] = { 1, 2 };
-    require(runtime_game_window_event_count == 2 && std::memcmp(runtime_game_window_events, runtime_game_window_consumed_mouse_events, sizeof(runtime_game_window_consumed_mouse_events)) == 0
+#endif
+    require(runtime_game_window_event_count == std::size(runtime_game_window_consumed_mouse_events)
+            && std::memcmp(runtime_game_window_events, runtime_game_window_consumed_mouse_events, sizeof(runtime_game_window_consumed_mouse_events)) == 0
             && runtime_game_window_last_message == WM_MOUSEMOVE && runtime_game_window_last_wparam == 9 && runtime_game_window_last_lparam == MAKELPARAM(15, 26));
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(runtime_state_transition_count == 1);
+    require(runtime_state_transition_value == window_reentry_scene_identity);
+    require((gag::get_graphics_host_flags_for_testing() & 0x1000) == 0);
+    reset_runtime_game_window();
+    require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MOUSELEAVE, 0, 0) == 0);
+    const int runtime_game_window_leave_events[] = { 13, 9 };
+    require(runtime_game_window_event_count == 2 && std::memcmp(runtime_game_window_events, runtime_game_window_leave_events, sizeof(runtime_game_window_leave_events)) == 0
+            && runtime_game_window_last_message == WM_MOUSEMOVE && runtime_game_window_last_lparam == MAKELPARAM(0xffff, 0xffff) && runtime_game_window_pair_lparam == MAKELPARAM(0xffff, 0xffff));
+#endif
     reset_runtime_game_window();
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), 0x30f, 0, 0) == 1 && runtime_game_window_event_count == 1);
     reset_runtime_game_window();
@@ -16227,9 +16303,14 @@ int main()
             && runtime_game_window_last_wparam == 0x123 && runtime_game_window_last_lparam == 9);
     reset_runtime_game_window();
     require(gag::runtime_game_window_procedure(reinterpret_cast<HWND>(317), WM_MOUSEMOVE, 4, MAKELPARAM(5, 6)) == 0);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    const int runtime_game_window_mouse_events[] = { 17, 18, 1, 7, 2, 9 };
+#else
     const int runtime_game_window_mouse_events[] = { 1, 7, 2, 9 };
-    require(runtime_game_window_event_count == 4 && std::memcmp(runtime_game_window_events, runtime_game_window_mouse_events, sizeof(runtime_game_window_mouse_events)) == 0
-            && runtime_game_window_last_message == WM_MOUSEMOVE && runtime_game_window_last_lparam == MAKELPARAM(5, 6));
+#endif
+    require(runtime_game_window_event_count == std::size(runtime_game_window_mouse_events)
+            && std::memcmp(runtime_game_window_events, runtime_game_window_mouse_events, sizeof(runtime_game_window_mouse_events)) == 0 && runtime_game_window_last_message == WM_MOUSEMOVE
+            && runtime_game_window_last_lparam == MAKELPARAM(5, 6));
 #if defined(FREEGAG_WINDOWS_FIXES)
     reset_runtime_game_window();
     gag::set_modern_windows_fullscreen_presentation_for_testing(true, 1280, 960);
@@ -18230,9 +18311,16 @@ int main()
     state = {};
     state.validation_flags = 0x100;
     gag::set_runtime_scene_switch_state_for_testing(nullptr, 0, 0);
-    gag::set_runtime_pointer_region_state_for_testing(nullptr, nullptr, reinterpret_cast<gag::RuntimePointerRegion *>(&reference), 0, nullptr);
+    gag::RuntimePointerRegion unrelated_active_region{};
+    gag::set_runtime_pointer_region_state_for_testing(&reference, nullptr, &unrelated_active_region, 0, nullptr);
     gag::process_state_activation(&state, &reference);
     require(state.flags == 0xc00000);
+    procedure_state = &state;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbc2, 0) == 0 && state.saved_flags == 0x800000);
+    main_procedure_resolve_count = 0;
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x3eb, reinterpret_cast<LPARAM>(&main_query)) == 0);
+    require(main_procedure_resolve_count == 1 && main_procedure_resolved_value == 0x3000000);
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0xbcc, 0) == 0);
     state.flags = 0xc00000;
     state_activation_status = 0x1000;
     state_activation_script_state = 77;
@@ -18249,6 +18337,7 @@ int main()
 
     reference.flags = 0;
     gag::set_runtime_scene_switch_state_for_testing(reinterpret_cast<void *>(1), 0, 0);
+    gag::set_runtime_resource_state_globals_for_testing(reinterpret_cast<void *>(2), gag::get_runtime_scene_control_flags_for_testing());
     state.flags = 0x40000000;
     state.content_left = -10;
     state.content_top = -10;
@@ -18257,7 +18346,7 @@ int main()
     state.desktop_window_rect = { 0, 0, 0, 0 };
     cursor_y = 20;
     gag::process_state_activation(&state, &reference);
-    require(state_activation_outside_count == 1 && (state.flags & 0x40000000) == 0 && state_activation_query_identity == reinterpret_cast<void *>(1));
+    require(state_activation_outside_count == 1 && (state.flags & 0x40000000) == 0 && state_activation_query_identity == reinterpret_cast<void *>(2));
     cursor_y = 0;
     state.flags = 0x40000000;
     gag::process_state_activation(&state, &reference);
@@ -18318,6 +18407,15 @@ int main()
     require(open_state_prepare_count == 2 && open_state_restore_count == 1);
     require((state.flags & 0x40000000) == 0 && (gag::get_graphics_host_flags_for_testing() & 0x01000000) == 0);
 
+    state.flags = 0x40000000;
+    state.display_bits_per_pixel = 16;
+    gag::set_runtime_resource_count_for_testing(1);
+    gag::set_graphics_host_flags_for_testing(0x01000000);
+    gag::open_application_state_interactive(&state, reinterpret_cast<void *>(70));
+    require(open_state_prepare_count == 2 && open_state_restore_count == 1);
+    require((state.flags & 0x40000000) == 0 && (gag::get_graphics_host_flags_for_testing() & 0x01000000) == 0);
+    gag::set_runtime_resource_count_for_testing(0);
+
     gag::SynchronizedStateApi synchronized_api{ enter_synchronized_state_lock, leave_synchronized_state_lock, synchronized_operation4, synchronized_operation6, synchronized_operation4,
         send_synchronized_state_message, get_synchronized_state_message_window };
     gag::set_synchronized_state_api_for_testing(synchronized_api);
@@ -18343,7 +18441,7 @@ int main()
     gag::ScreenshotApi screenshot_api{ get_screenshot_file_name, capture_screenshot_bitmap, create_screenshot_file, write_screenshot_file, close_screenshot_file };
     gag::set_screenshot_api_for_testing(screenshot_api);
     gag::RuntimePointerRegion screenshot_state{};
-    strcpy_s(reinterpret_cast<char *>(screenshot_state.unknown_0000), sizeof(screenshot_state.unknown_0000), "SCENE");
+    strcpy_s(screenshot_state.name, "SCENE");
     gag::set_runtime_pointer_region_state_for_testing(nullptr, nullptr, &screenshot_state, 0, nullptr);
     gag::save_game_screenshot(reinterpret_cast<void *>(90), nullptr);
     require(screenshot_capture_count == 0 && screenshot_write_count == 0 && screenshot_close_count == 0);
@@ -19425,8 +19523,7 @@ int main()
     visual_parser->text_length = sizeof(visual_parse_text) - 1;
     require(gag::parse_runtime_visual_object(visual_parser) == 0);
     require(visual_serialization.scene_identity == reinterpret_cast<void *>(703) && visual_serialization.position_x == 12 && visual_serialization.position_y == 13
-            && visual_serialization.palette_flags == 0x20 && (visual_serialization.flags & 0x00100001) == 1
-            && *reinterpret_cast<gag::RuntimeVisualObject **>(reinterpret_cast<uint8_t *>(&visual_parser_context) + 0x70) == &visual_serialization);
+            && visual_serialization.palette_flags == 0x20 && (visual_serialization.flags & 0x00100001) == 1 && visual_parser->primary_visual == &visual_serialization);
 
     visual_serialization.scene_identity = reinterpret_cast<void *>(704);
     const char visual_changed_file_text[]{ "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV /FILE: CHANGED 7 ;" };
@@ -19685,11 +19782,11 @@ int main()
     expansion_list.zone_top = 6;
     expansion_list.zone_right = 7;
     expansion_list.zone_bottom = 9;
-    alignas(4) uint8_t expansion_resource[0x480]{};
-    std::memcpy(expansion_resource + 0x430, "EXPANDED_FILE", 14);
-    *reinterpret_cast<uint32_t *>(expansion_resource + 0x47c) = 17;
+    gag::RuntimeExpandedListResource expansion_resource{};
+    std::memcpy(expansion_resource.primary_resource_name, "EXPANDED_FILE", 14);
+    expansion_resource.link_value = 17;
     gag::RuntimeResourceCacheEntry expansion_child{};
-    expansion_child.data = expansion_resource;
+    expansion_child.data = &expansion_resource;
     expansion_child.next = &expansion_child;
     expansion_list.child_cursor = reinterpret_cast<gag::RuntimeNamedNode *>(&expansion_child);
     serialization_root.runtime_nodes = &expansion_list;
@@ -19705,11 +19802,11 @@ int main()
     require(expanded_primary_0 != nullptr && expanded_primary_1 != nullptr && expanded_primary_1->next == nullptr && std::memcmp(expanded_primary_0->identifier, "BASE000", 8) == 0
             && std::memcmp(expanded_primary_1->identifier, "BASE001", 8) == 0 && expanded_primary_0->x == 10 && expanded_primary_0->y == 20 && expanded_primary_1->x == 22
             && expanded_primary_1->y == 20 && expanded_primary_0->image_flags == 0x20 && expanded_primary_1->image_flags == 0x20 && (expanded_primary_0->flags & 0x80000000) == 0
-            && (expanded_primary_1->flags & 0x80000000) != 0 && std::memcmp(expanded_primary_0->file_name, expansion_resource + 0x430, 0x20) == 0);
+            && (expanded_primary_1->flags & 0x80000000) != 0 && std::memcmp(expanded_primary_0->file_name, expansion_resource.primary_resource_name, 0x20) == 0);
     require(expanded_link84_0 != nullptr && expanded_link84_1 != nullptr && expanded_link84_1->next == nullptr && expanded_link84_0->x == 10 && expanded_link84_0->y == 20
             && expanded_link84_0->width == 15 && expanded_link84_0->height == 26 && expanded_link84_1->x == 22 && expanded_link84_1->width == 27 && expanded_link84_0->state_003c == 0xffffffff
             && expanded_link84_0->value_0054 == reinterpret_cast<uintptr_t>(&expansion_list) && expanded_link84_0->value_0040 == 17 && expanded_link84_0->value_004c == 9
-            && expanded_link84_0->identity_0058 == expansion_resource && expanded_link84_0->identity_005c == expanded_primary_0 && expanded_link84_1->identity_0058 == nullptr);
+            && expanded_link84_0->identity_0058 == &expansion_resource && expanded_link84_0->identity_005c == expanded_primary_0 && expanded_link84_1->identity_0058 == nullptr);
 
     char changed_expanded_file[0x20]{};
     std::memcpy(changed_expanded_file, "CHANGED", 8);
@@ -20941,7 +21038,7 @@ int main()
     callback_scene_node.callbacks = &callback_node_1;
     require(gag::process_scene_node_callbacks(&callback_scene_node) == 1 && scene_callback_count == 2);
     require(scene_callback_states[0].flags == 0x01000000 && scene_callback_states[0].timestamp == 123 && scene_callback_states[0].value_08 == 30 && scene_callback_states[0].value_0c == 40
-            && scene_callback_states[0].first_position == 5 && scene_callback_states[0].current_position == 6 && scene_callback_states[0].data == &callback_scene_node.previous_width
+            && scene_callback_states[0].first_position == 5 && scene_callback_states[0].current_position == 6 && scene_callback_states[0].data == &callback_scene_node.accumulated_rectangle.left
             && scene_callback_states[0].clip_bounds != nullptr);
     scene_callback_count = 0;
     callback_node_1.context = &callback_zero;
@@ -20966,8 +21063,8 @@ int main()
     acquire_scene_node.y = 0;
     acquire_scene_node.previous_x = 0;
     acquire_scene_node.previous_y = 0;
-    acquire_scene_node.extra_width = 40;
-    acquire_scene_node.extra_height = 20;
+    acquire_scene_node.accumulated_rectangle.right = 40;
+    acquire_scene_node.accumulated_rectangle.bottom = 20;
     acquire_scene_node.width = 40;
     acquire_scene_node.height = 20;
     acquire_scene_node.state_60 = 1;
@@ -21076,20 +21173,18 @@ int main()
     lookup_scene_node_1.owner_count = 1;
     lookup_scene_node_1.width = 30;
     lookup_scene_node_1.height = 20;
-    lookup_scene_node_1.previous_width = 9;
-    lookup_scene_node_1.previous_height = 8;
-    lookup_scene_node_1.extra_width = 7;
-    lookup_scene_node_1.extra_height = 6;
+    lookup_scene_node_1.accumulated_rectangle = { 9, 8, 7, 6 };
     int scene_update_reset_count = display_acquire_reset_count;
     gag::set_display_lock_acquire_state_for_testing(reinterpret_cast<HANDLE>(71), 0, { 0, 0, 0, 0 }, 100, 80, &lookup_scene_node_1);
     require(gag::begin_display_scene_update(11) == 0 && display_acquire_reset_count == scene_update_reset_count + 1);
-    require((lookup_scene_node_1.flags & 0x01000000) == 0 && lookup_scene_node_1.previous_width == 0 && lookup_scene_node_1.previous_height == 0 && lookup_scene_node_1.extra_width == 30
-            && lookup_scene_node_1.extra_height == 20);
+    require((lookup_scene_node_1.flags & 0x01000000) == 0 && lookup_scene_node_1.accumulated_rectangle.left == 0 && lookup_scene_node_1.accumulated_rectangle.top == 0
+            && lookup_scene_node_1.accumulated_rectangle.right == 30 && lookup_scene_node_1.accumulated_rectangle.bottom == 20);
     gag::DisplayRectangleTransform update_transform{ 0, 0, 100, 80 };
     gag::DisplayRectangle update_rectangle{ 2, 3, 40, 50 };
     int scene_update_set_event_count = display_lock_set_event_count;
     require(gag::end_display_scene_update(11, &update_transform, &update_rectangle) == 0 && display_lock_set_event_count == scene_update_set_event_count + 1);
-    require(lookup_scene_node_1.previous_width == 0 && lookup_scene_node_1.previous_height == 0 && lookup_scene_node_1.extra_width == 40 && lookup_scene_node_1.extra_height == 50);
+    require(lookup_scene_node_1.accumulated_rectangle.left == 0 && lookup_scene_node_1.accumulated_rectangle.top == 0 && lookup_scene_node_1.accumulated_rectangle.right == 40
+            && lookup_scene_node_1.accumulated_rectangle.bottom == 50);
     require(gag::end_display_scene_update(11, nullptr, &update_rectangle) == 0x80000000);
     require(gag::begin_display_scene_update(33) == 0x80000000);
 
@@ -21628,8 +21723,8 @@ int main()
     dispatcher_node.y = 20;
     dispatcher_node.previous_x = 10;
     dispatcher_node.previous_y = 20;
-    dispatcher_node.extra_width = 30;
-    dispatcher_node.extra_height = 20;
+    dispatcher_node.accumulated_rectangle.right = 30;
+    dispatcher_node.accumulated_rectangle.bottom = 20;
     dispatcher_node.width = 30;
     dispatcher_node.height = 20;
     display_scene_sync_scenario = 1;
@@ -21719,16 +21814,13 @@ int main()
     scene_node.y = 15;
     scene_node.previous_x = 10;
     scene_node.previous_y = 15;
-    scene_node.previous_width = 4;
-    scene_node.previous_height = 5;
-    scene_node.extra_width = 30;
-    scene_node.extra_height = 25;
+    scene_node.accumulated_rectangle = { 4, 5, 30, 25 };
     scene_node.width = 20;
     scene_node.height = 10;
     display_rectangle = { 90, 70, 0, 0 };
     gag::accumulate_scene_node_rectangle(&display_rectangle, &scene_node);
     require(display_rectangle.left == 14 && display_rectangle.top == 20 && display_rectangle.right == 40 && display_rectangle.bottom == 40);
-    require(scene_node.extra_width == 0 && scene_node.extra_height == 0 && scene_node.previous_width == 20 && scene_node.previous_height == 10);
+    require(scene_node.accumulated_rectangle.right == 0 && scene_node.accumulated_rectangle.bottom == 0 && scene_node.accumulated_rectangle.left == 20 && scene_node.accumulated_rectangle.top == 10);
     scene_node.x = 90;
     scene_node.y = 70;
     scene_node.x_offset = -100;
@@ -22042,6 +22134,15 @@ int main()
     layout_invalidate_count = 0;
 #endif
     layout_style_count = 0;
+    state.flags = 0x10000000;
+    state.desktop_window_rect = { 10, 20, 650, 500 };
+    procedure_state = &state;
+    WINDOWPOS changing_position{ reinterpret_cast<HWND>(62), reinterpret_cast<HWND>(63), 1, 2, 3, 4, SWP_NOMOVE | SWP_NOZORDER };
+    gag::gag_main_window_procedure(state.window, WM_WINDOWPOSCHANGING, 0, reinterpret_cast<LPARAM>(&changing_position));
+    require(changing_position.hwnd == reinterpret_cast<HWND>(62) && changing_position.hwndInsertAfter == reinterpret_cast<HWND>(63) && changing_position.x == 10 && changing_position.y == 20
+            && changing_position.cx == 640 && changing_position.cy == 480 && (changing_position.flags & (SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER)) == 0);
+    layout_position_count = 0;
+    state.flags = 0;
     gag::update_application_window_layout(&state, nullptr);
 #if defined(FREEGAG_WINDOWS_FIXES)
     require(state.desktop_window_rect.left == 0 && state.desktop_window_rect.top == 0 && state.desktop_window_rect.right == 1920 && state.desktop_window_rect.bottom == 1080);
@@ -23781,13 +23882,12 @@ int main()
     require(gag::create_or_update_runtime_fixed_name_node(&fixed_create_parser) == 1);
     gag::RuntimeFixedNameListNode *created_fixed = tree_runtime.fixed_name_nodes;
     require(created_fixed != nullptr && created_fixed->identity == created_fixed && std::strcmp(created_fixed->name, "hero") == 0 && (created_fixed->flags & 1) != 0
-            && std::strcmp(created_fixed->serialized_value, "scene.en") == 0 && *reinterpret_cast<uint32_t *>(created_fixed->serialized_value + 0x20) == 0);
+            && std::strcmp(created_fixed->serialized_value, "scene.en") == 0 && created_fixed->resource_flags == 0);
     const char fixed_update_text[] = "hero /F: NOPAL";
     gag::ScriptParserState fixed_update_parser{};
     fixed_update_parser.text = fixed_update_text;
     fixed_update_parser.text_length = sizeof(fixed_update_text) - 1;
-    require(gag::create_or_update_runtime_fixed_name_node(&fixed_update_parser) == 1 && tree_runtime.fixed_name_nodes == created_fixed
-            && *reinterpret_cast<uint32_t *>(created_fixed->serialized_value + 0x20) == 0x04000000);
+    require(gag::create_or_update_runtime_fixed_name_node(&fixed_update_parser) == 1 && tree_runtime.fixed_name_nodes == created_fixed && created_fixed->resource_flags == 0x04000000);
     const char fixed_failed_file_text[] = "hero /FILE: scene 8 /F: PRIMARY";
     gag::ScriptParserState fixed_failed_file_parser{};
     fixed_failed_file_parser.text = fixed_failed_file_text;

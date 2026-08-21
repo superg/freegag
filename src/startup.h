@@ -31,7 +31,13 @@ struct DisplayPixelFormatDescriptor
     const uint32_t *palette_entries;
 };
 struct RuntimeGenericBackendChild;
-struct DisplayRectangle;
+struct DisplayRectangle
+{
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+};
 struct DisplayRectangleTransform;
 struct ScriptObjectState;
 
@@ -733,6 +739,7 @@ struct RuntimeTreeNode;
 struct RuntimeGenericResourceNode;
 struct RuntimeTreeLink84;
 struct RuntimeTreePrimaryResourceLink;
+struct RuntimeVisualObject;
 
 struct ScriptParserState
 {
@@ -746,6 +753,7 @@ struct ScriptParserState
     uint32_t text_length;
     uint32_t start_offset;
     uint32_t cursor;
+    RuntimeVisualObject *primary_visual;
 };
 
 // GAG.EXE: 0x0040D8A0
@@ -839,8 +847,6 @@ void set_script_utility_api_for_testing(const ScriptUtilityApi &api);
 
 // GAG.EXE: 0x0040D070
 bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte_count);
-
-struct RuntimeVisualObject;
 
 struct ScriptObjectState
 {
@@ -986,7 +992,8 @@ void destroy_runtime_visual_objects();
 
 struct RuntimePointerRegion
 {
-    uint8_t unknown_0000[0x24];
+    char name[0x20];
+    void *identity;
     RuntimePointerRegion *next;
     uint8_t unknown_0028[4];
     int32_t left;
@@ -1014,6 +1021,7 @@ struct RuntimeSceneSlot
     uint32_t flags;
 };
 
+struct RuntimeResourceCacheEntry;
 
 struct RuntimeNamedNode
 {
@@ -1027,9 +1035,21 @@ struct RuntimeNamedNode
     int32_t zone_right;
     int32_t zone_bottom;
     uint32_t status;
-    RuntimeNamedNode *children;
-    RuntimeNamedNode *child_sentinel;
-    RuntimeNamedNode *child_cursor;
+    union
+    {
+        RuntimeNamedNode *children;
+        RuntimeResourceCacheEntry *cache_entries;
+    };
+    union
+    {
+        RuntimeNamedNode *child_sentinel;
+        RuntimeResourceCacheEntry *cache_entry_sentinel;
+    };
+    union
+    {
+        RuntimeNamedNode *child_cursor;
+        RuntimeResourceCacheEntry *cache_entry_cursor;
+    };
 };
 
 
@@ -1041,6 +1061,13 @@ struct RuntimeResourceCacheEntry
     uint32_t flags_and_references;
     RuntimeResourceCacheEntry *next;
     RuntimeResourceCacheEntry *previous;
+};
+
+struct RuntimeExpandedListResource
+{
+    uint8_t unknown_0000[0x430];
+    char primary_resource_name[0x4c];
+    uint32_t link_value;
 };
 
 struct RuntimeGenericResourceNode
@@ -1543,6 +1570,8 @@ struct RuntimeGameWindowApi
     void (*enter_runtime_state)();
     void (*leave_runtime_state)();
     void (*set_runtime_flag)();
+    BOOL(WINAPI *track_mouse_event)(LPTRACKMOUSEEVENT event);
+    HCURSOR(WINAPI *set_cursor)(HCURSOR cursor);
     LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 };
 
@@ -1639,6 +1668,77 @@ struct RuntimeMediaBackendApi
     void(WINAPI *sleep)(DWORD milliseconds);
 };
 
+#pragma pack(push, 1)
+struct RuntimeAnimationFileHeader
+{
+    uint32_t file_size;
+    uint16_t signature;
+    uint16_t frame_count;
+    uint16_t width;
+    uint16_t height;
+    uint8_t unknown_000c[4];
+    uint32_t frame_duration;
+    uint8_t unknown_0014[0x3c];
+    uint32_t data_start_offset;
+    uint32_t data_end_offset;
+    uint8_t unknown_0058[0x28];
+};
+
+struct RuntimeAnimationFrameHeader
+{
+    uint32_t size;
+    uint16_t signature;
+    uint16_t chunk_count;
+    uint8_t unknown_0008[8];
+};
+
+struct RuntimeAnimationChunkHeader
+{
+    uint32_t size;
+    uint16_t type;
+};
+
+struct RuntimeAnimationStreamHeaders
+{
+    RuntimeAnimationFrameHeader frame;
+    RuntimeAnimationChunkHeader chunk;
+    uint8_t unknown_0016[2];
+};
+
+struct RuntimeAnimationSoundFormatChunk
+{
+    RuntimeAnimationChunkHeader chunk;
+    uint8_t unknown_0006[0x0c];
+    WAVEFORMATEX format;
+};
+
+struct RuntimeFontFormat
+{
+    uint32_t unknown_0000;
+    int32_t fixed_cell_width;
+    int32_t fixed_cell_height;
+};
+
+struct RuntimePaletteData
+{
+    uint32_t unknown_0000;
+    PALETTEENTRY entries[0x100];
+};
+
+struct RuntimePcmWaveFile
+{
+    uint8_t riff_and_format_headers[0x14];
+    PCMWAVEFORMAT format;
+};
+
+struct RuntimeRiffChunk
+{
+    char identifier[4];
+    uint32_t size;
+    uint8_t data[1];
+};
+#pragma pack(pop)
+
 struct RuntimeBitmapBackendCreateApi
 {
     LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
@@ -1655,8 +1755,8 @@ struct RuntimeAnimationBackend
     void *source_cursor;
     void *data_start;
     void *data_end;
-    uint8_t header[0x80];
-    uint8_t streamed_tail[0x18];
+    RuntimeAnimationFileHeader header;
+    RuntimeAnimationStreamHeaders streamed_headers;
 };
 
 struct DisplaySceneNode;
@@ -1950,7 +2050,7 @@ struct RuntimeGenericBackendChild
     uint32_t default_selection;
     uint32_t parser_position;
     uint32_t text_search_position;
-    alignas(intptr_t) uint32_t descriptor[sizeof(DisplaySceneDescriptor) / sizeof(uint32_t)];
+    DisplaySceneDescriptor descriptor;
     void *font_identity;
     RuntimeGenericBackendChild *next;
 };
@@ -1998,7 +2098,7 @@ struct RuntimeGenericChildCreateApi
     LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
     DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
     BOOL(WINAPI *release_mutex)(HANDLE mutex);
-    uint32_t (*build_child_state)(void *identity, uint32_t selection, uint32_t *state, uint32_t *descriptor, uintptr_t *context);
+    uint32_t (*build_child_state)(void *identity, uint32_t selection, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context);
     void (*clear_backend_ready)(RuntimeGenericBackend *backend);
 };
 
@@ -2020,10 +2120,10 @@ int32_t skip_runtime_generic_statement(const char *text, uint32_t *position, uin
 int32_t parse_runtime_generic_directive(const char *text, uint32_t *position, uint32_t end, uint32_t flags);
 
 // GAG.EXE: 0x00411560
-uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t selection, uint32_t *state, uint32_t *descriptor, uintptr_t *context);
+uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t selection, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context);
 
 // GAG.EXE: 0x00411420
-void publish_runtime_generic_backend_child_state(void *identity, const uint32_t *state, const uint32_t *descriptor, int32_t end_offset);
+void publish_runtime_generic_backend_child_state(void *identity, const uint32_t *state, const DisplaySceneDescriptor *descriptor, int32_t end_offset);
 
 // GAG.EXE: 0x004122C0
 uint32_t measure_runtime_font_glyph(uint8_t character, const RuntimeMediaBackend *backend);
@@ -2044,7 +2144,11 @@ struct RuntimeStandaloneTextState
     uint32_t low_color;
     uint32_t high_color;
     uint32_t unknown_0024[2];
-    uint32_t bounds[4];
+    union
+    {
+        uint32_t bounds[4];
+        DisplayRectangle bounds_rectangle;
+    };
 };
 
 // GAG.EXE: 0x00411800
@@ -2085,7 +2189,7 @@ bool get_runtime_generic_backend_child_context(void *identity, uintptr_t *contex
 bool set_runtime_generic_backend_child_context(void *identity, const uintptr_t *context);
 
 // GAG.EXE: 0x004114D0
-uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *state, uint32_t *descriptor, uintptr_t *context);
+uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context);
 
 // GAG.EXE: 0x004112C0
 void *destroy_runtime_generic_backend_child(void *identity);
@@ -2093,12 +2197,12 @@ void *destroy_runtime_generic_backend_child(void *identity);
 struct RuntimeGenericChildSceneApi
 {
     void *(*find_available_child)(uint32_t maximum_end_position);
-    uint32_t (*build_child_state)(void *identity, uint32_t selection, uint32_t *state, uint32_t *descriptor, uintptr_t *context);
+    uint32_t (*build_child_state)(void *identity, uint32_t selection, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context);
     uint32_t (*find_scene_index)(uint32_t flags);
     DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
         const DisplayPixelFormatDescriptor *format);
     uint32_t (*begin_scene_update)(intptr_t identifier);
-    void (*publish_child_state)(void *identity, const uint32_t *state, const uint32_t *descriptor, int32_t end_offset);
+    void (*publish_child_state)(void *identity, const uint32_t *state, const DisplaySceneDescriptor *descriptor, int32_t end_offset);
     uint32_t (*end_scene_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
     bool (*set_child_context)(void *identity, const uintptr_t *context);
     bool (*get_child_context)(void *identity, uintptr_t *context);
@@ -2620,7 +2724,7 @@ struct ScriptRuntimeRoot
     uint32_t transient_index_1;
     uint32_t transient_index_2;
     void (*set_property)(uint32_t operation, int32_t argument, RuntimeGenericResourceNode *node);
-    void (*get_property)(uint32_t operation, void **resource_data, void **resource_metadata);
+    void (*get_property)(uint32_t operation, void **resource_data, void *result);
     HANDLE heap;
     uint32_t parser_integer_0820;
     uint32_t state_value_0824;
@@ -2642,7 +2746,11 @@ struct ScriptRuntimeRoot
         RuntimeTreePrimaryResourceLink *global_primary_resource_links;
     };
     RuntimeTreeLink7C *global_link_007c_head;
-    RuntimeTreeLink84 *global_link_0084_head;
+    union
+    {
+        RuntimeTreeLink84 *global_link_0084_head;
+        RuntimePointerRegion *global_pointer_regions;
+    };
     ScriptObjectContainer *containers;
     RuntimeTreeLink8C *global_link_008c_head;
     RuntimeTreeSecondaryResourceLink *global_secondary_resource_links;
@@ -2653,7 +2761,11 @@ struct ScriptRuntimeRoot
         RuntimeTreePrimaryResourceLink *global_primary_resource_link_tail;
     };
     RuntimeTreeLink7C *global_link_007c_tail;
-    RuntimeTreeLink84 *global_link_0084_tail;
+    union
+    {
+        RuntimeTreeLink84 *global_link_0084_tail;
+        RuntimePointerRegion *global_pointer_region_tail;
+    };
     ScriptObjectContainer *container_tail;
     RuntimeTreeLink8C *global_link_008c_tail;
     RuntimeTreeSecondaryResourceLink *global_secondary_resource_link_tail;
@@ -2696,6 +2808,7 @@ struct RuntimeTreeParserContext
     uint32_t resource_metadata;
     uint32_t start_offset;
     uint32_t cursor;
+    RuntimeVisualObject *primary_visual;
     char creation_text[0x104];
     char scratch_text[0x104];
     char name[0x20];
@@ -4181,8 +4294,8 @@ void enter_runtime_state_1000();
 // GAG.EXE: 0x00424290
 void leave_runtime_state_1000();
 
-void set_runtime_state_transition_for_testing(uint32_t current_value, uint32_t saved_value, void (*callback)(uint32_t value));
-uint32_t get_runtime_state_value_for_testing();
+void set_runtime_state_transition_for_testing(uintptr_t current_value, uintptr_t saved_value, void (*callback)(uintptr_t value));
+uintptr_t get_runtime_state_value_for_testing();
 
 struct RuntimePathApi
 {
@@ -4214,7 +4327,9 @@ void set_screenshot_api_for_testing(const ScreenshotApi &api);
 #pragma pack(push, 1)
 struct BitmapCaptureSource
 {
-    uint8_t unresolved_00[0x20];
+    uint8_t unknown_0000[8];
+    uint32_t format_marker;
+    uint8_t unknown_000c[0x14];
     uint16_t width;
     uint16_t height;
     const uint8_t *pixels;
@@ -4766,14 +4881,6 @@ void set_display_lock_acquire_api_for_testing(const DisplayLockAcquireApi &api);
 void set_display_lock_state_for_testing(uint32_t flags, DWORD owner_thread, uint32_t recursion_count, HANDLE release_event);
 void get_display_lock_state_for_testing(uint32_t *flags, DWORD *owner_thread, uint32_t *recursion_count);
 
-struct DisplayRectangle
-{
-    int32_t left;
-    int32_t top;
-    int32_t right;
-    int32_t bottom;
-};
-
 struct DisplayRectangleTransform
 {
     int16_t x;
@@ -4840,10 +4947,7 @@ struct DisplaySceneNode
     int32_t y_offset;
     int32_t width;
     int32_t height;
-    int32_t previous_width;
-    int32_t previous_height;
-    int32_t extra_width;
-    int32_t extra_height;
+    DisplayRectangle accumulated_rectangle;
     uint32_t state_60;
     DisplaySceneCallbackNode *callbacks;
     uint32_t owner_count;

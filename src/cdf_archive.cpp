@@ -74,6 +74,12 @@ uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *des
 namespace
 {
 
+struct Cdf96aIndexStorage
+{
+    uint32_t unknown_0000;
+    CdfEntry entries[0x100];
+};
+
 void seek_async_cdf_stream(HANDLE stream, uint32_t offset)
 {
     set_async_file_position(reinterpret_cast<AsyncFileRecord *>(stream), offset);
@@ -573,9 +579,10 @@ int initialize_cdf_index(CdfArchive *archive)
             archive->entry_storage = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x2c08);
             if(compressed_index != nullptr && archive->entry_storage != nullptr)
             {
+                auto *storage = static_cast<Cdf96aIndexStorage *>(archive->entry_storage);
                 for(uint32_t index = 0; index < archive->entry_count; ++index)
                 {
-                    archive->entries[index] = reinterpret_cast<CdfEntry *>(static_cast<uint8_t *>(archive->entry_storage) + 4 + index * sizeof(CdfEntry));
+                    archive->entries[index] = &storage->entries[index];
                 }
             }
         }
@@ -897,15 +904,13 @@ uint32_t write_comment_cdf_package(const char *path, const void *comment, const 
     }
     if(bitmap != nullptr)
     {
-        uint16_t bit_count;
-        std::memcpy(&bit_count, static_cast<const uint8_t *>(bitmap) + 0x1c, sizeof(bit_count));
-        if(bit_count == 8)
+        BITMAPINFOHEADER info_header;
+        std::memcpy(&info_header, static_cast<const uint8_t *>(bitmap) + sizeof(BITMAPFILEHEADER), sizeof(info_header));
+        if(info_header.biBitCount == 8)
         {
-            uint32_t width;
-            uint32_t height;
-            std::memcpy(&width, static_cast<const uint8_t *>(bitmap) + 0x12, sizeof(width));
-            std::memcpy(&height, static_cast<const uint8_t *>(bitmap) + 0x16, sizeof(height));
-            if(cdf_comment_package_api.append_entry(archive, "COMMENT.BMP", bitmap, width * height + 0x436, 1) == 0)
+            const uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + 0x100 * sizeof(RGBQUAD);
+            const uint32_t bitmap_size = static_cast<uint32_t>(info_header.biWidth * info_header.biHeight) + pixel_offset;
+            if(cdf_comment_package_api.append_entry(archive, "COMMENT.BMP", bitmap, bitmap_size, 1) == 0)
             {
                 const uint32_t error = cdf_comment_package_api.get_error(archive);
                 cdf_comment_package_api.finalize_writer(archive);
