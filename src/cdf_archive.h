@@ -188,18 +188,5 @@ uint32_t get_cdf_error(CdfArchive *archive);
 // GAG.EXE: 0x004176A0
 uint32_t write_comment_cdf_package(const char *path, const void *comment, const void *bitmap, const ScriptTextBuffer *configuration);
 
-void set_cdf_io_api_for_testing(const CdfIoApi &api);
-void set_compressed_cdf_reader_for_testing(int (*reader)(CdfArchive *, uint16_t, void *));
-void set_cdf_lifecycle_api_for_testing(const CdfLifecycleApi &api);
-void set_cdf_compression_api_for_testing(const CdfCompressionApi &api);
-void set_cdf_index_api_for_testing(const CdfIndexApi &api);
-void set_cdf_open_api_for_testing(const CdfOpenApi &api);
-void set_cdf_write_api_for_testing(const CdfWriteApi &api);
-void set_cdf_compressed_write_api_for_testing(const CdfCompressedWriteApi &api);
-void set_cdf_writer_finalize_api_for_testing(const CdfWriterFinalizeApi &api);
-void set_cdf_entry_write_api_for_testing(const CdfEntryWriteApi &api);
-void set_cdf_writer_create_api_for_testing(const CdfWriterCreateApi &api);
-void set_cdf_comment_package_api_for_testing(const CdfCommentPackageApi &api);
-uint32_t get_cdf_last_error_for_testing();
 
 } // namespace gag

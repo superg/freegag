@@ -166,7 +166,7 @@ uint32_t get_save_file_attributes(const char *path)
 ScriptedSaveLoadPersistenceApi persistence_api{ capture_save_state, get_save_script_state, free_heap_memory, write_save_state, get_save_file_attributes };
 ScriptedSaveLoadController controller{};
 
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD) && defined(_DEBUG)
+#if defined(_DEBUG)
 bool save_preview_trace_started;
 
 void trace_save_preview(const char *event, const void *source = nullptr, uint32_t source_size = 0, const DisplaySceneNode *scene = nullptr, int64_t result = -1)
@@ -881,7 +881,6 @@ void destroy_archive_comment_collection(ArchiveCommentCollection *collection)
 
 bool find_save_load_virtual_script(const char *name, VirtualScriptResource *resource)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
     if(name != nullptr && resource != nullptr && _stricmp(name, "SAVELOAD.CFG") == 0)
     {
         resource->data = save_load_script;
@@ -889,10 +888,6 @@ bool find_save_load_virtual_script(const char *name, VirtualScriptResource *reso
         resource->resource_type = 4;
         return true;
     }
-#else
-    (void)name;
-    (void)resource;
-#endif
     return false;
 }
 
@@ -903,7 +898,6 @@ const char *save_load_screen_section(SaveLoadScreenMode mode)
 
 bool request_scripted_save_load_screen(SaveLoadScreenMode mode, ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
     reset_controller();
     controller.mode = mode;
     controller.pending = true;
@@ -958,16 +952,10 @@ bool request_scripted_save_load_screen(SaveLoadScreenMode mode, ApplicationState
     trace_save_preview("request ready", controller.snapshot, controller.snapshot_size, nullptr, state == nullptr ? -1 : static_cast<int64_t>(state->flags));
     set_runtime_paths_once("SAVELOAD.CFG", save_load_screen_section(mode));
     return true;
-#else
-    (void)mode;
-    (void)state;
-    return false;
-#endif
 }
 
 bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
     if(message == previous_save_message)
     {
         if(controller.mode == SaveLoadScreenMode::save && controller.editing)
@@ -1056,16 +1044,11 @@ bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *stat
         }
         return true;
     }
-#else
-    (void)message;
-    (void)state;
-#endif
     return false;
 }
 
 void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
     if(!controller.pending)
     {
         return;
@@ -1091,92 +1074,14 @@ void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree)
             : reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(controller.preview_layer->scene_identifier)));
     prepare_caption_layer(controller.caption_layer);
     render_selection();
-#else
-    (void)tree;
-#endif
 }
 
 void on_scripted_save_load_tree_resources_destroyed(RuntimeTreeNode *tree)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
     if(tree != nullptr && tree == controller.tree)
     {
         reset_controller();
     }
-#else
-    (void)tree;
-#endif
 }
-
-#if defined(GAG_TESTING)
-uint32_t get_scripted_save_load_entry_count_for_testing()
-{
-    return controller.saves.count;
-}
-
-uint32_t get_scripted_save_load_selection_for_testing()
-{
-    return controller.selection;
-}
-
-const ArchiveCommentEntry *get_scripted_save_load_selected_entry_for_testing()
-{
-    return controller.selection < controller.saves.count ? &controller.saves.entries[controller.selection] : nullptr;
-}
-
-void set_scripted_save_load_collection_for_testing(ArchiveCommentCollection collection, uint32_t selection)
-{
-    destroy_archive_comment_collection(&controller.saves);
-    controller.saves = collection;
-    controller.selection = selection;
-    update_current_name_from_selection();
-}
-
-const char *get_scripted_save_load_current_name_for_testing()
-{
-    return controller.current_name;
-}
-
-bool get_scripted_save_load_editing_for_testing()
-{
-    return controller.editing;
-}
-
-uint32_t get_scripted_save_load_preview_render_attempts_for_testing()
-{
-    return controller.preview_render_attempts;
-}
-
-void set_scripted_save_load_persistence_api_for_testing(const ScriptedSaveLoadPersistenceApi &api)
-{
-    persistence_api = api;
-}
-
-void finish_scripted_save_name_for_testing(const char *input, ApplicationState *state)
-{
-    finish_save_name_input(input, state);
-}
-
-void prepare_scripted_save_name_display_for_testing(const char *name, char *display)
-{
-    prepare_display_name(name, display);
-}
-
-bool decode_scripted_save_preview_for_testing(const uint8_t *data, uint32_t size, DisplaySceneNode *scene)
-{
-    return decode_preview(data, size, scene);
-}
-
-bool get_scripted_save_preview_palette_for_testing(const uint8_t *data, uint32_t size, uint32_t *palette)
-{
-    DecodedPreview preview{};
-    if(palette == nullptr || !validate_preview(data, size, &preview))
-    {
-        return false;
-    }
-    prepare_preview_palette(preview, palette);
-    return true;
-}
-#endif
 
 } // namespace gag

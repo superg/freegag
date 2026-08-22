@@ -85,6 +85,5 @@ list(APPEND FREEGAG_FORMAT_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/scene_description.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/sfs_archive.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/sfs_archive.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/sfs_archive_test.cpp"
 )
 set(FREEGAG_FORMAT_FILES "${FREEGAG_FORMAT_FILES}" PARENT_SCOPE)

@@ -105,20 +105,16 @@ struct ValidationApi
     int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
     HANDLE(WINAPI *find_first_file)(LPCSTR path, LPWIN32_FIND_DATAA find_data);
     BOOL(WINAPI *find_close)(HANDLE find);
-    DWORD(WINAPI *get_module_file_name)(HMODULE module, LPSTR path, DWORD size);
     HDC(WINAPI *create_information_context)(LPCSTR driver, LPCSTR device, LPCSTR output, const DEVMODEA *mode);
     int(WINAPI *get_device_caps)(HDC context, int index);
     BOOL(WINAPI *delete_context)(HDC context);
-    uint32_t (*load_registry)(ApplicationState *state);
-    void (*locate_drive)(ApplicationState *state, const char *requested_archive);
-    uint32_t (*measure_read_speed)(const char *archive_path, uint32_t bytes_to_measure);
+    uint32_t (*load_preferences)(ApplicationState *state);
     uint32_t (*detect_alternate_mode)(ApplicationState *state);
 };
 
 // GAG.EXE: 0x0041F040
 int validate_startup_environment(ApplicationState *state, const char *requested_archive, uint32_t stages);
 
-void set_validation_api_for_testing(const ValidationApi &api);
 
 struct WindowClassApi
 {
@@ -126,11 +122,9 @@ struct WindowClassApi
     HICON(WINAPI *load_icon)(HINSTANCE instance, LPCSTR name);
     HCURSOR(WINAPI *load_cursor)(HINSTANCE instance, LPCSTR name);
     ATOM(WINAPI *register_class_ex)(const WNDCLASSEXA *window_class);
-    ATOM(WINAPI *register_class)(const WNDCLASSA *window_class);
     int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
     WNDPROC primary_window_procedure;
     WNDPROC capture_window_procedure;
-    WNDPROC custom_control_procedure;
 };
 
 // GAG.EXE: 0x0041F4E0
@@ -138,13 +132,6 @@ void initialize_application_state_no_op(ApplicationState *state);
 
 // GAG.EXE: 0x0041F3D0
 bool register_gag_window_classes(ApplicationState *state);
-
-// GAG.EXE: 0x004174B0
-uint32_t register_custom_control_class(HINSTANCE instance);
-
-void set_window_class_api_for_testing(const WindowClassApi &api);
-void reset_custom_control_registration_for_testing();
-void set_custom_control_registration_state_for_testing(uint32_t registered, HINSTANCE instance);
 
 struct GraphicsHostInitializationResult
 {
@@ -161,7 +148,6 @@ struct GraphicsHostApi
 {
     DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
     uint32_t (*initialize_media)(HINSTANCE instance);
-    uint32_t (*register_control)(HINSTANCE instance);
     uint32_t (*initialize_async)();
     uint32_t (*initialize_generic)();
     HANDLE(WINAPI *heap_create)(DWORD options, SIZE_T initial_size, SIZE_T maximum_size);
@@ -197,13 +183,7 @@ struct GraphicsHostShutdownApi
 // GAG.EXE: 0x00420230
 uint32_t shutdown_graphics_host();
 
-void set_graphics_host_shutdown_api_for_testing(const GraphicsHostShutdownApi &api);
-void set_graphics_host_shutdown_state_for_testing(HANDLE heap, HWND window);
 
-void set_graphics_host_api_for_testing(const GraphicsHostApi &api);
-void reset_graphics_host_state_for_testing(uint32_t scene_flags);
-void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, int32_t *pointer_x, int32_t *pointer_y, uint32_t *target_flags, HANDLE *resource_heap);
-HWND get_runtime_display_window_for_testing();
 
 struct RuntimeBootstrapApi
 {
@@ -232,8 +212,6 @@ struct RuntimeBootstrapApi
 // GAG.EXE: 0x0041FEA0
 GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDisplayPixelFormat *format);
 
-void set_runtime_bootstrap_api_for_testing(const RuntimeBootstrapApi &api);
-void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *format, intptr_t *scene_identifier, HANDLE *thread);
 
 struct RuntimeScriptPropertySetApi
 {
@@ -249,10 +227,6 @@ struct RuntimeScriptPropertySetApi
 // GAG.EXE: 0x004202D0
 void set_runtime_script_property(uint32_t property, void *context, void *value);
 
-void set_runtime_script_property_api_for_testing(const RuntimeScriptPropertySetApi &api);
-void reset_runtime_script_property_state_for_testing(uint32_t value_1, uint32_t value_2, uint32_t value_3, uint32_t state_1000_count, uint32_t state_4_count);
-void get_runtime_script_property_state_for_testing(uint32_t *value_1, uint32_t *value_2, uint32_t *value_3, uint32_t *state_1000_count, uint32_t *state_4_count, uint32_t *scene_flags,
-    int32_t *host_mode);
 
 struct RuntimeScriptPropertyGetApi
 {
@@ -266,8 +240,6 @@ struct RuntimeScriptPropertyGetApi
 // GAG.EXE: 0x004204B0
 void get_runtime_script_property(uint32_t property, void **value, void *result);
 
-void set_runtime_script_property_get_api_for_testing(const RuntimeScriptPropertyGetApi &api);
-void set_runtime_script_property_get_state_for_testing(const char *path, int32_t pointer_x, int32_t pointer_y);
 
 struct ApplicationInitializationApi
 {
@@ -276,7 +248,6 @@ struct ApplicationInitializationApi
     LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
     void (*initialize_state)(ApplicationState *state);
     bool (*register_window_classes)(ApplicationState *state);
-    uint32_t (*register_control_class)(HINSTANCE instance);
     int (*copy_string)(char *destination, const char *source);
     int (*validate_environment)(ApplicationState *state, const char *requested_archive, uint32_t stages);
     int(WINAPI *get_system_metrics)(int index);
@@ -298,8 +269,6 @@ struct ApplicationInitializationApi
 // GAG.EXE: 0x0041F4F0
 ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR command_line, int show_command);
 
-void set_application_initialization_api_for_testing(const ApplicationInitializationApi &api);
-void set_gagboy_startup_mode_for_testing(bool enabled);
 
 struct RuntimeBackendInitializationApi
 {
@@ -328,16 +297,10 @@ struct RuntimeGenericBackendShutdownApi
 // GAG.EXE: 0x00410BD0
 uint32_t shutdown_runtime_generic_backend();
 
-void set_runtime_generic_backend_shutdown_api_for_testing(const RuntimeGenericBackendShutdownApi &api);
 
 // GAG.EXE: 0x00414E10
 uint32_t initialize_async_file_subsystem();
 
-void set_runtime_backend_initialization_api_for_testing(const RuntimeBackendInitializationApi &api);
-void set_runtime_backend_initialization_state_for_testing(bool media_initialized, bool generic_initialized, bool async_initialized);
-HANDLE get_runtime_media_backend_heap_for_testing();
-HANDLE get_runtime_media_backend_mutex_for_testing();
-HANDLE get_runtime_generic_backend_mutex_for_testing();
 
 // GAG.EXE: 0x00404970
 void set_script_runtime_root_if_valid(ScriptRuntimeRoot *root);
@@ -388,120 +351,16 @@ struct MainWindowProcedureApi
 // GAG.EXE: 0x0041D560
 LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
-void set_main_window_procedure_api_for_testing(const MainWindowProcedureApi &api);
 
 // GAG.EXE: 0x0041E680
 LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 
-void set_window_procedure_api_for_testing(const WindowProcedureApi &api);
 
-struct CustomControlState
+struct LocalPreferencesApi
 {
-    uint8_t unknown_0000[0x48];
-    HDC destination_context;
-    HDC source_context;
-    HPALETTE palette;
-    HPALETTE previous_palette;
-    HBITMAP bitmap;
-    HGDIOBJ previous_bitmap;
-    RECT client_rect;
-    int32_t bits_per_pixel;
-    int32_t source_width;
-    int32_t source_height;
-    const void *bitmap_identity;
-    char *archive_path;
-    char *comment_text;
-    void *dialog_state;
-};
-
-
-struct CustomControlGdiApi
-{
-    HDC(WINAPI *get_context)(HWND window);
-    HDC(WINAPI *create_compatible_context)(HDC context);
-    int(WINAPI *get_device_caps)(HDC context, int index);
-    BOOL(WINAPI *get_client_rect)(HWND window, LPRECT rect);
-    UINT(WINAPI *set_system_palette_use)(HDC context, UINT use);
-    HPALETTE(WINAPI *create_palette)(const LOGPALETTE *palette);
-    HPALETTE(WINAPI *select_palette)(HDC context, HPALETTE palette, BOOL background);
-    int(WINAPI *set_stretch_blt_mode)(HDC context, int mode);
-    BOOL(WINAPI *unrealize_object)(HGDIOBJ object);
-    UINT(WINAPI *realize_palette)(HDC context);
-    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
-    HGDIOBJ(WINAPI *select_object)(HDC context, HGDIOBJ object);
-    BOOL(WINAPI *delete_object)(HGDIOBJ object);
-    int(WINAPI *release_context)(HWND window, HDC context);
-    BOOL(WINAPI *delete_context)(HDC context);
-    HBITMAP(WINAPI *create_dib_section)(HDC context, const BITMAPINFO *info, UINT usage, VOID **bits, HANDLE section, DWORD offset);
-    UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *set_dib_color_table)(HDC context, UINT start, UINT count, const RGBQUAD *colors);
-};
-
-// GAG.EXE: 0x00417AB0
-void initialize_custom_control_gdi(HWND window, CustomControlState *state);
-
-// GAG.EXE: 0x00417B60
-void set_custom_control_bitmap(CustomControlState *state, BITMAPINFO *bitmap, int present);
-
-// GAG.EXE: 0x00417CB0
-void realize_and_present_custom_control(CustomControlState *state, BOOL background);
-
-// GAG.EXE: 0x00417D10
-void destroy_custom_control_gdi(HWND window, CustomControlState *state);
-
-// GAG.EXE: 0x00417D90
-LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-
-void set_custom_control_gdi_api_for_testing(const CustomControlGdiApi &api);
-
-struct CustomControlWindowApi
-{
-    BOOL(WINAPI *get_update_rect)(HWND window, LPRECT rect, BOOL erase);
-    HDC(WINAPI *begin_paint)(HWND window, LPPAINTSTRUCT paint);
-    BOOL(WINAPI *end_paint)(HWND window, const PAINTSTRUCT *paint);
-    LONG_PTR(WINAPI *get_window_long)(HWND window, int index);
-    LONG_PTR(WINAPI *set_window_long)(HWND window, int index, LONG_PTR value);
-    LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    BOOL(WINAPI *pattern_blt)(HDC context, int x, int y, int width, int height, DWORD operation);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    HRSRC(WINAPI *find_resource)(HMODULE module, LPCSTR name, LPCSTR type);
-    HMODULE(WINAPI *get_module_handle)(LPCSTR name);
-    HGLOBAL(WINAPI *load_resource)(HMODULE module, HRSRC resource);
-    LPVOID(WINAPI *lock_resource)(HGLOBAL resource);
-    BOOL(WINAPI *free_resource)(HGLOBAL resource);
-    CdfArchive *(*open_archive)(const char *path, intptr_t alternate_stream);
-    uint32_t (*get_entry_size)(CdfArchive *archive, uint8_t selector, const char *name);
-    int (*read_entry)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
-    uint32_t (*close_archive)(CdfArchive *archive);
-    bool (*strings_equal)(const char *left, const char *right);
-    int (*copy_string)(char *destination, const char *source);
-    void (*initialize_gdi)(HWND window, CustomControlState *state);
-    void (*set_bitmap)(CustomControlState *state, BITMAPINFO *bitmap, int present);
-    void (*realize_and_present)(CustomControlState *state, BOOL background);
-    void (*destroy_gdi)(HWND window, CustomControlState *state);
-};
-
-void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api);
-
-struct SettingsRegistryApi
-{
-    LSTATUS(WINAPI *open_key)(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result);
-    LSTATUS(WINAPI *create_key)
-    (HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM desired_access, const LPSECURITY_ATTRIBUTES security_attributes, PHKEY result, LPDWORD disposition);
-    LSTATUS(WINAPI *set_value)(HKEY key, LPCSTR value_name, DWORD reserved, DWORD type, const BYTE *data, DWORD data_size);
-    LSTATUS(WINAPI *close_key)(HKEY key);
-};
-
-struct WindowPositionPersistenceApi
-{
-    LSTATUS(WINAPI *open_key)(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result);
-    LSTATUS(WINAPI *create_key)
-    (HKEY key, LPCSTR sub_key, DWORD reserved, LPSTR class_name, DWORD options, REGSAM desired_access, const LPSECURITY_ATTRIBUTES security_attributes, PHKEY result, LPDWORD disposition);
-    LSTATUS(WINAPI *query_value)(HKEY key, LPCSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD data_size);
-    LSTATUS(WINAPI *set_value)(HKEY key, LPCSTR value_name, DWORD reserved, DWORD type, const BYTE *data, DWORD data_size);
-    LSTATUS(WINAPI *close_key)(HKEY key);
+    DWORD(WINAPI *get_full_path_name)(LPCSTR file_name, DWORD size, LPSTR path, LPSTR *file_part);
+    DWORD(WINAPI *read_value)(LPCSTR section, LPCSTR key, LPCSTR default_value, LPSTR value, DWORD size, LPCSTR file_name);
+    BOOL(WINAPI *write_value)(LPCSTR section, LPCSTR key, LPCSTR value, LPCSTR file_name);
     BOOL(WINAPI *get_window_rect)(HWND window, LPRECT rectangle);
     BOOL(WINAPI *get_window_placement)(HWND window, WINDOWPLACEMENT *placement);
     HMONITOR(WINAPI *monitor_from_rect)(LPCRECT rectangle, DWORD flags);
@@ -523,9 +382,6 @@ struct CursorVisibilityApi
 // GAG.EXE: 0x0041D0D0
 void set_game_cursor_active(ApplicationState *state, int active);
 
-void set_settings_registry_api_for_testing(const SettingsRegistryApi &api);
-void set_window_position_persistence_api_for_testing(const WindowPositionPersistenceApi &api);
-void set_cursor_visibility_api_for_testing(const CursorVisibilityApi &api);
 
 struct RuntimeTreeNode;
 
@@ -540,7 +396,6 @@ struct ApplicationStateFieldQuery
 // GAG.EXE: 0x0041D510
 void finish_credits_state(ApplicationState *state, RuntimeTreeNode *tree);
 
-void set_finish_credits_callback_for_testing(void (*callback)());
 
 struct SecondaryWindowLayout
 {
@@ -575,7 +430,6 @@ struct WindowLayoutApi
 void update_modern_windows_windowed_viewport(ApplicationState *state);
 void update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout);
 
-void set_window_layout_api_for_testing(const WindowLayoutApi &api);
 
 // GAG.EXE: 0x0041D120
 void restore_application_display(ApplicationState *state);
@@ -590,91 +444,27 @@ struct StateActivationApi
 // GAG.EXE: 0x0041D380
 void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree);
 
-void set_state_activation_api_for_testing(const StateActivationApi &api);
 
-struct SaveStateApi
-{
-    void *(*capture_state)(void *game_context, uint32_t *size, int mode);
-    uintptr_t (*get_script_state)();
-    void (*prepare_8bit_display)();
-    int (*show_dialog)(void *dialog_context, char *installation_path, const char *dialog_data, void *memory, char *first_path, char *second_path);
-    void (*save_state)(char *first_path, char *second_path, void *memory, uintptr_t script_state);
-    void (*restore_8bit_display)();
-};
-
-// GAG.EXE: 0x0041D280
-void save_application_state_interactive(ApplicationState *state, void *dialog_context);
-
-void set_save_state_api_for_testing(const SaveStateApi &api);
-
-struct OpenStateApi
-{
-    void (*prepare_8bit_display)();
-    int (*show_dialog)(void *dialog_context, char *installation_path, const char *dialog_data, char *installed_version);
-    void (*restore_8bit_display)(uint32_t mode);
-};
-
-// GAG.EXE: 0x0041D1C0
-void open_application_state_interactive(ApplicationState *state, void *dialog_context);
 void finish_application_state_load(ApplicationState *state, const char *path);
 
-void set_open_state_api_for_testing(const OpenStateApi &api);
-
-#if defined(GAG_TESTING)
-bool uses_scripted_save_load_screens_for_testing();
-#endif
 
 struct SynchronizedStateApi
 {
     void (*enter_lock)();
     void (*leave_lock)();
-    int (*operation_17550)(void *first, void *second, void *third, void *fourth);
-    int (*operation_175f0)(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth);
     int (*operation_176a0)(void *first, void *second, void *third, void *fourth);
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     HWND (*get_message_window)();
 };
 
-// GAG.EXE: 0x0041F7C0
-bool run_synchronized_state_operation_17550(void *first, void *second, void *third, void *fourth);
-
-// GAG.EXE: 0x0041F830
-bool run_synchronized_state_operation_175f0(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth);
-
 // GAG.EXE: 0x0041F8F0
 bool run_synchronized_state_operation_176a0(void *first, void *second, void *third, void *fourth);
 
-void set_synchronized_state_api_for_testing(const SynchronizedStateApi &api);
 
-using InitializeApplication = ApplicationState *(*)(int width, int height, HINSTANCE instance, LPSTR command_line, int show_command);
+// GAG.EXE: 0x0041CAE0
+int run_startup(HINSTANCE instance, LPSTR command_line, int show_command);
 
-struct StartupApi
-{
-    InitializeApplication initialize_application;
-    void (*set_runtime_flag_40)();
-    BOOL(WINAPI *get_message)(LPMSG message, HWND window, UINT minimum, UINT maximum);
-    BOOL(WINAPI *translate_message)(const MSG *message);
-    LRESULT(WINAPI *dispatch_message)(const MSG *message);
-    int(WINAPI *show_cursor)(BOOL show);
-    int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
-};
-
-// Non-original test seam. The call order and decisions are the body recovered at 0x0041CAE0.
-int run_startup(HINSTANCE instance, LPSTR command_line, int show_command, const StartupApi &api);
-
-StartupApi make_win32_startup_api();
-
-struct RegistryApi
-{
-    LSTATUS(WINAPI *open_key)(HKEY key, LPCSTR sub_key, DWORD options, REGSAM desired_access, PHKEY result);
-    LSTATUS(WINAPI *query_value)(HKEY key, LPCSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD data_size);
-    LSTATUS(WINAPI *close_key)(HKEY key);
-};
-
-// GAG.EXE: 0x0041EDF0
-uint32_t load_installation_registry_settings(ApplicationState *state, const RegistryApi &api);
-
-RegistryApi make_win32_registry_api();
+uint32_t load_local_preferences(ApplicationState *state);
 
 // GAG.EXE: 0x0040CF50
 int copy_string(char *destination, const char *source);
@@ -838,16 +628,11 @@ uint32_t parse_image_flag(ScriptParserState *parser);
 
 // GAG.EXE: 0x00421440
 uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, uint32_t *flags);
-void set_runtime_tree_command_target_api_for_testing(const RuntimeTreeCommandTargetApi &api);
 
-void set_script_value_parse_api_for_testing(const ScriptValueParseApi &api);
-void set_script_typed_value_api_for_testing(const ScriptTypedValueApi &api);
-void set_script_integer_expression_api_for_testing(const ScriptIntegerExpressionApi &api);
 
 // GAG.EXE: 0x0040F380
 int32_t parse_script_integer_literal(ScriptParserState *parser);
 
-void set_script_utility_api_for_testing(const ScriptUtilityApi &api);
 
 // GAG.EXE: 0x0040D070
 bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte_count);
@@ -912,8 +697,6 @@ struct ScriptObjectParseApi
     ScriptObjectState *(*create_object)(const void *name);
 };
 
-void set_script_object_parse_api_for_testing(const ScriptObjectParseApi &api);
-void reset_script_object_parse_api_for_testing();
 
 // GAG.EXE: 0x00408420
 ScriptObjectState *find_script_object_by_identity(void *identity);
@@ -936,8 +719,6 @@ bool compare_script_object_field(const char *object_name, const void *field_name
 // GAG.EXE: 0x004089E0
 uint32_t get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot);
 
-void set_script_object_memory_api_for_testing(const ScriptObjectMemoryApi &api);
-void set_script_object_release_api_for_testing(const ScriptObjectReleaseApi &api);
 
 // GAG.EXE: 0x00408D80
 void destroy_script_object_states();
@@ -1177,7 +958,6 @@ struct RuntimeTreeAuxiliaryReleaseApi
 // GAG.EXE: 0x004071E0
 void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner);
 
-void set_runtime_tree_auxiliary_release_api_for_testing(const RuntimeTreeAuxiliaryReleaseApi &api);
 
 struct RuntimeTreeAuxiliaryCreateApi
 {
@@ -1195,7 +975,6 @@ uint32_t parse_runtime_tree_auxiliary_names(ScriptParserState *parser);
 // GAG.EXE: 0x00407130
 uint32_t add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner);
 
-void set_runtime_tree_auxiliary_create_api_for_testing(const RuntimeTreeAuxiliaryCreateApi &api);
 
 struct RuntimeTreeDestructionCoreApi
 {
@@ -1226,7 +1005,6 @@ void update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode 
 // GAG.EXE: 0x00406190
 void publish_runtime_tree_global_links(RuntimeTreeNode *node);
 
-void set_runtime_tree_destruction_core_api_for_testing(const RuntimeTreeDestructionCoreApi &api);
 
 struct RuntimeFixedNameListNode
 {
@@ -1401,7 +1179,6 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t s
 // GAG.EXE: 0x00424EC0
 void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t scale_or_loop, uint32_t flags);
 
-void set_runtime_resource_construction_api_for_testing(const RuntimeResourceConstructionApi &api);
 
 struct RuntimeResourceVisibilityCallbackContext
 {
@@ -1474,7 +1251,6 @@ struct RuntimeResourceSelectionApi
 // GAG.EXE: 0x004244E0
 void select_runtime_resource(char *path);
 
-void set_runtime_resource_selection_api_for_testing(const RuntimeResourceSelectionApi &api);
 
 // GAG.EXE: 0x004260B0
 void unload_runtime_game_dll();
@@ -1988,10 +1764,6 @@ uint8_t classify_runtime_media_data(const void *data);
 // GAG.EXE: 0x00404920
 uint32_t read_compressor_input(void *destination, uint32_t requested_size);
 
-// Non-original test state accessors.
-void set_compressor_input_state_for_testing(const void *input, uint32_t input_size, uint32_t input_position);
-uint32_t get_compressor_input_position_for_testing();
-
 // GAG.EXE: 0x0042B2A0
 void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t scale_y);
 
@@ -2105,7 +1877,6 @@ struct RuntimeGenericChildCreateApi
 // GAG.EXE: 0x004110B0
 RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const uintptr_t *context, uintptr_t selection, uint32_t flags);
 
-void set_runtime_generic_child_create_api_for_testing(const RuntimeGenericChildCreateApi &api);
 
 // GAG.EXE: 0x00411220
 RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity);
@@ -2214,8 +1985,6 @@ struct RuntimeGenericChildSceneApi
 // GAG.EXE: 0x004212E0
 void process_available_runtime_generic_children(uint32_t maximum_end_position);
 
-void set_runtime_generic_child_scene_api_for_testing(const RuntimeGenericChildSceneApi &api);
-void set_runtime_pointer_event_flags_for_testing(uint32_t flags);
 
 // GAG.EXE: 0x00410D50
 uint32_t destroy_runtime_generic_backend(void *identity);
@@ -2366,10 +2135,6 @@ uint32_t pause_runtime_sound_output(int32_t close_output);
 // GAG.EXE: 0x004016D0
 uint32_t resume_runtime_sound_output();
 
-void set_runtime_sound_pause_resume_api_for_testing(const RuntimeSoundPauseResumeApi &api);
-void set_runtime_sound_pause_resume_state_for_testing(uint32_t toggle_state, uint32_t mixing_suppressed, uint32_t output_initialized, uint32_t output_ready, HANDLE thread, DWORD thread_id,
-    HWND window, uint32_t fault);
-void get_runtime_sound_pause_resume_state_for_testing(uint32_t *toggle_state, uint32_t *mixing_suppressed, uint32_t *output_initialized, HANDLE *thread, DWORD *thread_id);
 
 // GAG.EXE: 0x004010B0
 uint32_t ensure_runtime_sound_ready(WAVEFORMATEX *format, uint32_t mixer_argument);
@@ -2484,19 +2249,6 @@ struct RuntimeResourceHostApi
     uint32_t (*close_archive)(CdfArchive *archive);
 };
 
-struct ArchiveReadSpeedApi
-{
-    uint32_t (*initialize_async)();
-    uint32_t (*extract_drive_prefix)(char *destination, const char *source);
-    AsyncFileHost *(*create_host)(const char *root, uint32_t requested_bytes, int32_t mode);
-    AsyncFileRecord *(*open_record)(AsyncFileHost *host, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
-    uint32_t (*get_size)(AsyncFileRecord *record);
-    uint32_t (*read_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
-    DWORD(WINAPI *get_time)();
-    uint32_t (*close_record)(AsyncFileRecord *record);
-    uint32_t (*destroy_host)(AsyncFileHost *host);
-};
-
 struct RuntimeResourceTypeApi
 {
     void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
@@ -2518,21 +2270,6 @@ struct RuntimeCdfStreamApi
     DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG high_distance, DWORD method);
 };
 
-struct ArchiveCommentDialogState
-{
-    void *value_0000;
-    const char *directory;
-    char file_name[0x20];
-    char extension[0x58];
-    char *output_1;
-    char *output_2;
-    uint32_t maximum_identifier;
-    uint32_t comment_count;
-    uint32_t comment_capacity;
-    char *archive_paths;
-    CustomControlState custom_control;
-};
-
 struct ArchiveCommentEnumerationApi
 {
     HANDLE(WINAPI *find_first)(LPCSTR pattern, LPWIN32_FIND_DATAA data);
@@ -2551,45 +2288,8 @@ struct ArchiveCommentEnumerationApi
     BOOL(WINAPI *delete_file)(LPCSTR path);
 };
 
-struct ArchiveCommentDialogApi
-{
-    HWND(WINAPI *get_dialog_item)(HWND dialog, int identifier);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    HWND(WINAPI *set_focus)(HWND window);
-    BOOL(WINAPI *show_window)(HWND window, int command);
-    BOOL(WINAPI *end_dialog)(HWND dialog, INT_PTR result);
-    HANDLE(WINAPI *get_process_heap)();
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    uint32_t (*enumerate_comments)(ArchiveCommentDialogState *state, HWND listbox);
-    int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
-    void(WINAPI *sleep)(DWORD milliseconds);
-};
-
-struct ArchiveCommentDialogLaunchApi
-{
-    void(__cdecl *split_path)(const char *path, char *drive, char *directory, char *file_name, char *extension);
-    INT_PTR(WINAPI *dialog_box)(HINSTANCE instance, LPCSTR template_name, HWND parent, DLGPROC procedure, LPARAM parameter);
-};
-
-// GAG.EXE: 0x004182A0
-uint32_t enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox);
-void set_archive_comment_enumeration_api_for_testing(const ArchiveCommentEnumerationApi &api);
 const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api();
 
-// GAG.EXE: 0x00418560
-INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam);
-
-// GAG.EXE: 0x00417550
-INT_PTR run_archive_comment_dialog(HWND parent, const char *directory, const char *path, char *output);
-
-// GAG.EXE: 0x004188A0
-INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam);
-
-// GAG.EXE: 0x004175F0
-INT_PTR run_archive_selection_dialog(HWND parent, const char *directory, const char *path, void *initial_value, char *output_path, char *output_name);
-
-void set_archive_comment_dialog_api_for_testing(const ArchiveCommentDialogApi &api);
-void set_archive_comment_dialog_launch_api_for_testing(const ArchiveCommentDialogLaunchApi &api);
 
 struct RuntimeResourceLoadApi
 {
@@ -2793,7 +2493,6 @@ struct RuntimeGenericResourceLoadApi
 // GAG.EXE: 0x00404EE0
 RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *resource_name);
 
-void set_runtime_generic_resource_load_api_for_testing(const RuntimeGenericResourceLoadApi &api);
 
 struct RuntimeTreeParserContext
 {
@@ -2823,7 +2522,6 @@ struct RuntimeTreeParserContextApi
 // GAG.EXE: 0x00405210
 RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, uint32_t start_offset, const char *creation_text);
 
-void set_runtime_tree_parser_context_api_for_testing(const RuntimeTreeParserContextApi &api);
 
 struct RuntimeTreeParserReleaseApi
 {
@@ -2837,7 +2535,6 @@ void release_runtime_tree_parser_contexts(RuntimeTreeNode *owner);
 // GAG.EXE: 0x00405350
 RuntimeTreeParserContext *find_existing_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name);
 
-void set_runtime_tree_parser_release_api_for_testing(const RuntimeTreeParserReleaseApi &api);
 
 struct RuntimeTreeCreationApi
 {
@@ -2864,7 +2561,6 @@ RuntimeTreeNode *dispatch_runtime_tree_parser(RuntimeTreeParserContext *context)
 // GAG.EXE: 0x00405410
 RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context);
 
-void set_runtime_tree_creation_api_for_testing(const RuntimeTreeCreationApi &api);
 
 struct RuntimeTreeJumpApi
 {
@@ -2878,7 +2574,6 @@ struct RuntimeTreeJumpApi
 // GAG.EXE: 0x00405D00
 RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, uint32_t success_cursor);
 
-void set_runtime_tree_jump_api_for_testing(const RuntimeTreeJumpApi &api);
 
 struct RuntimeTreeConditionalCreateApi
 {
@@ -2896,7 +2591,6 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser);
 // GAG.EXE: 0x00406EA0
 RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser);
 
-void set_runtime_tree_conditional_create_api_for_testing(const RuntimeTreeConditionalCreateApi &api);
 
 struct RuntimeTreeParserResetApi
 {
@@ -2932,8 +2626,6 @@ struct RuntimeTreeParserDirectDispatchApi
     void (*publish_links)(RuntimeTreeNode *owner);
 };
 
-void set_runtime_tree_parser_direct_dispatch_api_for_testing(const RuntimeTreeParserDirectDispatchApi &api);
-void reset_runtime_tree_parser_direct_dispatch_api_for_testing();
 
 struct RuntimeTreeParserSpecialDispatchApi
 {
@@ -2944,8 +2636,6 @@ struct RuntimeTreeParserSpecialDispatchApi
     bool (*strings_equal)(const char *left, const char *right);
 };
 
-void set_runtime_tree_parser_special_dispatch_api_for_testing(const RuntimeTreeParserSpecialDispatchApi &api);
-void reset_runtime_tree_parser_special_dispatch_api_for_testing();
 
 // GAG.EXE: 0x00405E00
 void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser);
@@ -2953,7 +2643,6 @@ void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser);
 // GAG.EXE: 0x00405DC0
 void reset_runtime_tree_parser_contexts(void *identity);
 
-void set_runtime_tree_parser_reset_api_for_testing(const RuntimeTreeParserResetApi &api);
 
 struct RuntimeTreeSectionDispatchApi
 {
@@ -2968,7 +2657,6 @@ struct RuntimeTreeSectionDispatchApi
 // GAG.EXE: 0x00405380
 RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text);
 
-void set_runtime_tree_section_dispatch_api_for_testing(const RuntimeTreeSectionDispatchApi &api);
 
 struct RuntimeTreeBasicCommandApi
 {
@@ -2989,7 +2677,6 @@ bool parse_runtime_language(ScriptParserState *parser);
 // GAG.EXE: 0x00406C00
 RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser);
 
-void set_runtime_tree_basic_command_api_for_testing(const RuntimeTreeBasicCommandApi &api);
 
 // GAG.EXE: 0x00405000
 void remove_runtime_generic_resource(void *identity);
@@ -3432,8 +3119,6 @@ struct RuntimeTreeDestructionApi
 // GAG.EXE: 0x00426BD0
 void destroy_runtime_tree_resources(void *identity);
 
-void set_runtime_tree_destruction_api_for_testing(const RuntimeTreeDestructionApi &api);
-void set_runtime_tree_destruction_state_for_testing(void *pointer_root_identity, void *current_resource, uint32_t resource_count);
 
 struct RuntimeResourceSceneDestructionApi
 {
@@ -3459,8 +3144,6 @@ struct RuntimeResourceSceneRegionApi
 // GAG.EXE: 0x00427900
 void update_runtime_resource_scene_region(intptr_t scene_identifier, int32_t x, int32_t y, int32_t width, int32_t height);
 
-void set_runtime_resource_scene_region_api_for_testing(const RuntimeResourceSceneRegionApi &api);
-void set_runtime_resource_scene_region_default_for_testing(intptr_t scene_identifier);
 
 // GAG.EXE: 0x00417370
 void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle);
@@ -3475,7 +3158,6 @@ struct RuntimeBitmapRegionRenderApi
 // GAG.EXE: 0x0042B140
 uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle);
 
-void set_runtime_bitmap_region_render_api_for_testing(const RuntimeBitmapRegionRenderApi &api);
 
 struct RuntimeSceneTransitionSelectionApi
 {
@@ -3488,8 +3170,6 @@ struct RuntimeSceneTransitionSelectionApi
 // GAG.EXE: 0x00426D50
 void select_runtime_scene_transition(uint32_t flags);
 
-void set_runtime_scene_transition_selection_api_for_testing(const RuntimeSceneTransitionSelectionApi &api);
-void set_runtime_scene_transition_selection_state_for_testing(uint32_t available_transitions, uint32_t palette_value, uint32_t rectangle_value, uint16_t bits_per_pixel);
 
 struct RuntimeResourceStateApi
 {
@@ -3512,8 +3192,6 @@ struct RuntimeResourceStateApi
 // GAG.EXE: 0x00425930
 void set_runtime_resource_state(void *identity, uint32_t state);
 
-void set_runtime_resource_state_api_for_testing(const RuntimeResourceStateApi &api);
-void set_runtime_resource_state_globals_for_testing(void *current_resource, uint32_t scene_flags);
 
 struct RuntimeImmediateSceneTransitionApi
 {
@@ -3531,7 +3209,6 @@ struct RuntimeImmediateSceneTransitionApi
 // GAG.EXE: 0x00426E30
 void apply_immediate_runtime_scene_transition(uint32_t unused, uint32_t flags);
 
-void set_runtime_immediate_scene_transition_api_for_testing(const RuntimeImmediateSceneTransitionApi &api);
 
 struct RuntimePaletteSceneTransitionApi
 {
@@ -3552,9 +3229,6 @@ struct RuntimePaletteSceneTransitionApi
 // GAG.EXE: 0x00426F40
 void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags);
 
-void set_runtime_palette_scene_transition_api_for_testing(const RuntimePaletteSceneTransitionApi &api);
-void set_runtime_palette_scene_transition_state_for_testing(void *current_resource, uint32_t scene_flags, uint16_t width, uint16_t height);
-const PALETTEENTRY *get_runtime_palette_scene_transition_entries_for_testing();
 
 struct RuntimeRectangleSceneTransitionApi
 {
@@ -3576,8 +3250,6 @@ struct RuntimeRectangleSceneTransitionApi
 // GAG.EXE: 0x004272D0
 void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags);
 
-void set_runtime_rectangle_scene_transition_api_for_testing(const RuntimeRectangleSceneTransitionApi &api);
-void set_runtime_rectangle_scene_transition_state_for_testing(void *current_resource, uint16_t width, uint16_t height);
 
 struct DisplayRegionSynchronizationApi
 {
@@ -3594,8 +3266,6 @@ struct DisplayRegionSynchronizationApi
 // GAG.EXE: 0x00414220
 void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode);
 
-void set_display_region_synchronization_api_for_testing(const DisplayRegionSynchronizationApi &api);
-void set_display_region_synchronization_state_for_testing(uint32_t flags, void *primary_surface, void *secondary_surface, HDC primary_context, HDC secondary_context);
 
 struct LegacyDirectDrawSurfaceDescriptor;
 
@@ -3612,13 +3282,10 @@ struct DisplayTargetBeginApi
 // GAG.EXE: 0x00414360
 uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32_t *pitch);
 
-void set_display_target_begin_api_for_testing(const DisplayTargetBeginApi &api);
-void set_display_target_begin_state_for_testing(uint32_t flags, void *secondary_surface, void *pixels, int32_t width, int32_t height, DisplayMode *mode);
 
 // GAG.EXE: 0x00425C40
 void finalize_runtime_resource_destruction(void *identity);
 
-void set_runtime_resource_scene_destruction_api_for_testing(const RuntimeResourceSceneDestructionApi &api);
 
 // GAG.EXE: 0x00409330
 RuntimeVisualObject *find_runtime_visual_object(const char *name);
@@ -3687,18 +3354,14 @@ struct RuntimeGenericChildAttachmentApi
 // GAG.EXE: 0x00425D50
 RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, uintptr_t selection, uint32_t flags);
 
-void set_runtime_generic_child_attachment_api_for_testing(const RuntimeGenericChildAttachmentApi &api);
-void set_runtime_generic_child_attachment_scene_for_testing(intptr_t identifier);
 
 // GAG.EXE: 0x004268B0
 void rebuild_runtime_tree_resources(void *identity);
 
-void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api);
 
 // GAG.EXE: 0x00426700
 void rebuild_runtime_pointer_resources();
 
-void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerResourceRebuildApi &api);
 
 // GAG.EXE: 0x00423BC0
 uint32_t handle_runtime_left_button_up();
@@ -3720,7 +3383,6 @@ struct RuntimePointerRefreshApi
 // GAG.EXE: 0x004236C0
 uint32_t refresh_runtime_pointer_region();
 
-void set_runtime_pointer_refresh_api_for_testing(const RuntimePointerRefreshApi &api);
 
 // GAG.EXE: 0x004235E0
 int32_t activate_default_comment_scene(const char *name);
@@ -3770,8 +3432,6 @@ struct RuntimeTreeDeactivateApi
 // GAG.EXE: 0x00426600
 intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second);
 
-void set_runtime_comment_tree_cleanup_api_for_testing(const RuntimeCommentTreeCleanupApi &api);
-void set_runtime_tree_deactivate_api_for_testing(const RuntimeTreeDeactivateApi &api);
 
 // GAG.EXE: 0x00406640
 void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name);
@@ -3802,7 +3462,6 @@ struct RuntimeResourceLoopApi
 // GAG.EXE: 0x004258D0
 void set_runtime_resource_loop_count(void *identity, uint32_t count);
 
-void set_runtime_resource_loop_api_for_testing(const RuntimeResourceLoopApi &api);
 
 // GAG.EXE: 0x004242C0
 void switch_runtime_scene(void *identity);
@@ -3841,8 +3500,6 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
 uint32_t extract_runtime_drive_prefix(char *destination, const char *source);
 
 // GAG.EXE: 0x00417990
-uint32_t measure_archive_read_speed(const char *archive_path, uint32_t bytes_to_measure);
-void set_archive_read_speed_api_for_testing(const ArchiveReadSpeedApi &api);
 
 // GAG.EXE: 0x0042B6B0
 HANDLE open_runtime_resource_file(const char *path);
@@ -3897,7 +3554,6 @@ struct AsyncFileShutdownApi
 // GAG.EXE: 0x00414E40
 uint32_t shutdown_async_file_subsystem();
 
-void set_async_file_shutdown_api_for_testing(const AsyncFileShutdownApi &api);
 
 // GAG.EXE: 0x004155C0
 AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity);
@@ -3929,11 +3585,6 @@ uint32_t close_async_file_record(AsyncFileRecord *identity);
 // GAG.EXE: 0x00415720
 uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
 
-void set_runtime_named_lock_api_for_testing(const RuntimeNamedLockApi &api);
-void set_runtime_named_node_memory_api_for_testing(const RuntimeNamedNodeMemoryApi &api);
-void set_runtime_resource_release_api_for_testing(const RuntimeResourceReleaseApi &api);
-void set_runtime_media_backend_api_for_testing(const RuntimeMediaBackendApi &api);
-void set_runtime_media_backend_state_for_testing(HANDLE heap, HANDLE mutex, RuntimeMediaBackend *head, RuntimeMediaBackend *tail);
 
 // GAG.EXE: 0x0042B290
 RuntimeMediaBackend *acquire_first_runtime_media_backend();
@@ -3950,65 +3601,6 @@ struct RuntimeMediaBackendShutdownApi
 // GAG.EXE: 0x00429E50
 uint32_t shutdown_runtime_media_backend();
 
-void set_runtime_media_backend_shutdown_api_for_testing(const RuntimeMediaBackendShutdownApi &api);
-void set_runtime_palette_update_api_for_testing(const RuntimePaletteUpdateApi &api);
-void set_runtime_bitmap_backend_create_api_for_testing(const RuntimeBitmapBackendCreateApi &api);
-void set_runtime_animation_backend_create_api_for_testing(const RuntimeAnimationBackendCreateApi &api);
-void set_runtime_media_backend_configure_api_for_testing(const RuntimeMediaBackendConfigureApi &api);
-void set_runtime_animation_backend_configure_api_for_testing(const RuntimeAnimationBackendConfigureApi &api);
-void set_runtime_resource_palette_configure_api_for_testing(const RuntimeResourcePaletteConfigureApi &api);
-void set_runtime_resource_palette_bits_per_pixel_for_testing(uint32_t bits_per_pixel);
-void set_runtime_media_backend_finalize_api_for_testing(const RuntimeMediaBackendFinalizeApi &api);
-void set_runtime_animation_failure_api_for_testing(const RuntimeAnimationFailureApi &api);
-void set_runtime_animation_control_flags_for_testing(uint32_t flags);
-uint32_t get_runtime_animation_control_flags_for_testing();
-void set_runtime_animation_control_api_for_testing(const RuntimeAnimationControlApi &api);
-void set_runtime_animation_frame_acquire_api_for_testing(const RuntimeAnimationFrameAcquireApi &api);
-void set_runtime_animation_decode_api_for_testing(const RuntimeAnimationDecodeApi &api);
-void set_runtime_animation_completion_api_for_testing(const RuntimeAnimationCompletionApi &api);
-void set_runtime_animation_audio_api_for_testing(const RuntimeAnimationAudioApi &api);
-void set_runtime_animation_worker_api_for_testing(const RuntimeAnimationWorkerApi &api);
-void set_runtime_resource_construction_plan_api_for_testing(const RuntimeResourceConstructionPlanApi &api);
-void set_runtime_animation_present_api_for_testing(const RuntimeAnimationPresentApi &api);
-void set_runtime_generic_backend_api_for_testing(const RuntimeGenericBackendApi &api);
-void set_runtime_generic_backend_state_for_testing(HANDLE mutex, RuntimeGenericBackend *head);
-void set_runtime_generic_backend_create_api_for_testing(const RuntimeGenericBackendCreateApi &api);
-void set_runtime_generic_backend_create_state_for_testing(uint32_t enabled);
-RuntimeGenericBackend *get_runtime_generic_backend_head_for_testing();
-void set_runtime_sound_destroy_api_for_testing(const RuntimeSoundDestroyApi &api);
-void set_runtime_sound_destroy_state_for_testing(int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, uint32_t maximum_handle);
-RuntimeSoundSlot *use_runtime_sound_backing_storage_for_testing();
-uint32_t get_runtime_sound_maximum_handle_for_testing();
-void set_runtime_sound_create_api_for_testing(const RuntimeSoundCreateApi &api);
-void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEFORMATEX *output_format, WAVEHDR *header_1, WAVEHDR *header_2, HWND window, HANDLE thread,
-    DWORD thread_id, uint32_t output_ready, uint32_t ready, uint32_t fault);
-void get_runtime_sound_create_state_for_testing(HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized, uint32_t *ready);
-void set_runtime_sound_format_cleanup_api_for_testing(const RuntimeSoundFormatCleanupApi &api);
-void set_runtime_sound_format_cleanup_state_for_testing(void *buffer, uint32_t base_state);
-void get_runtime_sound_format_cleanup_state_for_testing(void **buffer, uint32_t *base_state);
-void set_runtime_sound_fade_state_for_testing(WAVEFORMATEX *output_format, uint32_t mixer_data_size);
-void set_runtime_wave_out_callback_api_for_testing(const RuntimeWaveOutCallbackApi &api);
-void set_runtime_wave_out_callback_state_for_testing(HWND window, uint32_t output_ready);
-uint32_t get_runtime_wave_out_callback_state_for_testing();
-void set_runtime_sound_shutdown_api_for_testing(const RuntimeSoundShutdownApi &api);
-void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEHDR *header_1, WAVEHDR *header_2, HANDLE thread, DWORD thread_id, uint32_t output_ready,
-    uint32_t output_initialized);
-void get_runtime_sound_shutdown_state_for_testing(int32_t *enabled, HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized);
-void set_runtime_sound_readiness_api_for_testing(const RuntimeSoundReadinessApi &api);
-void set_runtime_sound_readiness_state_for_testing(uint32_t ready);
-uint32_t get_runtime_sound_readiness_state_for_testing();
-void set_runtime_sound_thread_api_for_testing(const RuntimeSoundThreadApi &api);
-void set_runtime_sound_thread_state_for_testing(HINSTANCE instance, HWND window, uint32_t creation_failed);
-void get_runtime_sound_thread_state_for_testing(HWND *window, uint32_t *creation_failed);
-void set_runtime_sound_class_api_for_testing(const RuntimeSoundClassApi &api);
-void set_runtime_sound_window_api_for_testing(const RuntimeSoundWindowApi &api);
-void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs, WAVEFORMATEX *output_format, uint32_t mixer_data_size, uint32_t output_initialized, uint32_t output_index,
-    void (*mixer)(uint32_t marker));
-void set_runtime_sound_mixing_suppressed_for_testing(uint8_t suppressed);
-void set_runtime_wave_mixer_initialize_api_for_testing(const struct RuntimeWaveMixerInitializeApi &api);
-void set_runtime_wave_mixer_initialize_state_for_testing(uint32_t fault, uint32_t window_creation_failed);
-void get_runtime_wave_mixer_initialize_state_for_testing(uint32_t *fault, void **buffer, uint32_t *mixer_data_size, void (**mixer)(uint32_t marker));
-void get_runtime_sound_window_state_for_testing(uint32_t *output_ready, uint32_t *output_initialized, uint32_t *output_index);
 
 // GAG.EXE: 0x004023C0
 void mix_runtime_sound_8bit_mono(uint32_t marker);
@@ -4033,66 +3625,6 @@ struct RuntimeWaveMixerInitializeApi
 
 // GAG.EXE: 0x00401330
 uint32_t initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, uint32_t unused_argument);
-void set_runtime_resource_destroy_api_for_testing(const RuntimeResourceDestroyApi &api);
-void set_runtime_resource_control_api_for_testing(const RuntimeResourceControlApi &api);
-void set_runtime_game_lifecycle_api_for_testing(const RuntimeGameLifecycleApi &api);
-void set_runtime_game_integration_api_for_testing(const RuntimeGameIntegrationApi &api);
-void set_runtime_game_dll_dispatch_api_for_testing(const RuntimeGameDllDispatchApi &api);
-void set_runtime_game_dll_state_for_testing(uint32_t flags);
-void set_runtime_game_dll_execute_for_testing(RuntimeGameDllExecute execute);
-void set_runtime_game_window_api_for_testing(const RuntimeGameWindowApi &api);
-void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllWindowProcedure window_procedure, uint16_t x_offset, uint16_t y_offset);
-void get_runtime_game_result_for_testing(uint32_t *type, void *data, uint32_t size);
-void set_runtime_pointer_position_api_for_testing(const RuntimePointerPositionApi &api);
-void get_runtime_pointer_position_for_testing(int32_t *x, int32_t *y);
-void set_runtime_game_host_state_for_testing(const RuntimeGameHostContext &context, void *const *callbacks);
-RuntimeGameHostContext get_runtime_game_host_state_for_testing();
-void get_runtime_game_dll_state_for_testing(RuntimeGameDllWindowProcedure *window_procedure, RuntimeGameDllExecute *execute);
-void set_runtime_resource_destroy_state_for_testing(void *current_resource);
-void *get_runtime_resource_destroy_state_for_testing();
-void set_runtime_named_lock_state_for_testing(void *parent_identity);
-CRITICAL_SECTION *get_runtime_named_lock_critical_section_for_testing();
-CRITICAL_SECTION *get_runtime_resource_critical_section_for_testing();
-CRITICAL_SECTION *get_runtime_game_dll_critical_section_for_testing();
-void *get_runtime_named_lock_parent_identity_for_testing();
-HWND get_runtime_resource_notification_window_for_testing();
-void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api);
-void set_runtime_scene_switch_state_for_testing(void *current_identity, int32_t x, int32_t y);
-void *get_current_runtime_scene_identity_for_testing();
-void set_runtime_scene_control_state_for_testing(uint32_t flags, void *saved_identity);
-uint32_t get_runtime_scene_control_flags_for_testing();
-void set_runtime_scene_slots_for_testing(const RuntimeSceneSlot *slots);
-const RuntimeSceneSlot *get_runtime_scene_slots_for_testing();
-void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, uint32_t state_mask, void *state_owner);
-RuntimePointerRegion *get_active_runtime_pointer_region_for_testing();
-RuntimePointerRegion *get_runtime_pointer_regions_for_testing();
-uint32_t get_runtime_pointer_event_flags_for_testing();
-void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api);
-void set_runtime_display_reset_state_for_testing(uint32_t value_1, uint8_t byte_value, uint32_t value_2, const uint32_t *scene_state);
-void get_runtime_display_reset_state_for_testing(uint32_t *value_1, uint8_t *byte_value, uint32_t *value_2, uint32_t *scene_state);
-void set_runtime_display_shutdown_api_for_testing(const RuntimeDisplayShutdownApi &api);
-void set_runtime_display_shutdown_state_for_testing(HANDLE thread, intptr_t scene_identifier, void *host, const RuntimePresentationTarget *backend_state,
-    const DisplayPixelFormatDescriptor *pixel_format_state);
-void get_runtime_display_shutdown_state_for_testing(HANDLE *thread, intptr_t *scene_identifier, void **host, RuntimePresentationTarget *backend_state,
-    DisplayPixelFormatDescriptor *pixel_format_state);
-void set_runtime_resource_wait_api_for_testing(const RuntimeResourceWaitApi &api);
-void set_runtime_resource_count_for_testing(uint32_t count);
-uint32_t get_runtime_resource_count_for_testing();
-void set_runtime_resource_directory_for_testing(const char *directory);
-void set_runtime_resource_file_open_api_for_testing(const RuntimeResourceFileOpenApi &api);
-void set_runtime_resource_host_api_for_testing(const RuntimeResourceHostApi &api);
-void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive *archive, int32_t mode, uint8_t archive_state);
-void get_runtime_resource_host_state_for_testing(AsyncFileHost **host, CdfArchive **archive, int32_t *mode, uint8_t *archive_state);
-void set_runtime_resource_type_api_for_testing(const RuntimeResourceTypeApi &api);
-void set_runtime_resource_type_state_for_testing(void *cache_parent_identity, HWND notification_window);
-void set_runtime_cdf_stream_api_for_testing(const RuntimeCdfStreamApi &api);
-void set_runtime_resource_load_api_for_testing(const RuntimeResourceLoadApi &api);
-void set_runtime_resource_load_state_for_testing(HANDLE heap, uint32_t streamed_count);
-uint32_t get_runtime_resource_streamed_count_for_testing();
-void set_async_file_lock_api_for_testing(const AsyncFileLockApi &api);
-void set_async_file_state_for_testing(bool enabled, AsyncFileHost *hosts);
-void set_async_file_open_api_for_testing(const AsyncFileOpenApi &api);
-void set_async_file_host_api_for_testing(const AsyncFileHostApi &api);
 
 // GAG.EXE: 0x00408380
 ScriptObjectState *find_script_object_by_name(const char *name);
@@ -4100,9 +3632,6 @@ ScriptObjectState *find_script_object_by_name(const char *name);
 // GAG.EXE: 0x00408660
 ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type);
 
-void set_script_runtime_root_for_testing(ScriptRuntimeRoot *root);
-void use_embedded_script_runtime_root_for_testing();
-ScriptRuntimeRoot *get_embedded_script_runtime_root_for_testing();
 
 // GAG.EXE: 0x0040D030
 void copy_file_name_from_path(char *destination, const char *source);
@@ -4155,11 +3684,6 @@ HRESULT WINAPI collect_direct_draw_display_mode(LegacyDirectDrawSurfaceDescripto
 // GAG.EXE: 0x00412FE0
 uint32_t enumerate_direct_draw_display_modes();
 
-void set_display_bootstrap_api_for_testing(const DisplayBootstrapApi &api);
-void set_display_bootstrap_state_for_testing(uint32_t flags, DisplayMode *head, DisplayMode *tail, uint32_t count, void *display);
-uint32_t get_display_bootstrap_error_for_testing();
-uint32_t get_display_mode_count_for_testing();
-DisplayMode *get_display_mode_tail_for_testing();
 
 struct DisplayHostInitializationApi
 {
@@ -4174,9 +3698,6 @@ struct DisplayHostInitializationApi
 // GAG.EXE: 0x00413380
 uint32_t initialize_display_mode_host(HWND window, uint32_t options);
 
-void set_display_host_initialization_api_for_testing(const DisplayHostInitializationApi &api);
-void set_display_host_initialization_state_for_testing(uint32_t flags, HWND window);
-HWND get_display_host_window_for_testing();
 
 struct WindowsDisplayEnumerationApi
 {
@@ -4194,7 +3715,6 @@ struct WindowsDisplayEnumerationApi
 // GAG.EXE: 0x00413030
 uint32_t enumerate_windows_display_modes();
 
-void set_windows_display_enumeration_api_for_testing(const WindowsDisplayEnumerationApi &api);
 
 // GAG.EXE: 0x00413650
 DisplayMode *begin_display_mode_enumeration(uint32_t mask);
@@ -4204,11 +3724,6 @@ DisplayMode *get_next_display_mode(uint32_t mask);
 
 // GAG.EXE: 0x004136F0
 DisplayMode *find_current_display_mode();
-
-#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
-void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, int32_t width, int32_t height, bool indexed);
-int32_t get_modern_windows_color_depth_for_testing();
-#endif
 
 // GAG.EXE: 0x0041F960
 DisplayMode *get_current_display_mode();
@@ -4222,8 +3737,6 @@ DisplayMode *get_next_available_display_mode(uint32_t mask);
 // GAG.EXE: 0x0041EFA0
 uint32_t detect_alternate_display_mode(ApplicationState *state);
 
-void set_display_mode_list_for_testing(DisplayMode *head);
-void set_graphics_host_flags_for_testing(uint32_t flags);
 
 struct DisplaySwitchApi
 {
@@ -4243,29 +3756,6 @@ void disable_runtime_subsystem();
 // GAG.EXE: 0x00404980
 void set_active_object_field_0824(uint32_t value);
 
-void set_display_switch_api_for_testing(const DisplaySwitchApi &api);
-uint32_t get_graphics_host_flags_for_testing();
-
-struct DriveDiscoveryApi
-{
-    DWORD(WINAPI *get_logical_drive_strings)(DWORD buffer_length, LPSTR buffer);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    UINT(WINAPI *get_drive_type)(LPCSTR root_path);
-    HANDLE(WINAPI *find_first_file)(LPCSTR pattern, LPWIN32_FIND_DATAA find_data);
-    BOOL(WINAPI *find_next_file)(HANDLE find, LPWIN32_FIND_DATAA find_data);
-    BOOL(WINAPI *find_close)(HANDLE find);
-    CdfArchive *(*open_archive)(const char *path, intptr_t alternate_stream);
-    int (*read_entry)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
-    uint32_t (*close_archive)(CdfArchive *archive);
-    int(WINAPI *compare_case_insensitive)(LPCSTR left, LPCSTR right);
-};
-
-// GAG.EXE: 0x0041EBD0
-void locate_game_data_drive(ApplicationState *state, const char *requested_archive);
-
-void set_drive_discovery_api_for_testing(const DriveDiscoveryApi &api);
 
 // GAG.EXE: 0x00420C00
 void set_runtime_flag_01000000();
@@ -4285,8 +3775,6 @@ void enter_runtime_state_1000();
 // GAG.EXE: 0x00424290
 void leave_runtime_state_1000();
 
-void set_runtime_state_transition_for_testing(uintptr_t current_value, uintptr_t saved_value, void (*callback)(uintptr_t value));
-uintptr_t get_runtime_state_value_for_testing();
 
 struct RuntimePathApi
 {
@@ -4297,9 +3785,6 @@ struct RuntimePathApi
 // GAG.EXE: 0x00420C30
 void set_runtime_paths_once(const char *first_path, const char *second_path);
 
-void set_runtime_path_api_for_testing(const RuntimePathApi &api);
-const char *get_first_runtime_path_for_testing();
-const char *get_second_runtime_path_for_testing();
 
 struct ScreenshotApi
 {
@@ -4313,7 +3798,6 @@ struct ScreenshotApi
 // GAG.EXE: 0x0041CBE0
 void save_game_screenshot(void *snapshot_context, void *game_context);
 
-void set_screenshot_api_for_testing(const ScreenshotApi &api);
 
 #pragma pack(push, 1)
 struct BitmapCaptureSource
@@ -4356,11 +3840,6 @@ void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const 
 
 // GAG.EXE: 0x0041CB90
 void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
-
-void set_bitmap_capture_api_for_testing(const BitmapCaptureApi &api);
-#if defined(GAG_TESTING)
-void set_runtime_display_scene_for_bitmap_capture_testing(DisplaySceneNode *scene);
-#endif
 
 struct RuntimeQueueApi
 {
@@ -4418,7 +3897,6 @@ struct RuntimePendingTreeSwitchApi
 // GAG.EXE: 0x004210A0
 bool process_pending_runtime_tree_switch(RuntimeTreeNode *node);
 
-void set_runtime_pending_tree_switch_api_for_testing(const RuntimePendingTreeSwitchApi &api);
 
 struct RuntimeTreeActivationApi
 {
@@ -4432,7 +3910,6 @@ struct RuntimeTreeActivationApi
 // GAG.EXE: 0x00426560
 RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context);
 
-void set_runtime_tree_activation_api_for_testing(const RuntimeTreeActivationApi &api);
 
 struct RuntimePairDispatchApi
 {
@@ -4446,9 +3923,6 @@ struct RuntimePairDispatchApi
 // GAG.EXE: 0x004211A0
 uint32_t process_runtime_pair_message();
 
-void set_runtime_plan_mode_sync_api_for_testing(const RuntimePlanModeSyncApi &api);
-void set_runtime_pair_dispatch_api_for_testing(const RuntimePairDispatchApi &api);
-RuntimePairDispatchApi get_runtime_pair_dispatch_api_for_testing();
 
 struct RuntimeInputSessionRecord
 {
@@ -4503,17 +3977,7 @@ uint32_t dequeue_runtime_message();
 // GAG.EXE: 0x00420CB0
 void clear_credits_runtime_flag();
 
-void set_runtime_queue_api_for_testing(const RuntimeQueueApi &api);
-void set_runtime_pair_indices_for_testing(uint32_t read_index, uint32_t write_index);
-void get_runtime_pair_indices_for_testing(uint32_t *read_index, uint32_t *write_index);
-void reset_runtime_message_queue_for_testing();
-void reset_runtime_byte_queue_for_testing();
-void reset_runtime_pair_queue_for_testing();
-void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, uint32_t status);
-void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api);
-void set_runtime_input_alternate_scene_for_testing(intptr_t identifier);
 #if defined(FREEGAG_WINDOWS_FIXES)
-void set_runtime_text_input_scene_redraw_api_for_testing(const RuntimeTextInputSceneRedrawApi &api);
 #endif
 
 struct RuntimeCommandLoopState
@@ -4627,8 +4091,6 @@ struct RuntimeTextInputApi
 // GAG.EXE: 0x00420E10
 void process_runtime_text_input(RuntimeCommandLoopState *state);
 
-void set_runtime_text_input_api_for_testing(const RuntimeTextInputApi &api);
-RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing();
 
 struct RuntimeCommandBounds
 {
@@ -4653,7 +4115,6 @@ struct RuntimeMessageProcessorApi
 // GAG.EXE: 0x00421230
 void process_runtime_message(RuntimeCommandLoopState *state);
 
-void set_runtime_message_processor_api_for_testing(const RuntimeMessageProcessorApi &api);
 
 struct DisplayPaletteApi
 {
@@ -4714,7 +4175,6 @@ struct DisplayModeHostShutdownApi
 // GAG.EXE: 0x004134D0
 void shutdown_display_mode_host();
 
-void set_display_mode_host_shutdown_api_for_testing(const DisplayModeHostShutdownApi &api);
 
 // GAG.EXE: 0x00413780
 uint32_t set_active_display_mode(DisplayMode *mode);
@@ -4728,8 +4188,6 @@ uint32_t set_active_display_mode_if_graphics_ready(DisplayMode *mode);
 // GAG.EXE: 0x0041F9E0
 uint32_t restore_active_display_mode_if_graphics_ready();
 
-void set_display_mode_change_api_for_testing(const DisplayModeChangeApi &api);
-void set_display_mode_change_state_for_testing(uint32_t flags, void *display, DisplayMode *current_mode);
 
 struct DisplaySurfaceOperationApi
 {
@@ -4740,15 +4198,6 @@ struct DisplaySurfaceOperationApi
     BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
     BOOL(WINAPI *pat_blt)(HDC destination, int x, int y, int width, int height, DWORD operation);
 };
-
-#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
-RECT calculate_modern_windows_fullscreen_viewport_for_testing(int32_t monitor_width, int32_t monitor_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling);
-RECT calculate_modern_windows_windowed_viewport_for_testing(int32_t client_width, int32_t client_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling);
-int32_t map_modern_windows_fullscreen_coordinate_for_testing(int32_t value, int32_t destination_extent, int32_t source_extent);
-void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, int32_t viewport_width, int32_t viewport_height);
-void reset_modern_windows_presentation_for_testing();
-bool get_modern_windows_windowed_rectangle_for_testing(RECT *rectangle);
-#endif
 
 struct LegacyDisplayPixelFormat
 {
@@ -4841,18 +4290,6 @@ void enable_display_palette_mode();
 // GAG.EXE: 0x004145D0
 void disable_display_palette_mode();
 
-void set_display_palette_api_for_testing(const DisplayPaletteApi &api);
-void set_display_palette_teardown_api_for_testing(const DisplayPaletteTeardownApi &api);
-void set_display_cooperative_level_api_for_testing(const DisplayCooperativeLevelApi &api);
-void set_display_surface_operation_api_for_testing(const DisplaySurfaceOperationApi &api);
-void set_display_surface_creation_api_for_testing(const DisplaySurfaceCreationApi &api);
-void set_display_palette_state_for_testing(uint32_t flags, int32_t display_bits_per_pixel, int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette, int32_t width, int32_t height);
-void set_display_palette_bitmap_for_testing(HBITMAP bitmap);
-void set_display_palette_teardown_state_for_testing(HWND window, HPALETTE previous_palette, HBITMAP previous_bitmap);
-void set_display_cooperative_state_for_testing(HWND window, void *display);
-void set_display_surface_operation_state_for_testing(void *primary_surface, void *secondary_surface);
-uint32_t get_display_palette_flags_for_testing();
-const PALETTEENTRY *get_display_palette_entries_for_testing();
 
 struct DisplayTargetApi
 {
@@ -4862,8 +4299,6 @@ struct DisplayTargetApi
 // GAG.EXE: 0x00414540
 uint32_t end_display_target();
 
-void set_display_target_api_for_testing(const DisplayTargetApi &api);
-void set_display_target_state_for_testing(void *backend, void *target);
 
 struct RuntimeTargetUpdateApi
 {
@@ -4875,8 +4310,6 @@ struct RuntimeTargetUpdateApi
 // GAG.EXE: 0x004280D0
 bool update_runtime_target(void *unused, RuntimeCommandBounds *bounds, int mode);
 
-void set_runtime_target_update_api_for_testing(const RuntimeTargetUpdateApi &api);
-void set_runtime_target_flags_for_testing(uint32_t flags);
 
 struct DisplayLockReleaseApi
 {
@@ -4902,10 +4335,6 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
 // GAG.EXE: 0x00419AF0
 uint32_t release_display_lock();
 
-void set_display_lock_release_api_for_testing(const DisplayLockReleaseApi &api);
-void set_display_lock_acquire_api_for_testing(const DisplayLockAcquireApi &api);
-void set_display_lock_state_for_testing(uint32_t flags, DWORD owner_thread, uint32_t recursion_count, HANDLE release_event);
-void get_display_lock_state_for_testing(uint32_t *flags, DWORD *owner_thread, uint32_t *recursion_count);
 
 struct DisplayRectangleTransform
 {
@@ -5092,7 +4521,6 @@ struct FramebufferInvalidateApi
 // GAG.EXE: 0x00427830
 void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32_t height);
 
-void set_framebuffer_invalidate_api_for_testing(const FramebufferInvalidateApi &api);
 
 // GAG.EXE: 0x00419550
 uint32_t find_available_display_scene_index(uint32_t candidate);
@@ -5142,8 +4570,6 @@ struct DisplayRootRegionApi
 // GAG.EXE: 0x0041B1F0
 uint32_t update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, uint32_t callback_value);
 
-void set_display_root_region_api_for_testing(const DisplayRootRegionApi &api);
-void set_display_root_region_state_for_testing(uint32_t lock_flags, DisplaySceneNode *root);
 
 struct ClearRuntimeDisplayApi
 {
@@ -5157,8 +4583,6 @@ struct ClearRuntimeDisplayApi
 // GAG.EXE: 0x00427880
 void clear_runtime_display();
 
-void set_clear_runtime_display_api_for_testing(const ClearRuntimeDisplayApi &api);
-void set_clear_runtime_display_size_for_testing(uint16_t width, uint16_t height);
 
 // GAG.EXE: 0x0041A830
 uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(DisplayTraversalState *state), const void *context, uint32_t context_size, uint32_t flags);
@@ -5221,18 +4645,6 @@ uint32_t shutdown_display_scene_host();
 // GAG.EXE: 0x0041B3F0
 DWORD WINAPI run_display_scene_worker(uint32_t *flags);
 
-void set_display_clip_bounds_for_testing(const DisplayRectangle &bounds);
-void set_display_scene_callback_api_for_testing(const DisplaySceneCallbackApi &api);
-void set_display_scene_sync_api_for_testing(const DisplaySceneSyncApi &api);
-void set_display_scene_memory_api_for_testing(const DisplaySceneMemoryApi &api);
-void set_display_scene_host_api_for_testing(const DisplaySceneHostApi &api);
-void set_display_scene_worker_api_for_testing(const DisplaySceneWorkerApi &api);
-void set_display_scene_sync_state_for_testing(void *context, DisplaySceneNode *root_node);
-void set_display_scene_worker_state_for_testing(uint32_t interval, DisplayPixelFormatDescriptor *palette_source_state);
-uint32_t get_display_scene_worker_rate_for_testing();
-void set_display_scene_root_primary_position_for_testing(intptr_t primary_position);
-void set_display_lock_acquire_state_for_testing(HANDLE gate_event, uint32_t busy, const DisplayRectangle &pending_rectangle, int32_t width, int32_t height, DisplaySceneNode *scene_head);
-DisplayRectangle get_display_pending_rectangle_for_testing();
 
 struct RuntimeCommandLoopApi
 {
@@ -5274,16 +4686,10 @@ struct RuntimeSessionResetApi
 // GAG.EXE: 0x004263A0
 void reset_runtime_session();
 
-void set_runtime_session_reset_api_for_testing(const RuntimeSessionResetApi &api);
-void set_runtime_session_reset_storage_for_testing(uint32_t value);
-uint32_t get_runtime_session_reset_storage_for_testing(uint32_t index);
-uintptr_t get_runtime_pointer_event_record_for_testing(uint32_t index);
-void set_embedded_script_runtime_flags_for_testing(uint32_t flags, uint32_t palette_flags);
 
 // GAG.EXE: 0x00420CE0
 int run_runtime_command_loop(RuntimeCommandLoopState *state);
 
-void set_runtime_command_loop_api_for_testing(const RuntimeCommandLoopApi &api);
 
 struct RuntimeExternalCommandApi
 {
@@ -5296,9 +4702,6 @@ struct RuntimeExternalCommandApi
 // GAG.EXE: 0x00421010
 uint32_t run_pending_runtime_external_command();
 
-void set_runtime_external_command_api_for_testing(const RuntimeExternalCommandApi &api);
-void set_runtime_external_command_state_for_testing(const RuntimeCommandLoopState &state);
-const RuntimeCommandLoopState &get_runtime_external_command_state_for_testing();
 
 // GAG.EXE: 0x00421530
 DWORD WINAPI execute_script_commands(LPVOID parameter);
@@ -5314,9 +4717,9 @@ enum class RuntimeScriptOpcodeDisposition : uint32_t
     restart_outer_commit_cursor
 };
 
-// Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
-RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode,
-    int32_t random_value = 0, uint32_t saved_cursor = 0xffffffff);
+// Non-original dispatcher slice used to compose GAG.EXE:0x00421530.
+RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value = 0,
+    uint32_t saved_cursor = 0xffffffff);
 bool should_send_runtime_script_message(int32_t command);
 
 struct RuntimeScriptExecutorApi
@@ -5341,7 +4744,6 @@ struct RuntimeScriptExecutorApi
     int32_t (*select_random)(int32_t minimum, int32_t maximum);
 };
 
-void set_runtime_script_executor_api_for_testing(const RuntimeScriptExecutorApi &api);
 
 // GAG.EXE: 0x0041CE40
 void application_hook_no_op_1();
@@ -5370,6 +4772,5 @@ void clear_application_lock_flag(ApplicationState *state);
 // GAG.EXE: 0x00417970
 void free_heap_memory(void *memory);
 
-void set_cursor_state_api_for_testing(const CursorStateApi &api);
 
 } // namespace gag

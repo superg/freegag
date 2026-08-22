@@ -1,16 +1,9 @@
-cmake_minimum_required(VERSION 3.20)
-project(freegag LANGUAGES CXX RC)
+cmake_minimum_required(VERSION 4.4)
+project(freegag LANGUAGES CXX)
 
-include(CTest)
 include(FetchContent)
 
-set(GAG_RESOURCE_DIR "" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets")
-set(GAG_LOCAL_RESOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/gag-resources")
-if(NOT GAG_RESOURCE_DIR AND EXISTS "${GAG_LOCAL_RESOURCE_DIR}/gag_resources.rc")
-  set(GAG_RESOURCE_DIR "${GAG_LOCAL_RESOURCE_DIR}" CACHE PATH "Optional directory containing a locally extracted gag_resources.rc and its original GAG.EXE assets" FORCE)
-endif()
 option(FREEGAG_WINDOWS_FIXES "Enable compatibility fixes for modern Windows" ON)
-option(FREEGAG_IN_GAME_SAVE_LOAD "Use scripted save/load screens instead of the recovered native dialogs" ON)
 
 set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)

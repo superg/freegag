@@ -57,19 +57,4 @@ bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *stat
 void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree);
 void on_scripted_save_load_tree_resources_destroyed(RuntimeTreeNode *tree);
 
-#if defined(GAG_TESTING)
-uint32_t get_scripted_save_load_entry_count_for_testing();
-uint32_t get_scripted_save_load_selection_for_testing();
-const ArchiveCommentEntry *get_scripted_save_load_selected_entry_for_testing();
-void set_scripted_save_load_collection_for_testing(ArchiveCommentCollection collection, uint32_t selection);
-const char *get_scripted_save_load_current_name_for_testing();
-bool get_scripted_save_load_editing_for_testing();
-uint32_t get_scripted_save_load_preview_render_attempts_for_testing();
-void set_scripted_save_load_persistence_api_for_testing(const ScriptedSaveLoadPersistenceApi &api);
-void finish_scripted_save_name_for_testing(const char *input, ApplicationState *state);
-void prepare_scripted_save_name_display_for_testing(const char *name, char *display);
-bool decode_scripted_save_preview_for_testing(const uint8_t *data, uint32_t size, DisplaySceneNode *scene);
-bool get_scripted_save_preview_palette_for_testing(const uint8_t *data, uint32_t size, uint32_t *palette);
-#endif
-
 } // namespace gag

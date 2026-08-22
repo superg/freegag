@@ -1,6 +1,7 @@
 #include "startup.h"
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -514,7 +515,7 @@ RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, i
 RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
 RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, GetTickCount, timeGetTime, Sleep, process_available_runtime_generic_children, process_runtime_message,
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
-    acknowledge_current_runtime_event_record, run_pending_runtime_external_command, activate_runtime_tree_link_007c, parse_script_opcode, execute_simple_runtime_script_opcode_for_testing,
+    acknowledge_current_runtime_event_record, run_pending_runtime_external_command, activate_runtime_tree_link_007c, parse_script_opcode, execute_simple_runtime_script_opcode,
     select_bounded_random_value };
 char &runtime_display_reset_byte = runtime_display_context.input_text[0];
 RuntimeDisplayResetApi runtime_display_reset_api{ switch_runtime_scene, set_script_runtime_flags, reset_script_runtime_transient_indices, reset_runtime_byte_queue, reset_runtime_pair_queue,
@@ -575,8 +576,6 @@ RuntimeResourceTypeApi runtime_resource_type_api{ EnterCriticalSection, LeaveCri
 RuntimeCdfStreamApi runtime_cdf_stream_api{ lstrcmpiA, duplicate_async_file_record, CreateFileA, SetFilePointer };
 ArchiveCommentEnumerationApi archive_comment_enumeration_api{ FindFirstFileA, FindNextFileA, FindClose, GetProcessHeap, HeapAlloc, HeapReAlloc, HeapFree, open_cdf_archive, get_cdf_error,
     get_cdf_entry_size, read_cdf_entry, close_cdf_archive, SendMessageA, DeleteFileA };
-ArchiveCommentDialogApi archive_comment_dialog_api{ GetDlgItem, SendMessageA, SetFocus, ShowWindow, EndDialog, GetProcessHeap, HeapFree, enumerate_archive_comments, MessageBoxA, Sleep };
-ArchiveCommentDialogLaunchApi archive_comment_dialog_launch_api{ _splitpath, DialogBoxParamA };
 HANDLE &runtime_resource_heap = runtime_display_context.resource_heap;
 uint32_t &runtime_resource_streamed_count = runtime_display_context.resource_count;
 RuntimeResourceLoadApi runtime_resource_load_api{ EnterCriticalSection, LeaveCriticalSection, find_runtime_resource_cache_entry, open_async_file_record, get_async_file_size,
@@ -734,9 +733,9 @@ uint32_t &runtime_state_1000_count = runtime_display_context.nested_runtime_stat
 uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
 FramebufferInvalidateApi framebuffer_invalidate_api{ acquire_display_lock, dispatch_display_scene_update, release_display_lock };
 ClearRuntimeDisplayApi clear_runtime_display_api{ acquire_display_lock, set_display_clip_rectangle, operate_display_surface, release_display_lock, update_display_root_region };
-GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_backend, register_custom_control_class, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate,
-    LoadCursorA, RegisterClassA, CreateWindowExA, GetCursorPos, ScreenToClient, initialize_display_mode_host, set_script_runtime_root_if_valid, get_or_create_runtime_named_node,
-    set_runtime_named_node_enabled, InitializeCriticalSection, ShowWindow };
+GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_backend, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate, LoadCursorA, RegisterClassA,
+    CreateWindowExA, GetCursorPos, ScreenToClient, initialize_display_mode_host, set_script_runtime_root_if_valid, get_or_create_runtime_named_node, set_runtime_named_node_enabled,
+    InitializeCriticalSection, ShowWindow };
 GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
     shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
 void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name)
@@ -779,9 +778,6 @@ AsyncFileLockApi async_file_lock_api{ EnterCriticalSection, LeaveCriticalSection
 AsyncFileOpenApi async_file_open_api{ CreateFileA, GetProcessHeap, HeapAlloc, HeapFree, CloseHandle, VirtualAlloc, VirtualFree, GetFileSize };
 AsyncFileHostApi async_file_host_api{ GetProcessHeap, HeapAlloc, HeapFree, GetDiskFreeSpaceA, InitializeCriticalSection, DeleteCriticalSection, VirtualAlloc, CreateThread, WaitForSingleObject,
     ReadFile, SetFilePointer, timeGetTime };
-ArchiveReadSpeedApi archive_read_speed_api{ initialize_async_file_subsystem, extract_runtime_drive_prefix, create_async_file_host, open_async_file_record, get_async_file_size, read_async_file_record,
-    timeGetTime, close_async_file_record, destroy_async_file_host };
-
 ScreenshotApi screenshot_api{ GetSaveFileNameA, capture_game_bitmap, CreateFileA, WriteFile, CloseHandle };
 BitmapCaptureApi bitmap_capture_api{ GetProcessHeap, HeapAlloc };
 
@@ -789,26 +785,15 @@ bool strings_equal(const char *left, const char *right);
 void copy_directory_from_path(char *destination, const char *source);
 void set_runtime_flag_40();
 
-#if defined(FREEGAG_WINDOWS_FIXES)
-// The original 32-bit installer and prior Win32 fixes builds store their values in the 32-bit registry view.
-constexpr REGSAM modern_windows_registry_view = KEY_WOW64_32KEY;
-#endif
-
-DriveDiscoveryApi drive_discovery_api{ GetLogicalDriveStringsA, GetProcessHeap, HeapAlloc, HeapFree, GetDriveTypeA, FindFirstFileA, FindNextFileA, FindClose, open_cdf_archive, read_cdf_entry,
-    close_cdf_archive, lstrcmpiA };
 CursorStateApi cursor_state_api{ GetCursorPos, GetSystemMetrics };
 
-uint32_t load_registry_for_validation(ApplicationState *state)
+uint32_t load_preferences_for_validation(ApplicationState *state)
 {
-    return load_installation_registry_settings(state, make_win32_registry_api());
+    return load_local_preferences(state);
 }
 
-ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, GetModuleFileNameA, CreateICA, GetDeviceCaps, DeleteDC, load_registry_for_validation, locate_game_data_drive,
-    measure_archive_read_speed, detect_alternate_display_mode };
-WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, RegisterClassA, MessageBoxA, gag_main_window_procedure, gag_capture_window_procedure,
-    gag_custom_control_window_procedure };
-uint32_t custom_control_registered;
-HINSTANCE custom_control_instance;
+ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, CreateICA, GetDeviceCaps, DeleteDC, load_preferences_for_validation, detect_alternate_display_mode };
+WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, MessageBoxA, gag_main_window_procedure, gag_capture_window_procedure };
 
 WindowProcedureApi window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem,
     SetMenu, DestroyWindow, DefWindowProcA, SendMessageA, set_game_cursor_active };
@@ -819,13 +804,7 @@ uintptr_t get_serialized_script_state_value()
 MainWindowProcedureApi main_window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, PostQuitMessage, ReplyMessage, SendMessageA, DefWindowProcA, DestroyWindow,
     get_serialized_script_state_value, resolve_state_field_reference, capture_game_bitmap, free_heap_memory, application_hook_no_op_1, set_application_lock_flag, clear_runtime_active_flag,
     validate_startup_environment, set_runtime_flag_40 };
-CustomControlGdiApi custom_control_gdi_api{ GetDC, CreateCompatibleDC, GetDeviceCaps, GetClientRect, SetSystemPaletteUse, CreatePalette, SelectPalette, SetStretchBltMode, UnrealizeObject,
-    RealizePalette, StretchBlt, SelectObject, DeleteObject, ReleaseDC, DeleteDC, CreateDIBSection, SetPaletteEntries, SetDIBColorTable };
-CustomControlWindowApi custom_control_window_api{ GetUpdateRect, BeginPaint, EndPaint, GetWindowLongPtrA, SetWindowLongPtrA, DefWindowProcA, PatBlt, GetProcessHeap, HeapAlloc, HeapFree, FindResourceA,
-    GetModuleHandleA, LoadResource, LockResource, FreeResource, open_cdf_archive, get_cdf_entry_size, read_cdf_entry, close_cdf_archive, strings_equal, copy_string, initialize_custom_control_gdi,
-    set_custom_control_bitmap, realize_and_present_custom_control, destroy_custom_control_gdi };
-SettingsRegistryApi settings_registry_api{ RegOpenKeyExA, RegCreateKeyExA, RegSetValueExA, RegCloseKey };
-WindowPositionPersistenceApi window_position_persistence_api{ RegOpenKeyExA, RegCreateKeyExA, RegQueryValueExA, RegSetValueExA, RegCloseKey, GetWindowRect, GetWindowPlacement, MonitorFromRect };
+LocalPreferencesApi local_preferences_api{ GetFullPathNameA, GetPrivateProfileStringA, WritePrivateProfileStringA, GetWindowRect, GetWindowPlacement, MonitorFromRect };
 
 void enter_runtime_byte_queue_lock()
 {
@@ -1095,25 +1074,6 @@ uintptr_t get_serialized_script_state_for_application()
 
 StateActivationApi state_activation_api{ query_runtime_scene_flags, get_serialized_script_state_for_application, enter_runtime_state_1000 };
 
-// Non-original adapters preserving the callback shapes used by the recovered UI orchestrators.
-int show_save_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, void *memory, char *first_path, char *second_path)
-{
-    return run_synchronized_state_operation_175f0(dialog_context, installation_path, const_cast<char *>(dialog_data), memory, first_path, second_path);
-}
-
-void write_selected_application_state(char *first_path, char *second_path, void *memory, uintptr_t script_state)
-{
-    run_synchronized_state_operation_176a0(first_path, second_path, memory, reinterpret_cast<void *>(static_cast<uintptr_t>(script_state)));
-}
-
-void restore_application_scene_after_dialog()
-{
-    select_runtime_scene_transition(0x10002001);
-}
-
-SaveStateApi save_state_api{ capture_game_bitmap, get_serialized_script_state_for_application, clear_runtime_display, show_save_state_dialog, write_selected_application_state,
-    restore_application_scene_after_dialog };
-const char *const save_dialog_data[] = { "GAG.GSF", "SOFTWARE\\ZES't Corp.\\GAG", "Russian Edition Version 2.51", "C:\\Zes't Corp\\Gag_Re\\" };
 constexpr char auto_save_file_name[] = "AutoSave.cdf";
 
 #if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
@@ -1157,29 +1117,6 @@ void trace_auto_save(const char *event, const ApplicationState *state, const cha
 #define trace_auto_save(...) ((void)0)
 #endif
 
-int show_open_state_dialog(void *dialog_context, char *installation_path, const char *dialog_data, char *installed_version)
-{
-    return run_synchronized_state_operation_17550(dialog_context, installation_path, const_cast<char *>(dialog_data), installed_version);
-}
-
-void restore_application_scene_after_open(uint32_t flags)
-{
-    select_runtime_scene_transition(flags);
-}
-
-OpenStateApi open_state_api{ clear_runtime_display, show_open_state_dialog, restore_application_scene_after_open };
-
-int run_archive_comment_dialog_adapter(void *first, void *second, void *third, void *fourth)
-{
-    return static_cast<int>(run_archive_comment_dialog(static_cast<HWND>(first), static_cast<const char *>(second), static_cast<const char *>(third), static_cast<char *>(fourth)));
-}
-
-int run_archive_selection_dialog_adapter(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
-{
-    return static_cast<int>(
-        run_archive_selection_dialog(static_cast<HWND>(first), static_cast<const char *>(second), static_cast<const char *>(third), fourth, static_cast<char *>(fifth), static_cast<char *>(sixth)));
-}
-
 int write_comment_cdf_package_adapter(void *first, void *second, void *third, void *fourth)
 {
     return static_cast<int>(write_comment_cdf_package(static_cast<const char *>(first), second, third, static_cast<const ScriptTextBuffer *>(fourth)));
@@ -1190,8 +1127,7 @@ HWND get_synchronized_runtime_window()
     return runtime_display_context.window;
 }
 
-SynchronizedStateApi synchronized_state_api{ enter_synchronized_resource_lock, leave_synchronized_resource_lock, run_archive_comment_dialog_adapter, run_archive_selection_dialog_adapter,
-    write_comment_cdf_package_adapter, SendMessageA, get_synchronized_runtime_window };
+SynchronizedStateApi synchronized_state_api{ enter_synchronized_resource_lock, leave_synchronized_resource_lock, write_comment_cdf_package_adapter, SendMessageA, get_synchronized_runtime_window };
 
 // Non-original helper shared by the two recovered flag-transition functions.
 void clear_cursor_flag_above_client(ApplicationState *state)
@@ -1208,8 +1144,8 @@ void clear_cursor_flag_above_client(ApplicationState *state)
     }
 }
 
-ApplicationInitializationApi application_initialization_api{ SetErrorMode, GetProcessHeap, HeapAlloc, initialize_application_state_no_op, register_gag_window_classes, register_custom_control_class,
-    copy_string, validate_startup_environment, GetSystemMetrics, AdjustWindowRect, CreateWindowExA, ShowWindow, SetWindowPos, GetClientRect, initialize_graphics_host, switch_display_mode_if_enabled,
+ApplicationInitializationApi application_initialization_api{ SetErrorMode, GetProcessHeap, HeapAlloc, initialize_application_state_no_op, register_gag_window_classes, copy_string,
+    validate_startup_environment, GetSystemMetrics, AdjustWindowRect, CreateWindowExA, ShowWindow, SetWindowPos, GetClientRect, initialize_graphics_host, switch_display_mode_if_enabled,
     initialize_runtime_graphics, update_application_window_layout, enable_runtime_subsystem, set_active_object_field_0824, detect_runtime_resource_type };
 
 // GAG.EXE: 0x00420C20
@@ -1219,17 +1155,6 @@ void set_runtime_flag_40()
 }
 
 } // namespace
-
-#if defined(GAG_TESTING)
-bool uses_scripted_save_load_screens_for_testing()
-{
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
-    return true;
-#else
-    return false;
-#endif
-}
-#endif
 
 RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_resource, release_runtime_memory_resource, set_runtime_property_value, enter_runtime_state_1000, leave_runtime_state_1000,
     SendMessageA, destroy_runtime_tree_resources };
@@ -1374,10 +1299,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     graphics_script_runtime_root = {};
     std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
     bool initialized = graphics_host_api.initialize_media(instance) != 0;
-    if(initialized)
-    {
-        initialized = graphics_host_api.register_control(instance) != 0;
-    }
     if(initialized)
     {
         initialized = graphics_host_api.initialize_async() != 0;
@@ -1557,16 +1478,7 @@ uint32_t shutdown_graphics_host()
     return result;
 }
 
-void set_graphics_host_shutdown_api_for_testing(const GraphicsHostShutdownApi &api)
-{
-    graphics_host_shutdown_api = api;
-}
 
-void set_graphics_host_shutdown_state_for_testing(HANDLE heap, HWND window)
-{
-    runtime_resource_heap = heap;
-    graphics_host_state.capture_window = window;
-}
 
 // GAG.EXE: 0x00427880
 void clear_runtime_display()
@@ -1581,16 +1493,7 @@ void clear_runtime_display()
     }
 }
 
-void set_clear_runtime_display_api_for_testing(const ClearRuntimeDisplayApi &api)
-{
-    clear_runtime_display_api = api;
-}
 
-void set_clear_runtime_display_size_for_testing(uint16_t width, uint16_t height)
-{
-    runtime_game_host_context.width = width;
-    runtime_game_host_context.height = height;
-}
 
 // GAG.EXE: 0x0041FEA0
 GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDisplayPixelFormat *requested_format)
@@ -1705,277 +1608,6 @@ void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32
         framebuffer_invalidate_api.dispatch_update(&rectangle, 0);
         framebuffer_invalidate_api.release_lock();
     }
-}
-
-// GAG.EXE: 0x00417AB0
-void initialize_custom_control_gdi(HWND window, CustomControlState *state)
-{
-    state->destination_context = custom_control_gdi_api.get_context(window);
-    state->source_context = custom_control_gdi_api.create_compatible_context(state->destination_context);
-    state->bits_per_pixel = custom_control_gdi_api.get_device_caps(state->destination_context, BITSPIXEL);
-    custom_control_gdi_api.get_client_rect(window, &state->client_rect);
-    if(state->bits_per_pixel == 8)
-    {
-        struct Palette236
-        {
-            WORD version;
-            WORD entry_count;
-            PALETTEENTRY entries[236];
-        } palette{};
-        custom_control_gdi_api.set_system_palette_use(state->destination_context, SYSPAL_STATIC);
-        palette.version = 0x300;
-        palette.entry_count = 0xec;
-        for(PALETTEENTRY &entry : palette.entries)
-        {
-            entry.peFlags = PC_NOCOLLAPSE;
-        }
-        state->palette = custom_control_gdi_api.create_palette(reinterpret_cast<const LOGPALETTE *>(&palette));
-        state->previous_palette = custom_control_gdi_api.select_palette(state->destination_context, state->palette, FALSE);
-    }
-    custom_control_gdi_api.set_stretch_blt_mode(state->destination_context, COLORONCOLOR);
-}
-
-// GAG.EXE: 0x00417B60
-void set_custom_control_bitmap(CustomControlState *state, BITMAPINFO *bitmap, int present)
-{
-    if(bitmap->bmiHeader.biBitCount != 8)
-    {
-        return;
-    }
-    if(state->previous_bitmap != nullptr)
-    {
-        custom_control_gdi_api.select_object(state->source_context, state->previous_bitmap);
-        custom_control_gdi_api.delete_object(state->bitmap);
-    }
-    state->source_width = bitmap->bmiHeader.biWidth;
-    state->source_height = bitmap->bmiHeader.biHeight;
-    void *destination_bits;
-    state->bitmap = custom_control_gdi_api.create_dib_section(state->destination_context, bitmap, DIB_PAL_COLORS, &destination_bits, nullptr, 0);
-    state->previous_bitmap = custom_control_gdi_api.select_object(state->source_context, state->bitmap);
-    uint32_t pixel_count = static_cast<uint32_t>(bitmap->bmiHeader.biWidth * bitmap->bmiHeader.biHeight);
-    const auto *indexed_bitmap = reinterpret_cast<const RuntimeIndexedBitmapInfo *>(bitmap);
-    std::memcpy(destination_bits, indexed_bitmap->pixels, pixel_count);
-    if(state->bits_per_pixel == 8)
-    {
-        custom_control_gdi_api.unrealize_object(state->palette);
-        PALETTEENTRY entries[236];
-        for(int index = 0; index < 236; ++index)
-        {
-            entries[index].peRed = bitmap->bmiColors[index].rgbRed;
-            entries[index].peGreen = bitmap->bmiColors[index].rgbGreen;
-            entries[index].peBlue = bitmap->bmiColors[index].rgbBlue;
-            entries[index].peFlags = PC_NOCOLLAPSE;
-        }
-        custom_control_gdi_api.set_palette_entries(state->palette, 0, 0xec, entries);
-        custom_control_gdi_api.realize_palette(state->destination_context);
-    }
-    custom_control_gdi_api.set_dib_color_table(state->source_context, 0, 0x100, bitmap->bmiColors);
-    if(present != 0)
-    {
-        custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, bitmap->bmiHeader.biWidth,
-            bitmap->bmiHeader.biHeight, SRCCOPY);
-    }
-}
-
-// GAG.EXE: 0x00417CB0
-void realize_and_present_custom_control(CustomControlState *state, BOOL background)
-{
-    custom_control_gdi_api.unrealize_object(state->palette);
-    custom_control_gdi_api.select_palette(state->destination_context, state->palette, background);
-    custom_control_gdi_api.realize_palette(state->destination_context);
-    custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width, state->source_height,
-        SRCCOPY);
-}
-
-// GAG.EXE: 0x00417D10
-void destroy_custom_control_gdi(HWND window, CustomControlState *state)
-{
-    if(state->bits_per_pixel == 8)
-    {
-        custom_control_gdi_api.unrealize_object(state->palette);
-        custom_control_gdi_api.select_palette(state->destination_context, state->previous_palette, FALSE);
-        custom_control_gdi_api.delete_object(state->palette);
-    }
-    if(state->previous_bitmap != nullptr)
-    {
-        custom_control_gdi_api.select_object(state->source_context, state->previous_bitmap);
-        custom_control_gdi_api.delete_object(state->bitmap);
-    }
-    custom_control_gdi_api.release_context(window, state->destination_context);
-    custom_control_gdi_api.delete_context(state->source_context);
-}
-
-// GAG.EXE: 0x00417D90
-LRESULT CALLBACK gag_custom_control_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    if(message == WM_CREATE)
-    {
-        custom_control_window_api.set_window_long(window, 0, 0);
-        return 0;
-    }
-    if(message == WM_PAINT)
-    {
-        RECT update_rect;
-        if(custom_control_window_api.get_update_rect(window, &update_rect, FALSE) == FALSE)
-        {
-            return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
-        }
-        PAINTSTRUCT paint;
-        custom_control_window_api.begin_paint(window, &paint);
-        CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        if(state != nullptr)
-        {
-            custom_control_gdi_api.stretch_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, state->source_context, 0, 0, state->source_width,
-                state->source_height, SRCCOPY);
-        }
-        custom_control_window_api.end_paint(window, &paint);
-        return 0;
-    }
-    if(message == WM_QUERYNEWPALETTE)
-    {
-        CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        if(state != nullptr)
-        {
-            custom_control_window_api.realize_and_present(state, FALSE);
-        }
-        return 1;
-    }
-    if(message == WM_PALETTECHANGED)
-    {
-        if(reinterpret_cast<HWND>(wparam) != window)
-        {
-            CustomControlState *state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-            if(state != nullptr)
-            {
-                custom_control_window_api.realize_and_present(state, TRUE);
-            }
-        }
-        return 0;
-    }
-    if(message != 0x7ff0)
-    {
-        return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
-    }
-
-    CustomControlState *state;
-    switch(wparam)
-    {
-    case 1:
-        custom_control_window_api.set_window_long(window, 0, static_cast<LONG_PTR>(lparam));
-        custom_control_window_api.initialize_gdi(window, reinterpret_cast<CustomControlState *>(lparam));
-        return 1;
-    case 2:
-        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        return state != nullptr && state->dialog_state != nullptr ? reinterpret_cast<LRESULT>(state->dialog_state) : reinterpret_cast<LRESULT>(state);
-    case 4:
-    {
-        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        if(state == nullptr)
-        {
-            return 0;
-        }
-        const char *archive_path = reinterpret_cast<const char *>(lparam);
-        if(state->bitmap_identity == nullptr && custom_control_window_api.strings_equal(state->archive_path, archive_path))
-        {
-            return 1;
-        }
-        state->comment_text[0] = 0;
-        CdfArchive *archive = custom_control_window_api.open_archive(archive_path, 0);
-        if(archive == nullptr)
-        {
-            return 0;
-        }
-        uint32_t size = custom_control_window_api.get_entry_size(archive, 0, "COMMENT.BMP");
-        if(size == 0)
-        {
-            custom_control_window_api.close_archive(archive);
-            return 0;
-        }
-        void *data = custom_control_window_api.heap_alloc(custom_control_window_api.get_process_heap(), 0, size);
-        if(data == nullptr)
-        {
-            custom_control_window_api.close_archive(archive);
-            return 0;
-        }
-        char comment[0x104]{};
-        custom_control_window_api.read_entry(archive, 0, "COMMENT.TXT", comment);
-        custom_control_window_api.read_entry(archive, 0, "COMMENT.BMP", data);
-        custom_control_window_api.close_archive(archive);
-        custom_control_window_api.copy_string(state->comment_text, comment);
-        custom_control_window_api.copy_string(state->archive_path, archive_path);
-        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(static_cast<uint8_t *>(data) + sizeof(BITMAPFILEHEADER)), 1);
-        state->bitmap_identity = nullptr;
-        custom_control_window_api.heap_free(custom_control_window_api.get_process_heap(), 0, data);
-        return 1;
-    }
-    case 8:
-        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        if(state != nullptr)
-        {
-            custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-            custom_control_window_api.destroy_gdi(window, state);
-        }
-        return 0;
-    case 0x10:
-    {
-        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        const void *identity = reinterpret_cast<const void *>(lparam);
-        if(state == nullptr)
-        {
-            return 0;
-        }
-        if(state->bitmap_identity == identity)
-        {
-            return 1;
-        }
-        state->bitmap_identity = identity;
-        HRSRC resource = custom_control_window_api.find_resource(nullptr, reinterpret_cast<LPCSTR>(lparam), RT_BITMAP);
-        HGLOBAL loaded_resource = custom_control_window_api.load_resource(custom_control_window_api.get_module_handle(nullptr), resource);
-        if(loaded_resource == nullptr)
-        {
-            return 0;
-        }
-        void *data = custom_control_window_api.lock_resource(loaded_resource);
-        if(data == nullptr)
-        {
-            return 0;
-        }
-        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        custom_control_window_api.set_bitmap(state, static_cast<BITMAPINFO *>(data), 1);
-        custom_control_window_api.free_resource(loaded_resource);
-        return 1;
-    }
-    case 0x20:
-    {
-        state = reinterpret_cast<CustomControlState *>(custom_control_window_api.get_window_long(window, 0));
-        const void *data = reinterpret_cast<const void *>(lparam);
-        if(state == nullptr || data == nullptr)
-        {
-            return 0;
-        }
-        if(state->bitmap_identity == data)
-        {
-            return 1;
-        }
-        state->bitmap_identity = data;
-        custom_control_window_api.pattern_blt(state->destination_context, 0, 0, state->client_rect.right, state->client_rect.bottom, BLACKNESS);
-        custom_control_window_api.set_bitmap(state, reinterpret_cast<BITMAPINFO *>(const_cast<uint8_t *>(static_cast<const uint8_t *>(data) + sizeof(BITMAPFILEHEADER))), 1);
-        return 1;
-    }
-    default:
-        return custom_control_window_api.default_window_procedure(window, message, wparam, lparam);
-    }
-}
-
-void set_custom_control_gdi_api_for_testing(const CustomControlGdiApi &api)
-{
-    custom_control_gdi_api = api;
-}
-
-void set_custom_control_window_api_for_testing(const CustomControlWindowApi &api)
-{
-    custom_control_window_api = api;
 }
 
 // GAG.EXE: 0x00413650
@@ -2114,37 +1746,7 @@ uint32_t enumerate_direct_draw_display_modes()
     return result;
 }
 
-void set_display_bootstrap_api_for_testing(const DisplayBootstrapApi &api)
-{
-    display_bootstrap_api = api;
-}
 
-void set_display_bootstrap_state_for_testing(uint32_t flags, DisplayMode *head, DisplayMode *tail, uint32_t count, void *display)
-{
-    display_palette_flags = flags;
-    display_mode_head = head;
-    display_mode_tail = tail;
-    display_mode_count = count;
-    display_direct_draw = display;
-    display_bootstrap_error = 0;
-    display_platform_id = 0;
-    direct_draw_module = nullptr;
-}
-
-uint32_t get_display_bootstrap_error_for_testing()
-{
-    return display_bootstrap_error;
-}
-
-uint32_t get_display_mode_count_for_testing()
-{
-    return display_mode_count;
-}
-
-DisplayMode *get_display_mode_tail_for_testing()
-{
-    return display_mode_tail;
-}
 
 // GAG.EXE: 0x00413030
 uint32_t enumerate_windows_display_modes()
@@ -2277,10 +1879,6 @@ uint32_t enumerate_windows_display_modes()
     return result;
 }
 
-void set_windows_display_enumeration_api_for_testing(const WindowsDisplayEnumerationApi &api)
-{
-    windows_display_enumeration_api = api;
-}
 
 // GAG.EXE: 0x00413380
 uint32_t initialize_display_mode_host(HWND window, uint32_t options)
@@ -2328,21 +1926,7 @@ uint32_t initialize_display_mode_host(HWND window, uint32_t options)
     return result;
 }
 
-void set_display_host_initialization_api_for_testing(const DisplayHostInitializationApi &api)
-{
-    display_host_initialization_api = api;
-}
 
-void set_display_host_initialization_state_for_testing(uint32_t flags, HWND window)
-{
-    display_palette_flags = flags;
-    display_palette_window = window;
-}
-
-HWND get_display_host_window_for_testing()
-{
-    return display_palette_window;
-}
 
 // GAG.EXE: 0x00413650
 DisplayMode *begin_display_mode_enumeration(uint32_t mask)
@@ -2402,54 +1986,6 @@ DisplayMode *find_current_display_mode()
     }
     return result;
 }
-
-#if defined(GAG_TESTING) && defined(FREEGAG_WINDOWS_FIXES)
-void build_modern_windows_virtual_display_mode_for_testing(DisplayMode *mode, int32_t width, int32_t height, bool indexed)
-{
-    build_modern_windows_virtual_display_mode(mode, width, height, indexed ? ModernWindowsColorMode::indexed_8 : ModernWindowsColorMode::rgb565_16);
-}
-
-int32_t get_modern_windows_color_depth_for_testing()
-{
-    return modern_windows_color_mode == ModernWindowsColorMode::indexed_8 ? 8 : 16;
-}
-
-RECT calculate_modern_windows_fullscreen_viewport_for_testing(int32_t monitor_width, int32_t monitor_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling)
-{
-    return calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsFullscreenScaling>(scaling));
-}
-
-RECT calculate_modern_windows_windowed_viewport_for_testing(int32_t client_width, int32_t client_height, int32_t framebuffer_width, int32_t framebuffer_height, int32_t scaling)
-{
-    return calculate_modern_windows_windowed_viewport(client_width, client_height, framebuffer_width, framebuffer_height, static_cast<ModernWindowsWindowedScaling>(scaling));
-}
-
-int32_t map_modern_windows_fullscreen_coordinate_for_testing(int32_t value, int32_t destination_extent, int32_t source_extent)
-{
-    return map_modern_windows_presentation_coordinate(value, destination_extent, source_extent);
-}
-
-void set_modern_windows_fullscreen_presentation_for_testing(bool fullscreen, int32_t viewport_width, int32_t viewport_height)
-{
-    modern_windows_presentation_state.fullscreen = fullscreen;
-    modern_windows_presentation_state.viewport_width = viewport_width;
-    modern_windows_presentation_state.viewport_height = viewport_height;
-}
-
-void reset_modern_windows_presentation_for_testing()
-{
-    modern_windows_presentation_state = {};
-}
-
-bool get_modern_windows_windowed_rectangle_for_testing(RECT *rectangle)
-{
-    if(rectangle != nullptr)
-    {
-        *rectangle = modern_windows_presentation_state.windowed_rectangle;
-    }
-    return modern_windows_presentation_state.windowed_rectangle_valid;
-}
-#endif
 
 // GAG.EXE: 0x0041F960
 DisplayMode *get_current_display_mode()
@@ -2512,73 +2048,6 @@ uint32_t detect_alternate_display_mode(ApplicationState *state)
 #endif
 }
 
-// GAG.EXE: 0x0041EBD0
-void locate_game_data_drive(ApplicationState *state, const char *requested_archive)
-{
-    state->installed_version[0] = '\0';
-    char candidate_path[MAX_PATH]{};
-    DWORD required_size = drive_discovery_api.get_logical_drive_strings(0, nullptr);
-    if(required_size == 0)
-    {
-        return;
-    }
-
-    SIZE_T allocation_size = (required_size + 8) & 0xfffffffc;
-    HANDLE heap = drive_discovery_api.get_process_heap();
-    auto *drives = static_cast<char *>(drive_discovery_api.heap_alloc(heap, HEAP_ZERO_MEMORY, allocation_size));
-    if(drives == nullptr)
-    {
-        return;
-    }
-
-    DWORD drive_string_size = drive_discovery_api.get_logical_drive_strings(required_size, drives);
-    bool found = false;
-    for(DWORD drive_index = 0; drive_index < (drive_string_size >> 2) && !found; ++drive_index)
-    {
-        const char *drive = drives + drive_index * 4;
-        copy_string(candidate_path, drive);
-        UINT drive_type = drive_discovery_api.get_drive_type(candidate_path);
-        if(drive_type == DRIVE_RAMDISK || drive_type == DRIVE_REMOTE || drive_type == DRIVE_REMOVABLE || drive_type <= DRIVE_NO_ROOT_DIR)
-        {
-            continue;
-        }
-
-        append_string(candidate_path, "*.cdf");
-        WIN32_FIND_DATAA find_data{};
-        HANDLE find = drive_discovery_api.find_first_file(candidate_path, &find_data);
-        if(find == INVALID_HANDLE_VALUE)
-        {
-            continue;
-        }
-
-        do
-        {
-            copy_directory_from_path(candidate_path, candidate_path);
-            append_string(candidate_path, find_data.cFileName);
-            CdfArchive *archive = drive_discovery_api.open_archive(candidate_path, 0);
-            if(archive != nullptr)
-            {
-                char version[MAX_PATH]{};
-                if(drive_discovery_api.read_entry(archive, 0, "Version.txt", version) != 0 && strings_equal(version, "Russian Edition Version 2.51"))
-                {
-                    copy_directory_from_path(version, "*.cdf");
-                    copy_string(state->installed_version, drive);
-                    append_string(state->installed_version, version);
-                    append_string(state->installed_version, find_data.cFileName);
-                    if(drive_discovery_api.compare_case_insensitive(find_data.cFileName, requested_archive) == 0)
-                    {
-                        found = true;
-                    }
-                }
-                drive_discovery_api.close_archive(archive);
-            }
-        } while(!found && drive_discovery_api.find_next_file(find, &find_data) != FALSE);
-        drive_discovery_api.find_close(find);
-    }
-
-    drive_discovery_api.heap_free(heap, 0, drives);
-}
-
 // GAG.EXE: 0x0041F040
 int validate_startup_environment(ApplicationState *state, const char *requested_archive, uint32_t stages)
 {
@@ -2594,25 +2063,7 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
 
     if((stages & 2) != 0)
     {
-        uint32_t registry_result = validation_api.load_registry(state);
-        ptrdiff_t error_offset = 0;
-        if(registry_result == 0x10000)
-        {
-            error_offset = 0x1144;
-        }
-        else if(registry_result == 0x20000)
-        {
-            error_offset = 0x1248;
-        }
-        else if(registry_result == 0x40000)
-        {
-            error_offset = 0x134c;
-        }
-        if(error_offset != 0)
-        {
-            validation_api.message_box(state->window, state->message_table + error_offset, state->message_table, MB_ICONERROR);
-            return 0;
-        }
+        validation_api.load_preferences(state);
 
         char path[MAX_PATH];
         WIN32_FIND_DATAA find_data;
@@ -2644,33 +2095,9 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
 
     if((stages & 4) != 0 && state->archive_context == nullptr)
     {
-        bool found_archive = false;
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility: prefer a portable CDF pack beside the executable before consulting the installed/CD locations.
-        char executable_archive[MAX_PATH];
-        const DWORD executable_length = validation_api.get_module_file_name(nullptr, executable_archive, sizeof(executable_archive));
-        if(executable_length != 0 && executable_length < sizeof(executable_archive))
-        {
-            copy_directory_from_path(executable_archive, executable_archive);
-            if(std::strlen(executable_archive) + std::strlen(requested_archive) < sizeof(executable_archive))
-            {
-                append_string(executable_archive, requested_archive);
-                WIN32_FIND_DATAA find_data{};
-                HANDLE find = validation_api.find_first_file(executable_archive, &find_data);
-                if(find != INVALID_HANDLE_VALUE)
-                {
-                    validation_api.find_close(find);
-                    copy_string(state->installed_version, executable_archive);
-                    found_archive = true;
-                }
-            }
-        }
-#endif
-        if(!found_archive)
-        {
-            validation_api.locate_drive(state, requested_archive);
-        }
-        if(state->installed_version[0] == '\0')
+        WIN32_FIND_DATAA find_data{};
+        HANDLE find = validation_api.find_first_file(requested_archive, &find_data);
+        if(find == INVALID_HANDLE_VALUE)
         {
             if((stages & 0x20) != 0)
             {
@@ -2678,34 +2105,17 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
             }
             return 0;
         }
+        validation_api.find_close(find);
+        copy_string(state->installed_version, requested_archive);
     }
     else if((stages & 0x80) != 0 && state->archive_context == nullptr)
     {
-        validation_api.get_module_file_name(nullptr, state->installed_version, sizeof(state->installed_version));
-        copy_directory_from_path(state->installed_version, state->installed_version);
-        append_string(state->installed_version, requested_archive);
+        copy_string(state->installed_version, requested_archive);
     }
     else if(state->archive_context != nullptr)
     {
         state->installed_version[0] = '\0';
         copy_string(state->installed_version, requested_archive);
-    }
-
-    if((stages & 8) != 0 && state->archive_context == nullptr)
-    {
-        uint32_t speed = validation_api.measure_read_speed(state->installed_version, 0x180000);
-        if(speed == 0)
-        {
-            if((stages & 0x20) != 0)
-            {
-                validation_api.message_box(state->window, application_message(state, 15), state->message_table, MB_ICONERROR);
-            }
-            return 0;
-        }
-        if(speed < 0x226 && (stages & 0x40) != 0 && validation_api.message_box(state->window, application_message(state, 20), state->message_table, MB_ICONQUESTION | MB_YESNO) == IDNO)
-        {
-            return 0;
-        }
     }
 
     if((stages & 0x10) != 0)
@@ -2858,11 +2268,6 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     {
         return nullptr;
     }
-    if(application_initialization_api.register_control_class(instance) == 0)
-    {
-        return nullptr;
-    }
-
     state->width = width;
     state->height = height;
     state->flags |= 2;
@@ -3007,15 +2412,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     return state;
 }
 
-void set_application_initialization_api_for_testing(const ApplicationInitializationApi &api)
-{
-    application_initialization_api = api;
-}
 
-void set_gagboy_startup_mode_for_testing(bool enabled)
-{
-    gagboy_startup_mode = enabled;
-}
 
 // GAG.EXE: 0x00429DF0
 uint32_t initialize_runtime_media_backend(HINSTANCE instance)
@@ -3075,10 +2472,6 @@ uint32_t shutdown_runtime_generic_backend()
     return 1;
 }
 
-void set_runtime_generic_backend_shutdown_api_for_testing(const RuntimeGenericBackendShutdownApi &api)
-{
-    runtime_generic_backend_shutdown_api = api;
-}
 
 // GAG.EXE: 0x0042B290
 RuntimeMediaBackend *acquire_first_runtime_media_backend()
@@ -3106,10 +2499,6 @@ uint32_t shutdown_runtime_media_backend()
     return 1;
 }
 
-void set_runtime_media_backend_shutdown_api_for_testing(const RuntimeMediaBackendShutdownApi &api)
-{
-    runtime_media_backend_shutdown_api = api;
-}
 
 // GAG.EXE: 0x00414E10
 uint32_t initialize_async_file_subsystem()
@@ -3123,35 +2512,7 @@ uint32_t initialize_async_file_subsystem()
     return 1;
 }
 
-void set_runtime_backend_initialization_api_for_testing(const RuntimeBackendInitializationApi &api)
-{
-    runtime_backend_initialization_api = api;
-}
 
-void set_runtime_backend_initialization_state_for_testing(bool media_initialized, bool generic_initialized, bool async_initialized)
-{
-    runtime_media_backend_initialized = media_initialized;
-    runtime_generic_backend_enabled = generic_initialized ? 1 : 0;
-    async_file_enabled = async_initialized;
-    runtime_media_backend_heap = nullptr;
-    runtime_media_backend_mutex = nullptr;
-    runtime_generic_backend_mutex = nullptr;
-}
-
-HANDLE get_runtime_media_backend_heap_for_testing()
-{
-    return runtime_media_backend_heap;
-}
-
-HANDLE get_runtime_media_backend_mutex_for_testing()
-{
-    return runtime_media_backend_mutex;
-}
-
-HANDLE get_runtime_generic_backend_mutex_for_testing()
-{
-    return runtime_generic_backend_mutex;
-}
 
 // GAG.EXE: 0x00404970
 void set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
@@ -3213,28 +2574,6 @@ bool register_gag_window_classes(ApplicationState *state)
         window_class_api.message_box(nullptr, application_message(state, 14), state->message_table, MB_ICONERROR);
     }
     return primary_result != 0 && capture_result != 0;
-}
-
-// GAG.EXE: 0x004174B0
-uint32_t register_custom_control_class(HINSTANCE instance)
-{
-    if(custom_control_registered != 0)
-    {
-        return 1;
-    }
-
-    WNDCLASSA window_class{};
-    window_class.style = CS_OWNDC;
-    window_class.lpfnWndProc = window_class_api.custom_control_procedure;
-    window_class.cbWndExtra = 4 * sizeof(LONG_PTR);
-    window_class.hInstance = instance;
-    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
-    window_class.hbrBackground = window_class_api.create_solid_brush(0);
-    window_class.lpszClassName = "lpszCustomControl";
-    ATOM result = window_class_api.register_class(&window_class);
-    custom_control_instance = instance;
-    custom_control_registered = result != 0;
-    return custom_control_registered;
 }
 
 // GAG.EXE: 0x0041D560
@@ -3411,35 +2750,10 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         {
             return 0;
         }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
         if(command == 0x8780 || command == 0x8810)
         {
             const SaveLoadScreenMode mode = command == 0x8780 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load;
             request_scripted_save_load_screen(mode, state);
-            return 0;
-        }
-#endif
-        if(command == 0x8780)
-        {
-            main_window_procedure_api.application_hook_1();
-            main_window_procedure_api.set_application_lock(state);
-            main_window_procedure_api.clear_runtime_active(state);
-            set_game_cursor_active(state, 1);
-            state->flags |= 0x400;
-            set_runtime_flag_01000000();
-            return 0;
-        }
-        if(command == 0x8810)
-        {
-            main_window_procedure_api.application_hook_1();
-            main_window_procedure_api.set_application_lock(state);
-            main_window_procedure_api.clear_runtime_active(state);
-            set_game_cursor_active(state, 1);
-            state->flags |= 0x100;
-            while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
-            {
-            }
-            set_runtime_flag_01000000();
             return 0;
         }
         if(command == 0x8840)
@@ -3610,7 +2924,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
             }
             return 0;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
         case 0x7d2:
         case 0x7d3:
         {
@@ -3618,21 +2931,12 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             request_scripted_save_load_screen(mode, state);
             return 0;
         }
-#endif
         case 0x7d1:
-#if !defined(FREEGAG_WINDOWS_FIXES) || !defined(FREEGAG_IN_GAME_SAVE_LOAD)
-        case 0x7d2:
-        case 0x7d3:
-#endif
         case 0x7d4:
         case 0x7da:
             main_window_procedure_api.reply_message(1);
             if(wparam == 0x7d1)
                 main_window_procedure_api.send_message(window, WM_COMMAND, 0x8860, 0);
-            else if(wparam == 0x7d2)
-                main_window_procedure_api.send_message(window, WM_COMMAND, 0x8810, 0);
-            else if(wparam == 0x7d3)
-                main_window_procedure_api.send_message(window, WM_COMMAND, 0x8780, 0);
             else if(wparam == 0x7d4)
                 main_window_procedure_api.send_message(window, WM_COMMAND, 0x8870, 0);
             else
@@ -3696,20 +3000,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             return 0;
         case 0x60000000:
             enter_runtime_state_1000();
-            if((state->flags & 0x100) != 0)
-            {
-                state->flags &= 0xfffffeff;
-                open_application_state_interactive(state, window);
-            }
-            if((state->flags & 0x400) != 0)
-            {
-                state->flags &= 0xfffffbff;
-                save_application_state_interactive(state, window);
-                application_hook_no_op_2();
-                clear_runtime_flag_01000000();
-                clear_application_lock_flag(state);
-                state->flags |= 0x40000;
-            }
             if((state->flags & 0x10) != 0)
             {
                 state->flags &= 0xffffffef;
@@ -3901,6 +3191,72 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
 }
 
 // GAG.EXE: 0x0041D060
+constexpr char preferences_file_name[] = ".\\freegag.ini";
+constexpr char game_preferences_section[] = "Game";
+constexpr char window_preferences_section[] = "Window";
+
+bool get_preferences_path(char *path, DWORD size)
+{
+    const DWORD length = local_preferences_api.get_full_path_name(preferences_file_name, size, path, nullptr);
+    return length != 0 && length < size;
+}
+
+bool read_preference_number(const char *section, const char *key, int64_t minimum, int64_t maximum, int64_t *result)
+{
+    char path[MAX_PATH];
+    if(!get_preferences_path(path, static_cast<DWORD>(std::size(path))))
+    {
+        return false;
+    }
+    char value[64]{};
+    const DWORD length = local_preferences_api.read_value(section, key, "", value, static_cast<DWORD>(std::size(value)), path);
+    if(length == 0 || length >= std::size(value) - 1)
+    {
+        return false;
+    }
+
+    errno = 0;
+    char *end = nullptr;
+    const long long parsed = std::strtoll(value, &end, 0);
+    while(end != nullptr && std::isspace(static_cast<unsigned char>(*end)))
+    {
+        ++end;
+    }
+    if(errno == ERANGE || end == value || end == nullptr || *end != '\0' || parsed < minimum || parsed > maximum)
+    {
+        return false;
+    }
+    *result = parsed;
+    return true;
+}
+
+bool read_saved_window_rectangle(RECT *rectangle)
+{
+    int64_t left;
+    int64_t top;
+    int64_t right;
+    int64_t bottom;
+    if(!read_preference_number(window_preferences_section, "Left", INT32_MIN, INT32_MAX, &left) || !read_preference_number(window_preferences_section, "Top", INT32_MIN, INT32_MAX, &top)
+        || !read_preference_number(window_preferences_section, "Right", INT32_MIN, INT32_MAX, &right) || !read_preference_number(window_preferences_section, "Bottom", INT32_MIN, INT32_MAX, &bottom))
+    {
+        return false;
+    }
+    *rectangle = { static_cast<LONG>(left), static_cast<LONG>(top), static_cast<LONG>(right), static_cast<LONG>(bottom) };
+    return true;
+}
+
+void write_preference_number(const char *section, const char *key, int64_t value)
+{
+    char path[MAX_PATH];
+    if(!get_preferences_path(path, static_cast<DWORD>(std::size(path))))
+    {
+        return;
+    }
+    char text[32];
+    std::snprintf(text, sizeof(text), "%lld", static_cast<long long>(value));
+    local_preferences_api.write_value(section, key, text, path);
+}
+
 void save_runtime_settings(ApplicationState *state)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
@@ -3911,18 +3267,12 @@ void save_runtime_settings(ApplicationState *state)
 #endif
     if(state->archive_context == nullptr)
     {
-        uint32_t settings = state->flags & 0x02001020;
-        HKEY key;
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility: the original HKLM write is not available to an unelevated manifested process, so persist mutable preferences per user.
-        if(settings_registry_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | modern_windows_registry_view, nullptr, &key, nullptr)
-            == ERROR_SUCCESS)
-#else
-        if(settings_registry_api.open_key(HKEY_LOCAL_MACHINE, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_ALL_ACCESS, &key) == ERROR_SUCCESS)
-#endif
+        char path[MAX_PATH];
+        if(get_preferences_path(path, static_cast<DWORD>(std::size(path))))
         {
-            settings_registry_api.set_value(key, "set", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&settings), sizeof(settings));
-            settings_registry_api.close_key(key);
+            char settings[16];
+            std::snprintf(settings, sizeof(settings), "0x%08X", state->flags & 0x02001020);
+            local_preferences_api.write_value(game_preferences_section, "Settings", settings, path);
         }
     }
 }
@@ -3930,28 +3280,28 @@ void save_runtime_settings(ApplicationState *state)
 bool load_saved_window_position(int32_t width, int32_t height, POINT *position)
 {
 #if defined(FREEGAG_WINDOWS_FIXES)
-    HKEY key;
-    if(position == nullptr || window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE | modern_windows_registry_view, &key) != ERROR_SUCCESS)
+    if(position == nullptr)
     {
         return false;
     }
-
-    POINT saved_position{};
-    DWORD type = 0;
-    DWORD size = sizeof(saved_position);
-    const LSTATUS query_result = window_position_persistence_api.query_value(key, "WindowPosition", nullptr, &type, reinterpret_cast<BYTE *>(&saved_position), &size);
-    window_position_persistence_api.close_key(key);
-    if(query_result != ERROR_SUCCESS || type != REG_BINARY || size != sizeof(saved_position))
+    RECT saved_rectangle{};
+    if(!read_saved_window_rectangle(&saved_rectangle))
     {
         return false;
     }
-
-    RECT saved_rectangle{ saved_position.x, saved_position.y, saved_position.x + width, saved_position.y + height };
-    if(window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) == nullptr)
+    const int64_t right = static_cast<int64_t>(saved_rectangle.left) + width;
+    const int64_t bottom = static_cast<int64_t>(saved_rectangle.top) + height;
+    if(right < INT32_MIN || right > INT32_MAX || bottom < INT32_MIN || bottom > INT32_MAX)
     {
         return false;
     }
-    *position = saved_position;
+    saved_rectangle.right = static_cast<LONG>(right);
+    saved_rectangle.bottom = static_cast<LONG>(bottom);
+    if(local_preferences_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) == nullptr)
+    {
+        return false;
+    }
+    *position = { saved_rectangle.left, saved_rectangle.top };
     return true;
 #else
     (void)width;
@@ -3969,31 +3319,11 @@ bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, 
         return false;
     }
 
-    const int32_t fallback_width = rectangle->right - rectangle->left;
-    const int32_t fallback_height = rectangle->bottom - rectangle->top;
-    HKEY key;
-    if(window_position_persistence_api.open_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, KEY_QUERY_VALUE | modern_windows_registry_view, &key) != ERROR_SUCCESS)
-    {
-        return false;
-    }
-
     RECT saved_rectangle{};
-    DWORD type = 0;
-    DWORD size = sizeof(saved_rectangle);
-    LSTATUS query_result = window_position_persistence_api.query_value(key, "WindowRectangle", nullptr, &type, reinterpret_cast<BYTE *>(&saved_rectangle), &size);
-    bool valid = query_result == ERROR_SUCCESS && type == REG_BINARY && size == sizeof(saved_rectangle) && saved_rectangle.right - saved_rectangle.left >= minimum_width
-              && saved_rectangle.bottom - saved_rectangle.top >= minimum_height && window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
-    if(!valid)
-    {
-        POINT saved_position{};
-        type = 0;
-        size = sizeof(saved_position);
-        query_result = window_position_persistence_api.query_value(key, "WindowPosition", nullptr, &type, reinterpret_cast<BYTE *>(&saved_position), &size);
-        saved_rectangle = { saved_position.x, saved_position.y, saved_position.x + fallback_width, saved_position.y + fallback_height };
-        valid = query_result == ERROR_SUCCESS && type == REG_BINARY && size == sizeof(saved_position)
-             && window_position_persistence_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
-    }
-    window_position_persistence_api.close_key(key);
+    const bool loaded = read_saved_window_rectangle(&saved_rectangle);
+    const int64_t width = static_cast<int64_t>(saved_rectangle.right) - saved_rectangle.left;
+    const int64_t height = static_cast<int64_t>(saved_rectangle.bottom) - saved_rectangle.top;
+    bool valid = loaded && width >= minimum_width && height >= minimum_height && local_preferences_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
     if(valid)
     {
         *rectangle = saved_rectangle;
@@ -4017,26 +3347,19 @@ void save_window_position(ApplicationState *state)
     RECT rectangle{};
     WINDOWPLACEMENT placement{};
     placement.length = sizeof(placement);
-    if(window_position_persistence_api.get_window_placement(state->window, &placement) != FALSE)
+    if(local_preferences_api.get_window_placement(state->window, &placement) != FALSE)
     {
         rectangle = placement.rcNormalPosition;
     }
-    else if(window_position_persistence_api.get_window_rect(state->window, &rectangle) == FALSE)
+    else if(local_preferences_api.get_window_rect(state->window, &rectangle) == FALSE)
     {
         return;
     }
 
-    HKEY key;
-    if(window_position_persistence_api.create_key(HKEY_CURRENT_USER, "SOFTWARE\\ZES't Corp.\\GAG", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE | modern_windows_registry_view, nullptr, &key,
-           nullptr)
-        != ERROR_SUCCESS)
-    {
-        return;
-    }
-    const POINT position{ rectangle.left, rectangle.top };
-    window_position_persistence_api.set_value(key, "WindowRectangle", 0, REG_BINARY, reinterpret_cast<const BYTE *>(&rectangle), sizeof(rectangle));
-    window_position_persistence_api.set_value(key, "WindowPosition", 0, REG_BINARY, reinterpret_cast<const BYTE *>(&position), sizeof(position));
-    window_position_persistence_api.close_key(key);
+    write_preference_number(window_preferences_section, "Left", rectangle.left);
+    write_preference_number(window_preferences_section, "Top", rectangle.top);
+    write_preference_number(window_preferences_section, "Right", rectangle.right);
+    write_preference_number(window_preferences_section, "Bottom", rectangle.bottom);
     modern_windows_presentation_state.windowed_rectangle = rectangle;
     modern_windows_presentation_state.windowed_rectangle_valid = true;
 #else
@@ -4254,10 +3577,6 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
     runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
 }
 
-void set_window_layout_api_for_testing(const WindowLayoutApi &api)
-{
-    window_layout_api = api;
-}
 
 // GAG.EXE: 0x0041D120
 void restore_application_display(ApplicationState *state)
@@ -4360,82 +3679,6 @@ void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
     application_hook_no_op_2();
 }
 
-void set_state_activation_api_for_testing(const StateActivationApi &api)
-{
-    state_activation_api = api;
-}
-
-// GAG.EXE: 0x0041D280
-void save_application_state_interactive(ApplicationState *state, void *dialog_context)
-{
-    void *memory;
-    uintptr_t script_state;
-    if((state->flags & 0x80000) == 0)
-    {
-        memory = save_state_api.capture_state(state->game_context, nullptr, 1);
-        script_state = save_state_api.get_script_state();
-        state->script_state = script_state;
-    }
-    else
-    {
-        memory = state->saved_memory;
-        script_state = state->script_state;
-    }
-    if(state->display_bits_per_pixel == 8)
-    {
-        save_state_api.prepare_8bit_display();
-    }
-    char first_path[260];
-    char second_path[260];
-    if(save_state_api.show_dialog(dialog_context, state->installation_path, save_dialog_data[0], memory, first_path, second_path) != 0)
-    {
-        state->flags &= 0xffefffff;
-        application_hook_no_op_2();
-        save_state_api.save_state(first_path, second_path, memory, script_state);
-    }
-    if((state->flags & 0x80000) == 0)
-    {
-        free_heap_memory(memory);
-    }
-    while(runtime_resource_count != 0)
-    {
-        Sleep(0);
-    }
-    if(state->display_bits_per_pixel == 8)
-    {
-        save_state_api.restore_8bit_display();
-    }
-}
-
-void set_save_state_api_for_testing(const SaveStateApi &api)
-{
-    save_state_api = api;
-}
-
-// GAG.EXE: 0x0041D1C0
-void open_application_state_interactive(ApplicationState *state, void *dialog_context)
-{
-    if(state->display_bits_per_pixel == 8)
-    {
-        open_state_api.prepare_8bit_display();
-    }
-    if(open_state_api.show_dialog(dialog_context, state->installation_path, save_dialog_data[0], state->installed_version) != 0)
-    {
-        finish_application_state_load(state, state->installed_version);
-        return;
-    }
-    if(state->display_bits_per_pixel == 8)
-    {
-        while(runtime_resource_count != 0)
-        {
-            Sleep(0);
-        }
-        open_state_api.restore_8bit_display(0x10002001);
-    }
-    clear_application_lock_flag(state);
-    clear_runtime_flag_01000000();
-    application_hook_no_op_2();
-}
 
 void finish_application_state_load(ApplicationState *state, const char *path)
 {
@@ -4450,10 +3693,6 @@ void finish_application_state_load(ApplicationState *state, const char *path)
     graphics_host_flags |= 0x40;
 }
 
-void set_open_state_api_for_testing(const OpenStateApi &api)
-{
-    open_state_api = api;
-}
 
 // Non-original helper preserving the shared wrapper tail.
 bool finish_synchronized_state_operation(int result)
@@ -4464,28 +3703,6 @@ bool finish_synchronized_state_operation(int result)
         synchronized_state_api.send_message(synchronized_state_api.get_message_window(), 0x7ffd, 0xc0000000, 0);
     }
     return result == 0;
-}
-
-// GAG.EXE: 0x0041F7C0
-bool run_synchronized_state_operation_17550(void *first, void *second, void *third, void *fourth)
-{
-    if((graphics_host_flags & 0x800) == 0)
-    {
-        return false;
-    }
-    synchronized_state_api.enter_lock();
-    return finish_synchronized_state_operation(synchronized_state_api.operation_17550(first, second, third, fourth));
-}
-
-// GAG.EXE: 0x0041F830
-bool run_synchronized_state_operation_175f0(void *first, void *second, void *third, void *fourth, void *fifth, void *sixth)
-{
-    if((graphics_host_flags & 0x800) == 0)
-    {
-        return false;
-    }
-    synchronized_state_api.enter_lock();
-    return finish_synchronized_state_operation(synchronized_state_api.operation_175f0(first, second, third, fourth, fifth, sixth));
 }
 
 // GAG.EXE: 0x0041F8F0
@@ -4499,10 +3716,6 @@ bool run_synchronized_state_operation_176a0(void *first, void *second, void *thi
     return finish_synchronized_state_operation(synchronized_state_api.operation_176a0(first, second, third, fourth));
 }
 
-void set_synchronized_state_api_for_testing(const SynchronizedStateApi &api)
-{
-    synchronized_state_api = api;
-}
 
 // GAG.EXE: 0x0041D010
 void switch_display_mode_if_enabled(ApplicationState *state, int restore_current)
@@ -4619,20 +3832,7 @@ void set_runtime_paths_once(const char *first_path, const char *second_path)
     }
 }
 
-void set_runtime_path_api_for_testing(const RuntimePathApi &api)
-{
-    runtime_path_api = api;
-}
 
-const char *get_first_runtime_path_for_testing()
-{
-    return runtime_display_context.first_runtime_path;
-}
-
-const char *get_second_runtime_path_for_testing()
-{
-    return runtime_display_context.second_runtime_path;
-}
 
 // GAG.EXE: 0x0041CBE0
 void save_game_screenshot(void *snapshot_context, void *game_context)
@@ -4674,10 +3874,6 @@ void save_game_screenshot(void *snapshot_context, void *game_context)
     }
 }
 
-void set_screenshot_api_for_testing(const ScreenshotApi &api)
-{
-    screenshot_api = api;
-}
 
 // GAG.EXE: 0x00417790
 void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
@@ -4915,17 +4111,6 @@ void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolutio
 #endif
 }
 
-void set_bitmap_capture_api_for_testing(const BitmapCaptureApi &api)
-{
-    bitmap_capture_api = api;
-}
-
-#if defined(GAG_TESTING)
-void set_runtime_display_scene_for_bitmap_capture_testing(DisplaySceneNode *scene)
-{
-    runtime_display_scene_identifier = reinterpret_cast<intptr_t>(scene);
-}
-#endif
 
 // GAG.EXE: 0x00420A50
 void reset_runtime_pair_queue()
@@ -5274,28 +4459,11 @@ bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
     return changed;
 }
 
-void set_runtime_pending_tree_switch_api_for_testing(const RuntimePendingTreeSwitchApi &api)
-{
-    runtime_pending_tree_switch_api = api;
-}
 
-void set_runtime_text_input_api_for_testing(const RuntimeTextInputApi &api)
-{
-    runtime_text_input_api = api;
-}
 
 #if defined(FREEGAG_WINDOWS_FIXES)
-void set_runtime_text_input_scene_redraw_api_for_testing(const RuntimeTextInputSceneRedrawApi &api)
-{
-    release_runtime_text_input_scene_guard();
-    runtime_text_input_scene_redraw_api = api;
-}
 #endif
 
-RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing()
-{
-    return &runtime_display_context;
-}
 
 // GAG.EXE: 0x00426560
 RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
@@ -5319,10 +4487,6 @@ RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_n
     return node;
 }
 
-void set_runtime_tree_activation_api_for_testing(const RuntimeTreeActivationApi &api)
-{
-    runtime_tree_activation_api = api;
-}
 
 // GAG.EXE: 0x004211A0
 uint32_t process_runtime_pair_message()
@@ -5345,20 +4509,7 @@ uint32_t process_runtime_pair_message()
     return 0;
 }
 
-void set_runtime_plan_mode_sync_api_for_testing(const RuntimePlanModeSyncApi &api)
-{
-    runtime_plan_mode_sync_api = api;
-}
 
-void set_runtime_pair_dispatch_api_for_testing(const RuntimePairDispatchApi &api)
-{
-    runtime_pair_dispatch_api = api;
-}
-
-RuntimePairDispatchApi get_runtime_pair_dispatch_api_for_testing()
-{
-    return runtime_pair_dispatch_api;
-}
 
 // GAG.EXE: 0x004208E0
 uint32_t copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
@@ -5501,47 +4652,8 @@ uint32_t run_pending_runtime_external_command()
     return result;
 }
 
-void set_runtime_external_command_api_for_testing(const RuntimeExternalCommandApi &api)
-{
-    runtime_external_command_api = api;
-}
-
-void set_runtime_external_command_state_for_testing(const RuntimeCommandLoopState &state)
-{
-    runtime_display_context = state;
-}
-
-const RuntimeCommandLoopState &get_runtime_external_command_state_for_testing()
-{
-    return runtime_display_context;
-}
-
-void set_runtime_script_executor_api_for_testing(const RuntimeScriptExecutorApi &api)
-{
-    runtime_script_executor_api = api;
-}
-
-bool should_send_runtime_script_message(int32_t command)
-{
-#if defined(FREEGAG_WINDOWS_FIXES)
-    // The modern transition can release ReplyMessage's script caller before the UI thread finishes the original callback. Suppress another synchronous 2010 send from that same physical press at
-    // the sending boundary, where it cannot block waiting for the still-busy UI thread.
-    if(command == 0x7da)
-    {
-        if(modern_windows_fullscreen_toggle_latched)
-        {
-            return false;
-        }
-        modern_windows_fullscreen_toggle_latched = true;
-    }
-#else
-    (void)command;
-#endif
-    return true;
-}
-
-// Non-original dispatcher slice used to compose and test GAG.EXE:0x00421530.
-RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value,
+// Non-original dispatcher slice used to compose GAG.EXE:0x00421530.
+RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value,
     uint32_t saved_cursor)
 {
     ScriptParserState *parser = &link->parser;
@@ -6556,6 +5668,25 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
     default:
         return RuntimeScriptOpcodeDisposition::unhandled;
     }
+}
+
+bool should_send_runtime_script_message(int32_t command)
+{
+#if defined(FREEGAG_WINDOWS_FIXES)
+    // The modern transition can release ReplyMessage's script caller before the UI thread finishes the original callback. Suppress another synchronous 2010 send from that same physical press at
+    // the sending boundary, where it cannot block waiting for the still-busy UI thread.
+    if(command == 0x7da)
+    {
+        if(modern_windows_fullscreen_toggle_latched)
+        {
+            return false;
+        }
+        modern_windows_fullscreen_toggle_latched = true;
+    }
+#else
+    (void)command;
+#endif
+    return true;
 }
 
 // GAG.EXE: 0x00421530
@@ -9310,10 +8441,6 @@ void shutdown_display_mode_host()
     std::memset(&display_mode_host_state, 0, sizeof(display_mode_host_state));
 }
 
-void set_display_mode_host_shutdown_api_for_testing(const DisplayModeHostShutdownApi &api)
-{
-    display_mode_host_shutdown_api = api;
-}
 
 // Non-original helper: shared busy-wait/critical-section acquisition sequence used by the original display-mode setters.
 void acquire_display_mode_change_lock()
@@ -10178,344 +9305,7 @@ void clear_credits_runtime_flag()
     }
 }
 
-void set_runtime_queue_api_for_testing(const RuntimeQueueApi &api)
-{
-    runtime_queue_api = api;
-}
 
-void set_runtime_pair_indices_for_testing(uint32_t read_index, uint32_t write_index)
-{
-    runtime_display_context.pair_read_index = read_index;
-    runtime_display_context.pair_write_index = write_index;
-}
-
-void get_runtime_pair_indices_for_testing(uint32_t *read_index, uint32_t *write_index)
-{
-    *read_index = runtime_display_context.pair_read_index;
-    *write_index = runtime_display_context.pair_write_index;
-}
-
-void reset_runtime_message_queue_for_testing()
-{
-    runtime_display_context.message_available = 0;
-    std::memset(runtime_display_context.message_queue, 0, sizeof(runtime_display_context.message_queue));
-    runtime_display_context.message_write_index = 0;
-    runtime_display_context.message_read_index = 0;
-}
-
-void reset_runtime_byte_queue_for_testing()
-{
-    runtime_display_context.byte_available = 0;
-    std::memset(runtime_display_context.byte_queue, 0, sizeof(runtime_display_context.byte_queue));
-    runtime_display_context.byte_read_index = 0;
-    runtime_display_context.byte_write_index = 0;
-}
-
-void reset_runtime_pair_queue_for_testing()
-{
-    runtime_display_context.pair_available = 0;
-    std::memset(runtime_display_context.pair_queue, 0, sizeof(runtime_display_context.pair_queue));
-    runtime_display_context.pair_read_index = 0;
-    runtime_display_context.pair_write_index = 0;
-}
-
-void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, uint32_t status)
-{
-    std::memcpy(runtime_display_context.input_text, &record, sizeof(record));
-    runtime_display_context.input_cursor = status;
-}
-
-void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api)
-{
-    runtime_input_session_api = api;
-}
-
-void set_runtime_input_alternate_scene_for_testing(intptr_t identifier)
-{
-    runtime_display_context.input_alternate_scene_identifier = identifier;
-}
-
-void set_runtime_command_loop_api_for_testing(const RuntimeCommandLoopApi &api)
-{
-    runtime_command_loop_api = api;
-}
-
-void set_runtime_session_reset_api_for_testing(const RuntimeSessionResetApi &api)
-{
-    runtime_session_reset_api = api;
-}
-
-void set_runtime_session_reset_storage_for_testing(uint32_t value)
-{
-    for(uint32_t &entry : runtime_session_reset_storage)
-    {
-        entry = value;
-    }
-}
-
-uint32_t get_runtime_session_reset_storage_for_testing(uint32_t index)
-{
-    return runtime_session_reset_storage[index];
-}
-
-uintptr_t get_runtime_pointer_event_record_for_testing(uint32_t index)
-{
-    return runtime_pointer_event_record[index];
-}
-
-void set_embedded_script_runtime_flags_for_testing(uint32_t flags, uint32_t palette_flags)
-{
-    graphics_script_runtime_root.flags = flags;
-    graphics_script_runtime_root.palette_flags = palette_flags;
-}
-
-void set_runtime_message_processor_api_for_testing(const RuntimeMessageProcessorApi &api)
-{
-    runtime_message_processor_api = api;
-}
-
-void set_runtime_target_update_api_for_testing(const RuntimeTargetUpdateApi &api)
-{
-    runtime_target_update_api = api;
-}
-
-void set_runtime_target_flags_for_testing(uint32_t flags)
-{
-    runtime_target_flags = flags;
-}
-
-void set_display_lock_release_api_for_testing(const DisplayLockReleaseApi &api)
-{
-    display_lock_release_api = api;
-}
-
-void set_display_lock_acquire_api_for_testing(const DisplayLockAcquireApi &api)
-{
-    display_lock_acquire_api = api;
-}
-
-void set_display_lock_state_for_testing(uint32_t flags, DWORD owner_thread, uint32_t recursion_count, HANDLE release_event)
-{
-    display_lock_flags = flags;
-    display_lock_owner_thread = owner_thread;
-    display_lock_recursion_count = recursion_count;
-    display_lock_release_event = release_event;
-}
-
-void set_display_root_region_api_for_testing(const DisplayRootRegionApi &api)
-{
-    display_root_region_api = api;
-}
-
-void set_display_root_region_state_for_testing(uint32_t lock_flags, DisplaySceneNode *root)
-{
-    display_lock_flags = lock_flags;
-    display_scene_root = root;
-}
-
-void get_display_lock_state_for_testing(uint32_t *flags, DWORD *owner_thread, uint32_t *recursion_count)
-{
-    *flags = display_lock_flags;
-    *owner_thread = display_lock_owner_thread;
-    *recursion_count = display_lock_recursion_count;
-}
-
-void set_display_clip_bounds_for_testing(const DisplayRectangle &bounds)
-{
-    display_clip_bounds = bounds;
-}
-
-void set_display_scene_callback_api_for_testing(const DisplaySceneCallbackApi &api)
-{
-    display_scene_callback_api = api;
-}
-
-void set_display_scene_sync_api_for_testing(const DisplaySceneSyncApi &api)
-{
-    display_scene_sync_api = api;
-}
-
-void set_display_scene_memory_api_for_testing(const DisplaySceneMemoryApi &api)
-{
-    display_scene_memory_api = api;
-}
-
-void set_display_scene_host_api_for_testing(const DisplaySceneHostApi &api)
-{
-    display_scene_host_api = api;
-}
-
-void set_display_scene_worker_api_for_testing(const DisplaySceneWorkerApi &api)
-{
-    display_scene_worker_api = api;
-}
-
-void set_display_scene_sync_state_for_testing(void *context, DisplaySceneNode *root_node)
-{
-    display_scene_sync_context = context;
-    display_scene_root = root_node;
-}
-
-void set_display_scene_worker_state_for_testing(uint32_t interval, DisplayPixelFormatDescriptor *palette_source_state)
-{
-    display_scene_worker_interval = interval;
-    display_palette_source_state = palette_source_state;
-}
-
-uint32_t get_display_scene_worker_rate_for_testing()
-{
-    return display_scene_worker_rate;
-}
-
-void set_display_scene_root_primary_position_for_testing(intptr_t primary_position)
-{
-    display_scene_root_primary_position = primary_position;
-}
-
-void set_display_lock_acquire_state_for_testing(HANDLE gate_event, uint32_t busy, const DisplayRectangle &pending_rectangle, int32_t width, int32_t height, DisplaySceneNode *scene_head)
-{
-    display_lock_gate_event = gate_event;
-    display_lock_busy = busy;
-    display_pending_rectangle = pending_rectangle;
-    display_width = width;
-    display_height = height;
-    display_scene_head = scene_head;
-    display_scene_count = 0;
-    for(DisplaySceneNode *node = scene_head; node != nullptr; node = node->next)
-    {
-        ++display_scene_count;
-    }
-}
-
-DisplayRectangle get_display_pending_rectangle_for_testing()
-{
-    return display_pending_rectangle;
-}
-
-void set_display_palette_api_for_testing(const DisplayPaletteApi &api)
-{
-    display_palette_api = api;
-}
-
-void set_display_palette_teardown_api_for_testing(const DisplayPaletteTeardownApi &api)
-{
-    display_palette_teardown_api = api;
-}
-
-void set_display_cooperative_level_api_for_testing(const DisplayCooperativeLevelApi &api)
-{
-    display_cooperative_level_api = api;
-}
-
-void set_display_mode_change_api_for_testing(const DisplayModeChangeApi &api)
-{
-    display_mode_change_api = api;
-}
-
-void set_display_mode_change_state_for_testing(uint32_t flags, void *display, DisplayMode *current_mode)
-{
-    display_palette_flags = flags;
-    display_direct_draw = display;
-    current_display_mode = current_mode;
-}
-
-void set_display_surface_operation_api_for_testing(const DisplaySurfaceOperationApi &api)
-{
-    display_surface_operation_api = api;
-}
-
-void set_display_region_synchronization_api_for_testing(const DisplayRegionSynchronizationApi &api)
-{
-    display_region_synchronization_api = api;
-}
-
-void set_display_region_synchronization_state_for_testing(uint32_t flags, void *primary_surface, void *secondary_surface, HDC primary_context, HDC secondary_context)
-{
-    display_palette_flags = flags;
-    display_direct_draw_primary_surface = primary_surface;
-    display_direct_draw_secondary_surface = secondary_surface;
-    display_palette_dc = primary_context;
-    display_palette_dib_dc = secondary_context;
-}
-
-void set_display_target_begin_api_for_testing(const DisplayTargetBeginApi &api)
-{
-    display_target_begin_api = api;
-}
-
-void set_display_target_begin_state_for_testing(uint32_t flags, void *secondary_surface, void *pixels, int32_t width, int32_t height, DisplayMode *mode)
-{
-    display_palette_flags = flags;
-    display_direct_draw_secondary_surface = secondary_surface;
-    display_palette_pixels = pixels;
-    display_palette_width = width;
-    display_palette_height = height;
-    current_display_mode = mode;
-}
-
-void set_display_surface_creation_api_for_testing(const DisplaySurfaceCreationApi &api)
-{
-    display_surface_creation_api = api;
-}
-
-void set_display_palette_state_for_testing(uint32_t flags, int32_t display_bits_per_pixel, int32_t surface_bits_per_pixel, HDC palette_dc, HDC dib_dc, HPALETTE palette, int32_t width, int32_t height)
-{
-    static DisplayMode surface_mode;
-    display_palette_flags = flags;
-    display_palette_bits_per_pixel = display_bits_per_pixel;
-    surface_mode.bits_per_pixel = surface_bits_per_pixel;
-    current_display_mode = &surface_mode;
-    display_palette_dc = palette_dc;
-    display_palette_dib_dc = dib_dc;
-    display_palette = palette;
-    display_palette_width = width;
-    display_palette_height = height;
-}
-
-void set_display_palette_bitmap_for_testing(HBITMAP bitmap)
-{
-    display_palette_bitmap = bitmap;
-}
-
-void set_display_palette_teardown_state_for_testing(HWND window, HPALETTE previous_palette, HBITMAP previous_bitmap)
-{
-    display_palette_window = window;
-    display_palette_previous_palette = previous_palette;
-    display_palette_previous_bitmap = previous_bitmap;
-}
-
-void set_display_cooperative_state_for_testing(HWND window, void *display)
-{
-    display_palette_window = window;
-    display_direct_draw = display;
-}
-
-void set_display_surface_operation_state_for_testing(void *primary_surface, void *secondary_surface)
-{
-    display_direct_draw_primary_surface = primary_surface;
-    display_direct_draw_secondary_surface = secondary_surface;
-}
-
-uint32_t get_display_palette_flags_for_testing()
-{
-    return display_palette_flags;
-}
-
-const PALETTEENTRY *get_display_palette_entries_for_testing()
-{
-    return display_palette_entries;
-}
-
-void set_display_target_api_for_testing(const DisplayTargetApi &api)
-{
-    display_target_api = api;
-}
-
-void set_display_target_state_for_testing(void *backend, void *target)
-{
-    display_backend = backend;
-    display_backend_target = target;
-}
 
 // GAG.EXE: 0x0041CE40
 void application_hook_no_op_1() {}
@@ -10568,144 +9358,36 @@ void free_heap_memory(void *memory)
     }
 }
 
-void set_display_mode_list_for_testing(DisplayMode *head)
-{
-    display_mode_head = head;
-}
-
-void set_graphics_host_flags_for_testing(uint32_t flags)
-{
-    graphics_host_flags = flags;
-}
-
-void set_drive_discovery_api_for_testing(const DriveDiscoveryApi &api)
-{
-    drive_discovery_api = api;
-}
-
-void set_cursor_state_api_for_testing(const CursorStateApi &api)
-{
-    cursor_state_api = api;
-}
-
-void set_validation_api_for_testing(const ValidationApi &api)
-{
-    validation_api = api;
-}
-
-void set_window_class_api_for_testing(const WindowClassApi &api)
-{
-    window_class_api = api;
-}
-
-void reset_custom_control_registration_for_testing()
-{
-    custom_control_registered = 0;
-    custom_control_instance = nullptr;
-}
-
-void set_custom_control_registration_state_for_testing(uint32_t registered, HINSTANCE instance)
-{
-    custom_control_registered = registered;
-    custom_control_instance = instance;
-}
-
-void set_window_procedure_api_for_testing(const WindowProcedureApi &api)
-{
-    window_procedure_api = api;
-}
-
-void set_main_window_procedure_api_for_testing(const MainWindowProcedureApi &api)
-{
-    main_window_procedure_api = api;
-}
 
 
-void set_settings_registry_api_for_testing(const SettingsRegistryApi &api)
+// GAG.EXE: 0x0041CAE0
+int run_startup(HINSTANCE instance, LPSTR command_line, int show_command)
 {
-    settings_registry_api = api;
-}
-
-void set_window_position_persistence_api_for_testing(const WindowPositionPersistenceApi &api)
-{
-    window_position_persistence_api = api;
-}
-
-void set_cursor_visibility_api_for_testing(const CursorVisibilityApi &api)
-{
-    cursor_visibility_api = api;
-}
-
-void set_finish_credits_callback_for_testing(void (*callback)())
-{
-    finish_credits_callback = callback;
-}
-
-void set_display_switch_api_for_testing(const DisplaySwitchApi &api)
-{
-    display_switch_api = api;
-}
-
-uint32_t get_graphics_host_flags_for_testing()
-{
-    return graphics_host_flags;
-}
-
-void set_runtime_state_transition_for_testing(uintptr_t current_value, uintptr_t saved_value, void (*callback)(uintptr_t value))
-{
-    runtime_state_value = current_value;
-    saved_runtime_state_value = saved_value;
-    runtime_state_transition_callback = callback;
-}
-
-uintptr_t get_runtime_state_value_for_testing()
-{
-    return runtime_state_value;
-}
-
-int run_startup(HINSTANCE instance, LPSTR command_line, int show_command, const StartupApi &api)
-{
-    ApplicationState *state = api.initialize_application(640, 480, instance, command_line, show_command);
+    ApplicationState *state = initialize_gag_application(640, 480, instance, command_line, show_command);
     if(state == nullptr)
     {
         return 0;
     }
 
-    api.set_runtime_flag_40();
+    set_runtime_flag_40();
 
     MSG message{};
     message.message = WM_COMMAND;
     do
     {
-        api.get_message(&message, nullptr, 0, 0);
-        api.translate_message(&message);
-        api.dispatch_message(&message);
+        GetMessageA(&message, nullptr, 0, 0);
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
     } while(message.message != WM_QUIT);
 
     if((state->flags & 0x2000) != 0)
     {
-        api.show_cursor(TRUE);
-        api.message_box(nullptr, application_message(state, 16), state->message_table, MB_ICONERROR);
+        ShowCursor(TRUE);
+        MessageBoxA(nullptr, application_message(state, 16), state->message_table, MB_ICONERROR);
     }
 
     return static_cast<int>(message.wParam);
 }
-
-StartupApi make_win32_startup_api()
-{
-    return { initialize_gag_application, set_runtime_flag_40, GetMessageA, TranslateMessage, DispatchMessageA, ShowCursor, MessageBoxA };
-}
-
-namespace
-{
-
-constexpr char registry_key[] = "SOFTWARE\\ZES't Corp.\\GAG";
-constexpr char expected_version[] = "Russian Edition Version 2.51";
-constexpr char version_value[] = "version";
-constexpr char path_value[] = "path";
-constexpr char settings_value[] = "set";
-
-} // namespace
 
 // GAG.EXE: 0x0040CD00
 int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
@@ -10730,11 +9412,6 @@ int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
     return minimum + script_utility_api.random() % (maximum - minimum);
 }
 
-void set_script_utility_api_for_testing(const ScriptUtilityApi &api)
-{
-    script_utility_api = api;
-    script_random_seeded = false;
-}
 
 // GAG.EXE: 0x0040CF50
 int copy_string(char *destination, const char *source)
@@ -11214,418 +9891,9 @@ int32_t parse_path_numeric_identifier(const char *path)
     return result;
 }
 
-// GAG.EXE: 0x004182A0
-uint32_t enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox)
-{
-    char path[0x104];
-    WIN32_FIND_DATAA find_data;
-    copy_string(path, state->directory);
-    append_string(path, "*");
-    append_string(path, state->extension);
-    HANDLE find = archive_comment_enumeration_api.find_first(path, &find_data);
-    if(find == INVALID_HANDLE_VALUE)
-    {
-        return 2;
-    }
-
-    state->archive_paths = static_cast<char *>(archive_comment_enumeration_api.heap_alloc(archive_comment_enumeration_api.get_process_heap(), 0, 10 * 0x104));
-    if(state->archive_paths == nullptr)
-    {
-        archive_comment_enumeration_api.find_close(find);
-        return 0x10000;
-    }
-    state->comment_capacity = 10;
-
-    do
-    {
-        std::sprintf(path, "%s%s", state->directory, find_data.cFileName);
-        CdfArchive *archive = archive_comment_enumeration_api.open_archive(path, 0);
-        if(archive == nullptr)
-        {
-            if(archive_comment_enumeration_api.get_error(nullptr) == 0x10000)
-            {
-                archive_comment_enumeration_api.heap_free(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths);
-                state->archive_paths = nullptr;
-                state->comment_capacity = 0;
-                state->comment_count = 0;
-                archive_comment_enumeration_api.find_close(find);
-                archive_comment_enumeration_api.delete_file(path);
-                return 0x10000;
-            }
-        }
-        else
-        {
-            copy_string(state->archive_paths + state->comment_count * 0x104, path);
-            std::memset(path, 0, sizeof(path));
-            const uint32_t comment_size = archive_comment_enumeration_api.get_entry_size(archive, 0, "COMMENT.TXT");
-            if(comment_size < sizeof(path) && archive_comment_enumeration_api.read_entry(archive, 0, "COMMENT.TXT", path) != 0)
-            {
-                path[comment_size] = '\0';
-                archive_comment_enumeration_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>(path));
-                ++state->comment_count;
-                const uint32_t identifier_limit = static_cast<uint32_t>(parse_path_numeric_identifier(find_data.cFileName) + 1);
-                if(static_cast<int32_t>(state->maximum_identifier) < static_cast<int32_t>(identifier_limit))
-                {
-                    state->maximum_identifier = identifier_limit;
-                }
-                else if(state->comment_count > state->maximum_identifier)
-                {
-                    state->maximum_identifier = state->comment_count;
-                }
-                if(state->comment_count == state->comment_capacity)
-                {
-                    char *grown = static_cast<char *>(
-                        archive_comment_enumeration_api.heap_realloc(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths, (state->comment_capacity + 10) * 0x104));
-                    if(grown == nullptr)
-                    {
-                        archive_comment_enumeration_api.close_archive(archive);
-                        break;
-                    }
-                    state->archive_paths = grown;
-                    state->comment_capacity += 10;
-                }
-            }
-            archive_comment_enumeration_api.close_archive(archive);
-        }
-    } while(archive_comment_enumeration_api.find_next(find, &find_data) != FALSE);
-
-    archive_comment_enumeration_api.find_close(find);
-    if(state->comment_count == 0)
-    {
-        if(state->archive_paths != nullptr)
-        {
-            archive_comment_enumeration_api.heap_free(archive_comment_enumeration_api.get_process_heap(), 0, state->archive_paths);
-            state->archive_paths = nullptr;
-        }
-        state->comment_capacity = 0;
-        return 2;
-    }
-    return 0;
-}
-
-void set_archive_comment_enumeration_api_for_testing(const ArchiveCommentEnumerationApi &api)
-{
-    archive_comment_enumeration_api = api;
-}
-
 const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api()
 {
     return archive_comment_enumeration_api;
-}
-
-// GAG.EXE: 0x00418560
-INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    if(message == WM_INITDIALOG)
-    {
-        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
-        state->custom_control.archive_path = state->output_1;
-        state->custom_control.comment_text = state->output_2;
-        state->custom_control.dialog_state = state;
-        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        const uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
-        if(result == 0)
-        {
-            archive_comment_dialog_api.send_message(listbox, 0x186, 0, 0);
-            archive_comment_dialog_api.set_focus(listbox);
-            archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths));
-            return 0;
-        }
-        if(result == 2)
-        {
-            archive_comment_dialog_api.send_message(listbox, 0x180, 0, reinterpret_cast<LPARAM>("-No entries found...-"));
-            archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
-            return 1;
-        }
-        if(result == 0x10000)
-        {
-            archive_comment_dialog_api.end_dialog(dialog, 0x10000);
-            return 1;
-        }
-        return 0;
-    }
-    if(message == WM_COMMAND)
-    {
-        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(archive_comment_dialog_api.send_message(control, 0x7ff0, 2, 0));
-        const uint32_t command = LOWORD(wparam);
-        if(command == 1)
-        {
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-            if(state->archive_paths != nullptr)
-            {
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-                archive_comment_dialog_api.end_dialog(dialog, 0);
-            }
-            else
-            {
-                archive_comment_dialog_api.end_dialog(dialog, 2);
-            }
-            return 1;
-        }
-        if(command == 2)
-        {
-            if(state->archive_paths != nullptr)
-            {
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-            }
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-            archive_comment_dialog_api.end_dialog(dialog, 1);
-            return 1;
-        }
-        if(command == 1000)
-        {
-            const uint32_t notification = HIWORD(wparam);
-            if(notification == 1 && state->archive_paths != nullptr)
-            {
-                const LRESULT selection = archive_comment_dialog_api.send_message(listbox, 0x188, 0, 0);
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
-            }
-            else if(notification == 2 && state->archive_paths != nullptr)
-            {
-                const LRESULT selection = archive_comment_dialog_api.send_message(listbox, 0x188, 0, 0);
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-                archive_comment_dialog_api.end_dialog(dialog, 0);
-            }
-            return 1;
-        }
-        return 1;
-    }
-    if(message == 0x30f || message == 0x311)
-    {
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        archive_comment_dialog_api.send_message(control, message, wparam, lparam);
-        return 1;
-    }
-    return 0;
-}
-
-// GAG.EXE: 0x00417550
-INT_PTR run_archive_comment_dialog(HWND parent, const char *directory, const char *path, char *output)
-{
-    output[0] = '\0';
-    if(custom_control_registered == 0)
-    {
-        return 0;
-    }
-
-    ArchiveCommentDialogState state{};
-    char drive[0x20];
-    char split_directory[0x20];
-    state.directory = directory;
-    state.output_1 = output;
-    state.output_2 = output;
-    archive_comment_dialog_launch_api.split_path(path, drive, split_directory, state.file_name, state.extension);
-    const INT_PTR result = archive_comment_dialog_launch_api.dialog_box(custom_control_instance, MAKEINTRESOURCEA(101), parent, archive_comment_dialog_procedure, reinterpret_cast<LPARAM>(&state));
-    if(result != 0)
-    {
-        output[0] = '\0';
-    }
-    return result;
-}
-
-// GAG.EXE: 0x004188A0
-INT_PTR CALLBACK archive_selection_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    if(message == WM_INITDIALOG)
-    {
-        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(lparam);
-        state->custom_control.archive_path = state->output_1;
-        state->custom_control.comment_text = state->output_2;
-        state->custom_control.dialog_state = state;
-        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        HWND edit = archive_comment_dialog_api.get_dialog_item(dialog, 1009);
-        archive_comment_dialog_api.send_message(control, 0x7ff0, 1, reinterpret_cast<LPARAM>(&state->custom_control));
-        archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
-        archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-        const uint32_t result = archive_comment_dialog_api.enumerate_comments(state, listbox);
-        if(result == 0)
-        {
-            archive_comment_dialog_api.send_message(listbox, LB_SETCURSEL, 0, 0);
-        }
-        else if(result == 2)
-        {
-            archive_comment_dialog_api.send_message(listbox, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>("-No entries found...-"));
-        }
-        else if(result == 0x10000)
-        {
-            archive_comment_dialog_api.end_dialog(dialog, 0x10000);
-            return 1;
-        }
-        archive_comment_dialog_api.show_window(dialog, SW_SHOWNORMAL);
-        archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
-        archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-        archive_comment_dialog_api.set_focus(edit);
-        if(state->value_0000 == nullptr)
-        {
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
-        }
-        else
-        {
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(state->value_0000));
-        }
-        return 0;
-    }
-    if(message == WM_COMMAND)
-    {
-        HWND listbox = archive_comment_dialog_api.get_dialog_item(dialog, 1000);
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        HWND edit = archive_comment_dialog_api.get_dialog_item(dialog, 1009);
-        auto *state = reinterpret_cast<ArchiveCommentDialogState *>(archive_comment_dialog_api.send_message(control, 0x7ff0, 2, 0));
-        if(state == nullptr)
-        {
-            return 1;
-        }
-        const uint32_t command = LOWORD(wparam);
-        const uint32_t notification = HIWORD(wparam);
-        if(command == IDOK)
-        {
-            char name[0x104]{};
-            name[0] = 3;
-            name[1] = 1;
-            INT_PTR dialog_result = 2;
-            const LRESULT length = archive_comment_dialog_api.send_message(edit, EM_GETLINE, 0, reinterpret_cast<LPARAM>(name));
-            if(length != 0)
-            {
-                name[length] = '\0';
-                const LRESULT match = archive_comment_dialog_api.send_message(listbox, LB_FINDSTRINGEXACT, 0, reinterpret_cast<LPARAM>(name));
-                if(match == LB_ERR)
-                {
-                    copy_string(state->output_2, name);
-                    copy_string(state->output_1, state->directory);
-                    append_three_digit_decimal_suffix(state->file_name, state->maximum_identifier, name);
-                    append_string(name, state->extension);
-                    append_string(state->output_1, name);
-                }
-                else
-                {
-                    char prompt[0x104];
-                    std::sprintf(prompt, "%s%c%s%c ?", "Replace ", '"', name, '"');
-                    if(archive_comment_dialog_api.message_box(dialog, prompt, "SAVE", 0x34) == IDNO)
-                    {
-                        return 1;
-                    }
-                }
-                if(state->value_0000 != nullptr)
-                {
-                    archive_comment_dialog_api.sleep(100);
-                }
-                dialog_result = 0;
-            }
-            if(state->archive_paths != nullptr)
-            {
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-            }
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-            archive_comment_dialog_api.end_dialog(dialog, dialog_result);
-            return 1;
-        }
-        if(command == IDCANCEL)
-        {
-            if(state->archive_paths != nullptr)
-            {
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-            }
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-            archive_comment_dialog_api.end_dialog(dialog, 1);
-            return 1;
-        }
-        if(command == 1000 && (notification == LBN_SELCHANGE || notification == LBN_DBLCLK) && state->archive_paths != nullptr)
-        {
-            char name[0x104];
-            const LRESULT selection = archive_comment_dialog_api.send_message(listbox, LB_GETCURSEL, 0, 0);
-            archive_comment_dialog_api.send_message(listbox, LB_GETTEXT, selection, reinterpret_cast<LPARAM>(name));
-            archive_comment_dialog_api.send_message(edit, EM_SETSEL, 0, -1);
-            archive_comment_dialog_api.send_message(edit, EM_REPLACESEL, 0, reinterpret_cast<LPARAM>(name));
-            archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + selection * 0x104));
-            if(notification == LBN_DBLCLK)
-            {
-                char prompt[0x104];
-                std::sprintf(prompt, "%s%c%s%c ?", "Replace ", '"', name, '"');
-                if(archive_comment_dialog_api.message_box(dialog, prompt, "SAVE", 0x34) == IDNO)
-                {
-                    return 1;
-                }
-                archive_comment_dialog_api.heap_free(archive_comment_dialog_api.get_process_heap(), 0, state->archive_paths);
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 8, 0);
-                archive_comment_dialog_api.end_dialog(dialog, 0);
-            }
-            return 1;
-        }
-        if(command == 1009 && (notification == EN_SETFOCUS || notification == EN_CHANGE))
-        {
-            char name[0x104]{};
-            name[0] = 3;
-            name[1] = 1;
-            LRESULT length = archive_comment_dialog_api.send_message(edit, EM_GETLINE, 0, reinterpret_cast<LPARAM>(name));
-            if(length != 0)
-            {
-                name[length] = '\0';
-                const LRESULT match = archive_comment_dialog_api.send_message(listbox, LB_FINDSTRINGEXACT, 0, reinterpret_cast<LPARAM>(name));
-                if(match != LB_ERR)
-                {
-                    archive_comment_dialog_api.send_message(control, 0x7ff0, 4, reinterpret_cast<LPARAM>(state->archive_paths + match * 0x104));
-                    return 1;
-                }
-            }
-            if(state->value_0000 == nullptr)
-            {
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 0x10, 0x70);
-            }
-            else
-            {
-                archive_comment_dialog_api.send_message(control, 0x7ff0, 0x20, reinterpret_cast<LPARAM>(state->value_0000));
-            }
-            return 1;
-        }
-        return 1;
-    }
-    if(message == 0x30f || message == 0x311)
-    {
-        HWND control = archive_comment_dialog_api.get_dialog_item(dialog, 1001);
-        archive_comment_dialog_api.send_message(control, message, wparam, lparam);
-        return 1;
-    }
-    return 0;
-}
-
-// GAG.EXE: 0x004175F0
-INT_PTR run_archive_selection_dialog(HWND parent, const char *directory, const char *path, void *initial_value, char *output_path, char *output_name)
-{
-    output_path[0] = '\0';
-    output_name[0] = '\0';
-    if(custom_control_registered == 0)
-    {
-        return 0;
-    }
-    ArchiveCommentDialogState state{};
-    char drive[0x20];
-    char split_directory[0x20];
-    state.value_0000 = initial_value;
-    state.directory = directory;
-    state.output_1 = output_path;
-    state.output_2 = output_name;
-    archive_comment_dialog_launch_api.split_path(path, drive, split_directory, state.file_name, state.extension);
-    return archive_comment_dialog_launch_api.dialog_box(custom_control_instance, MAKEINTRESOURCEA(103), parent, archive_selection_dialog_procedure, reinterpret_cast<LPARAM>(&state));
-}
-
-void set_archive_comment_dialog_api_for_testing(const ArchiveCommentDialogApi &api)
-{
-    archive_comment_dialog_api = api;
-}
-
-void set_archive_comment_dialog_launch_api_for_testing(const ArchiveCommentDialogLaunchApi &api)
-{
-    archive_comment_dialog_launch_api = api;
 }
 
 // GAG.EXE: 0x0040EA40
@@ -12357,10 +10625,6 @@ uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *reso
     return 1;
 }
 
-void set_runtime_tree_command_target_api_for_testing(const RuntimeTreeCommandTargetApi &api)
-{
-    runtime_tree_command_target_api = api;
-}
 
 // GAG.EXE: 0x00406B40
 uint32_t apply_runtime_tree_image_flags(ScriptParserState *parser)
@@ -12992,10 +11256,6 @@ RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser)
     return runtime_tree_basic_command_api.create_node(resource, parent_selector, tree_name, nullptr);
 }
 
-void set_runtime_tree_basic_command_api_for_testing(const RuntimeTreeBasicCommandApi &api)
-{
-    runtime_tree_basic_command_api = api;
-}
 
 // GAG.EXE: 0x004050E0
 void set_runtime_generic_resource_position(void *identity, uint32_t position)
@@ -13103,10 +11363,6 @@ RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *re
     return node;
 }
 
-void set_runtime_generic_resource_load_api_for_testing(const RuntimeGenericResourceLoadApi &api)
-{
-    runtime_generic_resource_load_api = api;
-}
 
 // GAG.EXE: 0x00405210
 RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, uint32_t start_offset, const char *creation_text)
@@ -13151,10 +11407,6 @@ RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTree
     return context;
 }
 
-void set_runtime_tree_parser_context_api_for_testing(const RuntimeTreeParserContextApi &api)
-{
-    runtime_tree_parser_context_api = api;
-}
 
 // GAG.EXE: 0x004052F0
 void release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
@@ -13187,10 +11439,6 @@ RuntimeTreeParserContext *find_existing_runtime_tree_parser_context(RuntimeTreeN
     return context;
 }
 
-void set_runtime_tree_parser_release_api_for_testing(const RuntimeTreeParserReleaseApi &api)
-{
-    runtime_tree_parser_release_api = api;
-}
 
 // GAG.EXE: 0x004056C0
 RuntimeTreeNode *dispatch_runtime_tree_parser(RuntimeTreeParserContext *context)
@@ -13444,29 +11692,7 @@ dispatch_property_0b_value:;
     return owner;
 }
 
-void set_runtime_tree_parser_direct_dispatch_api_for_testing(const RuntimeTreeParserDirectDispatchApi &api)
-{
-    runtime_tree_parser_direct_dispatch_api = api;
-}
 
-void reset_runtime_tree_parser_direct_dispatch_api_for_testing()
-{
-    runtime_tree_parser_direct_dispatch_api = { parse_script_property_code, parse_script_object_state, parse_runtime_tree_link_0084, parse_runtime_tree_link_007c, parse_runtime_visual_object,
-        parse_runtime_tree_primary_resource_link, parse_script_object_container, parse_runtime_command_definition, parse_runtime_named_node, parse_runtime_tree_link_008c,
-        create_conditional_runtime_tree, parse_runtime_tree_auxiliary_names, create_or_update_runtime_fixed_name_node, parse_runtime_language, parse_runtime_tree_secondary_resource_link,
-        parse_script_value_token, apply_runtime_tree_image_flags, dispatch_runtime_tree_section_command, set_runtime_generic_resource_position, read_runtime_generic_resource_token,
-        parse_runtime_tree_scene_link, add_runtime_tree_auxiliary_name, publish_runtime_tree_global_links };
-}
-
-void set_runtime_tree_parser_special_dispatch_api_for_testing(const RuntimeTreeParserSpecialDispatchApi &api)
-{
-    runtime_tree_parser_special_dispatch_api = api;
-}
-
-void reset_runtime_tree_parser_special_dispatch_api_for_testing()
-{
-    runtime_tree_parser_special_dispatch_api = { parse_script_integer_expression, parse_image_flag, create_runtime_tree_command, find_and_create_runtime_tree_jump, strings_equal };
-}
 
 // GAG.EXE: 0x00405410
 RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
@@ -13594,10 +11820,6 @@ RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, 
     return result;
 }
 
-void set_runtime_tree_creation_api_for_testing(const RuntimeTreeCreationApi &api)
-{
-    runtime_tree_creation_api = api;
-}
 
 // GAG.EXE: 0x00405D00
 RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, uint32_t success_cursor)
@@ -13641,15 +11863,7 @@ RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, co
     return result;
 }
 
-void set_runtime_tree_jump_api_for_testing(const RuntimeTreeJumpApi &api)
-{
-    runtime_tree_jump_api = api;
-}
 
-void set_runtime_tree_conditional_create_api_for_testing(const RuntimeTreeConditionalCreateApi &api)
-{
-    runtime_tree_conditional_create_api = api;
-}
 
 // GAG.EXE: 0x00405E00
 void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
@@ -13689,10 +11903,6 @@ void reset_runtime_tree_parser_contexts(void *identity)
     }
 }
 
-void set_runtime_tree_parser_reset_api_for_testing(const RuntimeTreeParserResetApi &api)
-{
-    runtime_tree_parser_reset_api = api;
-}
 
 // GAG.EXE: 0x00405380
 RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text)
@@ -13721,10 +11931,6 @@ RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *no
     return runtime_tree_section_dispatch_api.dispatch_parser(context);
 }
 
-void set_runtime_tree_section_dispatch_api_for_testing(const RuntimeTreeSectionDispatchApi &api)
-{
-    runtime_tree_section_dispatch_api = api;
-}
 
 // GAG.EXE: 0x00407040
 void add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
@@ -13811,15 +12017,7 @@ void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
     }
 }
 
-void set_runtime_tree_auxiliary_release_api_for_testing(const RuntimeTreeAuxiliaryReleaseApi &api)
-{
-    runtime_tree_auxiliary_release_api = api;
-}
 
-void set_runtime_tree_auxiliary_create_api_for_testing(const RuntimeTreeAuxiliaryCreateApi &api)
-{
-    runtime_tree_auxiliary_create_api = api;
-}
 
 // Non-original helper preserving the original inclusive head-through-tail free traversal.
 template<typename Link>
@@ -14302,10 +12500,6 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
     return replacement;
 }
 
-void set_runtime_tree_destruction_core_api_for_testing(const RuntimeTreeDestructionCoreApi &api)
-{
-    runtime_tree_destruction_core_api = api;
-}
 
 // GAG.EXE: 0x0042A1B0
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
@@ -16186,10 +14380,6 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
     return child;
 }
 
-void set_runtime_generic_child_create_api_for_testing(const RuntimeGenericChildCreateApi &api)
-{
-    runtime_generic_child_create_api = api;
-}
 
 // GAG.EXE: 0x004212E0
 void process_available_runtime_generic_children(uint32_t maximum_end_position)
@@ -16249,15 +14439,7 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position)
     }
 }
 
-void set_runtime_generic_child_scene_api_for_testing(const RuntimeGenericChildSceneApi &api)
-{
-    runtime_generic_child_scene_api = api;
-}
 
-void set_runtime_pointer_event_flags_for_testing(uint32_t flags)
-{
-    runtime_pointer_event_record[14] = flags;
-}
 
 // GAG.EXE: 0x00411220
 RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity)
@@ -22350,15 +20532,7 @@ RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_
     return child;
 }
 
-void set_runtime_generic_child_attachment_api_for_testing(const RuntimeGenericChildAttachmentApi &api)
-{
-    runtime_generic_child_attachment_api = api;
-}
 
-void set_runtime_generic_child_attachment_scene_for_testing(intptr_t identifier)
-{
-    runtime_display_scene_identifier = identifier;
-}
 
 // GAG.EXE: 0x004268B0
 void rebuild_runtime_tree_resources(void *identity)
@@ -22500,10 +20674,6 @@ void rebuild_runtime_tree_resources(void *identity)
     on_scripted_save_load_tree_rebuilt(root);
 }
 
-void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api)
-{
-    runtime_tree_resource_rebuild_api = api;
-}
 
 // GAG.EXE: 0x00426700
 void rebuild_runtime_pointer_resources()
@@ -22610,10 +20780,6 @@ void rebuild_runtime_pointer_resources()
     runtime_pointer_resource_rebuild_api.wait_for_count(count);
 }
 
-void set_runtime_pointer_resource_rebuild_api_for_testing(const RuntimePointerResourceRebuildApi &api)
-{
-    runtime_pointer_resource_rebuild_api = api;
-}
 
 // GAG.EXE: 0x00423BC0
 uint32_t handle_runtime_left_button_up()
@@ -23042,10 +21208,6 @@ uint32_t has_runtime_pointer_tree_flag_1000()
     return 0;
 }
 
-void set_runtime_pointer_refresh_api_for_testing(const RuntimePointerRefreshApi &api)
-{
-    runtime_pointer_refresh_api = api;
-}
 
 // GAG.EXE: 0x004235E0
 int32_t activate_default_comment_scene(const char *name)
@@ -23256,15 +21418,7 @@ intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
     return result;
 }
 
-void set_runtime_comment_tree_cleanup_api_for_testing(const RuntimeCommentTreeCleanupApi &api)
-{
-    runtime_comment_tree_cleanup_api = api;
-}
 
-void set_runtime_tree_deactivate_api_for_testing(const RuntimeTreeDeactivateApi &api)
-{
-    runtime_tree_deactivate_api = api;
-}
 
 // GAG.EXE: 0x00406640
 void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name)
@@ -23598,10 +21752,6 @@ void set_runtime_resource_loop_count(void *identity, uint32_t count)
     runtime_resource_loop_api.release_record(reinterpret_cast<RuntimeLockRecord *>(record));
 }
 
-void set_runtime_resource_loop_api_for_testing(const RuntimeResourceLoopApi &api)
-{
-    runtime_resource_loop_api = api;
-}
 
 // GAG.EXE: 0x00425FD0
 uint32_t query_runtime_scene_flags(void *identity)
@@ -24102,62 +22252,6 @@ uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
         return 1;
     }
     return 0;
-}
-
-// GAG.EXE: 0x00417990
-uint32_t measure_archive_read_speed(const char *archive_path, uint32_t bytes_to_measure)
-{
-    uint8_t buffer[0x8000];
-    uint32_t speed = 0;
-    uint32_t bytes_read;
-    char drive_prefix[4];
-
-    archive_read_speed_api.initialize_async();
-    const char *root = archive_read_speed_api.extract_drive_prefix(drive_prefix, archive_path) == 1 ? drive_prefix : nullptr;
-    AsyncFileHost *host = archive_read_speed_api.create_host(root, 0x10000, -1);
-    if(host != nullptr)
-    {
-        AsyncFileRecord *record = archive_read_speed_api.open_record(host, archive_path, 0, 0, 0);
-        if(record != nullptr)
-        {
-            const uint32_t size = archive_read_speed_api.get_size(record);
-            uint32_t measured_bytes = size - 0x8000;
-            if(size < bytes_to_measure)
-            {
-                bytes_to_measure = measured_bytes;
-            }
-            if(bytes_to_measure != 0)
-            {
-                measured_bytes = bytes_to_measure;
-            }
-
-            archive_read_speed_api.read_record(record, buffer, 0x8000, &bytes_read, 0);
-            const DWORD start = archive_read_speed_api.get_time();
-            for(uint32_t remaining = measured_bytes; static_cast<int32_t>(remaining) > 0;)
-            {
-                uint32_t chunk = remaining;
-                if(static_cast<int32_t>(remaining) > 0x7fff)
-                {
-                    chunk = 0x8000;
-                }
-                remaining -= chunk;
-                archive_read_speed_api.read_record(record, buffer, chunk, &bytes_read, 0);
-            }
-            const DWORD finish = archive_read_speed_api.get_time();
-            if(start < finish)
-            {
-                speed = measured_bytes / (finish - start);
-            }
-            archive_read_speed_api.close_record(record);
-        }
-        archive_read_speed_api.destroy_host(host);
-    }
-    return speed;
-}
-
-void set_archive_read_speed_api_for_testing(const ArchiveReadSpeedApi &api)
-{
-    archive_read_speed_api = api;
 }
 
 // GAG.EXE: 0x0042B6B0
@@ -24704,10 +22798,6 @@ uint32_t shutdown_async_file_subsystem()
     return 1;
 }
 
-void set_async_file_shutdown_api_for_testing(const AsyncFileShutdownApi &api)
-{
-    async_file_shutdown_api = api;
-}
 
 // GAG.EXE: 0x004155C0
 AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
@@ -25268,16 +23358,7 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
     }
 }
 
-void set_script_object_parse_api_for_testing(const ScriptObjectParseApi &api)
-{
-    script_object_parse_api = api;
-}
 
-void reset_script_object_parse_api_for_testing()
-{
-    script_object_parse_api = { parse_script_value_token, parse_script_scope_code, parse_script_integer_expression, parse_image_flag, fixed_dword_memory_equal, find_runtime_visual_object,
-        create_script_object_state };
-}
 
 // GAG.EXE: 0x00408420
 ScriptObjectState *find_script_object_by_identity(void *identity)
@@ -25489,15 +23570,7 @@ uint32_t get_script_object_field_snapshot(const char *object_name, const void *f
     return 0;
 }
 
-void set_script_object_memory_api_for_testing(const ScriptObjectMemoryApi &api)
-{
-    script_object_memory_api = api;
-}
 
-void set_script_object_release_api_for_testing(const ScriptObjectReleaseApi &api)
-{
-    script_object_release_api = api;
-}
 
 // GAG.EXE: 0x00406980
 RuntimeTreeNode *get_runtime_tree_root()
@@ -28087,35 +26160,7 @@ ScriptObjectState *resolve_state_field_reference(const char *object_name, const 
     return object;
 }
 
-void set_script_runtime_root_for_testing(ScriptRuntimeRoot *root)
-{
-    script_runtime_root = root;
-}
 
-void use_embedded_script_runtime_root_for_testing()
-{
-    script_runtime_root = &graphics_script_runtime_root;
-}
-
-ScriptRuntimeRoot *get_embedded_script_runtime_root_for_testing()
-{
-    return &graphics_script_runtime_root;
-}
-
-void set_script_value_parse_api_for_testing(const ScriptValueParseApi &api)
-{
-    script_value_parse_api = api;
-}
-
-void set_script_typed_value_api_for_testing(const ScriptTypedValueApi &api)
-{
-    script_typed_value_api = api;
-}
-
-void set_script_integer_expression_api_for_testing(const ScriptIntegerExpressionApi &api)
-{
-    script_integer_expression_api = api;
-}
 
 // GAG.EXE: 0x00415720
 uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer)
@@ -28249,932 +26294,7 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
     return result;
 }
 
-void set_runtime_named_lock_api_for_testing(const RuntimeNamedLockApi &api)
-{
-    runtime_named_lock_api = api;
-}
 
-void set_runtime_named_node_memory_api_for_testing(const RuntimeNamedNodeMemoryApi &api)
-{
-    runtime_named_node_memory_api = api;
-}
-
-void set_runtime_resource_release_api_for_testing(const RuntimeResourceReleaseApi &api)
-{
-    runtime_resource_release_api = api;
-}
-
-void set_runtime_media_backend_api_for_testing(const RuntimeMediaBackendApi &api)
-{
-    runtime_media_backend_api = api;
-}
-
-void set_runtime_media_backend_state_for_testing(HANDLE heap, HANDLE mutex, RuntimeMediaBackend *head, RuntimeMediaBackend *tail)
-{
-    runtime_media_backend_heap = heap;
-    runtime_media_backend_mutex = mutex;
-    runtime_media_backend_head = head;
-    runtime_media_backend_tail = tail;
-}
-
-void set_runtime_bitmap_region_render_api_for_testing(const RuntimeBitmapRegionRenderApi &api)
-{
-    runtime_bitmap_region_render_api = api;
-}
-
-void set_runtime_scene_transition_selection_api_for_testing(const RuntimeSceneTransitionSelectionApi &api)
-{
-    runtime_scene_transition_selection_api = api;
-}
-
-void set_runtime_scene_transition_selection_state_for_testing(uint32_t available_transitions, uint32_t palette_value, uint32_t rectangle_value, uint16_t bits_per_pixel)
-{
-    graphics_host_value_3 = available_transitions;
-    graphics_host_value_1 = palette_value;
-    graphics_host_value_2 = rectangle_value;
-    runtime_game_host_context.bits_per_pixel = bits_per_pixel;
-}
-
-void set_runtime_resource_state_api_for_testing(const RuntimeResourceStateApi &api)
-{
-    runtime_resource_state_api = api;
-}
-
-void set_runtime_resource_state_globals_for_testing(void *current_resource, uint32_t scene_flags)
-{
-    current_runtime_resource = current_resource;
-    runtime_resource_transition_flags = scene_flags;
-    runtime_scene_control_flags = scene_flags;
-}
-
-void set_runtime_immediate_scene_transition_api_for_testing(const RuntimeImmediateSceneTransitionApi &api)
-{
-    runtime_immediate_scene_transition_api = api;
-}
-
-void set_runtime_palette_scene_transition_api_for_testing(const RuntimePaletteSceneTransitionApi &api)
-{
-    runtime_palette_scene_transition_api = api;
-}
-
-void set_runtime_palette_scene_transition_state_for_testing(void *current_resource, uint32_t scene_flags, uint16_t width, uint16_t height)
-{
-    current_runtime_resource = current_resource;
-    runtime_scene_control_flags = scene_flags;
-    runtime_game_host_context.width = width;
-    runtime_game_host_context.height = height;
-}
-
-const PALETTEENTRY *get_runtime_palette_scene_transition_entries_for_testing()
-{
-    return runtime_transition_palette;
-}
-
-void set_runtime_rectangle_scene_transition_api_for_testing(const RuntimeRectangleSceneTransitionApi &api)
-{
-    runtime_rectangle_scene_transition_api = api;
-}
-
-void set_runtime_rectangle_scene_transition_state_for_testing(void *current_resource, uint16_t width, uint16_t height)
-{
-    current_runtime_resource = current_resource;
-    runtime_game_host_context.width = width;
-    runtime_game_host_context.height = height;
-}
-
-void set_runtime_palette_update_api_for_testing(const RuntimePaletteUpdateApi &api)
-{
-    runtime_palette_update_api = api;
-}
-
-void set_graphics_host_api_for_testing(const GraphicsHostApi &api)
-{
-    graphics_host_api = api;
-}
-
-void reset_graphics_host_state_for_testing(uint32_t scene_flags)
-{
-    runtime_display_context = {};
-    runtime_graphics_instance = nullptr;
-    std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
-    std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
-    std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
-    graphics_host_state = {};
-    runtime_game_host_context = {};
-    graphics_script_runtime_root = {};
-    std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
-    runtime_scene_control_flags = scene_flags;
-    runtime_target_flags = 0;
-    runtime_resource_heap = nullptr;
-    runtime_pointer_x = 0;
-    runtime_pointer_y = 0;
-}
-
-void get_graphics_host_observed_state_for_testing(RuntimeGameHostContext *context, void **callbacks, int32_t *pointer_x, int32_t *pointer_y, uint32_t *target_flags, HANDLE *resource_heap)
-{
-    *context = runtime_game_host_context;
-    std::memcpy(callbacks, runtime_game_host_callbacks, sizeof(runtime_game_host_callbacks));
-    *pointer_x = runtime_pointer_x;
-    *pointer_y = runtime_pointer_y;
-    *target_flags = runtime_target_flags;
-    *resource_heap = runtime_resource_heap;
-}
-
-HWND get_runtime_display_window_for_testing()
-{
-    return runtime_display_context.window;
-}
-
-void set_framebuffer_invalidate_api_for_testing(const FramebufferInvalidateApi &api)
-{
-    framebuffer_invalidate_api = api;
-}
-
-void set_runtime_bootstrap_api_for_testing(const RuntimeBootstrapApi &api)
-{
-    runtime_bootstrap_api = api;
-}
-
-void get_runtime_bootstrap_state_for_testing(DisplayPixelFormatDescriptor *format, intptr_t *scene_identifier, HANDLE *thread)
-{
-    *format = runtime_display_context.display_pixel_format;
-    *scene_identifier = runtime_display_scene_identifier;
-    *thread = runtime_display_thread;
-}
-
-void set_runtime_resource_selection_api_for_testing(const RuntimeResourceSelectionApi &api)
-{
-    runtime_resource_selection_api = api;
-}
-
-void set_runtime_bitmap_backend_create_api_for_testing(const RuntimeBitmapBackendCreateApi &api)
-{
-    runtime_bitmap_backend_create_api = api;
-}
-
-void set_runtime_animation_backend_create_api_for_testing(const RuntimeAnimationBackendCreateApi &api)
-{
-    runtime_animation_backend_create_api = api;
-}
-
-void set_runtime_media_backend_configure_api_for_testing(const RuntimeMediaBackendConfigureApi &api)
-{
-    runtime_media_backend_configure_api = api;
-}
-
-void set_runtime_animation_backend_configure_api_for_testing(const RuntimeAnimationBackendConfigureApi &api)
-{
-    runtime_animation_backend_configure_api = api;
-}
-
-void set_runtime_resource_palette_configure_api_for_testing(const RuntimeResourcePaletteConfigureApi &api)
-{
-    runtime_resource_palette_configure_api = api;
-}
-
-void set_runtime_resource_palette_bits_per_pixel_for_testing(uint32_t bits_per_pixel)
-{
-    runtime_resource_palette_bits_per_pixel = bits_per_pixel;
-}
-
-void set_runtime_media_backend_finalize_api_for_testing(const RuntimeMediaBackendFinalizeApi &api)
-{
-    runtime_media_backend_finalize_api = api;
-}
-
-void set_runtime_animation_failure_api_for_testing(const RuntimeAnimationFailureApi &api)
-{
-    runtime_animation_failure_api = api;
-}
-
-void set_runtime_animation_control_flags_for_testing(uint32_t flags)
-{
-    runtime_animation_control_flags = flags;
-}
-
-uint32_t get_runtime_animation_control_flags_for_testing()
-{
-    return runtime_animation_control_flags;
-}
-
-void set_runtime_animation_control_api_for_testing(const RuntimeAnimationControlApi &api)
-{
-    runtime_animation_control_api = api;
-}
-
-void set_runtime_animation_frame_acquire_api_for_testing(const RuntimeAnimationFrameAcquireApi &api)
-{
-    runtime_animation_frame_acquire_api = api;
-}
-
-void set_runtime_animation_decode_api_for_testing(const RuntimeAnimationDecodeApi &api)
-{
-    runtime_animation_decode_api = api;
-}
-
-void set_runtime_animation_completion_api_for_testing(const RuntimeAnimationCompletionApi &api)
-{
-    runtime_animation_completion_api = api;
-}
-
-void set_runtime_animation_audio_api_for_testing(const RuntimeAnimationAudioApi &api)
-{
-    runtime_animation_audio_api = api;
-}
-
-void set_runtime_animation_worker_api_for_testing(const RuntimeAnimationWorkerApi &api)
-{
-    runtime_animation_worker_api = api;
-}
-
-void set_runtime_resource_construction_plan_api_for_testing(const RuntimeResourceConstructionPlanApi &api)
-{
-    runtime_resource_construction_plan_api = api;
-}
-
-void set_runtime_resource_construction_api_for_testing(const RuntimeResourceConstructionApi &api)
-{
-    runtime_resource_construction_api = api;
-}
-
-void set_runtime_animation_present_api_for_testing(const RuntimeAnimationPresentApi &api)
-{
-    runtime_animation_present_api = api;
-}
-
-void set_runtime_generic_backend_api_for_testing(const RuntimeGenericBackendApi &api)
-{
-    runtime_generic_backend_api = api;
-}
-
-void set_runtime_generic_backend_state_for_testing(HANDLE mutex, RuntimeGenericBackend *head)
-{
-    runtime_generic_backend_mutex = mutex;
-    runtime_generic_backend_head = head;
-}
-
-void set_runtime_generic_backend_create_api_for_testing(const RuntimeGenericBackendCreateApi &api)
-{
-    runtime_generic_backend_create_api = api;
-}
-
-void set_runtime_generic_backend_create_state_for_testing(uint32_t enabled)
-{
-    runtime_generic_backend_enabled = enabled;
-}
-
-RuntimeGenericBackend *get_runtime_generic_backend_head_for_testing()
-{
-    return runtime_generic_backend_head;
-}
-
-void set_runtime_sound_destroy_api_for_testing(const RuntimeSoundDestroyApi &api)
-{
-    runtime_sound_destroy_api = api;
-}
-
-void set_runtime_sound_destroy_state_for_testing(int32_t enabled, HANDLE mutex, RuntimeSoundSlot *slots, uint32_t maximum_handle)
-{
-    runtime_sound_enabled = enabled;
-    runtime_sound_mutex = mutex;
-    runtime_sound_slots = slots;
-    runtime_sound_maximum_handle = maximum_handle;
-}
-
-RuntimeSoundSlot *use_runtime_sound_backing_storage_for_testing()
-{
-    runtime_sound_slots = runtime_sound_backing_storage.slots;
-    return runtime_sound_slots;
-}
-
-uint32_t get_runtime_sound_maximum_handle_for_testing()
-{
-    return runtime_sound_maximum_handle;
-}
-
-void set_runtime_sound_create_api_for_testing(const RuntimeSoundCreateApi &api)
-{
-    runtime_sound_create_api = api;
-}
-
-void set_runtime_sound_create_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEFORMATEX *output_format, WAVEHDR *header_1, WAVEHDR *header_2, HWND window, HANDLE thread,
-    DWORD thread_id, uint32_t output_ready, uint32_t ready, uint32_t fault)
-{
-    runtime_sound_lifecycle_mutex = lifecycle_mutex;
-    runtime_sound_wave_out = wave_out;
-    runtime_sound_output_format = output_format;
-    runtime_sound_headers[0] = header_1;
-    runtime_sound_headers[1] = header_2;
-    runtime_sound_window = window;
-    runtime_sound_thread = thread;
-    runtime_sound_thread_id = thread_id;
-    runtime_sound_output_ready = output_ready;
-    runtime_sound_ready = ready;
-    runtime_sound_fault = fault;
-}
-
-void get_runtime_sound_create_state_for_testing(HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized, uint32_t *ready)
-{
-    *thread = runtime_sound_thread;
-    *thread_id = runtime_sound_thread_id;
-    *output_initialized = runtime_sound_output_initialized;
-    *ready = runtime_sound_ready;
-}
-
-void set_runtime_sound_format_cleanup_api_for_testing(const RuntimeSoundFormatCleanupApi &api)
-{
-    runtime_sound_format_cleanup_api = api;
-}
-
-void set_runtime_sound_format_cleanup_state_for_testing(void *buffer, uint32_t base_state)
-{
-    runtime_sound_format_buffer = buffer;
-    runtime_sound_base_state = base_state;
-}
-
-void get_runtime_sound_format_cleanup_state_for_testing(void **buffer, uint32_t *base_state)
-{
-    *buffer = runtime_sound_format_buffer;
-    *base_state = runtime_sound_base_state;
-}
-
-void set_runtime_sound_fade_state_for_testing(WAVEFORMATEX *output_format, uint32_t mixer_data_size)
-{
-    runtime_sound_output_format = output_format;
-    runtime_sound_mixer_data_size = mixer_data_size;
-}
-
-void set_runtime_wave_out_callback_api_for_testing(const RuntimeWaveOutCallbackApi &api)
-{
-    runtime_wave_out_callback_api = api;
-}
-
-void set_runtime_wave_out_callback_state_for_testing(HWND window, uint32_t output_ready)
-{
-    runtime_sound_window = window;
-    runtime_sound_output_ready = output_ready;
-}
-
-uint32_t get_runtime_wave_out_callback_state_for_testing()
-{
-    return runtime_sound_output_ready;
-}
-
-void set_runtime_sound_shutdown_api_for_testing(const RuntimeSoundShutdownApi &api)
-{
-    runtime_sound_shutdown_api = api;
-}
-
-void set_runtime_sound_shutdown_state_for_testing(HANDLE lifecycle_mutex, HWAVEOUT wave_out, WAVEHDR *header_1, WAVEHDR *header_2, HANDLE thread, DWORD thread_id, uint32_t output_ready,
-    uint32_t output_initialized)
-{
-    runtime_sound_lifecycle_mutex = lifecycle_mutex;
-    runtime_sound_wave_out = wave_out;
-    runtime_sound_headers[0] = header_1;
-    runtime_sound_headers[1] = header_2;
-    runtime_sound_thread = thread;
-    runtime_sound_thread_id = thread_id;
-    runtime_sound_output_ready = output_ready;
-    runtime_sound_output_initialized = output_initialized;
-}
-
-void get_runtime_sound_shutdown_state_for_testing(int32_t *enabled, HANDLE *thread, DWORD *thread_id, uint32_t *output_initialized)
-{
-    *enabled = runtime_sound_enabled;
-    *thread = runtime_sound_thread;
-    *thread_id = runtime_sound_thread_id;
-    *output_initialized = runtime_sound_output_initialized;
-}
-
-void set_runtime_sound_readiness_api_for_testing(const RuntimeSoundReadinessApi &api)
-{
-    runtime_sound_readiness_api = api;
-}
-
-void set_runtime_sound_pause_resume_api_for_testing(const RuntimeSoundPauseResumeApi &api)
-{
-    runtime_sound_pause_resume_api = api;
-}
-
-void set_runtime_sound_pause_resume_state_for_testing(uint32_t toggle_state, uint32_t mixing_suppressed, uint32_t output_initialized, uint32_t output_ready, HANDLE thread, DWORD thread_id,
-    HWND window, uint32_t fault)
-{
-    runtime_sound_toggle_state = toggle_state;
-    runtime_sound_mixing_suppressed = mixing_suppressed;
-    runtime_sound_output_initialized = output_initialized;
-    runtime_sound_output_ready = output_ready;
-    runtime_sound_thread = thread;
-    runtime_sound_thread_id = thread_id;
-    runtime_sound_window = window;
-    runtime_sound_fault = fault;
-}
-
-void get_runtime_sound_pause_resume_state_for_testing(uint32_t *toggle_state, uint32_t *mixing_suppressed, uint32_t *output_initialized, HANDLE *thread, DWORD *thread_id)
-{
-    *toggle_state = runtime_sound_toggle_state;
-    *mixing_suppressed = runtime_sound_mixing_suppressed;
-    *output_initialized = runtime_sound_output_initialized;
-    *thread = runtime_sound_thread;
-    *thread_id = runtime_sound_thread_id;
-}
-
-void set_runtime_sound_readiness_state_for_testing(uint32_t ready)
-{
-    runtime_sound_ready = ready;
-}
-
-uint32_t get_runtime_sound_readiness_state_for_testing()
-{
-    return runtime_sound_ready;
-}
-
-void set_runtime_sound_thread_api_for_testing(const RuntimeSoundThreadApi &api)
-{
-    runtime_sound_thread_api = api;
-}
-
-void set_runtime_sound_thread_state_for_testing(HINSTANCE instance, HWND window, uint32_t creation_failed)
-{
-    runtime_sound_instance = instance;
-    runtime_sound_window = window;
-    runtime_sound_window_creation_failed = creation_failed;
-}
-
-void get_runtime_sound_thread_state_for_testing(HWND *window, uint32_t *creation_failed)
-{
-    *window = runtime_sound_window;
-    *creation_failed = runtime_sound_window_creation_failed;
-}
-
-void set_runtime_sound_class_api_for_testing(const RuntimeSoundClassApi &api)
-{
-    runtime_sound_class_api = api;
-}
-
-void set_runtime_sound_window_api_for_testing(const RuntimeSoundWindowApi &api)
-{
-    runtime_sound_window_api = api;
-}
-
-void set_runtime_sound_window_state_for_testing(RuntimeSoundOutputBlock *outputs, WAVEFORMATEX *output_format, uint32_t mixer_data_size, uint32_t output_initialized, uint32_t output_index,
-    void (*mixer)(uint32_t marker))
-{
-    runtime_sound_outputs = outputs;
-    runtime_sound_output_format = output_format;
-    runtime_sound_mixer_data_size = mixer_data_size;
-    runtime_sound_output_initialized = output_initialized;
-    runtime_sound_output_index = output_index;
-    runtime_sound_mixer = mixer;
-}
-
-void set_runtime_sound_mixing_suppressed_for_testing(uint8_t suppressed)
-{
-    runtime_sound_mixing_suppressed = suppressed;
-}
-
-void set_runtime_wave_mixer_initialize_api_for_testing(const RuntimeWaveMixerInitializeApi &api)
-{
-    runtime_wave_mixer_initialize_api = api;
-}
-
-void set_runtime_wave_mixer_initialize_state_for_testing(uint32_t fault, uint32_t window_creation_failed)
-{
-    runtime_sound_fault = fault;
-    runtime_sound_window_creation_failed = window_creation_failed;
-}
-
-void get_runtime_wave_mixer_initialize_state_for_testing(uint32_t *fault, void **buffer, uint32_t *mixer_data_size, void (**mixer)(uint32_t marker))
-{
-    *fault = runtime_sound_fault;
-    *buffer = runtime_sound_format_buffer;
-    *mixer_data_size = runtime_sound_mixer_data_size;
-    *mixer = runtime_sound_mixer;
-}
-
-void get_runtime_sound_window_state_for_testing(uint32_t *output_ready, uint32_t *output_initialized, uint32_t *output_index)
-{
-    *output_ready = runtime_sound_output_ready;
-    *output_initialized = runtime_sound_output_initialized;
-    *output_index = runtime_sound_output_index;
-}
-
-void set_runtime_resource_destroy_api_for_testing(const RuntimeResourceDestroyApi &api)
-{
-    runtime_resource_destroy_api = api;
-}
-
-void set_runtime_resource_control_api_for_testing(const RuntimeResourceControlApi &api)
-{
-    runtime_resource_control_api = api;
-}
-
-void set_runtime_game_lifecycle_api_for_testing(const RuntimeGameLifecycleApi &api)
-{
-    runtime_game_lifecycle_api = api;
-}
-
-void set_runtime_game_integration_api_for_testing(const RuntimeGameIntegrationApi &api)
-{
-    runtime_game_integration_api = api;
-}
-
-void set_runtime_game_dll_dispatch_api_for_testing(const RuntimeGameDllDispatchApi &api)
-{
-    runtime_game_dll_dispatch_api = api;
-}
-
-void set_runtime_game_dll_state_for_testing(uint32_t flags)
-{
-    runtime_scene_control_flags = flags;
-}
-
-void set_runtime_game_dll_execute_for_testing(RuntimeGameDllExecute execute)
-{
-    runtime_game_dll_execute = execute;
-}
-
-void set_runtime_game_window_api_for_testing(const RuntimeGameWindowApi &api)
-{
-    runtime_game_window_api = api;
-}
-
-void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllWindowProcedure window_procedure, uint16_t x_offset, uint16_t y_offset)
-{
-    runtime_game_main_window = main_window;
-    runtime_game_dll_window_procedure = window_procedure;
-    runtime_game_host_context.x_offset = x_offset;
-    runtime_game_host_context.y_offset = y_offset;
-#if defined(FREEGAG_WINDOWS_FIXES)
-    modern_windows_game_cursor_tracking = false;
-#endif
-}
-
-void get_runtime_game_result_for_testing(uint32_t *type, void *data, uint32_t size)
-{
-    *type = runtime_display_context.game_result_type;
-    std::memcpy(data, runtime_display_context.game_result_data, size);
-}
-
-void set_runtime_pointer_position_api_for_testing(const RuntimePointerPositionApi &api)
-{
-    runtime_pointer_position_api = api;
-}
-
-void get_runtime_pointer_position_for_testing(int32_t *x, int32_t *y)
-{
-    *x = runtime_pointer_x;
-    *y = runtime_pointer_y;
-}
-
-void set_runtime_game_host_state_for_testing(const RuntimeGameHostContext &context, void *const *callbacks)
-{
-    runtime_game_host_context = context;
-    std::memcpy(runtime_game_host_callbacks, callbacks, sizeof(runtime_game_host_callbacks));
-}
-
-RuntimeGameHostContext get_runtime_game_host_state_for_testing()
-{
-    return runtime_game_host_context;
-}
-
-void get_runtime_game_dll_state_for_testing(RuntimeGameDllWindowProcedure *window_procedure, RuntimeGameDllExecute *execute)
-{
-    *window_procedure = runtime_game_dll_window_procedure;
-    *execute = runtime_game_dll_execute;
-}
-
-void set_runtime_resource_destroy_state_for_testing(void *current_resource)
-{
-    current_runtime_resource = current_resource;
-}
-
-void *get_runtime_resource_destroy_state_for_testing()
-{
-    return current_runtime_resource;
-}
-
-void set_runtime_named_lock_state_for_testing(void *parent_identity)
-{
-    runtime_named_lock_parent_identity = parent_identity;
-}
-
-CRITICAL_SECTION *get_runtime_named_lock_critical_section_for_testing()
-{
-    return &runtime_named_lock_critical_section;
-}
-
-CRITICAL_SECTION *get_runtime_resource_critical_section_for_testing()
-{
-    return &runtime_resource_critical_section;
-}
-
-CRITICAL_SECTION *get_runtime_game_dll_critical_section_for_testing()
-{
-    return &runtime_game_dll_critical_section;
-}
-
-void *get_runtime_named_lock_parent_identity_for_testing()
-{
-    return runtime_named_lock_parent_identity;
-}
-
-HWND get_runtime_resource_notification_window_for_testing()
-{
-    return runtime_resource_notification_window;
-}
-
-void set_runtime_scene_switch_api_for_testing(const RuntimeSceneSwitchApi &api)
-{
-    runtime_scene_switch_api = api;
-}
-
-void set_runtime_scene_switch_state_for_testing(void *current_identity, int32_t x, int32_t y)
-{
-    current_runtime_scene_identity = current_identity;
-    runtime_scene_x = x;
-    runtime_scene_y = y;
-}
-
-void *get_current_runtime_scene_identity_for_testing()
-{
-    return current_runtime_scene_identity;
-}
-
-void set_runtime_scene_control_state_for_testing(uint32_t flags, void *saved_identity)
-{
-    runtime_scene_control_flags = flags;
-    saved_default_comment_scene_identity = saved_identity;
-}
-
-uint32_t get_runtime_scene_control_flags_for_testing()
-{
-    return runtime_scene_control_flags;
-}
-
-void set_runtime_scene_slots_for_testing(const RuntimeSceneSlot *slots)
-{
-    std::memcpy(runtime_scene_slots, slots, 32 * sizeof(RuntimeSceneSlot));
-}
-
-const RuntimeSceneSlot *get_runtime_scene_slots_for_testing()
-{
-    return runtime_scene_slots;
-}
-
-void set_runtime_pointer_region_state_for_testing(void *root_identity, RuntimePointerRegion *regions, RuntimePointerRegion *active_region, uint32_t state_mask, void *state_owner)
-{
-    runtime_pointer_root_identity = root_identity;
-    runtime_pointer_regions = regions;
-    active_runtime_pointer_region = active_region;
-    runtime_pointer_state_mask = state_mask;
-    runtime_pointer_state_owner = state_owner;
-}
-
-RuntimePointerRegion *get_active_runtime_pointer_region_for_testing()
-{
-    return active_runtime_pointer_region;
-}
-
-RuntimePointerRegion *get_runtime_pointer_regions_for_testing()
-{
-    return runtime_pointer_regions;
-}
-
-uint32_t get_runtime_pointer_event_flags_for_testing()
-{
-    return static_cast<uint32_t>(runtime_pointer_event_record[11]);
-}
-
-void set_runtime_display_reset_api_for_testing(const RuntimeDisplayResetApi &api)
-{
-    runtime_display_reset_api = api;
-}
-
-void set_runtime_display_reset_state_for_testing(uint32_t value_1, uint8_t byte_value, uint32_t value_2, const uint32_t *scene_state)
-{
-    runtime_display_context.input_scene_identifier = value_1;
-    runtime_display_reset_byte = byte_value;
-    saved_default_comment_scene_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(value_2));
-    current_runtime_scene_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[0]));
-    current_runtime_resource = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[1]));
-    runtime_pointer_root_identity = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[2]));
-    runtime_display_context.active_script_link = reinterpret_cast<RuntimeTreeLink7C *>(static_cast<uintptr_t>(scene_state[3]));
-    active_runtime_pointer_region = reinterpret_cast<RuntimePointerRegion *>(static_cast<uintptr_t>(scene_state[4]));
-    runtime_pointer_state_mask = scene_state[5];
-    runtime_pointer_state_owner = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[6]));
-    runtime_pointer_event_state_object = reinterpret_cast<void *>(static_cast<uintptr_t>(scene_state[7]));
-    for(size_t index = 0; index < 13; ++index)
-    {
-        runtime_pointer_event_record[index] = scene_state[index + 8];
-    }
-}
-
-void get_runtime_display_reset_state_for_testing(uint32_t *value_1, uint8_t *byte_value, uint32_t *value_2, uint32_t *scene_state)
-{
-    *value_1 = static_cast<uint32_t>(runtime_display_context.input_scene_identifier);
-    *byte_value = runtime_display_reset_byte;
-    *value_2 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(saved_default_comment_scene_identity));
-    scene_state[0] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(current_runtime_scene_identity));
-    scene_state[1] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(current_runtime_resource));
-    scene_state[2] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_root_identity));
-    scene_state[3] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_display_context.active_script_link));
-    scene_state[4] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(active_runtime_pointer_region));
-    scene_state[5] = runtime_pointer_state_mask;
-    scene_state[6] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_state_owner));
-    scene_state[7] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(runtime_pointer_event_state_object));
-    for(size_t index = 0; index < 13; ++index)
-    {
-        scene_state[index + 8] = static_cast<uint32_t>(runtime_pointer_event_record[index]);
-    }
-}
-
-void set_runtime_display_shutdown_api_for_testing(const RuntimeDisplayShutdownApi &api)
-{
-    runtime_display_shutdown_api = api;
-}
-
-void set_runtime_display_shutdown_state_for_testing(HANDLE thread, intptr_t scene_identifier, void *host, const RuntimePresentationTarget *backend_state,
-    const DisplayPixelFormatDescriptor *pixel_format_state)
-{
-    runtime_display_thread = thread;
-    runtime_display_scene_identifier = scene_identifier;
-    runtime_display_host = host;
-    runtime_display_context.command_target = *backend_state;
-    runtime_display_context.display_pixel_format = *pixel_format_state;
-}
-
-void get_runtime_display_shutdown_state_for_testing(HANDLE *thread, intptr_t *scene_identifier, void **host, RuntimePresentationTarget *backend_state, DisplayPixelFormatDescriptor *pixel_format_state)
-{
-    *thread = runtime_display_thread;
-    *scene_identifier = runtime_display_scene_identifier;
-    *host = runtime_display_host;
-    *backend_state = runtime_display_context.command_target;
-    *pixel_format_state = runtime_display_context.display_pixel_format;
-}
-
-void set_runtime_resource_wait_api_for_testing(const RuntimeResourceWaitApi &api)
-{
-    runtime_resource_wait_api = api;
-}
-
-void set_runtime_resource_count_for_testing(uint32_t count)
-{
-    runtime_resource_count = count;
-}
-
-void set_runtime_tree_destruction_api_for_testing(const RuntimeTreeDestructionApi &api)
-{
-    runtime_tree_destruction_api = api;
-}
-
-void set_runtime_resource_scene_destruction_api_for_testing(const RuntimeResourceSceneDestructionApi &api)
-{
-    runtime_resource_scene_destruction_api = api;
-}
-
-void set_runtime_resource_scene_region_api_for_testing(const RuntimeResourceSceneRegionApi &api)
-{
-    runtime_resource_scene_region_api = api;
-}
-
-void set_runtime_resource_scene_region_default_for_testing(intptr_t scene_identifier)
-{
-    runtime_display_scene_identifier = scene_identifier;
-}
-
-void set_runtime_tree_destruction_state_for_testing(void *pointer_root_identity, void *current_resource, uint32_t resource_count)
-{
-    runtime_pointer_root_identity = pointer_root_identity;
-    current_runtime_resource = current_resource;
-    runtime_resource_count = resource_count;
-}
-
-uint32_t get_runtime_resource_count_for_testing()
-{
-    return runtime_resource_count;
-}
-
-void set_runtime_resource_directory_for_testing(const char *directory)
-{
-    copy_string(runtime_display_context.resource_directory, directory);
-}
-
-void set_runtime_resource_file_open_api_for_testing(const RuntimeResourceFileOpenApi &api)
-{
-    runtime_resource_file_open_api = api;
-}
-
-void set_runtime_resource_host_api_for_testing(const RuntimeResourceHostApi &api)
-{
-    runtime_resource_host_api = api;
-}
-
-void set_runtime_resource_host_state_for_testing(AsyncFileHost *host, CdfArchive *archive, int32_t mode, uint8_t archive_state)
-{
-    runtime_resource_host = host;
-    runtime_resource_archive = archive;
-    runtime_resource_host_mode = mode;
-    runtime_resource_archive_state = archive_state;
-}
-
-void get_runtime_resource_host_state_for_testing(AsyncFileHost **host, CdfArchive **archive, int32_t *mode, uint8_t *archive_state)
-{
-    *host = runtime_resource_host;
-    *archive = runtime_resource_archive;
-    *mode = runtime_resource_host_mode;
-    *archive_state = runtime_resource_archive_state;
-}
-
-void set_runtime_script_property_api_for_testing(const RuntimeScriptPropertySetApi &api)
-{
-    runtime_script_property_set_api = api;
-}
-
-void set_runtime_script_property_get_api_for_testing(const RuntimeScriptPropertyGetApi &api)
-{
-    runtime_script_property_get_api = api;
-}
-
-void set_runtime_script_property_get_state_for_testing(const char *path, int32_t pointer_x, int32_t pointer_y)
-{
-    copy_string(runtime_graphics_resource_directory, path);
-    runtime_pointer_x = pointer_x;
-    runtime_pointer_y = pointer_y;
-}
-
-void reset_runtime_script_property_state_for_testing(uint32_t value_1, uint32_t value_2, uint32_t value_3, uint32_t state_1000_count, uint32_t state_4_count)
-{
-    graphics_host_value_1 = value_1;
-    graphics_host_value_2 = value_2;
-    graphics_host_value_3 = value_3;
-    runtime_state_1000_count = state_1000_count;
-    runtime_state_4_count = state_4_count;
-}
-
-void get_runtime_script_property_state_for_testing(uint32_t *value_1, uint32_t *value_2, uint32_t *value_3, uint32_t *state_1000_count, uint32_t *state_4_count, uint32_t *scene_flags,
-    int32_t *host_mode)
-{
-    *value_1 = graphics_host_value_1;
-    *value_2 = graphics_host_value_2;
-    *value_3 = graphics_host_value_3;
-    *state_1000_count = runtime_state_1000_count;
-    *state_4_count = runtime_state_4_count;
-    *scene_flags = runtime_scene_control_flags;
-    *host_mode = runtime_resource_host_mode;
-}
-
-void set_runtime_resource_type_api_for_testing(const RuntimeResourceTypeApi &api)
-{
-    runtime_resource_type_api = api;
-}
-
-void set_runtime_resource_type_state_for_testing(void *cache_parent_identity, HWND notification_window)
-{
-    runtime_resource_cache_parent_identity = cache_parent_identity;
-    runtime_resource_notification_window = notification_window;
-}
-
-void set_runtime_cdf_stream_api_for_testing(const RuntimeCdfStreamApi &api)
-{
-    runtime_cdf_stream_api = api;
-}
-
-void set_runtime_resource_load_api_for_testing(const RuntimeResourceLoadApi &api)
-{
-    runtime_resource_load_api = api;
-}
-
-void set_runtime_resource_load_state_for_testing(HANDLE heap, uint32_t streamed_count)
-{
-    runtime_resource_heap = heap;
-    runtime_resource_streamed_count = streamed_count;
-}
-
-uint32_t get_runtime_resource_streamed_count_for_testing()
-{
-    return runtime_resource_streamed_count;
-}
-
-void set_async_file_lock_api_for_testing(const AsyncFileLockApi &api)
-{
-    async_file_lock_api = api;
-}
-
-void set_async_file_state_for_testing(bool enabled, AsyncFileHost *hosts)
-{
-    async_file_enabled = enabled;
-    async_file_hosts = hosts;
-}
-
-void set_async_file_open_api_for_testing(const AsyncFileOpenApi &api)
-{
-    async_file_open_api = api;
-}
-
-void set_async_file_host_api_for_testing(const AsyncFileHostApi &api)
-{
-    async_file_host_api = api;
-}
 
 // GAG.EXE: 0x0040CFD0
 int append_string(char *destination, const char *source)
@@ -29230,105 +26350,17 @@ void copy_directory_from_path(char *destination, const char *source)
 
 } // namespace
 
-// GAG.EXE: 0x0041EDF0
-uint32_t load_installation_registry_settings(ApplicationState *state, const RegistryApi &api)
+uint32_t load_local_preferences(ApplicationState *state)
 {
-    uint32_t result;
-    if(state->archive_context != nullptr)
+    state->installation_path[0] = '\0';
+    int64_t settings = 0;
+    if(read_preference_number(game_preferences_section, "Settings", 0, UINT32_MAX, &settings))
     {
-        copy_directory_from_path(state->installation_path, state->executable_directory);
-        result = 2;
-    }
-    else
-    {
-        result = 0x10000;
-        HKEY key;
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility behavior: loading requires value-query access, not full control of the HKLM key.
-        constexpr REGSAM registry_access = KEY_QUERY_VALUE | modern_windows_registry_view;
-#else
-        constexpr REGSAM registry_access = KEY_ALL_ACCESS;
-#endif
-        if(api.open_key(HKEY_LOCAL_MACHINE, registry_key, 0, registry_access, &key) == ERROR_SUCCESS)
-        {
-            result = 0x20000;
-            DWORD data_size = sizeof(state->installed_version);
-            DWORD type;
-            if(api.query_value(key, version_value, nullptr, &type, reinterpret_cast<LPBYTE>(state->installed_version), &data_size) == ERROR_SUCCESS && type == REG_SZ)
-            {
-                result = 0x40000;
-                if(strings_equal(expected_version, state->installed_version))
-                {
-                    data_size = sizeof(state->installation_path);
-                    if(api.query_value(key, path_value, nullptr, &type, reinterpret_cast<LPBYTE>(state->installation_path), &data_size) == ERROR_SUCCESS && type == REG_SZ)
-                    {
-                        result = 2;
-                        int length = 0;
-                        while(state->installation_path[length] != '\0')
-                        {
-                            ++length;
-                        }
-                        if(length > 0 && length < 0x103 && state->installation_path[length - 1] != '\\')
-                        {
-                            state->installation_path[length] = '\\';
-                            state->installation_path[length + 1] = '\0';
-                        }
-                    }
-
-                    bool settings_loaded = false;
-                    uint32_t settings = 0;
-#if defined(FREEGAG_WINDOWS_FIXES)
-                    // Non-original modern-Windows compatibility: prefer the per-user settings store. If it has not been created yet, retain the original HKLM value as a migration fallback.
-                    HKEY user_key;
-                    if(api.open_key(HKEY_CURRENT_USER, registry_key, 0, KEY_QUERY_VALUE | modern_windows_registry_view, &user_key) == ERROR_SUCCESS)
-                    {
-                        data_size = sizeof(settings);
-                        if(api.query_value(user_key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD
-                            && data_size == sizeof(settings))
-                        {
-                            settings_loaded = true;
-                        }
-                        api.close_key(user_key);
-                    }
-#endif
-                    if(!settings_loaded)
-                    {
-                        data_size = sizeof(settings);
-                        if(api.query_value(key, settings_value, nullptr, &type, reinterpret_cast<LPBYTE>(&settings), &data_size) == ERROR_SUCCESS && type == REG_DWORD && data_size == sizeof(settings))
-                        {
-                            settings_loaded = true;
-                        }
-                    }
-                    if(settings_loaded)
-                    {
-                        state->flags |= settings & 0x02001020;
-                    }
-                }
-            }
-            api.close_key(key);
-        }
+        state->flags |= static_cast<uint32_t>(settings) & 0x02001020;
     }
 
     state->flags |= (~state->flags & 0x20) << 2;
-    return result;
-}
-
-RegistryApi make_win32_registry_api()
-{
-    return { RegOpenKeyExA, RegQueryValueExA, RegCloseKey };
-}
-
-// Non-original test state accessors.
-void set_compressor_input_state_for_testing(const void *input, uint32_t input_size, uint32_t input_position)
-{
-    compressor_input = static_cast<const uint8_t *>(input);
-    compressor_input_size = input_size;
-    compressor_input_position = input_position;
-}
-
-uint32_t get_compressor_input_position_for_testing()
-{
-    return compressor_input_position;
+    return 2;
 }
 
 } // namespace gag
