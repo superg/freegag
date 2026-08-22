@@ -169,7 +169,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
         if(data != nullptr)
         {
             auto *wave_file = static_cast<RuntimePcmWaveFile *>(data);
-            const uint32_t sound = runtime_resource_construction_api.create_sound(reinterpret_cast<WAVEFORMATEX *>(&wave_file->format));
+            const uint32_t sound = runtime_resource_construction_api.create_sound(&wave_file->format);
             if(sound != 0)
             {
                 RuntimeSoundSlot *slot = runtime_resource_construction_api.get_sound_slot(sound);

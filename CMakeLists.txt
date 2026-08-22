@@ -17,6 +17,20 @@ FetchContent_Declare(zlib
 )
 FetchContent_MakeAvailable(zlib)
 
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+set(SDL_UNINSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(SDL3
+  URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-3.4.10.tar.gz
+  URL_HASH SHA256=12b34280415ec8418c864408b93d008a20a6530687ee613d60bfbd20411f2785
+)
+FetchContent_MakeAvailable(SDL3)
+
 find_program(CLANG_FORMAT "clang-format")
 if(CLANG_FORMAT)
   file(GLOB_RECURSE ALL_SOURCE_FILES

@@ -138,7 +138,7 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     runtime_game_host_context = {};
     graphics_script_runtime_root = {};
     std::memset(runtime_game_host_callbacks, 0, sizeof(runtime_game_host_callbacks));
-    bool initialized = graphics_host_api.initialize_media(instance) != 0;
+    bool initialized = graphics_host_api.initialize_media() != 0;
     if(initialized)
     {
         initialized = graphics_host_api.initialize_async() != 0;
@@ -239,7 +239,7 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     }
 
     runtime_game_host_callbacks[0] = reinterpret_cast<void *>(&invalidate_game_framebuffer_rect);
-    runtime_game_host_callbacks[1] = reinterpret_cast<void *>(&create_runtime_sound_handle);
+    runtime_game_host_callbacks[1] = reinterpret_cast<void *>(&create_runtime_game_sound);
     runtime_game_host_callbacks[2] = reinterpret_cast<void *>(&destroy_runtime_sound_handle);
     runtime_game_host_callbacks[3] = reinterpret_cast<void *>(&queue_runtime_sound_data);
     runtime_game_host_callbacks[4] = reinterpret_cast<void *>(&start_runtime_sound);
@@ -662,7 +662,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
 
 
 
-uint32_t initialize_runtime_media_backend(HINSTANCE instance)
+uint32_t initialize_runtime_media_backend()
 {
     if(runtime_media_backend_initialized)
     {
@@ -678,7 +678,7 @@ uint32_t initialize_runtime_media_backend(HINSTANCE instance)
     {
         return 0;
     }
-    runtime_backend_initialization_api.initialize_sound_class(instance);
+    runtime_backend_initialization_api.initialize_sound();
     runtime_media_backend_initialized = true;
     return 1;
 }

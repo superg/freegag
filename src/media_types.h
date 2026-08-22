@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pcm_format.h"
 #include "resource_types.h"
 
 namespace gag
@@ -119,7 +120,8 @@ struct RuntimeAnimationSoundFormatChunk
 {
     RuntimeAnimationChunkHeader chunk;
     uint8_t unknown_0006[0x0c];
-    WAVEFORMATEX format;
+    RuntimePcmFormat format;
+    uint16_t extra_format_size;
 };
 
 struct RuntimeFontFormat
@@ -138,7 +140,7 @@ struct RuntimePaletteData
 struct RuntimePcmWaveFile
 {
     uint8_t riff_and_format_headers[0x14];
-    PCMWAVEFORMAT format;
+    RuntimePcmFormat format;
 };
 
 struct RuntimeRiffChunk
@@ -274,7 +276,7 @@ struct RuntimeAnimationCompletionApi
 
 struct RuntimeAnimationAudioApi
 {
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
     LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
     LPVOID(WINAPI *heap_realloc)(HANDLE heap, DWORD flags, LPVOID memory, SIZE_T bytes);
@@ -282,7 +284,7 @@ struct RuntimeAnimationAudioApi
     uint32_t (*queue_sound_data)(uint32_t handle, void *data, uint32_t size, int32_t replace);
     uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
-    uint32_t (*create_sound)(WAVEFORMATEX *format);
+    uint32_t (*create_sound)(const RuntimePcmFormat *format);
     RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
 };
 
@@ -291,7 +293,7 @@ struct RuntimeAnimationWorkerApi
 {
     DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
     void(WINAPI *sleep)(DWORD milliseconds);
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     void(WINAPI *exit_thread)(DWORD exit_code);
 };
 

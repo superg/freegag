@@ -442,7 +442,7 @@ uint32_t wait_for_display_scene_ready(uint32_t timeout)
     if((display_lock_flags & 1) != 0)
     {
         display_lock_flags &= ~0x20u;
-        DWORD start = GetTickCount();
+        uint32_t start = runtime_milliseconds();
         do
         {
             if((display_lock_flags & 0x20) != 0)
@@ -450,7 +450,7 @@ uint32_t wait_for_display_scene_ready(uint32_t timeout)
                 return 0;
             }
             display_lock_acquire_api.sleep(0);
-        } while(GetTickCount() - start <= timeout);
+        } while(runtime_milliseconds() - start <= timeout);
     }
     return 0x80000000;
 }

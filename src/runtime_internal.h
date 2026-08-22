@@ -20,6 +20,7 @@
 #include "media.h"
 #include "resource.h"
 #include "runtime.h"
+#include "runtime_clock.h"
 #include "runtime_model.h"
 #include "runtime_tree.h"
 #include "runtime_types.h"
@@ -283,7 +284,7 @@ inline RuntimePendingTreeSwitchApi runtime_pending_tree_switch_api{ destroy_runt
 
 inline RuntimePairDispatchApi runtime_pair_dispatch_api{ dequeue_runtime_pair, update_runtime_pointer_region, handle_runtime_right_button_down, handle_runtime_left_button_up,
     handle_runtime_left_button_down };
-inline ScriptUtilityApi script_utility_api{ VirtualAlloc, GetTickCount, std::srand, std::rand };
+inline ScriptUtilityApi script_utility_api{ VirtualAlloc, runtime_milliseconds, std::srand, std::rand };
 inline bool script_random_seeded;
 
 inline ScriptValueParseApi script_value_parse_api{ evaluate_script_parameter };
@@ -344,7 +345,7 @@ inline uint32_t &display_scene_count = display_scene_host_state.scene_count;
 inline DisplaySceneNode *&display_scene_root = display_scene_host_state.root;
 inline DisplaySceneNode *&display_scene_head = display_scene_host_state.head;
 inline DisplaySceneSurface display_scene_surface_state{};
-inline DisplaySceneCallbackApi display_scene_callback_api{ timeGetTime };
+inline DisplaySceneCallbackApi display_scene_callback_api{ runtime_milliseconds };
 inline DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
 inline void *display_backend;
 inline void *display_backend_target;
@@ -489,10 +490,10 @@ inline void release_runtime_text_input_scene_guard()
         runtime_text_input_guarded_scene = 0;
     }
 }
-inline RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text, acquire_runtime_text_input_scene, begin_runtime_text_input_scene_update,
-    draw_runtime_standalone_text, end_runtime_text_input_scene_update, release_display_scene_node };
+inline RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, runtime_milliseconds, initialize_runtime_standalone_text, acquire_runtime_text_input_scene,
+    begin_runtime_text_input_scene_update, draw_runtime_standalone_text, end_runtime_text_input_scene_update, release_display_scene_node };
 inline RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
-inline RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, GetTickCount, timeGetTime, Sleep, process_available_runtime_generic_children, process_runtime_message,
+inline RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, runtime_milliseconds, runtime_milliseconds, Sleep, process_available_runtime_generic_children, process_runtime_message,
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
     acknowledge_current_runtime_event_record, run_pending_runtime_external_command, activate_runtime_tree_link_007c, parse_script_opcode, execute_simple_runtime_script_opcode,
     select_bounded_random_value };
@@ -518,11 +519,12 @@ inline RuntimeImmediateSceneTransitionApi runtime_immediate_scene_transition_api
 inline RuntimeSceneTransitionSelectionApi runtime_scene_transition_selection_api{ std::rand, apply_immediate_runtime_scene_transition, apply_palette_runtime_scene_transition,
     apply_rectangle_runtime_scene_transition };
 inline RuntimePaletteSceneTransitionApi runtime_palette_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock, apply_display_palette,
-    operate_display_surface, set_display_clip_rectangle, dispatch_display_scene_update, release_display_lock, release_runtime_lock_record, timeGetTime, Sleep, invalidate_game_framebuffer_rect };
+    operate_display_surface, set_display_clip_rectangle, dispatch_display_scene_update, release_display_lock, release_runtime_lock_record, runtime_milliseconds, Sleep,
+    invalidate_game_framebuffer_rect };
 inline PALETTEENTRY runtime_transition_palette[0x101]{};
 inline RuntimeRectangleSceneTransitionApi runtime_rectangle_scene_transition_api{ acquire_runtime_lock_record, apply_immediate_runtime_scene_transition, acquire_display_lock,
-    set_display_clip_rectangle, release_display_lock, operate_display_surface, synchronize_display_region, apply_display_palette, dispatch_display_scene_update, timeGetTime, GetTickCount, Sleep,
-    release_runtime_lock_record };
+    set_display_clip_rectangle, release_display_lock, operate_display_surface, synchronize_display_region, apply_display_palette, dispatch_display_scene_update, runtime_milliseconds,
+    runtime_milliseconds, Sleep, release_runtime_lock_record };
 inline RuntimeResourceSceneRegionApi runtime_resource_scene_region_api{ lock_display_scene_node, acquire_runtime_lock_record, begin_display_scene_update, render_runtime_bitmap_backend_region,
     end_display_scene_update, update_display_root_region, release_runtime_lock_record, unlock_display_scene_node };
 inline RuntimeResourceSceneDestructionApi runtime_resource_scene_destruction_api{ acquire_runtime_lock_record, destroy_runtime_resource, release_runtime_lock_record, Sleep,
@@ -586,9 +588,9 @@ inline RuntimeAnimationFrameAcquireApi runtime_animation_frame_acquire_api{ read
 inline RuntimeAnimationDecodeApi runtime_animation_decode_api{ decode_runtime_animation_palette, decode_runtime_animation_mvz5, decode_runtime_animation_delta_flc, decode_runtime_animation_mvz8,
     ignore_runtime_animation_chunk_11, ignore_runtime_animation_chunk_12, ignore_runtime_animation_chunk_13, decode_runtime_animation_byte_run, decode_runtime_animation_literal };
 inline RuntimeAnimationCompletionApi runtime_animation_completion_api{ Sleep, PostMessageA, set_async_file_position };
-inline RuntimeAnimationAudioApi runtime_animation_audio_api{ timeGetTime, Sleep, HeapAlloc, HeapReAlloc, destroy_runtime_sound_handle, queue_runtime_sound_data, stop_runtime_sound,
+inline RuntimeAnimationAudioApi runtime_animation_audio_api{ runtime_milliseconds, Sleep, HeapAlloc, HeapReAlloc, destroy_runtime_sound_handle, queue_runtime_sound_data, stop_runtime_sound,
     start_runtime_sound, create_runtime_sound_handle, get_runtime_sound_slot };
-inline RuntimeAnimationWorkerApi runtime_animation_worker_api{ GdiSetBatchLimit, Sleep, timeGetTime, ExitThread };
+inline RuntimeAnimationWorkerApi runtime_animation_worker_api{ GdiSetBatchLimit, Sleep, runtime_milliseconds, ExitThread };
 inline RuntimeResourceConstructionPlanApi runtime_resource_construction_plan_api{ find_available_display_scene_index };
 inline RuntimeResourceConstructionApi runtime_resource_construction_api{
     GetProcessHeap,
@@ -641,57 +643,7 @@ inline HANDLE runtime_generic_backend_mutex;
 inline RuntimeGenericBackend *runtime_generic_backend_head;
 inline uint32_t runtime_generic_backend_enabled;
 inline RuntimeGenericBackendShutdownApi runtime_generic_backend_shutdown_api{ WaitForSingleObject, ReleaseMutex, destroy_runtime_generic_backend, CloseHandle };
-inline RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapCreate, CreateMutexA, initialize_runtime_sound_class, WaitForSingleObject, ReleaseMutex, InitializeCriticalSection };
-inline RuntimeSoundDestroyApi runtime_sound_destroy_api{ WaitForSingleObject, ReleaseMutex, GetProcessHeap, HeapAlloc, HeapFree };
-inline HANDLE runtime_sound_mutex;
-
-struct RuntimeSoundBackingStorage
-{
-    RuntimeSoundSlot slots[1024];
-};
-
-
-inline RuntimeSoundBackingStorage runtime_sound_backing_storage{};
-inline RuntimeSoundSlot *runtime_sound_slots = runtime_sound_backing_storage.slots;
-inline uint32_t runtime_sound_mixing_suppressed;
-inline uint32_t runtime_sound_fault;
-inline uint32_t runtime_sound_base_state;
-inline uint32_t &runtime_sound_toggle_state = runtime_sound_base_state;
-inline uint32_t runtime_sound_output_initialized;
-inline uint32_t runtime_sound_mixer_data_size = 0x600;
-inline uint32_t runtime_sound_window_creation_failed;
-inline int32_t runtime_sound_enabled;
-inline HANDLE runtime_sound_thread;
-inline DWORD runtime_sound_thread_id;
-inline HWND runtime_sound_window;
-inline char runtime_sound_window_class_name[] = "SoundClassName";
-inline uint32_t runtime_sound_maximum_handle;
-inline RuntimeSoundFormatCleanupApi runtime_sound_format_cleanup_api{ GetProcessHeap, HeapFree };
-inline void *runtime_sound_format_buffer;
-inline WAVEFORMATEX *runtime_sound_output_format;
-inline RuntimeWaveOutCallbackApi runtime_wave_out_callback_api{ PostMessageA, timeGetTime };
-inline uint32_t runtime_sound_output_ready;
-inline RuntimeSoundShutdownApi runtime_sound_shutdown_api{ WaitForSingleObject, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, destroy_runtime_sound_handle,
-    cleanup_runtime_sound_format_buffer };
-inline HANDLE runtime_sound_lifecycle_mutex;
-inline HWAVEOUT runtime_sound_wave_out;
-inline WAVEHDR *runtime_sound_headers[2];
-inline uint32_t runtime_sound_ready;
-inline HINSTANCE runtime_sound_instance;
-inline RuntimeSoundThreadApi runtime_sound_thread_api{ CreateWindowExA, ShowWindow, GetCurrentThread, SetThreadPriority, GetMessageA, DispatchMessageA, ExitThread };
-inline RuntimeSoundOutputBlock runtime_sound_output_storage[2];
-inline RuntimeSoundOutputBlock *runtime_sound_outputs = runtime_sound_output_storage;
-inline uint32_t runtime_sound_output_index;
-inline void (*runtime_sound_mixer)(uint32_t marker);
-inline RuntimeSoundWindowApi runtime_sound_window_api{ waveOutPrepareHeader, WaitForSingleObject, ReleaseMutex, waveOutWrite, PostQuitMessage, DestroyWindow, DefWindowProcA };
-inline RuntimeSoundClassApi runtime_sound_class_api{ RegisterClassA, CreateMutexA };
-inline RuntimeSoundPauseResumeApi runtime_sound_pause_resume_api{ WaitForSingleObject, ReleaseMutex, waveOutReset, waveOutUnprepareHeader, waveOutClose, PostMessageA, CloseHandle, CreateThread, Sleep,
-    waveOutOpen };
-
-inline RuntimeWaveMixerInitializeApi runtime_wave_mixer_initialize_api{ GetProcessHeap, HeapAlloc, Sleep, waveOutOpen, cleanup_runtime_sound_format_buffer };
-inline RuntimeSoundReadinessApi runtime_sound_readiness_api{ WaitForSingleObject, CreateThread, Sleep, initialize_runtime_wave_out_mixer, PostMessageA, CloseHandle, ReleaseMutex };
-inline RuntimeSoundCreateApi runtime_sound_create_api{ ensure_runtime_sound_ready, WaitForSingleObject, ReleaseMutex, runtime_wave_formats_equal, waveOutReset, waveOutUnprepareHeader, waveOutClose,
-    PostMessageA, CloseHandle, destroy_runtime_sound_handle, cleanup_runtime_sound_format_buffer, CreateThread, initialize_runtime_wave_out_mixer, calculate_runtime_wave_conversion };
+inline RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapCreate, CreateMutexA, initialize_runtime_sound, WaitForSingleObject, ReleaseMutex, InitializeCriticalSection };
 inline RuntimeResourceDestroyApi runtime_resource_destroy_api{ acquire_runtime_lock_record, EnterCriticalSection, LeaveCriticalSection, find_runtime_generic_resource, remove_runtime_generic_resource,
     destroy_runtime_media_backend, release_runtime_memory_resource_by_data, release_runtime_streamed_resource, destroy_runtime_sound_handle, destroy_runtime_generic_backend,
     release_display_scene_node, remove_runtime_named_child_by_identity, GetProcessHeap, HeapFree };
@@ -727,7 +679,7 @@ inline void initialize_linked_xtet(RuntimeGameHostContext *context, void **callb
 inline RuntimeGameLifecycleApi runtime_game_lifecycle_api{ EnterCriticalSection, update_runtime_resource_host, activate_default_comment_scene, deactivate_default_comment_scene,
     reset_runtime_byte_queue, reset_runtime_pair_queue, leave_runtime_state_1000, LeaveCriticalSection };
 inline RuntimeGameIntegrationApi runtime_game_integration_api{ initialize_linked_xtet, xtet::dispatch_game_window_message, xtet::execute_game_command, xtet::shutdown_game };
-inline RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ timeGetTime, Sleep };
+inline RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ runtime_milliseconds, Sleep };
 inline HWND &runtime_game_main_window = runtime_display_context.window;
 inline RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, GetUpdateRect, BeginPaint, queue_display_rectangle, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte,
     enqueue_runtime_pair, enqueue_runtime_message, clear_runtime_flag_01000000, unload_runtime_game_dll, enter_runtime_state_1000, leave_runtime_state_1000, set_runtime_flag_01000000, TrackMouseEvent,
@@ -743,7 +695,7 @@ inline CRITICAL_SECTION async_file_global_lock;
 inline AsyncFileLockApi async_file_lock_api{ EnterCriticalSection, LeaveCriticalSection, Sleep };
 inline AsyncFileOpenApi async_file_open_api{ CreateFileA, GetProcessHeap, HeapAlloc, HeapFree, CloseHandle, VirtualAlloc, VirtualFree, GetFileSize };
 inline AsyncFileHostApi async_file_host_api{ GetProcessHeap, HeapAlloc, HeapFree, GetDiskFreeSpaceA, InitializeCriticalSection, DeleteCriticalSection, VirtualAlloc, CreateThread, WaitForSingleObject,
-    ReadFile, SetFilePointer, timeGetTime };
+    ReadFile, SetFilePointer, runtime_milliseconds };
 inline ScreenshotApi screenshot_api{ GetSaveFileNameA, capture_game_bitmap, CreateFileA, WriteFile, CloseHandle };
 inline BitmapCaptureApi bitmap_capture_api{ GetProcessHeap, HeapAlloc };
 
@@ -897,16 +849,17 @@ inline CursorVisibilityApi cursor_visibility_api{ ShowCursor, leave_runtime_stat
 inline void (*finish_credits_callback)() = clear_credits_runtime_flag;
 inline RuntimeQueueApi runtime_queue_api{ enter_runtime_pair_queue_lock, leave_runtime_pair_queue_lock, enter_runtime_message_queue_lock, leave_runtime_message_queue_lock,
     enter_runtime_byte_queue_lock, leave_runtime_byte_queue_lock };
-inline RuntimeInputSessionApi runtime_input_session_api{ reset_runtime_byte_queue, timeGetTime, acquire_runtime_lock_record, initialize_runtime_standalone_text, find_available_display_scene_index,
-    lock_display_scene_node, acquire_display_scene_node, begin_display_scene_update, draw_runtime_standalone_text, end_display_scene_update, unlock_display_scene_node, release_runtime_lock_record };
+inline RuntimeInputSessionApi runtime_input_session_api{ reset_runtime_byte_queue, runtime_milliseconds, acquire_runtime_lock_record, initialize_runtime_standalone_text,
+    find_available_display_scene_index, lock_display_scene_node, acquire_display_scene_node, begin_display_scene_update, draw_runtime_standalone_text, end_display_scene_update,
+    unlock_display_scene_node, release_runtime_lock_record };
 inline RuntimeCommandLoopApi runtime_command_loop_api{ pause_runtime_game_dll_discard_result, pause_all_runtime_animations, pause_runtime_sound_output_discard_result, PostMessageA,
     process_runtime_message, get_serialized_runtime_state_lparam, Sleep, resume_runtime_sound_output_discard_result, resume_all_runtime_animations, resume_runtime_game_dll_discard_result,
     reset_runtime_session };
 inline uint32_t runtime_session_reset_storage[0x1d3]{};
 inline RuntimeSessionResetApi runtime_session_reset_api{ stop_runtime_game_dll, get_runtime_tree_root, destroy_runtime_tree_resources, deactivate_runtime_tree_and_visuals, reset_runtime_display_state,
     request_runtime_resource_destruction, destroy_runtime_fixed_name_list_nodes, purge_disabled_runtime_named_nodes, destroy_script_object_states, destroy_runtime_visual_objects,
-    clear_runtime_command_definitions, remove_all_runtime_generic_resources, close_cdf_archive, destroy_async_file_host, operate_display_surface, get_or_create_runtime_named_node, timeGetTime,
-    Sleep };
+    clear_runtime_command_definitions, remove_all_runtime_generic_resources, close_cdf_archive, destroy_async_file_host, operate_display_surface, get_or_create_runtime_named_node,
+    runtime_milliseconds, Sleep };
 inline RuntimeMessageProcessorApi runtime_message_processor_api{ dequeue_runtime_message, disable_display_palette_mode, enable_display_palette_mode, acquire_display_lock, update_runtime_target,
     present_runtime_message_target };
 inline RuntimeTargetUpdateApi runtime_target_update_api{ draw_runtime_bounds, begin_runtime_target_from_bounds_fields, end_display_target };
@@ -915,7 +868,7 @@ inline DisplayLockAcquireApi display_lock_acquire_api{ GetCurrentThreadId, WaitF
 inline DisplayTargetApi display_target_api{ release_display_backend_target };
 inline DisplaySceneMemoryApi display_scene_memory_api{ GetProcessHeap, HeapAlloc, HeapFree };
 inline DisplaySceneHostApi display_scene_host_api{ InitializeCriticalSection, DeleteCriticalSection, CreateEventA, CloseHandle, CreateThread, WaitForSingleObject };
-inline DisplaySceneWorkerApi display_scene_worker_api{ timeGetTime, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
+inline DisplaySceneWorkerApi display_scene_worker_api{ runtime_milliseconds, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
     release_display_lock };
 inline const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
 inline DisplayPaletteApi display_palette_api{ enter_display_host_lock, leave_display_host_lock, get_display_palette_window, GetForegroundWindow, GetWindowThreadProcessId, UnrealizeObject,

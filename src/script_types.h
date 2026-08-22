@@ -14,7 +14,7 @@ struct ScriptTextBuffer
 struct ScriptUtilityApi
 {
     LPVOID(WINAPI *virtual_alloc)(LPVOID address, SIZE_T size, DWORD allocation_type, DWORD protection);
-    DWORD(WINAPI *get_tick_count)();
+    uint32_t (*get_tick_count)();
     void (*seed_random)(unsigned int seed);
     int (*random)();
 };

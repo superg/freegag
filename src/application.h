@@ -19,7 +19,7 @@ void get_runtime_script_property(uint32_t property, void **value, void *result);
 
 ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, bool start_xtet, int show_command);
 
-uint32_t initialize_runtime_media_backend(HINSTANCE instance);
+uint32_t initialize_runtime_media_backend();
 
 uint32_t initialize_runtime_generic_backend();
 

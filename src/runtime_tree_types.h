@@ -202,7 +202,7 @@ struct AsyncFileHostApi
     DWORD(WINAPI *wait_for_single_object)(HANDLE object, DWORD milliseconds);
     BOOL(WINAPI *read_file)(HANDLE file, LPVOID buffer, DWORD bytes, LPDWORD bytes_read, LPOVERLAPPED overlapped);
     DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG high_distance, DWORD method);
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
 };
 
 struct RuntimeNamedLockApi
@@ -698,7 +698,7 @@ struct RuntimePaletteSceneTransitionApi
     uint32_t (*dispatch_scene_update)(void *rectangle, uint32_t flags);
     uint32_t (*release_display_lock)();
     void (*release_record)(RuntimeLockRecord *record);
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
     void (*invalidate_framebuffer)(int32_t x, int32_t y, int32_t width, int32_t height);
 };
@@ -716,8 +716,8 @@ struct RuntimeRectangleSceneTransitionApi
     void (*synchronize_region)(DisplayRectangle *rectangle, uint32_t mode);
     UINT (*apply_palette)(const PALETTEENTRY *entries, uint32_t flags);
     uint32_t (*dispatch_scene_update)(void *rectangle, uint32_t flags);
-    DWORD(WINAPI *time_get_time)();
-    DWORD(WINAPI *get_tick_count)();
+    uint32_t (*time_get_time)();
+    uint32_t (*get_tick_count)();
     void(WINAPI *sleep)(DWORD milliseconds);
     void (*release_record)(RuntimeLockRecord *record);
 };
@@ -857,17 +857,6 @@ struct RuntimeMediaBackendShutdownApi
     BOOL(WINAPI *heap_destroy)(HANDLE heap);
     BOOL(WINAPI *close_handle)(HANDLE handle);
     uint32_t (*shutdown_sound)();
-};
-
-
-
-struct RuntimeWaveMixerInitializeApi
-{
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    MMRESULT(WINAPI *wave_out_open)(LPHWAVEOUT wave_out, UINT device_id, LPCWAVEFORMATEX format, DWORD_PTR callback, DWORD_PTR instance, DWORD flags);
-    void (*cleanup_format_buffer)();
 };
 
 

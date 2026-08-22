@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pcm_format.h"
 #include "script_types.h"
 
 namespace gag
@@ -45,7 +46,7 @@ struct RuntimeResourceConstructionApi
     void (*load)(const char *path, void **data, uint32_t *size, int32_t *storage, uint32_t flags);
     RuntimeMediaBackend *(*create_bitmap)(uint32_t unused, uint32_t extension_bytes, void *data);
     RuntimeAnimationBackend *(*create_animation)(uint32_t unused, void *data, uint32_t extension_bytes, uint32_t storage);
-    uint32_t (*create_sound)(WAVEFORMATEX *format);
+    uint32_t (*create_sound)(const RuntimePcmFormat *format);
     RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*queue_sound)(uint32_t handle, void *data, uint32_t size, int32_t replace);
@@ -187,7 +188,7 @@ struct RuntimeGameIntegrationApi
 
 struct RuntimeGameDllDispatchApi
 {
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
 };
 

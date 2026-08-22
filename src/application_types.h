@@ -2,7 +2,6 @@
 
 #include <windows.h>
 #include <commdlg.h>
-#include <mmsystem.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -141,7 +140,7 @@ struct RuntimeNamedNode;
 struct GraphicsHostApi
 {
     DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
-    uint32_t (*initialize_media)(HINSTANCE instance);
+    uint32_t (*initialize_media)();
     uint32_t (*initialize_async)();
     uint32_t (*initialize_generic)();
     HANDLE(WINAPI *heap_create)(DWORD options, SIZE_T initial_size, SIZE_T maximum_size);
@@ -253,7 +252,7 @@ struct RuntimeBackendInitializationApi
 {
     HANDLE(WINAPI *heap_create)(DWORD options, SIZE_T initial_size, SIZE_T maximum_size);
     HANDLE(WINAPI *create_mutex)(LPSECURITY_ATTRIBUTES attributes, BOOL initial_owner, LPCSTR name);
-    void (*initialize_sound_class)(HINSTANCE instance);
+    void (*initialize_sound)();
     DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
     BOOL(WINAPI *release_mutex)(HANDLE mutex);
     void(WINAPI *initialize_critical_section)(LPCRITICAL_SECTION section);

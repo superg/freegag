@@ -2,8 +2,15 @@
 
 #include "runtime_types.h"
 
+namespace xtet
+{
+struct PcmFormat;
+}
+
 namespace gag
 {
+
+uint32_t create_runtime_game_sound(const xtet::PcmFormat *format);
 
 void unload_runtime_game_dll();
 

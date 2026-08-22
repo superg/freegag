@@ -193,7 +193,7 @@ struct RuntimeInputSessionRecord
 struct RuntimeInputSessionApi
 {
     void (*reset_byte_queue)();
-    DWORD(WINAPI *get_time)();
+    uint32_t (*get_time)();
     RuntimeLockRecord *(*acquire_record)(void *selector);
     uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
     uint32_t (*find_scene_index)(uint32_t flags);
@@ -315,7 +315,7 @@ struct RuntimeCommandLoopState
 struct RuntimeTextInputApi
 {
     uint8_t (*dequeue_byte)();
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
     DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
         const DisplayPixelFormatDescriptor *format);
@@ -593,7 +593,7 @@ struct DisplaySceneNode
 
 struct DisplaySceneCallbackApi
 {
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
 };
 
 struct DisplaySyncRequest
@@ -630,7 +630,7 @@ struct DisplaySceneHostApi
 
 struct DisplaySceneWorkerApi
 {
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
     uint32_t (*acquire_lock)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *dirty_flags);
     int (*synchronize_node)(DisplaySceneNode *node, DisplayRectangle *rectangle);
@@ -705,7 +705,7 @@ struct RuntimeSessionResetApi
     uint32_t (*destroy_async_host)(AsyncFileHost *host);
     void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
     RuntimeNamedNode *(*get_named_node)(const char *name);
-    DWORD(WINAPI *get_time)();
+    uint32_t (*get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
 };
 
@@ -736,8 +736,8 @@ enum class RuntimeScriptOpcodeDisposition : uint32_t
 struct RuntimeScriptExecutorApi
 {
     DWORD(WINAPI *set_batch_limit)(DWORD limit);
-    DWORD(WINAPI *get_tick_count)();
-    DWORD(WINAPI *time_get_time)();
+    uint32_t (*get_tick_count)();
+    uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);
     void (*process_children)(uint32_t maximum_end_position);
     void (*process_message)(RuntimeCommandLoopState *state);

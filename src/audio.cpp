@@ -1,8 +1,180 @@
 #include "audio.h"
-#include "runtime_internal.h"
+#include <SDL3/SDL.h>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
+#include <mutex>
+#include <new>
+#include <thread>
+#include <vector>
+#include "runtime_clock.h"
 
 namespace gag
 {
+
+namespace
+{
+
+std::mutex runtime_sound_mutex;
+std::mutex runtime_sound_lifecycle_mutex;
+std::condition_variable_any runtime_silent_transport_condition;
+std::array<RuntimeSoundSlot, 1024> runtime_sound_slots{};
+std::array<std::vector<uint8_t>, 2> runtime_sound_outputs;
+RuntimePcmFormat runtime_sound_output_format{};
+SDL_AudioStream *runtime_sound_stream;
+std::jthread runtime_silent_transport_thread;
+uint32_t runtime_sound_mixing_suppressed;
+uint32_t runtime_sound_base_state;
+std::atomic_uint32_t runtime_sound_output_initialized;
+uint32_t runtime_sound_mixer_data_size = 0x600;
+uint32_t runtime_sound_maximum_handle;
+uint32_t runtime_sound_output_ready;
+uint32_t runtime_sound_output_index;
+std::atomic_int32_t runtime_sound_enabled;
+bool runtime_sound_sdl_initialized;
+void (*runtime_sound_mixer)(uint32_t marker);
+
+void stop_runtime_sound_transport();
+
+uint32_t mix_next_runtime_sound_block()
+{
+    std::lock_guard lock(runtime_sound_mutex);
+    const uint32_t output_index = runtime_sound_output_index;
+    runtime_sound_mixer(runtime_milliseconds());
+    runtime_sound_output_index ^= 1;
+    return output_index;
+}
+
+void SDLCALL provide_runtime_sound_data(void *, SDL_AudioStream *stream, int additional_amount, int)
+{
+    while(additional_amount > 0 && runtime_sound_output_initialized != 0)
+    {
+        std::vector<uint8_t> &output = runtime_sound_outputs[mix_next_runtime_sound_block()];
+        if(!SDL_PutAudioStreamData(stream, output.data(), static_cast<int>(output.size())))
+        {
+            return;
+        }
+        additional_amount -= static_cast<int>(output.size());
+    }
+}
+
+void run_silent_runtime_sound_transport(std::stop_token stop_token)
+{
+    const auto block_duration = std::chrono::duration<double>(static_cast<double>(runtime_sound_mixer_data_size) / runtime_sound_output_format.average_bytes_per_second);
+    auto deadline = std::chrono::steady_clock::now();
+    while(!stop_token.stop_requested())
+    {
+        mix_next_runtime_sound_block();
+        deadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(block_duration);
+        std::mutex wait_mutex;
+        std::unique_lock wait_lock(wait_mutex);
+        runtime_silent_transport_condition.wait_until(wait_lock, stop_token, deadline, [] { return false; });
+    }
+}
+
+bool configure_runtime_sound_mixer(const RuntimePcmFormat *format)
+{
+    if(format == nullptr || format->format_tag != 1 || (format->channel_count != 1 && format->channel_count != 2) || (format->bits_per_sample != 8 && format->bits_per_sample != 16)
+        || format->samples_per_second < 11000)
+    {
+        return false;
+    }
+
+    runtime_sound_output_format = *format;
+    runtime_sound_output_format.block_alignment = static_cast<uint16_t>(format->channel_count * format->bits_per_sample / 8);
+    runtime_sound_output_format.average_bytes_per_second = runtime_sound_output_format.block_alignment * format->samples_per_second;
+    runtime_sound_mixer_data_size = runtime_sound_output_format.block_alignment * (format->samples_per_second / 11000) * 0x800;
+    if(runtime_sound_mixer_data_size == 0)
+    {
+        return false;
+    }
+    for(std::vector<uint8_t> &output : runtime_sound_outputs)
+    {
+        output.assign(runtime_sound_mixer_data_size, format->bits_per_sample == 8 ? 0x80 : 0);
+    }
+    runtime_sound_output_index = 0;
+    if(format->bits_per_sample == 8)
+    {
+        runtime_sound_mixer = format->channel_count == 1 ? mix_runtime_sound_8bit_mono : mix_runtime_sound_8bit_stereo;
+    }
+    else
+    {
+        runtime_sound_mixer = format->channel_count == 1 ? mix_runtime_sound_16bit_mono : mix_runtime_sound_16bit_stereo;
+    }
+    return true;
+}
+
+bool start_runtime_sound_transport(const RuntimePcmFormat *format)
+{
+    stop_runtime_sound_transport();
+    {
+        std::lock_guard mixer_lock(runtime_sound_mutex);
+        if(!configure_runtime_sound_mixer(format))
+        {
+            return false;
+        }
+    }
+
+    if(runtime_sound_sdl_initialized)
+    {
+        SDL_AudioSpec specification{};
+        specification.format = format->bits_per_sample == 8 ? SDL_AUDIO_U8 : SDL_AUDIO_S16;
+        specification.channels = static_cast<int>(format->channel_count);
+        specification.freq = static_cast<int>(format->samples_per_second);
+        runtime_sound_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &specification, provide_runtime_sound_data, nullptr);
+        if(runtime_sound_stream != nullptr)
+        {
+            runtime_sound_output_initialized = 1;
+            runtime_sound_output_ready = 1;
+            if(SDL_ResumeAudioStreamDevice(runtime_sound_stream))
+            {
+                return true;
+            }
+            runtime_sound_output_initialized = 0;
+            runtime_sound_output_ready = 0;
+            SDL_DestroyAudioStream(runtime_sound_stream);
+            runtime_sound_stream = nullptr;
+        }
+    }
+
+    runtime_sound_output_initialized = 1;
+    runtime_sound_output_ready = 1;
+    runtime_silent_transport_thread = std::jthread(run_silent_runtime_sound_transport);
+    return true;
+}
+
+void stop_runtime_sound_transport()
+{
+    runtime_sound_output_initialized = 0;
+    runtime_sound_output_ready = 0;
+    if(runtime_sound_stream != nullptr)
+    {
+        SDL_DestroyAudioStream(runtime_sound_stream);
+        runtime_sound_stream = nullptr;
+    }
+    if(runtime_silent_transport_thread.joinable())
+    {
+        runtime_silent_transport_thread.request_stop();
+        runtime_silent_transport_condition.notify_all();
+        runtime_silent_transport_thread.join();
+    }
+}
+
+void release_runtime_sound_buffers(RuntimeSoundSlot &slot)
+{
+    RuntimeSoundBufferNode *buffer = slot.buffers;
+    while(buffer != nullptr)
+    {
+        RuntimeSoundBufferNode *next = buffer->next;
+        delete buffer;
+        buffer = next;
+    }
+    slot.buffers = nullptr;
+}
+
+} // namespace
 
 void destroy_runtime_sound_handle(uint32_t handle)
 {
@@ -10,20 +182,14 @@ void destroy_runtime_sound_handle(uint32_t handle)
     {
         return;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
         if(slot->active != 0)
         {
             slot->active = 0;
-            RuntimeSoundBufferNode *buffer = slot->buffers;
-            while(buffer != nullptr)
-            {
-                RuntimeSoundBufferNode *next = buffer->next;
-                runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, buffer);
-                buffer = next;
-            }
+            release_runtime_sound_buffers(*slot);
             if(runtime_sound_maximum_handle <= handle)
             {
                 runtime_sound_maximum_handle = handle;
@@ -39,36 +205,28 @@ void destroy_runtime_sound_handle(uint32_t handle)
                         --slot;
                         --handle;
                         runtime_sound_maximum_handle = handle;
-                    } while(runtime_sound_slots < slot);
+                    } while(runtime_sound_slots.data() < slot);
                 }
             }
-            runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
             return;
         }
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
 }
 
-uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
+uint32_t create_runtime_sound_handle(const RuntimePcmFormat *source_format)
 {
-    if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
+    if(runtime_sound_enabled == 0 || source_format == nullptr)
     {
         return 0;
     }
     uint16_t conversion_flags = 0;
-    if(runtime_sound_create_api.ensure_ready(source_format, 0x600) == 0)
+    std::lock_guard lifecycle_lock(runtime_sound_lifecycle_mutex);
+    if(runtime_sound_output_ready == 0 && !start_runtime_sound_transport(source_format))
     {
         return 0;
     }
-    runtime_sound_create_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
-    runtime_sound_create_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
-    if(runtime_sound_fault != 0)
-    {
-        runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-        runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
-        return 0;
-    }
-    if(runtime_sound_create_api.formats_equal(runtime_sound_output_format, source_format) == 0)
+    std::unique_lock mixer_lock(runtime_sound_mutex);
+    if(runtime_pcm_formats_equal(&runtime_sound_output_format, source_format) == 0)
     {
         uint32_t candidate = 1;
         do
@@ -85,61 +243,16 @@ uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
         }
         if(runtime_sound_slots[candidate].active == 0)
         {
-            runtime_sound_output_initialized = 0;
-            if(runtime_sound_output_ready != 0)
+            mixer_lock.unlock();
+            if(!start_runtime_sound_transport(source_format))
             {
-                runtime_sound_create_api.wave_out_reset(runtime_sound_wave_out);
-                runtime_sound_create_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
-                runtime_sound_create_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
-                runtime_sound_create_api.wave_out_reset(runtime_sound_wave_out);
-                runtime_sound_create_api.wave_out_close(runtime_sound_wave_out);
-                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-                if(runtime_sound_thread != nullptr)
-                {
-                    runtime_sound_create_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-                    runtime_sound_create_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-                    runtime_sound_create_api.close_handle(runtime_sound_thread);
-                    runtime_sound_thread = nullptr;
-                    runtime_sound_thread_id = 0;
-                }
-                runtime_sound_ready = 0;
-                uint32_t handle = 1;
-                if(runtime_sound_maximum_handle > 1)
-                {
-                    do
-                    {
-                        runtime_sound_create_api.destroy_sound(handle);
-                        ++handle;
-                    } while(handle < runtime_sound_maximum_handle);
-                }
-                runtime_sound_create_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+                return 0;
             }
-            runtime_sound_create_api.cleanup_format_buffer();
+            mixer_lock.lock();
             runtime_sound_maximum_handle = 0;
-            runtime_sound_thread = runtime_sound_create_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
-            if(runtime_sound_thread == nullptr)
-            {
-                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-                runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
-                return 0;
-            }
-            if(runtime_sound_create_api.initialize_mixer(source_format, 0x600) == 0)
-            {
-                runtime_sound_create_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-                runtime_sound_create_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-                runtime_sound_create_api.close_handle(runtime_sound_thread);
-                runtime_sound_thread = nullptr;
-                runtime_sound_thread_id = 0;
-                runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-                runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
-                return 0;
-            }
-            runtime_sound_ready = 1;
         }
-        else if(runtime_sound_create_api.calculate_conversion(runtime_sound_output_format, source_format, &conversion_flags) == 0)
+        else if(calculate_runtime_pcm_conversion(&runtime_sound_output_format, source_format, &conversion_flags) == 0)
         {
-            runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-            runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
             return 0;
         }
     }
@@ -169,12 +282,8 @@ uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
         {
             runtime_sound_maximum_handle = handle;
         }
-        runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-        runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
         return handle;
     }
-    runtime_sound_create_api.release_mutex(runtime_sound_mutex);
-    runtime_sound_create_api.release_mutex(runtime_sound_lifecycle_mutex);
     return 0xffffffff;
 }
 
@@ -184,13 +293,17 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
     {
         return 0;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle <= runtime_sound_maximum_handle && handle != 0)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
         if(slot->active != 0)
         {
-            auto *node = static_cast<RuntimeSoundBufferNode *>(runtime_sound_destroy_api.heap_alloc(runtime_sound_destroy_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeSoundBufferNode)));
+            auto *node = new (std::nothrow) RuntimeSoundBufferNode{};
+            if(node == nullptr)
+            {
+                return 0;
+            }
             node->size = size;
             node->offset = 0;
             node->next = nullptr;
@@ -203,7 +316,7 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
                 while(tail != nullptr)
                 {
                     RuntimeSoundBufferNode *next = tail->next;
-                    runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, tail);
+                    delete tail;
                     tail = next;
                 }
                 slot->schedule_state = 0;
@@ -221,11 +334,9 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
                 }
                 tail->next = node;
             }
-            runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
             return 1;
         }
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     return 0;
 }
 
@@ -235,7 +346,7 @@ uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
     {
         return 0;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
@@ -244,10 +355,8 @@ uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
             slot->schedule_state = 0;
         }
         slot->playing = 1;
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
         return 1;
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     return 0;
 }
 
@@ -257,7 +366,7 @@ uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing)
     {
         return 0;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
@@ -269,10 +378,8 @@ uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing)
                 slot->playback_state = 0;
             }
         }
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
         return 1;
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     return 0;
 }
 
@@ -280,14 +387,13 @@ void set_runtime_sound_loop_value(uint32_t handle, uint32_t value)
 {
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
-        runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+        std::lock_guard lock(runtime_sound_mutex);
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
         if(slot->active != 0)
         {
             slot->loop_value_1 = value;
             slot->loop_value_2 = value;
         }
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     }
 }
 
@@ -306,7 +412,7 @@ uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t re
     {
         return 0;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
@@ -320,7 +426,7 @@ uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t re
             slot->transition_flags = old_flags & ~2u;
             slot->transition_flags = (old_flags & ~2u) | 1;
             slot->fade_current = 0;
-            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format.average_bytes_per_second * duration_ms) / 1000) / runtime_sound_mixer_data_size;
             if(static_cast<int32_t>(blocks) == 0)
             {
                 slot->fade_step = 100;
@@ -338,10 +444,8 @@ uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t re
             }
             slot->playing = 0;
         }
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
         return 1;
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     return 0;
 }
 
@@ -351,7 +455,7 @@ uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t res
     {
         return 0;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
     {
         RuntimeSoundSlot *slot = &runtime_sound_slots[handle];
@@ -365,7 +469,7 @@ uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t res
             slot->transition_flags = old_flags & ~1u;
             slot->transition_flags = (old_flags & ~1u) | 2;
             slot->fade_current = 0;
-            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format->nAvgBytesPerSec * duration_ms) / 1000) / runtime_sound_mixer_data_size;
+            const uint64_t blocks = (static_cast<uint64_t>(runtime_sound_output_format.average_bytes_per_second * duration_ms) / 1000) / runtime_sound_mixer_data_size;
             if(static_cast<int32_t>(blocks) == 0)
             {
                 slot->fade_step = 100;
@@ -383,10 +487,8 @@ uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t res
             }
             slot->playing = 1;
         }
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
         return 1;
     }
-    runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
     return 0;
 }
 
@@ -400,31 +502,13 @@ uint32_t set_runtime_sound_volume(uint32_t handle, uint8_t volume)
     {
         volume = 100;
     }
-    runtime_sound_destroy_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+    std::lock_guard lock(runtime_sound_mutex);
     if(handle <= runtime_sound_maximum_handle && handle != 0)
     {
         runtime_sound_slots[handle].volume = volume;
-        runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
         return 1;
     }
     return 0;
-}
-
-void CALLBACK runtime_wave_out_callback(HWAVEOUT wave_out, UINT message, DWORD_PTR, DWORD_PTR, DWORD_PTR)
-{
-    if(message == WOM_OPEN)
-    {
-        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_OPEN, reinterpret_cast<WPARAM>(wave_out), 0);
-    }
-    else if(message == WOM_CLOSE)
-    {
-        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_CLOSE, reinterpret_cast<WPARAM>(wave_out), 0);
-        runtime_sound_output_ready = 0;
-    }
-    else if(message == WOM_DONE)
-    {
-        runtime_wave_out_callback_api.post_message(runtime_sound_window, WOM_DONE, reinterpret_cast<WPARAM>(wave_out), runtime_wave_out_callback_api.time_get_time());
-    }
 }
 
 uint32_t shutdown_runtime_sound()
@@ -433,44 +517,36 @@ uint32_t shutdown_runtime_sound()
     {
         return 0;
     }
-    runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
-    runtime_sound_output_initialized = 0;
-    if(runtime_sound_output_ready != 0)
+    std::lock_guard lifecycle_lock(runtime_sound_lifecycle_mutex);
+    stop_runtime_sound_transport();
     {
-        runtime_sound_shutdown_api.wave_out_reset(runtime_sound_wave_out);
-        runtime_sound_shutdown_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
-        runtime_sound_shutdown_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
-        runtime_sound_shutdown_api.wave_out_reset(runtime_sound_wave_out);
-        runtime_sound_shutdown_api.wave_out_close(runtime_sound_wave_out);
-        if(runtime_sound_thread != nullptr)
+        std::lock_guard mixer_lock(runtime_sound_mutex);
+        for(uint32_t handle = 1; handle <= runtime_sound_maximum_handle; ++handle)
         {
-            runtime_sound_shutdown_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-            runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-            runtime_sound_shutdown_api.close_handle(runtime_sound_thread);
-            runtime_sound_thread = nullptr;
-            runtime_sound_thread_id = 0;
-        }
-        uint32_t handle = 1;
-        if(runtime_sound_maximum_handle > 1)
-        {
-            do
+            RuntimeSoundSlot &slot = runtime_sound_slots[handle];
+            if(slot.active != 0)
             {
-                runtime_sound_shutdown_api.destroy_sound(handle);
-                ++handle;
-            } while(handle < runtime_sound_maximum_handle);
+                release_runtime_sound_buffers(slot);
+                slot = {};
+            }
         }
-        runtime_sound_shutdown_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
+        runtime_sound_maximum_handle = 0;
+        runtime_sound_base_state = 0;
+        runtime_sound_mixing_suppressed = 0;
     }
-    runtime_sound_shutdown_api.cleanup_format_buffer();
     runtime_sound_enabled = 0;
-    runtime_sound_shutdown_api.close_handle(runtime_sound_mutex);
-    runtime_sound_shutdown_api.close_handle(runtime_sound_lifecycle_mutex);
+    if(runtime_sound_sdl_initialized)
+    {
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        runtime_sound_sdl_initialized = false;
+    }
     return 1;
 }
 
 void toggle_runtime_sound_state()
 {
-    runtime_sound_toggle_state = ~runtime_sound_toggle_state;
+    std::lock_guard lock(runtime_sound_mutex);
+    runtime_sound_base_state = ~runtime_sound_base_state;
 }
 
 uint32_t pause_runtime_sound_output(int32_t close_output)
@@ -479,29 +555,15 @@ uint32_t pause_runtime_sound_output(int32_t close_output)
     {
         return 0;
     }
-    runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
-    runtime_sound_mixing_suppressed = 1;
+    std::lock_guard lifecycle_lock(runtime_sound_lifecycle_mutex);
+    {
+        std::lock_guard mixer_lock(runtime_sound_mutex);
+        runtime_sound_mixing_suppressed = 1;
+    }
     if(close_output != 0)
     {
-        runtime_sound_output_initialized = 0;
-        if(runtime_sound_output_ready != 0)
-        {
-            runtime_sound_pause_resume_api.wave_out_reset(runtime_sound_wave_out);
-            runtime_sound_pause_resume_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[0], sizeof(WAVEHDR));
-            runtime_sound_pause_resume_api.wave_out_unprepare_header(runtime_sound_wave_out, runtime_sound_headers[1], sizeof(WAVEHDR));
-            runtime_sound_pause_resume_api.wave_out_reset(runtime_sound_wave_out);
-            runtime_sound_pause_resume_api.wave_out_close(runtime_sound_wave_out);
-            if(runtime_sound_thread != nullptr)
-            {
-                runtime_sound_pause_resume_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-                runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-                runtime_sound_pause_resume_api.close_handle(runtime_sound_thread);
-                runtime_sound_thread = nullptr;
-                runtime_sound_thread_id = 0;
-            }
-        }
+        stop_runtime_sound_transport();
     }
-    runtime_sound_pause_resume_api.release_mutex(runtime_sound_lifecycle_mutex);
     return 1;
 }
 
@@ -511,167 +573,41 @@ uint32_t resume_runtime_sound_output()
     {
         return 0;
     }
-    runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
-    runtime_sound_mixing_suppressed = 0;
+    std::lock_guard lifecycle_lock(runtime_sound_lifecycle_mutex);
+    {
+        std::lock_guard mixer_lock(runtime_sound_mutex);
+        runtime_sound_mixing_suppressed = 0;
+    }
     if(runtime_sound_output_initialized == 0 && runtime_sound_output_ready == 0)
     {
-        runtime_sound_thread = runtime_sound_pause_resume_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
-        if(runtime_sound_thread == nullptr)
-        {
-            runtime_sound_output_initialized = 0;
-        }
-        else
-        {
-            while(runtime_sound_window == nullptr)
-            {
-                if(runtime_sound_fault != 0)
-                {
-                    return 0;
-                }
-                runtime_sound_pause_resume_api.sleep(0);
-            }
-            const MMRESULT result =
-                runtime_sound_pause_resume_api.wave_out_open(&runtime_sound_wave_out, WAVE_MAPPER, runtime_sound_output_format, reinterpret_cast<DWORD_PTR>(runtime_wave_out_callback), 0, 0x30000);
-            if(result == MMSYSERR_NOERROR)
-            {
-                while(runtime_sound_output_ready == 0)
-                {
-                    runtime_sound_pause_resume_api.sleep(0);
-                }
-                runtime_sound_output_initialized = 1;
-            }
-            else
-            {
-                runtime_sound_pause_resume_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-                runtime_sound_pause_resume_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-                runtime_sound_pause_resume_api.close_handle(runtime_sound_thread);
-                runtime_sound_thread = nullptr;
-                runtime_sound_thread_id = 0;
-                runtime_sound_output_initialized = 0;
-            }
-        }
+        return start_runtime_sound_transport(&runtime_sound_output_format) ? 1 : 0;
     }
-    runtime_sound_pause_resume_api.release_mutex(runtime_sound_lifecycle_mutex);
     return 1;
 }
 
-uint32_t ensure_runtime_sound_ready(WAVEFORMATEX *format, uint32_t mixer_argument)
+uint32_t ensure_runtime_sound_ready(const RuntimePcmFormat *format, uint32_t)
 {
     if(runtime_sound_enabled == 0)
     {
         return 0;
     }
-    runtime_sound_readiness_api.wait_for_single_object(runtime_sound_lifecycle_mutex, INFINITE);
-    if(runtime_sound_ready == 0)
+    std::lock_guard lifecycle_lock(runtime_sound_lifecycle_mutex);
+    if(runtime_sound_output_ready == 0)
     {
         runtime_sound_maximum_handle = 0;
-        runtime_sound_thread = runtime_sound_readiness_api.create_thread(nullptr, 0, run_runtime_sound_thread, nullptr, 0, &runtime_sound_thread_id);
-        if(runtime_sound_thread != nullptr)
-        {
-            runtime_sound_readiness_api.sleep(2);
-            if(runtime_sound_readiness_api.initialize_mixer(format, mixer_argument) == 0)
-            {
-                runtime_sound_readiness_api.post_message(runtime_sound_window, WOM_CLOSE, 0, 0);
-                runtime_sound_readiness_api.wait_for_single_object(runtime_sound_thread, INFINITE);
-                runtime_sound_readiness_api.close_handle(runtime_sound_thread);
-                runtime_sound_thread = nullptr;
-                runtime_sound_thread_id = 0;
-            }
-            else
-            {
-                runtime_sound_ready = 1;
-            }
-        }
+        return start_runtime_sound_transport(format) ? 1 : 0;
     }
-    runtime_sound_readiness_api.release_mutex(runtime_sound_lifecycle_mutex);
     return 1;
 }
 
-DWORD WINAPI run_runtime_sound_thread(LPVOID)
+void initialize_runtime_sound()
 {
-    runtime_sound_window_creation_failed = 0;
-    runtime_sound_window =
-        runtime_sound_thread_api.create_window_ex(0, runtime_sound_window_class_name, nullptr, WS_POPUP, CW_USEDEFAULT, CW_USEDEFAULT, 0x244, 0x1e0, nullptr, nullptr, runtime_sound_instance, nullptr);
-    if(runtime_sound_window == nullptr)
+    if(runtime_sound_enabled != 0)
     {
-        runtime_sound_window_creation_failed = 1;
-        return 0;
+        return;
     }
-    runtime_sound_thread_api.show_window(runtime_sound_window, SW_HIDE);
-    runtime_sound_thread_api.set_thread_priority(runtime_sound_thread_api.get_current_thread(), THREAD_PRIORITY_HIGHEST);
-    MSG message{};
-    while(runtime_sound_thread_api.get_message(&message, nullptr, 0, 0) != 0)
-    {
-        runtime_sound_thread_api.dispatch_message(&message);
-    }
-    runtime_sound_window = nullptr;
-    runtime_sound_thread_api.set_thread_priority(runtime_sound_thread_api.get_current_thread(), THREAD_PRIORITY_NORMAL);
-    runtime_sound_thread_api.exit_thread(1);
-    return 1;
-}
-
-LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    if(message == WOM_OPEN)
-    {
-        for(uint32_t index = 0; index < 2; ++index)
-        {
-            RuntimeSoundOutputBlock &output = runtime_sound_outputs[index];
-            output.format->wFormatTag = runtime_sound_output_format->wFormatTag;
-            output.format->nChannels = runtime_sound_output_format->nChannels;
-            output.format->nSamplesPerSec = runtime_sound_output_format->nSamplesPerSec;
-            output.format->nAvgBytesPerSec = runtime_sound_output_format->nAvgBytesPerSec;
-            output.format->nBlockAlign = runtime_sound_output_format->nBlockAlign;
-            output.format->wBitsPerSample = runtime_sound_output_format->wBitsPerSample;
-            output.header->dwLoops = 0;
-            output.header->dwFlags = 0;
-            output.header->lpData = reinterpret_cast<LPSTR>(output.data);
-            output.header->dwBufferLength = runtime_sound_mixer_data_size;
-            output.header->dwUser = 0;
-            runtime_sound_window_api.wave_out_prepare_header(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
-            output.header->dwFlags |= WHDR_DONE;
-        }
-        runtime_sound_output_index = 0;
-        runtime_sound_output_initialized = 1;
-        runtime_sound_output_ready = 1;
-    }
-    if(message == WOM_OPEN || message == WOM_DONE)
-    {
-        if(runtime_sound_output_initialized != 0)
-        {
-            for(uint32_t count = 0; count < 2; ++count)
-            {
-                RuntimeSoundOutputBlock &output = runtime_sound_outputs[runtime_sound_output_index];
-                if((output.header->dwFlags & WHDR_DONE) != 0)
-                {
-                    output.header->dwFlags &= ~WHDR_DONE;
-                    runtime_sound_window_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
-                    // HWAVEOUT is an opaque pointer-sized handle and cannot serve as a millisecond marker.
-                    // RuntimeWaveOutCallback already supplies timeGetTime() in lParam for WOM_DONE.
-                    runtime_sound_mixer(message == WOM_DONE ? static_cast<uint32_t>(lparam) : static_cast<uint32_t>(wparam));
-                    runtime_sound_window_api.release_mutex(runtime_sound_mutex);
-                    runtime_sound_window_api.wave_out_write(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
-                    ++runtime_sound_output_index;
-                    if(runtime_sound_output_index > 1)
-                    {
-                        runtime_sound_output_index = 0;
-                    }
-                }
-            }
-        }
-        return 0;
-    }
-    if(message == WM_DESTROY)
-    {
-        runtime_sound_window_api.post_quit_message(0);
-        return 0;
-    }
-    if(message == WOM_CLOSE)
-    {
-        runtime_sound_window_api.destroy_window(window);
-        return 0;
-    }
-    return runtime_sound_window_api.def_window_proc(window, message, wparam, lparam);
+    runtime_sound_sdl_initialized = SDL_InitSubSystem(SDL_INIT_AUDIO);
+    runtime_sound_enabled = 1;
 }
 
 // Saturating 8-bit addition used by the PCM mixers.
@@ -714,7 +650,7 @@ void mix_signed_16bit_sample(uint16_t *destination, uint16_t scaled_sample)
 void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
 {
     const bool sixteen_bit = mode >= 2;
-    uint8_t *output = runtime_sound_outputs[runtime_sound_output_index].data;
+    uint8_t *output = runtime_sound_outputs[runtime_sound_output_index].data();
     if(output == nullptr)
     {
         return;
@@ -942,7 +878,7 @@ void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
                 if(slot.loop_value_1 == 0)
                 {
                     slot.buffers = node->next;
-                    runtime_sound_destroy_api.heap_free(runtime_sound_destroy_api.get_process_heap(), 0, node);
+                    delete node;
                     slot.playback_state = marker;
                     continue;
                 }
@@ -981,151 +917,44 @@ void mix_runtime_sound_16bit_stereo(uint32_t marker)
     mix_runtime_sound_pcm(marker, 3);
 }
 
-uint32_t initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, uint32_t)
-{
-    if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
-    {
-        return 0;
-    }
-    runtime_sound_output_ready = 0;
-    const int32_t sample_width = static_cast<int32_t>(format->nChannels) * static_cast<int32_t>(format->wBitsPerSample);
-    runtime_sound_mixer_data_size = static_cast<uint32_t>((sample_width + (sample_width < 0 ? 7 : 0)) >> 3) * (format->nSamplesPerSec / 11000) * 0x800;
-    constexpr size_t wave_header_offset = (sizeof(WAVEFORMATEX) + alignof(WAVEHDR) - 1) & ~(alignof(WAVEHDR) - 1);
-    constexpr size_t wave_data_offset = wave_header_offset + sizeof(WAVEHDR);
-    const size_t block_stride = runtime_sound_mixer_data_size + wave_data_offset;
-    if(runtime_sound_output_initialized != 0)
-    {
-        return 1;
-    }
-    runtime_sound_format_buffer = runtime_wave_mixer_initialize_api.heap_alloc(runtime_wave_mixer_initialize_api.get_process_heap(), 0, block_stride * 2);
-    if(runtime_sound_format_buffer == nullptr)
-    {
-        return 0;
-    }
-    std::memset(runtime_sound_format_buffer, 0, block_stride * 2);
-    for(uint32_t index = 0; index < 2; ++index)
-    {
-        uint8_t *block = static_cast<uint8_t *>(runtime_sound_format_buffer) + block_stride * index;
-        runtime_sound_outputs[index].format = reinterpret_cast<WAVEFORMATEX *>(block);
-        runtime_sound_outputs[index].header = reinterpret_cast<WAVEHDR *>(block + wave_header_offset);
-        runtime_sound_outputs[index].data = block + wave_data_offset;
-        runtime_sound_headers[index] = runtime_sound_outputs[index].header;
-    }
-    runtime_sound_output_format = runtime_sound_outputs[0].format;
-    if(format == nullptr)
-    {
-        runtime_wave_mixer_initialize_api.cleanup_format_buffer();
-        return 0;
-    }
-    runtime_sound_output_format->wBitsPerSample = format->wBitsPerSample;
-    runtime_sound_output_format->wFormatTag = format->wFormatTag;
-    runtime_sound_output_format->nChannels = format->nChannels;
-    runtime_sound_output_format->nSamplesPerSec = format->nSamplesPerSec;
-    runtime_sound_output_format->nAvgBytesPerSec = runtime_sound_output_format->nChannels * runtime_sound_output_format->wBitsPerSample * runtime_sound_output_format->nSamplesPerSec >> 3;
-    const int32_t block_width = static_cast<int32_t>(runtime_sound_output_format->nChannels) * static_cast<int32_t>(runtime_sound_output_format->wBitsPerSample);
-    runtime_sound_output_format->nBlockAlign = static_cast<WORD>((block_width + (block_width < 0 ? 7 : 0)) >> 3);
-    if(runtime_sound_output_format->wBitsPerSample == 8)
-    {
-        if(runtime_sound_output_format->nChannels == 1)
-        {
-            runtime_sound_mixer = mix_runtime_sound_8bit_mono;
-        }
-        else if(runtime_sound_output_format->nChannels == 2)
-        {
-            runtime_sound_mixer = mix_runtime_sound_8bit_stereo;
-        }
-    }
-    else if(runtime_sound_output_format->wBitsPerSample == 16)
-    {
-        if(runtime_sound_output_format->nChannels == 1)
-        {
-            runtime_sound_mixer = mix_runtime_sound_16bit_mono;
-        }
-        else if(runtime_sound_output_format->nChannels == 2)
-        {
-            runtime_sound_mixer = mix_runtime_sound_16bit_stereo;
-        }
-    }
-    while(runtime_sound_window == nullptr)
-    {
-        if(runtime_sound_window_creation_failed != 0)
-        {
-            runtime_wave_mixer_initialize_api.cleanup_format_buffer();
-            return 0;
-        }
-        runtime_wave_mixer_initialize_api.sleep(0);
-    }
-    if(runtime_wave_mixer_initialize_api.wave_out_open(&runtime_sound_wave_out, WAVE_MAPPER, runtime_sound_output_format, reinterpret_cast<DWORD_PTR>(runtime_wave_out_callback), 0, 0x30000)
-        != MMSYSERR_NOERROR)
-    {
-        runtime_sound_fault = 1;
-        runtime_wave_mixer_initialize_api.cleanup_format_buffer();
-        return 0;
-    }
-    runtime_sound_base_state = 0;
-    while(runtime_sound_output_ready == 0)
-    {
-        runtime_wave_mixer_initialize_api.sleep(0);
-    }
-    return 1;
-}
-
-void initialize_runtime_sound_class(HINSTANCE instance)
-{
-    if(runtime_sound_enabled != 0)
-    {
-        return;
-    }
-    WNDCLASSA window_class{};
-    window_class.lpfnWndProc = runtime_sound_window_procedure;
-    window_class.hInstance = instance;
-    window_class.lpszClassName = runtime_sound_window_class_name;
-    runtime_sound_instance = instance;
-    if(runtime_sound_class_api.register_class(&window_class) != 0)
-    {
-        runtime_sound_lifecycle_mutex = runtime_sound_class_api.create_mutex(nullptr, FALSE, nullptr);
-        runtime_sound_mutex = runtime_sound_class_api.create_mutex(nullptr, FALSE, nullptr);
-        runtime_sound_enabled = 1;
-    }
-}
-
-uint32_t runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX *right)
+uint32_t runtime_pcm_formats_equal(const RuntimePcmFormat *left, const RuntimePcmFormat *right)
 {
     if(left == nullptr || right == nullptr)
     {
         return 0;
     }
-    return left->wBitsPerSample == right->wBitsPerSample && left->wFormatTag == right->wFormatTag && left->nChannels == right->nChannels && left->nSamplesPerSec == right->nSamplesPerSec;
+    return left->bits_per_sample == right->bits_per_sample && left->format_tag == right->format_tag && left->channel_count == right->channel_count
+        && left->samples_per_second == right->samples_per_second;
 }
 
-uint32_t calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAVEFORMATEX *destination, uint16_t *conversion_flags)
+uint32_t calculate_runtime_pcm_conversion(const RuntimePcmFormat *source, const RuntimePcmFormat *destination, uint16_t *conversion_flags)
 {
     uint16_t flags = 0;
     if(source == nullptr || destination == nullptr)
     {
         return 0;
     }
-    if(source->wBitsPerSample > 15 && destination->wBitsPerSample < 9)
+    if(source->bits_per_sample > 15 && destination->bits_per_sample < 9)
     {
         flags = 0x1000;
     }
-    if(source->wBitsPerSample < 9 && destination->wBitsPerSample > 15)
+    if(source->bits_per_sample < 9 && destination->bits_per_sample > 15)
     {
         flags |= 0x2000;
     }
-    if(source->nChannels > 1)
+    if(source->channel_count > 1)
     {
-        if(destination->nChannels < 2)
+        if(destination->channel_count < 2)
         {
             flags = static_cast<uint16_t>((flags & 0xff00) | 1);
         }
     }
-    else if(destination->nChannels > 1)
+    else if(destination->channel_count > 1)
     {
         flags |= 0x80;
     }
-    const uint32_t source_rate = source->nSamplesPerSec;
-    const uint32_t destination_rate = destination->nSamplesPerSec;
+    const uint32_t source_rate = source->samples_per_second;
+    const uint32_t destination_rate = destination->samples_per_second;
     uint8_t low_flags = static_cast<uint8_t>(flags);
     if(source_rate <= destination_rate)
     {
@@ -1174,16 +1003,5 @@ uint32_t calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAV
     *conversion_flags = flags;
     return 1;
 }
-
-void cleanup_runtime_sound_format_buffer()
-{
-    if(runtime_sound_format_buffer != nullptr)
-    {
-        runtime_sound_base_state = 0;
-        runtime_sound_format_cleanup_api.heap_free(runtime_sound_format_cleanup_api.get_process_heap(), 0, runtime_sound_format_buffer);
-        runtime_sound_format_buffer = nullptr;
-    }
-}
-
 
 } // namespace gag

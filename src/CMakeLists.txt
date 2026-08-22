@@ -22,6 +22,7 @@ add_executable(freegag
   "media.cpp"
   "media.h"
   "media_types.h"
+  "pcm_format.h"
   "resource.cpp"
   "resource.h"
   "resource_types.h"
@@ -30,6 +31,8 @@ add_executable(freegag
   "runtime_internal.h"
   "runtime_model.cpp"
   "runtime_model.h"
+  "runtime_clock.cpp"
+  "runtime_clock.h"
   "runtime_tree.cpp"
   "runtime_tree.h"
   "runtime_tree_types.h"
@@ -47,8 +50,9 @@ target_compile_definitions(freegag PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(freegag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(freegag PRIVATE
   xtet
+  SDL3::SDL3-static
   ZLIB::ZLIBSTATIC
-  user32 gdi32 winmm comdlg32
+  user32 gdi32 comdlg32
 )
 
 add_subdirectory("xtet")

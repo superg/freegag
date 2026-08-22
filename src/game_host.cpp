@@ -1,8 +1,19 @@
 #include "game_host.h"
 #include "runtime_internal.h"
+#include "xtet/asset_decoders.h"
 
 namespace gag
 {
+
+uint32_t create_runtime_game_sound(const xtet::PcmFormat *format)
+{
+    if(format == nullptr)
+    {
+        return 0;
+    }
+    const RuntimePcmFormat runtime_format{ format->format_tag, format->channel_count, format->samples_per_second, format->average_bytes_per_second, format->block_alignment, format->bits_per_sample };
+    return create_runtime_sound_handle(&runtime_format);
+}
 
 void unload_runtime_game_dll()
 {
