@@ -8,6 +8,33 @@ Last updated: 2026-08-22
   select Win32; references to past Win32 verification describe historical work
   and are not current build instructions.
 
+## Extracted resource inspection
+
+- `data/gag-resources/resources/icon_109.ico` contains two same-size 32x32 DIB
+  entries. The 4-bit/16-color entry is an opaque gray beveled-square icon, while
+  the 8-bit entry has zeroed color indices and an all-transparent AND mask.
+  Previewers that prefer the higher-depth entry therefore display the ICO as
+  blank even though its 4-bit entry contains visible artwork.
+
+## Evidence-backed symbol cleanup
+
+- Completed a source/Ghidra naming pass over gameplay-proven runtime fields.
+  Confirmed names now cover the graphics message window and viewport offsets,
+  display-mode metadata and scene indices, traversal dimensions, LOGPALETTE
+  header fields, standalone-text coordinates, sound scheduling offsets, named
+  node visible-entry counts, and RuntimeTreeLink84 movement/resource/owner
+  semantics. Function parameters and corresponding Ghidra variables/comments
+  were synchronized for `0x00410C40`, `0x00411800`, `0x0040A860`,
+  `0x0040AE40`, and `0x0040B280`; the updated `GAG.EXE` program was saved.
+- Copy-only fields without a distinguishing read remain explicitly unresolved,
+  including RuntimeGameHostContext offsets `0x10`, `0x28`, and `0x30` and the
+  presentation field at `0x944`. Opaque storage arrays likewise retain offset
+  names until behavior establishes a meaning.
+- Both affected x64 Debug test targets build, all four CTest tests pass,
+  `check-format` and `git diff --check` pass, and Ghidra structure layouts were
+  re-read after saving. A complete `gag.exe` relink is currently unavailable
+  only because the running game process holds `build/src/Debug/gag.exe` open.
+
 ## HELP background reconstruction
 
 - Added `tools/convert_truecolor_to_indexed_palette.py` and converted the

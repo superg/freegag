@@ -30,8 +30,8 @@ struct GameHostContext
     void *framebuffer{};
     intptr_t unknown30{};
     PALETTEENTRY *palette_entries{};
-    uint32_t x{};
-    uint32_t y{};
+    uint32_t x_offset{};
+    uint32_t y_offset{};
 };
 
 struct GameResultDescriptor

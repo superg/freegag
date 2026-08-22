@@ -2462,3 +2462,19 @@ do not replace prior entries without correcting a demonstrated error.
   interactions, but does not turn `WM_KEYDOWN` into script events. Non-character
   controls such as arrow keys therefore require a host/DLL input mapping even
   when the resulting action is an existing script message.
+
+# 2026-08-22 - Inspect every same-size ICO entry when previews are blank
+
+- A legacy ICO can contain same-dimension entries with contradictory visibility.
+  If a modern previewer shows nothing, inspect each directory entry's bit depth,
+  XOR bitmap, and AND mask independently; it may be selecting a fully transparent
+  higher-depth entry instead of an older visible low-color entry.
+
+# 2026-08-22 - Rename recovered fields from whole-use evidence
+
+- Audit every read, write, comparison, and call-site sentinel before replacing
+  an offset placeholder with a semantic name. A field that is merely copied is
+  not yet identified; keep it unresolved until a consumer distinguishes its
+  role. When one ABI slot has a confirmed typed interpretation, remove redundant
+  generic aliases, then synchronize the source field, function parameters,
+  Ghidra structure, decompiler variables, and explanatory comments in one pass.

@@ -148,7 +148,7 @@ void set_custom_control_registration_state_for_testing(uint32_t registered, HINS
 
 struct GraphicsHostInitializationResult
 {
-    uintptr_t unknown_0000;
+    uintptr_t message_window;
     HWND capture_window;
     uint8_t unknown_0008[0x458];
     uint32_t bits_per_pixel;
@@ -1032,7 +1032,7 @@ struct RuntimeNamedNode
     char name[0x20];
     void *identity;
     uint32_t flags;
-    uint32_t unknown_0028;
+    uint32_t visible_entry_count;
     RuntimeNamedNode *next;
     int32_t zone_left;
     int32_t zone_top;
@@ -1318,11 +1318,7 @@ struct RuntimeResourceObject
     void *fixed_resource_identity;
     void *secondary_resource_identity;
     uint8_t unknown_006c[8];
-    union
-    {
-        RuntimeGenericBackendChild *generic_backend_child;
-        uintptr_t field_0074;
-    };
+    RuntimeGenericBackendChild *generic_backend_child;
     uint8_t unknown_0078[0x11c];
     intptr_t callback_position;
 };
@@ -1500,8 +1496,8 @@ struct RuntimeGameHostContext
     void *framebuffer;
     intptr_t unknown_0030;
     PALETTEENTRY *palette_entries;
-    uint32_t unknown_0038;
-    uint32_t unknown_003c;
+    uint32_t x_offset;
+    uint32_t y_offset;
 };
 
 
@@ -1612,8 +1608,8 @@ struct RuntimeMediaBackend
     RuntimeMediaBackend *previous;
     RuntimeMediaBackend *next;
     const void *comparison_palette;
-    uint16_t field_001c;
-    uint16_t field_001e;
+    uint16_t palette_version;
+    uint16_t palette_entry_count;
     PALETTEENTRY palette_entries[0x100];
     RGBQUAD dib_colors[0x100];
     uint32_t palette_padding;
@@ -2079,7 +2075,7 @@ struct RuntimeGenericBackendCreateApi
 };
 
 // GAG.EXE: 0x00410C40
-RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t value_0010, uint32_t value_000c);
+RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size);
 
 // GAG.EXE: 0x00410CC0
 RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity);
@@ -2143,8 +2139,8 @@ struct RuntimeStandaloneTextState
     uint32_t unknown_0000[3];
     const char *text;
     void *font_identity;
-    uint32_t value_0014;
-    uint32_t value_0018;
+    uint32_t x;
+    uint32_t y;
     uint32_t low_color;
     uint32_t high_color;
     uint32_t unknown_0024[2];
@@ -2156,8 +2152,7 @@ struct RuntimeStandaloneTextState
 };
 
 // GAG.EXE: 0x00411800
-uint32_t initialize_runtime_standalone_text(const char *text, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color,
-    RuntimeStandaloneTextState *state);
+uint32_t initialize_runtime_standalone_text(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
 
 // GAG.EXE: 0x004118C0
 void draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination);
@@ -2230,7 +2225,7 @@ struct RuntimeSoundBufferNode
     void *data;
     RuntimeSoundBufferNode *next;
     uint32_t offset;
-    uint32_t unknown_000c;
+    uint32_t schedule_offset;
     uint32_t size;
 };
 
@@ -3127,7 +3122,7 @@ struct RuntimeTreePrimaryResourceLink
     uint32_t flags;
     char file_name[0x20];
     void *resource_identity;
-    uint32_t unknown_0050;
+    uint32_t movement_deadline;
     uint32_t image_flags;
     uint32_t loop_count;
     int32_t x;
@@ -3165,42 +3160,34 @@ struct RuntimeTreeLink84
     char name[0x20];
     void *identity;
     RuntimeTreeLink84 *next;
-    uint32_t unknown_0028;
+    uint32_t movement_flags;
     int32_t x;
     int32_t y;
     uint32_t width;
     uint32_t height;
-    uint32_t state_003c;
-    union
-    {
-        uint32_t command_mask;
-        uint32_t value_0040;
-    };
+    uint32_t movement_deadline;
+    uint32_t command_mask;
     uint32_t primary_command_bit;
     uint8_t unknown_0048[4];
-    union
-    {
-        uint32_t parameter;
-        uint32_t value_004c;
-    };
+    uint32_t parameter;
     union
     {
         RuntimeVisualObject *mouse_visual;
-        uint32_t value_0050;
+        uintptr_t mouse_visual_value;
     };
-    uintptr_t value_0054;
+    uintptr_t owner_group_identity;
     union
     {
         ScriptObjectState *owner_object;
-        void *identity_0058;
+        void *owner_identity;
     };
     union
     {
         RuntimeTreePrimaryResourceLink *primary_resource;
-        void *identity_005c;
+        void *primary_resource_identity;
     };
-    void *previous_identity_0058;
-    void *previous_identity_005c;
+    void *previous_owner_identity;
+    void *previous_primary_resource_identity;
 };
 
 struct RuntimeTreeLink7C
@@ -3284,7 +3271,7 @@ void insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTre
 void remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node);
 
 // GAG.EXE: 0x0040A860
-void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t value_0054);
+void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t image_flags);
 
 // GAG.EXE: 0x0040A920
 void append_three_digit_decimal_suffix(const char *prefix, uint32_t value, char *output);
@@ -3294,8 +3281,8 @@ void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, c
     uint32_t image_flags);
 
 // GAG.EXE: 0x0040AE40
-void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058,
-    void *identity_005c, uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c);
+void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
+    void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter);
 
 // GAG.EXE: 0x00409E50
 uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser);
@@ -3319,8 +3306,8 @@ void insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *lin
 void remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNode *node);
 
 // GAG.EXE: 0x0040B280
-void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058, void *identity_005c,
-    uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c);
+void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
+    void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter);
 
 // GAG.EXE: 0x0040B380
 RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_name(const void *name);
@@ -4127,14 +4114,14 @@ struct DisplayMode
 {
     uint32_t flags;
     uint32_t unknown_0004;
-    uint32_t unknown_0008;
+    uint32_t device_mode_fields;
     uint32_t surface_caps;
-    uint32_t unknown_0010;
+    uint32_t refresh_rate;
     uint32_t pixel_value_count;
     int32_t width;
     int32_t height;
     uint32_t pixel_format_flags;
-    uint32_t unknown_0024;
+    uint32_t pixel_format_reserved;
     int32_t bits_per_pixel;
     uint32_t red_mask;
     uint32_t green_mask;
@@ -4477,7 +4464,7 @@ struct RuntimeInputSessionApi
     void (*reset_byte_queue)();
     DWORD(WINAPI *get_time)();
     RuntimeLockRecord *(*acquire_record)(void *selector);
-    uint32_t (*initialize_text)(const char *text, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
+    uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
     uint32_t (*find_scene_index)(uint32_t flags);
     DisplaySceneNode *(*lock_scene)(intptr_t identifier);
     DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
@@ -4628,7 +4615,7 @@ struct RuntimeTextInputApi
 {
     uint8_t (*dequeue_byte)();
     DWORD(WINAPI *time_get_time)();
-    uint32_t (*initialize_text)(const char *text, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
+    uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
     DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
         const DisplayPixelFormatDescriptor *format);
     uint32_t (*begin_update)(intptr_t identifier);
@@ -4955,8 +4942,8 @@ struct DisplayTraversalState
 {
     uint32_t flags;
     DWORD timestamp;
-    uint32_t value_08;
-    uint32_t value_0c;
+    uint32_t width;
+    uint32_t height;
     intptr_t first_position;
     intptr_t current_position;
     void *data;
@@ -4977,7 +4964,7 @@ struct DisplaySceneNode
     intptr_t callback_current_position;
     intptr_t callback_alternate_position;
     int32_t sync_secondary_position;
-    uint32_t unknown_2c;
+    uint32_t scene_index;
     int32_t x;
     int32_t y;
     int32_t previous_x;

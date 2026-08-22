@@ -2874,7 +2874,7 @@ void *create_surface_test_runtime_bootstrap(int32_t width, int32_t height, const
     require(width == 324 && height == 201 && options == 0);
     if(runtime_bootstrap_expected_format == reinterpret_cast<gag::LegacyDisplayPixelFormat *>(&runtime_bootstrap_mode.pixel_format_flags))
     {
-        require(format != nullptr && format->flags == runtime_bootstrap_mode.pixel_format_flags && format->reserved == runtime_bootstrap_mode.unknown_0024
+        require(format != nullptr && format->flags == runtime_bootstrap_mode.pixel_format_flags && format->reserved == runtime_bootstrap_mode.pixel_format_reserved
                 && format->bits_per_pixel == static_cast<uint32_t>(runtime_bootstrap_mode.bits_per_pixel) && format->red_mask == runtime_bootstrap_mode.red_mask
                 && format->green_mask == runtime_bootstrap_mode.green_mask && format->blue_mask == runtime_bootstrap_mode.blue_mask);
     }
@@ -8137,9 +8137,9 @@ void test_application_initialization()
     require(initialization_validation_count == 2 && initialization_copy_count == 3);
     require(std::strcmp(initialization_state.startup_config, "Version.cfg") == 0);
     require(initialization_runtime_format != nullptr && initialization_runtime_format_value.flags == display_mode.pixel_format_flags
-            && initialization_runtime_format_value.reserved == display_mode.unknown_0024 && initialization_runtime_format_value.bits_per_pixel == static_cast<uint32_t>(display_mode.bits_per_pixel)
-            && initialization_runtime_format_value.red_mask == display_mode.red_mask && initialization_runtime_format_value.green_mask == display_mode.green_mask
-            && initialization_runtime_format_value.blue_mask == display_mode.blue_mask);
+            && initialization_runtime_format_value.reserved == display_mode.pixel_format_reserved
+            && initialization_runtime_format_value.bits_per_pixel == static_cast<uint32_t>(display_mode.bits_per_pixel) && initialization_runtime_format_value.red_mask == display_mode.red_mask
+            && initialization_runtime_format_value.green_mask == display_mode.green_mask && initialization_runtime_format_value.blue_mask == display_mode.blue_mask);
     require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_enable_runtime) != initialization_events + initialization_event_count);
     require(std::find(initialization_events, initialization_events + initialization_event_count, initialization_event_set_active) != initialization_events + initialization_event_count);
 
@@ -8757,7 +8757,7 @@ void test_windows_display_mode_enumeration()
     require(gag::enumerate_windows_display_modes() == 0);
     gag::DisplayMode *mode = gag::begin_display_mode_enumeration(0x10000);
     require(mode != nullptr && mode->width == 640 && mode->height == 480 && mode->bits_per_pixel == 8 && mode->pixel_value_count == 0x100);
-    require(mode->unknown_0008 == 0x123 && mode->unknown_0010 == 60 && gag::get_display_mode_count_for_testing() == 1);
+    require(mode->device_mode_fields == 0x123 && mode->refresh_rate == 60 && gag::get_display_mode_count_for_testing() == 1);
     require(windows_mode_enum_count == 2 && windows_mode_change_count == 2);
 
     reset_windows_mode_test();
@@ -8796,7 +8796,7 @@ void test_windows_display_mode_enumeration()
     existing.width = 640;
     existing.height = 480;
     existing.bits_per_pixel = 8;
-    existing.unknown_0010 = 60;
+    existing.refresh_rate = 60;
     reset_windows_mode_test();
     gag::set_display_bootstrap_state_for_testing(2, &existing, &existing, 1, nullptr);
     windows_mode_settings.dmFields = 0x400000;
@@ -8805,7 +8805,7 @@ void test_windows_display_mode_enumeration()
     windows_mode_settings.dmBitsPerPel = 8;
     windows_mode_settings.dmDisplayFrequency = 75;
     require(gag::enumerate_windows_display_modes() == 0);
-    require(gag::get_display_mode_count_for_testing() == 1 && existing.unknown_0010 == 75 && windows_mode_free_count == 1);
+    require(gag::get_display_mode_count_for_testing() == 1 && existing.refresh_rate == 75 && windows_mode_free_count == 1);
 }
 
 namespace
@@ -9450,7 +9450,7 @@ void test_runtime_left_button_up()
     gag::RuntimeTreeLink84 synchronization_links[2]{};
     gag::RuntimeTreePrimaryResourceLink synchronization_primary[2]{};
     synchronization_owner.identity = reinterpret_cast<void *>(501);
-    synchronization_owner.unknown_0028 = 2;
+    synchronization_owner.visible_entry_count = 2;
     synchronization_owner.child_cursor = reinterpret_cast<gag::RuntimeNamedNode *>(&synchronization_child);
     synchronization_child.data = &synchronization_object;
     synchronization_child.next = &synchronization_child;
@@ -9462,12 +9462,12 @@ void test_runtime_left_button_up()
     synchronization_tree.primary_resource_link_head = synchronization_primary;
     synchronization_links[0].identity = &synchronization_links[0];
     synchronization_links[0].next = &synchronization_links[1];
-    synchronization_links[0].value_0054 = 501;
-    synchronization_links[0].identity_005c = &synchronization_primary[0];
+    synchronization_links[0].owner_group_identity = 501;
+    synchronization_links[0].primary_resource_identity = &synchronization_primary[0];
     synchronization_links[1].identity = &synchronization_links[1];
-    synchronization_links[1].value_0054 = 501;
-    synchronization_links[1].value_0040 = 0x80;
-    synchronization_links[1].identity_005c = &synchronization_primary[1];
+    synchronization_links[1].owner_group_identity = 501;
+    synchronization_links[1].command_mask = 0x80;
+    synchronization_links[1].primary_resource_identity = &synchronization_primary[1];
     synchronization_primary[0].identity = &synchronization_primary[0];
     synchronization_primary[0].next = &synchronization_primary[1];
     synchronization_primary[0].flags = 0x80000000;
@@ -9475,26 +9475,26 @@ void test_runtime_left_button_up()
     root.runtime_nodes = &synchronization_owner;
     root.runtime_tree = &synchronization_tree;
     root.global_link_0084_head = synchronization_links;
-    synchronization_owner.unknown_0028 = 0;
-    synchronization_links[0].value_0040 = 0x81;
+    synchronization_owner.visible_entry_count = 0;
+    synchronization_links[0].command_mask = 0x81;
     synchronization_primary[0].flags = 0x80000000;
     require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
-    require(synchronization_links[0].value_0040 == 0x81 && synchronization_links[0].identity_0058 == nullptr && synchronization_primary[0].flags == 0x80000000);
-    synchronization_owner.unknown_0028 = 1;
-    synchronization_links[0].value_0054 = 999;
+    require(synchronization_links[0].command_mask == 0x81 && synchronization_links[0].owner_identity == nullptr && synchronization_primary[0].flags == 0x80000000);
+    synchronization_owner.visible_entry_count = 1;
+    synchronization_links[0].owner_group_identity = 999;
     require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
-    require(synchronization_links[0].value_0040 == 0x81 && synchronization_links[0].identity_0058 == nullptr && synchronization_primary[0].flags == 0x80000000);
-    synchronization_links[0].value_0054 = 501;
-    synchronization_owner.unknown_0028 = 2;
+    require(synchronization_links[0].command_mask == 0x81 && synchronization_links[0].owner_identity == nullptr && synchronization_primary[0].flags == 0x80000000);
+    synchronization_links[0].owner_group_identity = 501;
+    synchronization_owner.visible_entry_count = 2;
     require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
-    require(synchronization_links[0].identity_0058 == &synchronization_object && synchronization_links[0].value_0040 == 0x40);
+    require(synchronization_links[0].owner_identity == &synchronization_object && synchronization_links[0].command_mask == 0x40);
     require(std::strcmp(synchronization_primary[0].file_name, "MOUSE.FLC") == 0 && (synchronization_primary[0].flags & 0x80000000) == 0);
-    require(synchronization_links[1].value_0040 == 0 && (synchronization_primary[1].flags & 0x80000000) != 0);
+    require(synchronization_links[1].command_mask == 0 && (synchronization_primary[1].flags & 0x80000000) != 0);
     gag::RuntimeVisualObject synchronization_visual{};
     strcpy_s(synchronization_visual.file_name, "NATURAL.FLC");
     synchronization_object.flags_042c = 0x10000;
     synchronization_object.visual_object = &synchronization_visual;
-    synchronization_owner.unknown_0028 = 1;
+    synchronization_owner.visible_entry_count = 1;
     synchronization_primary[0].flags = 0x80000000;
     require(gag::synchronize_runtime_pointer_owner_slots(reinterpret_cast<void *>(501), reinterpret_cast<void *>(502), reinterpret_cast<gag::RuntimePointerRegion *>(&synchronization_links[0])) == 1);
     require(std::strcmp(synchronization_primary[0].file_name, "NATURAL.FLC") == 0 && (synchronization_primary[0].flags & 0x80000000) == 0);
@@ -11954,12 +11954,11 @@ DWORD WINAPI time_test_runtime_text_input()
     return runtime_text_input_tick;
 }
 
-uint32_t initialize_test_runtime_text_input(const char *, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color,
-    gag::RuntimeStandaloneTextState *state)
+uint32_t initialize_test_runtime_text_input(const char *, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, gag::RuntimeStandaloneTextState *state)
 {
     runtime_text_input_events[runtime_text_input_event_count++] = 3;
-    runtime_text_input_initialize_values[0] = value_0014;
-    runtime_text_input_initialize_values[1] = value_0018;
+    runtime_text_input_initialize_values[0] = x;
+    runtime_text_input_initialize_values[1] = y;
     runtime_text_input_initialize_values[2] = low_color;
     runtime_text_input_initialize_values[3] = high_color;
     runtime_text_input_initialize_font = font_identity;
@@ -12019,8 +12018,8 @@ void reset_test_runtime_text_input(gag::RuntimeCommandLoopState *state)
     state->flags = 0x100;
     state->input_end = 0x20;
     state->input_text_state.font_identity = reinterpret_cast<void *>(0x1111);
-    state->input_text_state.value_0014 = 0x22;
-    state->input_text_state.value_0018 = 0x33;
+    state->input_text_state.x = 0x22;
+    state->input_text_state.y = 0x33;
     state->input_text_state.low_color = 0x44;
     state->input_text_state.high_color = 0x55;
     state->input_scene_index = 9;
@@ -14336,9 +14335,9 @@ int main()
         direct_test_display_mode_change, restore_test_display_mode_change, windows_test_display_mode_change, find_test_display_mode_change };
     gag::set_display_mode_change_api_for_testing(display_mode_change_api);
     display_mode_change_modes = display_modes;
-    display_modes[1].unknown_0008 = 0x001c0000;
+    display_modes[1].device_mode_fields = 0x001c0000;
     display_modes[1].surface_caps = 3;
-    display_modes[1].unknown_0010 = 60;
+    display_modes[1].refresh_rate = 60;
     display_modes[1].width = 640;
     display_modes[1].height = 480;
     display_modes[1].bits_per_pixel = 16;
@@ -14377,7 +14376,7 @@ int main()
     require(gag::set_active_display_mode(&display_modes[1]) == 0);
     const int windows_set_mode_events[] = { 1, 7, 2 };
     require(display_mode_change_event_count == 3 && std::memcmp(display_mode_change_events, windows_set_mode_events, sizeof(windows_set_mode_events)) == 0 && !display_mode_change_settings_were_null);
-    require(display_mode_change_observed_settings.dmSize == sizeof(DEVMODEA) && display_mode_change_observed_settings.dmFields == display_modes[1].unknown_0008
+    require(display_mode_change_observed_settings.dmSize == sizeof(DEVMODEA) && display_mode_change_observed_settings.dmFields == display_modes[1].device_mode_fields
             && display_mode_change_observed_settings.dmDisplayFlags == display_modes[1].surface_caps && display_mode_change_observed_settings.dmPelsWidth == 640
             && display_mode_change_observed_settings.dmPelsHeight == 480 && display_mode_change_observed_settings.dmDisplayFrequency == 60 && display_mode_change_observed_settings.dmBitsPerPel == 16);
     display_mode_change_event_count = 0;
@@ -14599,7 +14598,7 @@ int main()
     require(gag::configure_runtime_bitmap_backend(reinterpret_cast<void *>(999), &configured_transform, &configured_descriptor, nullptr, 0x4000000) == 0);
     require(runtime_media_backend_wait_count == 1 && runtime_media_backend_release_count == 1);
     require(gag::configure_runtime_bitmap_backend(reinterpret_cast<void *>(216), &configured_transform, &configured_descriptor, nullptr, 0x4000000) == 1);
-    require(configured_media_backend_2.media_flags == 0x4000020 && configured_media_backend_2.comparison_palette == &configured_media_backend_2.field_001c);
+    require(configured_media_backend_2.media_flags == 0x4000020 && configured_media_backend_2.comparison_palette == &configured_media_backend_2.palette_version);
     require(configured_media_backend_2.window == reinterpret_cast<HWND>(300) && configured_media_backend_2.destination_context == reinterpret_cast<HDC>(301)
             && configured_media_backend_2.destination_bits_per_pixel == 302 && configured_media_backend_2.destination_palette == reinterpret_cast<HPALETTE>(303)
             && configured_media_backend_2.presentation_field_0944 == 304 && configured_media_backend_2.source_context == reinterpret_cast<HDC>(305)
@@ -14624,7 +14623,7 @@ int main()
     runtime_animation_configure_thread_id = nullptr;
     runtime_animation_configure_closed = nullptr;
     require(gag::configure_runtime_animation_backend(reinterpret_cast<void *>(216), &configured_transform, &configured_descriptor, nullptr, 0x400, nullptr) == 1);
-    require(configured_media_backend_2.comparison_palette == &configured_media_backend_2.field_001c && configured_media_backend_2.animation_callback == gag::present_runtime_animation_frame
+    require(configured_media_backend_2.comparison_palette == &configured_media_backend_2.palette_version && configured_media_backend_2.animation_callback == gag::present_runtime_animation_frame
             && configured_media_backend_2.media_flags == 0x420 && configured_media_backend_2.dirty_left == 32000 && configured_media_backend_2.dirty_top == 32000
             && configured_media_backend_2.dirty_right == 0 && configured_media_backend_2.dirty_bottom == 0);
     require(configured_media_backend_2.window == reinterpret_cast<HWND>(300) && configured_media_backend_2.destination_context == reinterpret_cast<HDC>(301)
@@ -15338,8 +15337,8 @@ int main()
     uint8_t visibility_source[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
     uint8_t visibility_destination[6]{};
     visibility_state.flags = 0x2000000;
-    visibility_state.value_08 = 3;
-    visibility_state.value_0c = 2;
+    visibility_state.width = 3;
+    visibility_state.height = 2;
     visibility_state.first_position = reinterpret_cast<intptr_t>(visibility_source);
     visibility_state.current_position = reinterpret_cast<intptr_t>(visibility_destination);
     visibility_context.resource_flags = 0;
@@ -15629,7 +15628,8 @@ int main()
             && runtime_bitmap_backend->identity == runtime_bitmap_backend);
     require(runtime_bitmap_backend->extension_data == runtime_bitmap_backend + 1 && runtime_bitmap_backend->source_data == runtime_bitmap_data
             && runtime_bitmap_backend->format_data == runtime_bitmap_data + 0x0e);
-    require(runtime_bitmap_backend->field_001c == 0x0300 && runtime_bitmap_backend->field_001e == 0x00ec && runtime_bitmap_backend->media_flags == 0x20 && runtime_bitmap_backend->error_state == 0);
+    require(runtime_bitmap_backend->palette_version == 0x0300 && runtime_bitmap_backend->palette_entry_count == 0x00ec && runtime_bitmap_backend->media_flags == 0x20
+            && runtime_bitmap_backend->error_state == 0);
     runtime_bitmap_data[0] = 0;
     gag::set_runtime_media_backend_state_for_testing(reinterpret_cast<HANDLE>(203), reinterpret_cast<HANDLE>(204), nullptr, nullptr);
     runtime_bitmap_backend = gag::create_runtime_bitmap_backend(0, 0, runtime_bitmap_data);
@@ -15774,12 +15774,12 @@ int main()
     gag::set_runtime_generic_backend_state_for_testing(reinterpret_cast<HANDLE>(204), &generic_backend_1);
     gag::set_runtime_generic_backend_create_state_for_testing(1);
     auto *created_generic_backend = gag::create_runtime_generic_backend(213, 214);
-    uint32_t created_generic_value_000c = 0;
-    uint32_t created_generic_value_0010 = 0;
-    created_generic_value_000c = created_generic_backend->text_size;
-    created_generic_value_0010 = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(created_generic_backend->text));
+    uint32_t created_generic_text_size = 0;
+    uint32_t created_generic_text_address = 0;
+    created_generic_text_size = created_generic_backend->text_size;
+    created_generic_text_address = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(created_generic_backend->text));
     require(created_generic_backend == reinterpret_cast<gag::RuntimeGenericBackend *>(runtime_bitmap_backend_memory) && created_generic_backend->identity == created_generic_backend
-            && created_generic_backend->next == &generic_backend_1 && created_generic_value_000c == 214 && created_generic_value_0010 == 213
+            && created_generic_backend->next == &generic_backend_1 && created_generic_text_size == 214 && created_generic_text_address == 213
             && gag::get_runtime_generic_backend_head_for_testing() == created_generic_backend);
     gag::set_runtime_generic_backend_state_for_testing(reinterpret_cast<HANDLE>(204), &generic_backend_1);
     require(gag::acquire_runtime_generic_backend(reinterpret_cast<void *>(999)) == nullptr);
@@ -15918,7 +15918,7 @@ int main()
     require(reinterpret_cast<const uint8_t *>(&standalone_text_state)[0] == 0xcc);
     const uint32_t standalone_initialize_result = gag::initialize_runtime_standalone_text("A", 17, 19, &font_backend, 9, 7, &standalone_text_state);
     require(standalone_initialize_result == 1);
-    require(standalone_text_state.text[0] == 'A' && standalone_text_state.font_identity == &font_backend && standalone_text_state.value_0014 == 17 && standalone_text_state.value_0018 == 19
+    require(standalone_text_state.text[0] == 'A' && standalone_text_state.font_identity == &font_backend && standalone_text_state.x == 17 && standalone_text_state.y == 19
             && standalone_text_state.low_color == 9 && standalone_text_state.high_color == 7 && standalone_text_state.bounds[0] == 0 && standalone_text_state.bounds[1] == 0
             && standalone_text_state.bounds[2] == 2 && standalone_text_state.bounds[3] == 1);
     std::memset(glyph_destination_pixels, 0, sizeof(glyph_destination_pixels));
@@ -16330,7 +16330,7 @@ int main()
     sound_slots[1].buffers = &fade_node;
     gag::set_runtime_sound_destroy_state_for_testing(1, reinterpret_cast<HANDLE>(419), sound_slots, 1);
     gag::mix_runtime_sound_8bit_mono(428);
-    require(sound_slots[1].transition_flags == 0 && sound_slots[1].playback_state == 428 && fade_node.offset == 2 && fade_node.unknown_000c == 0);
+    require(sound_slots[1].transition_flags == 0 && sound_slots[1].playback_state == 428 && fade_node.offset == 2 && fade_node.schedule_offset == 0);
     gag::RuntimeSoundBufferNode loop_node{ mono_source, nullptr, sizeof(mono_source), 0, sizeof(mono_source) };
     std::memset(sound_slots, 0, sizeof(sound_slots));
     sound_slots[1].active = 1;
@@ -17360,13 +17360,15 @@ int main()
     require(parsed_named_node != nullptr && parsed_named_node->identity == parsed_named_node && std::memcmp(parsed_named_node->name, parsed_named_identifier, 0x20) == 0);
     require(parsed_named_node->flags == 0x800 && parsed_named_node->status == 1 && parsed_named_entry->data == parsed_named_object.identity
             && display_scene_allocation_count == parsed_named_allocation_start + 2);
-    require(parsed_named_node->zone_left == 1 && parsed_named_node->zone_top == 2 && parsed_named_node->unknown_0028 == 3 && parsed_named_node->zone_right == 4 && parsed_named_node->zone_bottom == 5);
+    require(parsed_named_node->zone_left == 1 && parsed_named_node->zone_top == 2 && parsed_named_node->visible_entry_count == 3 && parsed_named_node->zone_right == 4
+            && parsed_named_node->zone_bottom == 5);
     const char parsed_named_partial_zone[]{ "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA /ZONE: 9 8" };
     parsed_named_parser.text = parsed_named_partial_zone;
     parsed_named_parser.text_length = sizeof(parsed_named_partial_zone) - 1;
     parsed_named_parser.cursor = 0;
     require(gag::parse_runtime_named_node(&parsed_named_parser) == 0);
-    require(parsed_named_node->zone_left == 9 && parsed_named_node->zone_top == 8 && parsed_named_node->unknown_0028 == 1 && parsed_named_node->zone_right == 4 && parsed_named_node->zone_bottom == 5);
+    require(parsed_named_node->zone_left == 9 && parsed_named_node->zone_top == 8 && parsed_named_node->visible_entry_count == 1 && parsed_named_node->zone_right == 4
+            && parsed_named_node->zone_bottom == 5);
     const char parsed_named_missing_object[]{ "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ABSENT /F: COMMENT" };
     parsed_named_parser.text = parsed_named_missing_object;
     parsed_named_parser.text_length = sizeof(parsed_named_missing_object) - 1;
@@ -17396,13 +17398,13 @@ int main()
     gag::add_script_object_to_runtime_named_node(named_parent_name, "OBJECT2");
     auto *named_entry_2 = reinterpret_cast<gag::RuntimeResourceCacheEntry *>(named_object_parent.child_sentinel);
     require(named_object_parent.status == 2 && named_entry_2->data == named_object_2.identity);
-    named_object_parent.unknown_0028 = 1;
+    named_object_parent.visible_entry_count = 1;
     named_object_parent.child_cursor = reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1);
     require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_2));
     require(gag::rotate_runtime_named_node_cursor_next(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
     require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 0) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
     require(gag::rotate_runtime_named_node_cursor_next(named_parent_name, 0) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
-    named_object_parent.unknown_0028 = 2;
+    named_object_parent.visible_entry_count = 2;
     require(gag::rotate_runtime_named_node_cursor_previous(named_parent_name, 1) == 1 && named_object_parent.child_cursor == reinterpret_cast<gag::RuntimeNamedNode *>(named_entry_1));
     require(gag::rotate_runtime_named_node_cursor_next(named_missing_name, 1) == 0);
     gag::remove_script_object_from_runtime_named_node(named_parent_name, "ABSENT");
@@ -20545,7 +20547,7 @@ int main()
 
     gag::RuntimeNamedNode expansion_list{};
     std::memcpy(expansion_list.name, "EXPAND", 7);
-    expansion_list.unknown_0028 = 2;
+    expansion_list.visible_entry_count = 2;
     expansion_list.zone_left = 5;
     expansion_list.zone_top = 6;
     expansion_list.zone_right = 7;
@@ -20572,9 +20574,9 @@ int main()
             && expanded_primary_1->y == 20 && expanded_primary_0->image_flags == 0x20 && expanded_primary_1->image_flags == 0x20 && (expanded_primary_0->flags & 0x80000000) == 0
             && (expanded_primary_1->flags & 0x80000000) != 0 && std::memcmp(expanded_primary_0->file_name, expansion_resource.primary_resource_name, 0x20) == 0);
     require(expanded_link84_0 != nullptr && expanded_link84_1 != nullptr && expanded_link84_1->next == nullptr && expanded_link84_0->x == 10 && expanded_link84_0->y == 20
-            && expanded_link84_0->width == 15 && expanded_link84_0->height == 26 && expanded_link84_1->x == 22 && expanded_link84_1->width == 27 && expanded_link84_0->state_003c == 0xffffffff
-            && expanded_link84_0->value_0054 == reinterpret_cast<uintptr_t>(&expansion_list) && expanded_link84_0->value_0040 == 17 && expanded_link84_0->value_004c == 9
-            && expanded_link84_0->identity_0058 == &expansion_resource && expanded_link84_0->identity_005c == expanded_primary_0 && expanded_link84_1->identity_0058 == nullptr);
+            && expanded_link84_0->width == 15 && expanded_link84_0->height == 26 && expanded_link84_1->x == 22 && expanded_link84_1->width == 27 && expanded_link84_0->movement_deadline == 0xffffffff
+            && expanded_link84_0->owner_group_identity == reinterpret_cast<uintptr_t>(&expansion_list) && expanded_link84_0->command_mask == 17 && expanded_link84_0->parameter == 9
+            && expanded_link84_0->owner_identity == &expansion_resource && expanded_link84_0->primary_resource_identity == expanded_primary_0 && expanded_link84_1->owner_identity == nullptr);
 
     char changed_expanded_file[0x20]{};
     std::memcpy(changed_expanded_file, "CHANGED", 8);
@@ -20585,8 +20587,8 @@ int main()
     require(gag::create_or_update_runtime_tree_link_0084(&primary_parser_owner, expanded_link84_0->name, 13, 24, 18, 30, 6, reinterpret_cast<void *>(0x7400), expanded_primary_0, 99, 8, 7)
             == expanded_link84_0);
     require(expanded_link84_0->x == 13 && expanded_link84_0->y == 24 && expanded_link84_0->width == 18 && expanded_link84_0->height == 30
-            && expanded_link84_0->value_0054 == reinterpret_cast<uintptr_t>(&expansion_list) && expanded_link84_0->value_0050 == 6 && expanded_link84_0->value_0040 == 8
-            && expanded_link84_0->value_004c == 7 && expanded_link84_0->identity_0058 == reinterpret_cast<void *>(0x7400) && expanded_primary_0->x == 13 && expanded_primary_0->y == 24);
+            && expanded_link84_0->owner_group_identity == reinterpret_cast<uintptr_t>(&expansion_list) && expanded_link84_0->mouse_visual_value == 6 && expanded_link84_0->command_mask == 8
+            && expanded_link84_0->parameter == 7 && expanded_link84_0->owner_identity == reinterpret_cast<void *>(0x7400) && expanded_primary_0->x == 13 && expanded_primary_0->y == 24);
 
     gag::RuntimeTreeNode parsed_link84_owner{};
     gag::RuntimeVisualObject *saved_link84_visual_objects = serialization_root.visual_objects;
@@ -21172,7 +21174,7 @@ int main()
     named_serialization_entry_1.next = &named_serialization_entry_2;
     named_serialization_entry_2.next = &named_serialization_entry_1;
     named_serialization.children = reinterpret_cast<gag::RuntimeNamedNode *>(&named_serialization_entry_1);
-    named_serialization.unknown_0028 = 3;
+    named_serialization.visible_entry_count = 3;
     named_serialization.zone_left = 1;
     named_serialization.zone_top = 2;
     named_serialization.zone_right = 4;
@@ -21805,7 +21807,7 @@ int main()
     callback_scene_node.callback_alternate_position = 7;
     callback_scene_node.callbacks = &callback_node_1;
     require(gag::process_scene_node_callbacks(&callback_scene_node) == 1 && scene_callback_count == 2);
-    require(scene_callback_states[0].flags == 0x01000000 && scene_callback_states[0].timestamp == 123 && scene_callback_states[0].value_08 == 30 && scene_callback_states[0].value_0c == 40
+    require(scene_callback_states[0].flags == 0x01000000 && scene_callback_states[0].timestamp == 123 && scene_callback_states[0].width == 30 && scene_callback_states[0].height == 40
             && scene_callback_states[0].first_position == 5 && scene_callback_states[0].current_position == 6 && scene_callback_states[0].data == &callback_scene_node.accumulated_rectangle.left
             && scene_callback_states[0].clip_bounds != nullptr);
     scene_callback_count = 0;
@@ -21859,8 +21861,8 @@ int main()
     require(gag::contains_display_scene_node(22) && !gag::contains_display_scene_node(33));
     require(display_acquire_enter_count == lookup_enter_count + 2 && display_acquire_enter_count == display_acquire_leave_count);
 
-    lookup_scene_node_1.unknown_2c = 4;
-    lookup_scene_node_2.unknown_2c = 5;
+    lookup_scene_node_1.scene_index = 4;
+    lookup_scene_node_2.scene_index = 5;
     require(gag::find_available_display_scene_index(4) == 6);
     require(gag::find_available_display_scene_index(3) == 3);
     gag::set_display_lock_state_for_testing(0, 0, 0, reinterpret_cast<HANDLE>(70));
@@ -21911,7 +21913,7 @@ int main()
     require(gag::set_display_scene_primary_owner(11, 0, true) && lookup_scene_node_1.primary_owner == 0);
     require(!gag::set_display_scene_primary_owner(11, 300, true));
 
-    lookup_scene_node_1.unknown_2c = 44;
+    lookup_scene_node_1.scene_index = 44;
     lookup_scene_node_1.width = 320;
     lookup_scene_node_1.height = 200;
     lookup_scene_node_1.callback_first_position = 0x12345678;
@@ -22254,8 +22256,8 @@ int main()
     require(allocated_scene == reinterpret_cast<gag::DisplaySceneNode *>(display_scene_allocations[0]) && display_scene_allocation_count == 2);
     require(display_scene_allocation_flags[0] == 8 && display_scene_allocation_sizes[0] == sizeof(gag::DisplaySceneNode) && display_scene_allocation_flags[1] == 0
             && display_scene_allocation_sizes[1] == 12);
-    require(allocated_scene->identifier == reinterpret_cast<intptr_t>(allocated_scene) && allocated_scene->unknown_2c == 5 && allocated_scene->reference_count == 1 && allocated_scene->owner_count == 1
-            && allocated_scene->owners[0] == 77);
+    require(allocated_scene->identifier == reinterpret_cast<intptr_t>(allocated_scene) && allocated_scene->scene_index == 5 && allocated_scene->reference_count == 1
+            && allocated_scene->owner_count == 1 && allocated_scene->owners[0] == 77);
     require(allocated_scene->x == 10 && allocated_scene->y == 20 && allocated_scene->width == 4 && allocated_scene->height == 3 && allocated_scene->sync_secondary_position == 4);
     require(allocation_descriptor.x == 0 && allocation_descriptor.y == 0 && allocation_descriptor.width == 4 && allocation_descriptor.height == 3 && allocation_descriptor.present == 1
             && allocation_descriptor.pixels == allocated_scene->callback_first_position);
@@ -22293,7 +22295,7 @@ int main()
     gag::set_display_scene_root_primary_position_for_testing(reinterpret_cast<intptr_t>(root_primary_pixels));
     gag::set_display_lock_acquire_state_for_testing(reinterpret_cast<HANDLE>(71), 0, { 100, 100, 0, 0 }, 10, 8, nullptr);
     gag::DisplaySceneNode *allocated_root = gag::acquire_display_scene_node(20, 7, 9, 1, 1, 1, 0, nullptr, &allocation_format);
-    require(allocated_root != nullptr && allocated_root->unknown_2c == 0x7fffffff && allocated_root->callback_first_position == reinterpret_cast<intptr_t>(root_primary_pixels));
+    require(allocated_root != nullptr && allocated_root->scene_index == 0x7fffffff && allocated_root->callback_first_position == reinterpret_cast<intptr_t>(root_primary_pixels));
     require(allocated_root->width == 10 && allocated_root->height == 8 && allocated_root->sync_secondary_position == 10 && allocated_root->reference_count == 1);
     require(allocated_root->root_rectangle_callback == gag::fill_display_scene_rectangle_8);
 
@@ -22353,7 +22355,7 @@ int main()
     release_node.owner_count = 1;
     release_node.primary_owner = 42;
     release_node.owners[0] = 42;
-    release_node.unknown_2c = 9;
+    release_node.scene_index = 9;
     release_node.x = 10;
     release_node.y = 20;
     release_node.previous_x = 5;
@@ -22395,7 +22397,7 @@ int main()
     gag::DisplaySceneNode release_root_node{};
     release_root_node.identifier = 222;
     release_root_node.reference_count = 1;
-    release_root_node.unknown_2c = 0x7fffffff;
+    release_root_node.scene_index = 0x7fffffff;
     release_root_node.width = 10;
     release_root_node.height = 10;
     release_root_node.callback_first_position = 104;
@@ -22939,7 +22941,7 @@ int main()
             && layout_position_flags[1] == 0x104);
     require(layout_invalidate_count == 2);
     layout_game_context = gag::get_runtime_game_host_state_for_testing();
-    require(layout_game_context.unknown_0038 == 320 && layout_game_context.unknown_003c == 60);
+    require(layout_game_context.x_offset == 320 && layout_game_context.y_offset == 60);
 #else
     require(state.desktop_window_rect.left == -4 && state.desktop_window_rect.top == -50 && state.desktop_window_rect.right == 804 && state.desktop_window_rect.bottom == 604);
     require(state.window_top_adjustment == 51 && state.content_left == 0 && state.content_top == 49 && state.content_right == 640 && state.content_bottom == 529);
@@ -22948,7 +22950,7 @@ int main()
     require(layout_positions[0].left == -4 && layout_positions[0].top == -50 && layout_positions[0].right == 808 && layout_positions[0].bottom == 654);
     require(layout_windows[1] == state.capture_window && layout_positions[1].left == 0 && layout_positions[1].top == 49 && layout_position_flags[1] == 0x105);
     layout_game_context = gag::get_runtime_game_host_state_for_testing();
-    require(layout_game_context.unknown_0038 == 0 && layout_game_context.unknown_003c == 49);
+    require(layout_game_context.x_offset == 0 && layout_game_context.y_offset == 49);
 #endif
     require(layout_focus_count == 1 && layout_send_count == 1);
 
@@ -23012,10 +23014,10 @@ int main()
     gag::update_application_window_layout(&state, nullptr);
 #if defined(FREEGAG_WINDOWS_FIXES)
     layout_game_context = gag::get_runtime_game_host_state_for_testing();
-    require(layout_position_count == 0 && layout_game_context.unknown_0038 == 80 && layout_game_context.unknown_003c == 60);
+    require(layout_position_count == 0 && layout_game_context.x_offset == 80 && layout_game_context.y_offset == 60);
 #else
     layout_game_context = gag::get_runtime_game_host_state_for_testing();
-    require(layout_position_count == 0 && layout_game_context.unknown_0038 == 12 && layout_game_context.unknown_003c == 13);
+    require(layout_position_count == 0 && layout_game_context.x_offset == 12 && layout_game_context.y_offset == 13);
 #endif
 
     uint8_t restore_game_context[0x7ec]{};
@@ -23060,12 +23062,12 @@ int main()
     render_backend.extension_data = &render_resource;
     gag::render_runtime_generic_backend_child(&render_backend);
     gag::update_runtime_generic_backend_child(&render_backend);
-    render_resource.field_0074 = 1;
+    render_resource.generic_backend_child = reinterpret_cast<gag::RuntimeGenericBackendChild *>(1);
     render_resource.type_flags = 0;
     gag::render_runtime_generic_backend_child(&render_backend);
     render_resource.type_flags = 0x81;
     gag::render_runtime_generic_backend_child(&render_backend);
-    render_resource.field_0074 = 999;
+    render_resource.generic_backend_child = reinterpret_cast<gag::RuntimeGenericBackendChild *>(999);
     render_resource.type_flags = 0;
     gag::update_runtime_generic_backend_child(&render_backend);
     render_resource.type_flags = 1;
@@ -23135,7 +23137,7 @@ int main()
     uint32_t observed_flags;
     HANDLE observed_heap;
     gag::get_graphics_host_observed_state_for_testing(&observed_context, observed_callbacks, &observed_x, &observed_y, &observed_flags, &observed_heap);
-    require(observed_context.width == 324 && observed_context.height == 201 && observed_context.unknown_0038 == 11 && observed_context.unknown_003c == 13);
+    require(observed_context.width == 324 && observed_context.height == 201 && observed_context.x_offset == 11 && observed_context.y_offset == 13);
     require(observed_x == 323 && observed_y == 0 && observed_flags == 0x712345 && observed_heap == reinterpret_cast<HANDLE>(511));
     require((gag::get_runtime_scene_control_flags_for_testing() & 0x800) != 0);
     gag::ScriptRuntimeRoot *initialized_script_root = gag::get_embedded_script_runtime_root_for_testing();
@@ -23207,7 +23209,7 @@ int main()
         require((gag::get_runtime_scene_control_flags_for_testing() & 0x600) == 0);
     }
     runtime_bootstrap_mode.pixel_format_flags = 0;
-    runtime_bootstrap_mode.unknown_0024 = 0;
+    runtime_bootstrap_mode.pixel_format_reserved = 0;
     runtime_bootstrap_mode.bits_per_pixel = 8;
     runtime_bootstrap_mode.red_mask = 0;
     runtime_bootstrap_mode.green_mask = 0;
@@ -23693,7 +23695,7 @@ int main()
     state_resource.scene_identifier = 71;
     state_resource.output_width = 320;
     state_resource.output_height = 200;
-    state_resource.field_0074 = 0x8010;
+    state_resource.generic_backend_child = reinterpret_cast<gag::RuntimeGenericBackendChild *>(0x8010);
     resource_state_record = reinterpret_cast<gag::RuntimeLockRecord *>(&state_resource);
     resource_state_event_count = 0;
     gag::set_runtime_resource_state(resource_state_identity, 0x20000);
@@ -25265,28 +25267,28 @@ int main()
     mutable_link84_second.y = 5;
     mutable_link84_second.width = 6;
     mutable_link84_second.height = 7;
-    mutable_link84_second.value_0040 = 8;
-    mutable_link84_second.value_004c = 9;
-    mutable_link84_second.value_0050 = 10;
-    mutable_link84_second.value_0054 = 11;
-    mutable_link84_second.identity_0058 = reinterpret_cast<void *>(0x7110);
-    mutable_link84_second.identity_005c = reinterpret_cast<void *>(0x7030);
+    mutable_link84_second.command_mask = 8;
+    mutable_link84_second.parameter = 9;
+    mutable_link84_second.mouse_visual_value = 10;
+    mutable_link84_second.owner_group_identity = 11;
+    mutable_link84_second.owner_identity = reinterpret_cast<void *>(0x7110);
+    mutable_link84_second.primary_resource_identity = reinterpret_cast<void *>(0x7030);
     primary_update_root.link_0084_head = &mutable_link84_first;
     gag::update_runtime_tree_link_0084(reinterpret_cast<void *>(0x7011), reinterpret_cast<void *>(0x7101), 20, 30, 40, 50, 60, reinterpret_cast<void *>(0x7120), reinterpret_cast<void *>(0x7130), 70,
         80, 90);
     gag::update_runtime_tree_link_0084(reinterpret_cast<void *>(0x7010), reinterpret_cast<void *>(0x7102), 20, 30, 40, 50, 60, reinterpret_cast<void *>(0x7120), reinterpret_cast<void *>(0x7130), 70,
         80, 90);
-    require(mutable_link84_second.x == 4 && mutable_link84_second.value_0040 == 8);
+    require(mutable_link84_second.x == 4 && mutable_link84_second.command_mask == 8);
     gag::update_runtime_tree_link_0084(reinterpret_cast<void *>(0x7010), reinterpret_cast<void *>(0x7101), 0, 0, 0, 0, 0, nullptr, nullptr, 0, 0, 0x7fffffff);
-    require(mutable_link84_second.x == 4 && mutable_link84_second.y == 5 && mutable_link84_second.width == 6 && mutable_link84_second.height == 7 && mutable_link84_second.value_0040 == 8
-            && mutable_link84_second.value_004c == 9 && mutable_link84_second.value_0050 == 10 && mutable_link84_second.value_0054 == 11
-            && mutable_link84_second.identity_0058 == reinterpret_cast<void *>(0x7110) && mutable_link84_second.identity_005c == reinterpret_cast<void *>(0x7030));
+    require(mutable_link84_second.x == 4 && mutable_link84_second.y == 5 && mutable_link84_second.width == 6 && mutable_link84_second.height == 7 && mutable_link84_second.command_mask == 8
+            && mutable_link84_second.parameter == 9 && mutable_link84_second.mouse_visual_value == 10 && mutable_link84_second.owner_group_identity == 11
+            && mutable_link84_second.owner_identity == reinterpret_cast<void *>(0x7110) && mutable_link84_second.primary_resource_identity == reinterpret_cast<void *>(0x7030));
     gag::update_runtime_tree_link_0084(reinterpret_cast<void *>(0x7010), reinterpret_cast<void *>(0x7101), 20, 30, 40, 50, 60, reinterpret_cast<void *>(0x7120), reinterpret_cast<void *>(0x7030), 70,
         80, 90);
-    require(mutable_link84_second.x == 20 && mutable_link84_second.y == 30 && mutable_link84_second.width == 40 && mutable_link84_second.height == 50 && mutable_link84_second.value_0040 == 80
-            && mutable_link84_second.value_004c == 90 && mutable_link84_second.value_0050 == 60 && mutable_link84_second.value_0054 == 70
-            && mutable_link84_second.previous_identity_0058 == reinterpret_cast<void *>(0x7110) && mutable_link84_second.identity_0058 == reinterpret_cast<void *>(0x7120)
-            && mutable_link84_second.previous_identity_005c == nullptr && primary_update_second.previous_x == 14 && primary_update_second.x == 30 && primary_update_second.previous_y == 2
+    require(mutable_link84_second.x == 20 && mutable_link84_second.y == 30 && mutable_link84_second.width == 40 && mutable_link84_second.height == 50 && mutable_link84_second.command_mask == 80
+            && mutable_link84_second.parameter == 90 && mutable_link84_second.mouse_visual_value == 60 && mutable_link84_second.owner_group_identity == 70
+            && mutable_link84_second.previous_owner_identity == reinterpret_cast<void *>(0x7110) && mutable_link84_second.owner_identity == reinterpret_cast<void *>(0x7120)
+            && mutable_link84_second.previous_primary_resource_identity == nullptr && primary_update_second.previous_x == 14 && primary_update_second.x == 30 && primary_update_second.previous_y == 2
             && primary_update_second.y == 27);
 
     char link84_first_name[0x20]{};
@@ -25995,7 +25997,7 @@ int main()
     tree_runtime.global_link_0084_head = &moving_zone;
     simple_opcode_link.parser = make_script_parser("MOVING-ZONE");
     require(gag::execute_simple_runtime_script_opcode_for_testing(&simple_opcode_state, &simple_opcode_tree, &simple_opcode_link, 0xe0000000) == gag::RuntimeScriptOpcodeDisposition::complete
-            && moving_zone.unknown_0028 == 2);
+            && moving_zone.movement_flags == 2);
     gag::RuntimeTreePrimaryResourceLink moving_primary{};
     std::memcpy(moving_primary.identifier, "MOVING-PRIMARY", 15);
     tree_runtime.plan_nodes = reinterpret_cast<gag::RuntimePlanNode *>(&moving_primary);

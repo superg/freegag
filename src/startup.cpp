@@ -754,8 +754,8 @@ void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, c
     static_assert(offsetof(RuntimeGameHostContext, display_surface) == offsetof(xtet::GameHostContext, display_surface));
     static_assert(offsetof(RuntimeGameHostContext, framebuffer) == offsetof(xtet::GameHostContext, framebuffer));
     static_assert(offsetof(RuntimeGameHostContext, palette_entries) == offsetof(xtet::GameHostContext, palette_entries));
-    static_assert(offsetof(RuntimeGameHostContext, unknown_0038) == offsetof(xtet::GameHostContext, x));
-    static_assert(offsetof(RuntimeGameHostContext, unknown_003c) == offsetof(xtet::GameHostContext, y));
+    static_assert(offsetof(RuntimeGameHostContext, x_offset) == offsetof(xtet::GameHostContext, x_offset));
+    static_assert(offsetof(RuntimeGameHostContext, y_offset) == offsetof(xtet::GameHostContext, y_offset));
     xtet::initialize_game(reinterpret_cast<xtet::GameHostContext *>(context), callbacks, sfs_name);
 }
 
@@ -1302,7 +1302,7 @@ void set_runtime_script_property(uint32_t property, void *, void *value)
         break;
     case 80:
     case 96:
-        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x04000000, 0);
+        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x04000000, 0);
         break;
     }
 }
@@ -1325,7 +1325,7 @@ void get_runtime_script_property(uint32_t property, void **value, void *result)
     {
         char path[260];
         runtime_script_property_get_api.copy_string(path, runtime_graphics_resource_directory);
-        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
+        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
         runtime_script_property_get_api.copy_string(static_cast<char *>(result), path);
         break;
     }
@@ -1395,11 +1395,11 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     HWND child = nullptr;
     if(initialized)
     {
-        runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(x);
-        runtime_game_host_context.unknown_003c = static_cast<uint32_t>(y);
+        runtime_game_host_context.x_offset = static_cast<uint32_t>(x);
+        runtime_game_host_context.y_offset = static_cast<uint32_t>(y);
         runtime_game_host_context.width = static_cast<uint16_t>(width + 3) & 0xfffc;
         runtime_game_host_context.height = static_cast<uint16_t>(height);
-        graphics_host_state.unknown_0000 = reinterpret_cast<uintptr_t>(parent);
+        graphics_host_state.message_window = reinterpret_cast<uintptr_t>(parent);
         runtime_display_context.window = parent;
         runtime_graphics_instance = instance;
 
@@ -1613,7 +1613,7 @@ GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDispla
         {
             return nullptr;
         }
-        mode_format = { mode->pixel_format_flags, mode->unknown_0024, static_cast<uint32_t>(mode->bits_per_pixel), mode->red_mask, mode->green_mask, mode->blue_mask };
+        mode_format = { mode->pixel_format_flags, mode->pixel_format_reserved, static_cast<uint32_t>(mode->bits_per_pixel), mode->red_mask, mode->green_mask, mode->blue_mask };
         format = &mode_format;
     }
 
@@ -2166,20 +2166,20 @@ uint32_t enumerate_windows_display_modes()
                 auto *mode = static_cast<DisplayMode *>(windows_display_enumeration_api.heap_alloc(windows_display_enumeration_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(DisplayMode)));
                 if(mode != nullptr)
                 {
-                    mode->unknown_0008 = settings.dmFields;
+                    mode->device_mode_fields = settings.dmFields;
                     mode->surface_caps = settings.dmDisplayFlags;
                     mode->width = static_cast<int32_t>(settings.dmPelsWidth);
                     mode->height = static_cast<int32_t>(settings.dmPelsHeight);
-                    mode->unknown_0010 = settings.dmDisplayFrequency;
+                    mode->refresh_rate = settings.dmDisplayFrequency;
                     mode->bits_per_pixel = static_cast<int32_t>(settings.dmBitsPerPel);
 
-                    if((mode->unknown_0008 & 0x400000) != 0)
+                    if((mode->device_mode_fields & 0x400000) != 0)
                     {
                         for(DisplayMode *existing = display_mode_head; existing != nullptr; existing = existing->next)
                         {
                             if(existing->width == mode->width && existing->height == mode->height && existing->bits_per_pixel == mode->bits_per_pixel && existing->green_mask == mode->green_mask)
                             {
-                                if(existing->unknown_0010 < mode->unknown_0010)
+                                if(existing->refresh_rate < mode->refresh_rate)
                                 {
                                     std::memcpy(&existing->unknown_0004, &mode->unknown_0004, 7 * sizeof(uint32_t));
                                 }
@@ -2975,7 +2975,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     if(state->display_mode_iterator != nullptr)
     {
         const DisplayMode *mode = state->display_mode_iterator;
-        mode_format = { mode->pixel_format_flags, mode->unknown_0024, static_cast<uint32_t>(mode->bits_per_pixel), mode->red_mask, mode->green_mask, mode->blue_mask };
+        mode_format = { mode->pixel_format_flags, mode->pixel_format_reserved, static_cast<uint32_t>(mode->bits_per_pixel), mode->red_mask, mode->green_mask, mode->blue_mask };
         format = &mode_format;
     }
     if(application_initialization_api.initialize_runtime(format) == nullptr)
@@ -4103,8 +4103,8 @@ void update_modern_windows_windowed_viewport(ApplicationState *state)
         window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
     }
     window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
-    runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(state->content_left);
-    runtime_game_host_context.unknown_003c = static_cast<uint32_t>(state->content_top);
+    runtime_game_host_context.x_offset = static_cast<uint32_t>(state->content_left);
+    runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
 #else
     (void)state;
 #endif
@@ -4250,8 +4250,8 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
         window_layout_api.set_focus(state->capture_window);
         window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
     }
-    runtime_game_host_context.unknown_0038 = static_cast<uint32_t>(state->content_left);
-    runtime_game_host_context.unknown_003c = static_cast<uint32_t>(state->content_top);
+    runtime_game_host_context.x_offset = static_cast<uint32_t>(state->content_left);
+    runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
 }
 
 void set_window_layout_api_for_testing(const WindowLayoutApi &api)
@@ -5137,8 +5137,7 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
 
     RuntimeStandaloneTextState &text_state = runtime_display_context.input_text_state;
     if(changed
-        && runtime_text_input_api.initialize_text(runtime_display_context.input_text, text_state.value_0014, text_state.value_0018, text_state.font_identity, text_state.low_color,
-               text_state.high_color, &text_state)
+        && runtime_text_input_api.initialize_text(runtime_display_context.input_text, text_state.x, text_state.y, text_state.font_identity, text_state.low_color, text_state.high_color, &text_state)
                != 0)
     {
         DisplaySceneDescriptor descriptor;
@@ -5749,36 +5748,36 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                 }
                 else if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff)
                 {
-                    zone->unknown_0028 |= 2;
+                    zone->movement_flags |= 2;
                 }
                 else
                 {
                     RuntimeTreeLink8C *path = find_global_runtime_tree_link_008c_by_name(second);
                     if(path != nullptr)
                     {
-                        if((zone->unknown_0028 & 1) == 0)
+                        if((zone->movement_flags & 1) == 0)
                         {
-                            zone->state_003c = state->script_clock;
-                            zone->unknown_0028 = (zone->unknown_0028 & 0xfffffffd) | 1;
+                            zone->movement_deadline = state->script_clock;
+                            zone->movement_flags = (zone->movement_flags & 0xfffffffd) | 1;
                         }
-                        if(state->script_clock < zone->state_003c)
+                        if(state->script_clock < zone->movement_deadline)
                         {
                             return RuntimeScriptOpcodeDisposition::pause;
                         }
-                        if((zone->unknown_0028 & 2) == 0 && path->x <= zone->x && path->y <= zone->y && zone->width <= path->width && zone->height <= path->height)
+                        if((zone->movement_flags & 2) == 0 && path->x <= zone->x && path->y <= zone->y && zone->width <= path->width && zone->height <= path->height)
                         {
                             if((path->flags & 1) != 0)
                             {
                                 update_runtime_tree_link_0084(tree->identity, zone->identity, zone->x + path->line_first, zone->y + path->line_second, zone->width + path->line_first,
                                     zone->height + path->line_second, 0, nullptr, nullptr, 0, 0, 0x7fffffff);
-                                zone->state_003c = state->script_clock + path->time;
+                                zone->movement_deadline = state->script_clock + path->time;
                             }
                             rebuild_runtime_pointer_resources();
                             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
                             return RuntimeScriptOpcodeDisposition::pause;
                         }
                     }
-                    zone->unknown_0028 &= 0xfffffffc;
+                    zone->movement_flags &= 0xfffffffc;
                 }
             }
         }
@@ -6433,10 +6432,10 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                     {
                         if((primary->flags & 1) == 0)
                         {
-                            primary->unknown_0050 = state->script_clock;
+                            primary->movement_deadline = state->script_clock;
                             primary->flags = (primary->flags & 0xfffffffd) | 1;
                         }
-                        if(state->script_clock < primary->unknown_0050)
+                        if(state->script_clock < primary->movement_deadline)
                         {
                             return RuntimeScriptOpcodeDisposition::pause;
                         }
@@ -6446,7 +6445,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode_for_testing(
                             if((path->flags & 1) != 0)
                             {
                                 update_runtime_tree_primary_resource_link(tree, primary, nullptr, path->line_first, path->line_second, 0);
-                                primary->unknown_0050 = state->script_clock + path->time;
+                                primary->movement_deadline = state->script_clock + path->time;
                             }
                             rebuild_runtime_pointer_resources();
                             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
@@ -7183,9 +7182,9 @@ uint32_t find_available_display_scene_index(uint32_t candidate)
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
     DisplaySceneNode *current = display_scene_head;
     DisplaySceneNode *previous = display_scene_head;
-    while(current != nullptr && ((candidate <= previous->unknown_2c && previous != current) || current->unknown_2c <= candidate))
+    while(current != nullptr && ((candidate <= previous->scene_index && previous != current) || current->scene_index <= candidate))
     {
-        uint32_t current_index = current->unknown_2c;
+        uint32_t current_index = current->scene_index;
         uint32_t next_candidate = candidate;
         if(candidate <= current_index && current_index <= candidate)
         {
@@ -7389,7 +7388,7 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
-        if(static_cast<int32_t>(node->unknown_2c) == index)
+        if(static_cast<int32_t>(node->scene_index) == index)
         {
             result = node->identifier;
             if(descriptor != nullptr)
@@ -8328,12 +8327,12 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
             previous_mode = 0x80000000;
             DisplaySceneNode *existing = display_scene_head;
             previous = nullptr;
-            while(existing != nullptr && existing->unknown_2c < requested_index)
+            while(existing != nullptr && existing->scene_index < requested_index)
             {
                 previous = existing;
                 existing = existing->next;
             }
-            if(existing == nullptr || existing->unknown_2c != requested_index)
+            if(existing == nullptr || existing->scene_index != requested_index)
             {
                 HANDLE heap = display_scene_memory_api.get_process_heap();
                 auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
@@ -8387,7 +8386,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         node->identifier = reinterpret_cast<intptr_t>(node);
                         node->surface = &display_scene_surface_state;
                         node->flags = (flags & 0xf7fcffbf) | 0x01000000;
-                        node->unknown_2c = requested_index;
+                        node->scene_index = requested_index;
                         node->accumulated_rectangle.left = node->width;
                         node->accumulated_rectangle.top = node->height;
                         if(owner != 0)
@@ -8627,7 +8626,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     }
                 }
             }
-            if(result != nullptr && (result->unknown_2c != 0x7fffffff || result->reference_count == 0))
+            if(result != nullptr && (result->scene_index != 0x7fffffff || result->reference_count == 0))
             {
                 ++result->reference_count;
             }
@@ -8951,7 +8950,7 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                 }
                             }
                         }
-                        if(static_cast<int32_t>(node->unknown_2c) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
+                        if(static_cast<int32_t>(node->scene_index) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
                         {
                             if(remaining_owner == 0 && node->owner_count < node->reference_count)
                             {
@@ -8991,7 +8990,7 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                 {
                                     display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_current_position)));
                                 }
-                                if(static_cast<int32_t>(node->unknown_2c) == 0x7fffffff)
+                                if(static_cast<int32_t>(node->scene_index) == 0x7fffffff)
                                 {
                                     display_scene_root = nullptr;
                                 }
@@ -9366,11 +9365,11 @@ uint32_t set_active_display_mode(DisplayMode *mode)
     {
         DEVMODEA settings{};
         settings.dmSize = sizeof(settings);
-        settings.dmFields = mode->unknown_0008;
+        settings.dmFields = mode->device_mode_fields;
         settings.dmDisplayFlags = mode->surface_caps;
         settings.dmPelsWidth = static_cast<DWORD>(mode->width);
         settings.dmPelsHeight = static_cast<DWORD>(mode->height);
-        settings.dmDisplayFrequency = mode->unknown_0010;
+        settings.dmDisplayFrequency = mode->refresh_rate;
         settings.dmBitsPerPel = static_cast<DWORD>(mode->bits_per_pixel);
         if(display_mode_change_api.change_display_settings(&settings, 0) == DISP_CHANGE_SUCCESSFUL)
         {
@@ -14329,8 +14328,8 @@ RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_
         backend->media_flags |= 0x80000000;
     }
     backend->format_data = static_cast<uint8_t *>(bitmap_data) + sizeof(BITMAPFILEHEADER);
-    backend->field_001c = 0x0300;
-    backend->field_001e = 0x00ec;
+    backend->palette_version = 0x0300;
+    backend->palette_entry_count = 0x00ec;
     backend->media_flags |= 0x20;
     runtime_bitmap_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     if(runtime_media_backend_head == nullptr)
@@ -14442,8 +14441,8 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
 #endif
     backend->base.type = 0xaa;
     backend->base.media_flags |= storage | 0x21;
-    backend->base.field_001c = 0x0300;
-    backend->base.field_001e = 0x0100;
+    backend->base.palette_version = 0x0300;
+    backend->base.palette_entry_count = 0x0100;
     backend->base.sound_handle = 0xffffffff;
     backend->base.scale_x = 1;
     backend->base.scale_y = 1;
@@ -14656,7 +14655,7 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentat
     backend->media_flags |= flags;
     if(callback == nullptr)
     {
-        callback = &backend->field_001c;
+        callback = &backend->palette_version;
     }
     backend->comparison_palette = callback;
     backend->window = target->window;
@@ -14693,7 +14692,7 @@ uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresen
     }
     if(comparison_palette == nullptr)
     {
-        comparison_palette = &backend->field_001c;
+        comparison_palette = &backend->palette_version;
     }
     backend->comparison_palette = comparison_palette;
     backend->animation_callback = callback == nullptr ? present_runtime_animation_frame : callback;
@@ -15966,7 +15965,7 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
 }
 
 // GAG.EXE: 0x00410C40
-RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t value_0010, uint32_t value_000c)
+RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size)
 {
     auto *backend =
         static_cast<RuntimeGenericBackend *>(runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackend)));
@@ -15974,8 +15973,8 @@ RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t value_0010, uint
     if(backend != nullptr)
     {
         backend->identity = backend;
-        backend->text_size = value_000c;
-        backend->text = reinterpret_cast<const char *>(static_cast<uintptr_t>(value_0010));
+        backend->text_size = text_size;
+        backend->text = reinterpret_cast<const char *>(text_address);
         runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
         if(runtime_generic_backend_enabled == 0)
         {
@@ -16685,7 +16684,7 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
 }
 
 // GAG.EXE: 0x00411800
-uint32_t initialize_runtime_standalone_text(const char *text, uint32_t value_0014, uint32_t value_0018, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state)
+uint32_t initialize_runtime_standalone_text(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state)
 {
     if(get_runtime_media_backend_type(font_identity) != 0xac)
     {
@@ -16708,8 +16707,8 @@ uint32_t initialize_runtime_standalone_text(const char *text, uint32_t value_001
     measure_runtime_generic_text(state->bounds, text, &position, end, font_identity, 0);
     state->text = text;
     state->font_identity = font_identity;
-    state->value_0014 = value_0014;
-    state->value_0018 = value_0018;
+    state->x = x;
+    state->y = y;
     state->low_color = low_color;
     state->high_color = high_color;
     return 1;
@@ -17104,11 +17103,11 @@ void release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
 void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
-    if(resource->field_0074 != 0 && (resource->type_flags & 1) != 0 && (resource->type_flags & 0x80) == 0)
+    if(resource->generic_backend_child != nullptr && (resource->type_flags & 1) != 0 && (resource->type_flags & 0x80) == 0)
     {
         uintptr_t context[2];
         RuntimeGenericChildState state;
-        if(query_runtime_generic_backend_child_state(reinterpret_cast<void *>(static_cast<uintptr_t>(resource->field_0074)), state.words, nullptr, context))
+        if(query_runtime_generic_backend_child_state(resource->generic_backend_child, state.words, nullptr, context))
         {
             intptr_t source_identifier = 0;
             if(context[1] != 0)
@@ -17125,7 +17124,7 @@ void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
-    void *identity = reinterpret_cast<void *>(static_cast<uintptr_t>(resource->field_0074));
+    void *identity = resource->generic_backend_child;
     if(identity == nullptr)
     {
         return;
@@ -17733,7 +17732,7 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
             node->offset = 0;
             node->next = nullptr;
             node->data = data;
-            node->unknown_000c = 0;
+            node->schedule_offset = 0;
             slot->playback_state = 0;
             RuntimeSoundBufferNode *tail = slot->buffers;
             if(replace != 0)
@@ -18307,7 +18306,7 @@ void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
                     }
                     if(slot.buffers != nullptr)
                     {
-                        slot.buffers->unknown_000c = 0;
+                        slot.buffers->schedule_offset = 0;
                     }
                     ++handle;
                     continue;
@@ -18386,7 +18385,8 @@ void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
                     {
                         output_multiplier = (conversion & 0x000f) * output_multiplier * 2;
                     }
-                    if((node->offset * output_multiplier) / input_stride == runtime_sound_mixer_data_size || (node->unknown_000c * output_multiplier) / input_stride == runtime_sound_mixer_data_size)
+                    if((node->offset * output_multiplier) / input_stride == runtime_sound_mixer_data_size
+                        || (node->schedule_offset * output_multiplier) / input_stride == runtime_sound_mixer_data_size)
                     {
                         slot.schedule_state = marker;
                     }
@@ -18486,9 +18486,9 @@ void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
                     output_offset += output_bytes;
                     const uint32_t input_bytes = (output_bytes * input_stride) / output_multiplier;
                     node->offset += input_bytes;
-                    if(node->unknown_000c <= runtime_sound_mixer_data_size)
+                    if(node->schedule_offset <= runtime_sound_mixer_data_size)
                     {
-                        node->unknown_000c += input_bytes;
+                        node->schedule_offset += input_bytes;
                     }
                     if(node->offset < node->size)
                     {
@@ -19186,11 +19186,11 @@ uint32_t update_runtime_resource_visibility(DisplayTraversalState *state)
             auto *source = static_cast<const uint8_t *>(reinterpret_cast<const void *>(state->first_position));
             auto *destination = static_cast<uint8_t *>(reinterpret_cast<void *>(state->current_position));
             uint8_t row_mask = 0xff;
-            uint32_t rows = state->value_0c;
+            uint32_t rows = state->height;
             do
             {
                 uint8_t mask = row_mask;
-                uint32_t columns = state->value_08;
+                uint32_t columns = state->width;
                 do
                 {
                     *destination++ = *source++ & mask;
@@ -19292,7 +19292,7 @@ void select_runtime_resource(char *path)
     runtime_resource_selection_api.leave_critical_section(&runtime_resource_critical_section);
     if(path != nullptr)
     {
-        runtime_resource_selection_api.send_message(reinterpret_cast<HWND>(graphics_host_state.unknown_0000), 0x7ffd, 0xa0000000, reinterpret_cast<LPARAM>(path));
+        runtime_resource_selection_api.send_message(reinterpret_cast<HWND>(graphics_host_state.message_window), 0x7ffd, 0xa0000000, reinterpret_cast<LPARAM>(path));
         runtime_resource_selection_api.construct_resource(path, 0, 0, 0, 0, 0, 0, 0x200);
     }
 }
@@ -19542,8 +19542,8 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     const auto translated_lparam = [&]() -> LPARAM
     {
         const LPARAM input = input_lparam();
-        const uint16_t x = static_cast<uint16_t>(static_cast<uint16_t>(LOWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.unknown_0038));
-        const uint16_t y = static_cast<uint16_t>(static_cast<uint16_t>(HIWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.unknown_003c));
+        const uint16_t x = static_cast<uint16_t>(static_cast<uint16_t>(LOWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.x_offset));
+        const uint16_t y = static_cast<uint16_t>(static_cast<uint16_t>(HIWORD(input)) + static_cast<uint16_t>(runtime_game_host_context.y_offset));
         return static_cast<LPARAM>(MAKELONG(x, y));
     };
 
@@ -20084,10 +20084,10 @@ uint32_t parse_runtime_named_node(ScriptParserState *parser)
                     parent->zone_top = integer;
                 }
                 integer = parse_script_integer_expression(parser);
-                parent->unknown_0028 = static_cast<uint32_t>(integer);
+                parent->visible_entry_count = static_cast<uint32_t>(integer);
                 if(integer == 0x7fffffff)
                 {
-                    parent->unknown_0028 = 1;
+                    parent->visible_entry_count = 1;
                 }
                 integer = parse_script_integer_expression(parser);
                 if(integer != 0x7fffffff)
@@ -20185,7 +20185,7 @@ uint32_t rotate_runtime_named_node_cursor_previous(const void *node_name, int32_
     {
         return 0;
     }
-    if(node->status <= node->unknown_0028)
+    if(node->status <= node->visible_entry_count)
     {
         return 1;
     }
@@ -20209,7 +20209,7 @@ uint32_t rotate_runtime_named_node_cursor_next(const void *node_name, int32_t co
     {
         return 0;
     }
-    if(node->status <= node->unknown_0028)
+    if(node->status <= node->visible_entry_count)
     {
         return 1;
     }
@@ -20265,7 +20265,7 @@ void serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
         append_script_text_scope(buffer, 0x0f000000);
         append_script_text_integer(buffer, node->zone_left, ',');
         append_script_text_integer(buffer, node->zone_top, ',');
-        append_script_text_integer(buffer, node->unknown_0028, ',');
+        append_script_text_integer(buffer, node->visible_entry_count, ',');
         append_script_text_integer(buffer, node->zone_right, ',');
         append_script_text_integer(buffer, node->zone_bottom, ' ');
         end_script_text_statement(buffer);
@@ -20540,13 +20540,13 @@ void destroy_runtime_tree_resources(void *identity)
     if(root->identity == runtime_pointer_root_identity)
     {
         runtime_tree_destruction_api.set_resource_state(current_runtime_resource, 1);
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
         runtime_tree_destruction_api.stop_game_dll();
         runtime_tree_destruction_api.reset_display_state();
     }
     else
     {
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.unknown_0000)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
+        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
     }
 
     auto *primary_tail = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_tree_destruction_api.find_primary_tail(identity));
@@ -20932,7 +20932,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     {
         auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
         auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
-        std::memcpy(&runtime_transition_palette[0], &backend->field_001c, sizeof(PALETTEENTRY));
+        std::memcpy(&runtime_transition_palette[0], &backend->palette_version, sizeof(PALETTEENTRY));
         std::memcpy(&runtime_transition_palette[1], backend->palette_entries, sizeof(backend->palette_entries));
         const uint32_t type = flags & 0xff000;
         if(type == 0x1000)
@@ -21248,14 +21248,14 @@ void set_runtime_resource_state(void *identity, uint32_t state)
             runtime_resource_state_api.configure_palette(resource);
             const DisplayRectangleTransform transform = display_rectangle_transform(resource->scene_descriptor);
             runtime_resource_state_api.end_scene_update(resource->scene_identifier, &transform, &rectangle);
-            if(resource->field_0074 != 0)
+            if(resource->generic_backend_child != nullptr)
             {
-                runtime_resource_state_api.clear_child_ready(reinterpret_cast<void *>(resource->field_0074));
+                runtime_resource_state_api.clear_child_ready(resource->generic_backend_child);
             }
         }
-        if(resource->field_0074 != 0)
+        if(resource->generic_backend_child != nullptr)
         {
-            runtime_resource_state_api.disable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+            runtime_resource_state_api.disable_child_mode(resource->generic_backend_child);
         }
         if(current_runtime_resource == identity)
         {
@@ -21299,25 +21299,25 @@ void set_runtime_resource_state(void *identity, uint32_t state)
                 runtime_resource_state_api.queue_sound_data(handle, slot->buffers->data, slot->buffers->size, 1);
                 runtime_resource_state_api.stop_sound(handle, 1);
             }
-            if(resource->field_0074 != 0)
+            if(resource->generic_backend_child != nullptr)
             {
-                runtime_resource_state_api.clear_child_ready(reinterpret_cast<void *>(resource->field_0074));
+                runtime_resource_state_api.clear_child_ready(resource->generic_backend_child);
             }
         }
         if((state & 1) != 0)
         {
             runtime_resource_state_api.start_sound(handle, 1);
-            if(resource->field_0074 != 0)
+            if(resource->generic_backend_child != nullptr)
             {
-                runtime_resource_state_api.enable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+                runtime_resource_state_api.enable_child_mode(resource->generic_backend_child);
             }
         }
         if(state == 0)
         {
             runtime_resource_state_api.stop_sound(handle, 1);
-            if(resource->field_0074 != 0)
+            if(resource->generic_backend_child != nullptr)
             {
-                runtime_resource_state_api.disable_child_mode(reinterpret_cast<void *>(resource->field_0074));
+                runtime_resource_state_api.disable_child_mode(resource->generic_backend_child);
             }
         }
         if(current_runtime_resource == identity)
@@ -21791,7 +21791,7 @@ uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
         int32_t x = link->x;
         const int32_t y = link->y;
         auto *child = named->cache_entry_cursor;
-        for(uint32_t index = 0; index < named->unknown_0028; ++index)
+        for(uint32_t index = 0; index < named->visible_entry_count; ++index)
         {
             char generated_name[0x80];
             append_three_digit_decimal_suffix(link->identifier, index, generated_name);
@@ -22222,24 +22222,24 @@ uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tre
 
     auto *child = node->cache_entry_cursor;
     RuntimeTreeLink84 *link = find_global_runtime_tree_link_0084_by_identity(region);
-    for(uint32_t index = 0; index < node->unknown_0028; ++index)
+    for(uint32_t index = 0; index < node->visible_entry_count; ++index)
     {
         if(child == nullptr)
         {
-            if(link != nullptr && link->value_0054 == reinterpret_cast<uintptr_t>(owner_identity))
+            if(link != nullptr && link->owner_group_identity == reinterpret_cast<uintptr_t>(owner_identity))
             {
-                link->value_0040 = 0;
-                if(link->identity_005c != nullptr)
+                link->command_mask = 0;
+                if(link->primary_resource_identity != nullptr)
                 {
-                    static_cast<RuntimeTreePrimaryResourceLink *>(link->identity_005c)->flags |= 0x80000000;
+                    static_cast<RuntimeTreePrimaryResourceLink *>(link->primary_resource_identity)->flags |= 0x80000000;
                 }
             }
         }
-        else if(link != nullptr && link->value_0054 == reinterpret_cast<uintptr_t>(owner_identity))
+        else if(link != nullptr && link->owner_group_identity == reinterpret_cast<uintptr_t>(owner_identity))
         {
             auto *object = static_cast<ScriptObjectState *>(child->data);
             update_runtime_tree_link_0084(tree_identity, link->identity, 0, 0, 0, 0, 0, object, nullptr, 0, object->command_mask, 0x7fffffff);
-            if(link->identity_005c != nullptr)
+            if(link->primary_resource_identity != nullptr)
             {
                 uint8_t file_name_bytes[sizeof(void *)];
                 const void *file_name;
@@ -22255,8 +22255,8 @@ uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tre
                 {
                     std::memcpy(&file_name, file_name_bytes, sizeof(file_name));
                 }
-                update_runtime_tree_primary_resource_link(tree_identity, link->identity_005c, file_name, 0, 0, 0);
-                static_cast<RuntimeTreePrimaryResourceLink *>(link->identity_005c)->flags &= 0x7fffffff;
+                update_runtime_tree_primary_resource_link(tree_identity, link->primary_resource_identity, file_name, 0, 0, 0);
+                static_cast<RuntimeTreePrimaryResourceLink *>(link->primary_resource_identity)->flags &= 0x7fffffff;
             }
         }
         if(link != nullptr)
@@ -25979,7 +25979,7 @@ void remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, Ru
 }
 
 // GAG.EXE: 0x0040A860
-void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t value_0054)
+void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t image_flags)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -26011,9 +26011,9 @@ void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_i
         link->previous_y = link->y;
         link->y += y_delta;
     }
-    if(value_0054 != 0)
+    if(image_flags != 0)
     {
-        link->image_flags = value_0054;
+        link->image_flags = image_flags;
     }
 }
 
@@ -26229,8 +26229,8 @@ void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, c
 }
 
 // GAG.EXE: 0x0040AE40
-void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058,
-    void *identity_005c, uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c)
+void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
+    void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -26251,7 +26251,7 @@ void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *n
             return nullptr;
         }
         std::memcpy(link->name, name, sizeof(link->name));
-        link->value_0054 = value_0054;
+        link->owner_group_identity = owner_group_identity;
         link->identity = link;
         if(node->link_0084_tail == nullptr)
         {
@@ -26270,34 +26270,34 @@ void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *n
     {
         existing = true;
     }
-    link->state_003c = 0xffffffff;
-    if(value_004c != 0x7fffffff)
+    link->movement_deadline = 0xffffffff;
+    if(parameter != 0x7fffffff)
     {
-        link->value_004c = value_004c;
+        link->parameter = parameter;
     }
-    if(value_0040 != 0)
+    if(command_mask != 0)
     {
-        link->value_0040 = value_0040;
+        link->command_mask = command_mask;
     }
-    if(value_0050 != 0)
+    if(mouse_visual_value != 0)
     {
-        link->value_0050 = value_0050;
+        link->mouse_visual_value = mouse_visual_value;
     }
-    if(identity_0058 != nullptr && identity_0058 != link->identity_0058)
+    if(owner_identity != nullptr && owner_identity != link->owner_identity)
     {
-        link->previous_identity_0058 = link->identity_0058;
-        link->identity_0058 = identity_0058;
+        link->previous_owner_identity = link->owner_identity;
+        link->owner_identity = owner_identity;
     }
-    if(identity_005c != nullptr && identity_005c != link->identity_005c)
+    if(primary_resource_identity != nullptr && primary_resource_identity != link->primary_resource_identity)
     {
-        link->previous_identity_005c = link->identity_005c;
-        link->identity_005c = identity_005c;
+        link->previous_primary_resource_identity = link->primary_resource_identity;
+        link->primary_resource_identity = primary_resource_identity;
     }
     if(x != 0 || y != 0 || width != 0 || height != 0)
     {
-        if(existing && link->identity_005c != nullptr)
+        if(existing && link->primary_resource_identity != nullptr)
         {
-            update_runtime_tree_primary_resource_link(tree_identity, link->identity_005c, nullptr, x - link->x, y - link->y, 0);
+            update_runtime_tree_primary_resource_link(tree_identity, link->primary_resource_identity, nullptr, x - link->x, y - link->y, 0);
         }
         link->x = x;
         link->y = y;
@@ -26485,8 +26485,8 @@ void remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNod
 }
 
 // GAG.EXE: 0x0040B280
-void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t value_0050, void *identity_0058, void *identity_005c,
-    uintptr_t value_0054, uint32_t value_0040, uint32_t value_004c)
+void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
+    void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
     if(node == nullptr)
@@ -26502,37 +26502,37 @@ void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int
     {
         return;
     }
-    if(value_004c != 0x7fffffff)
+    if(parameter != 0x7fffffff)
     {
-        link->value_004c = value_004c;
+        link->parameter = parameter;
     }
-    if(value_0040 != 0)
+    if(command_mask != 0)
     {
-        link->value_0040 = value_0040;
+        link->command_mask = command_mask;
     }
-    if(value_0050 != 0)
+    if(mouse_visual_value != 0)
     {
-        link->value_0050 = value_0050;
+        link->mouse_visual_value = mouse_visual_value;
     }
-    if(identity_0058 != nullptr && identity_0058 != link->identity_0058)
+    if(owner_identity != nullptr && owner_identity != link->owner_identity)
     {
-        link->previous_identity_0058 = link->identity_0058;
-        link->identity_0058 = identity_0058;
+        link->previous_owner_identity = link->owner_identity;
+        link->owner_identity = owner_identity;
     }
-    if(identity_005c != nullptr && identity_005c != link->identity_005c)
+    if(primary_resource_identity != nullptr && primary_resource_identity != link->primary_resource_identity)
     {
-        link->previous_identity_005c = link->identity_005c;
-        link->identity_005c = identity_005c;
+        link->previous_primary_resource_identity = link->primary_resource_identity;
+        link->primary_resource_identity = primary_resource_identity;
     }
-    if(value_0054 != 0)
+    if(owner_group_identity != 0)
     {
-        link->value_0054 = value_0054;
+        link->owner_group_identity = owner_group_identity;
     }
     if(x != 0 || y != 0 || width != 0 || height != 0)
     {
-        if(link->identity_005c != nullptr)
+        if(link->primary_resource_identity != nullptr)
         {
-            update_runtime_tree_primary_resource_link(tree_identity, link->identity_005c, nullptr, x - link->x, y - link->y, 0);
+            update_runtime_tree_primary_resource_link(tree_identity, link->primary_resource_identity, nullptr, x - link->x, y - link->y, 0);
         }
         link->x = x;
         link->y = y;
@@ -28802,8 +28802,8 @@ void set_runtime_game_window_state_for_testing(HWND main_window, RuntimeGameDllW
 {
     runtime_game_main_window = main_window;
     runtime_game_dll_window_procedure = window_procedure;
-    runtime_game_host_context.unknown_0038 = x_offset;
-    runtime_game_host_context.unknown_003c = y_offset;
+    runtime_game_host_context.x_offset = x_offset;
+    runtime_game_host_context.y_offset = y_offset;
 #if defined(FREEGAG_WINDOWS_FIXES)
     modern_windows_game_cursor_tracking = false;
 #endif
