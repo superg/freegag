@@ -18,6 +18,8 @@ Last updated: 2026-08-22
 
 ## Evidence-backed symbol cleanup
 
+- The playable, end-to-end completable AMD64 state is marked by annotated Git
+  tag `amd64-completable-2026-08-22`.
 - Completed a source/Ghidra naming pass over gameplay-proven runtime fields.
   Confirmed names now cover the graphics message window and viewport offsets,
   display-mode metadata and scene indices, traversal dimensions, LOGPALETTE
