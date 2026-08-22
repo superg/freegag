@@ -90,7 +90,7 @@ struct CdfCompressedWriteApi
     uint32_t (*compress)(const void *source, uint32_t source_size, void *destination, uint32_t destination_capacity);
 };
 
-// Non-original adapters for GAG.EXE's delegated compression-library boundaries.
+// Compression adapters backed by zlib.
 int zlib_cdf_decompressor(const void *source, uint32_t source_size, void *destination);
 uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *destination, uint32_t destination_capacity);
 
@@ -131,61 +131,42 @@ struct CdfCommentPackageApi
     uint32_t (*finalize_writer)(CdfArchive *archive);
 };
 
-// GAG.EXE: 0x004282A0
 CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream);
 
-// GAG.EXE: 0x00428620
 const char *get_cdf_entry_name_by_index(CdfArchive *archive, uint32_t index);
 
-// GAG.EXE: 0x00428690
 uint32_t get_cdf_entry_count(CdfArchive *archive);
 
-// GAG.EXE: 0x00428710
 uint32_t get_cdf_index_data_size(CdfArchive *archive);
 
-// GAG.EXE: 0x00428630
 uint8_t get_cdf_entry_flags(CdfArchive *archive, const char *name);
 
-// GAG.EXE: 0x004286A0
 uint32_t get_cdf_entry_size(CdfArchive *archive, uint8_t selector, const char *name);
 
-// GAG.EXE: 0x00429320
 int read_uncompressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *destination);
 
-// GAG.EXE: 0x004293D0
 int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *destination);
 
-// GAG.EXE: 0x004284E0
 int read_cdf_entry(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
 
-// GAG.EXE: 0x00428590
 uint32_t close_cdf_archive(CdfArchive *archive);
 
-// GAG.EXE: 0x004287E0
 int initialize_cdf_index(CdfArchive *archive);
 
-// GAG.EXE: 0x00429A90
 uint32_t write_uncompressed_cdf_entry(CdfArchive *archive, const void *data);
 
-// GAG.EXE: 0x00429070
 uint32_t write_compressed_cdf_index(CdfArchive *archive);
 
-// GAG.EXE: 0x00429B50
 uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data);
 
-// GAG.EXE: 0x004298E0
 uint32_t finalize_cdf_writer(CdfArchive *archive);
 
-// GAG.EXE: 0x004297E0
 uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const void *data, uint32_t size, int compressed);
 
-// GAG.EXE: 0x00429630
 CdfArchive *create_cdf_writer(const char *path, uint32_t capacity);
 
-// GAG.EXE: 0x00428280
 uint32_t get_cdf_error(CdfArchive *archive);
 
-// GAG.EXE: 0x004176A0
 uint32_t write_comment_cdf_package(const char *path, const void *comment, const void *bitmap, const ScriptTextBuffer *configuration);
 
 

@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 4.4)
 project(freegag LANGUAGES CXX)
 
-include(FetchContent)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(FREEGAG_WINDOWS_FIXES "Enable compatibility fixes for modern Windows" ON)
+include(FetchContent)
 
 set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
@@ -17,11 +19,18 @@ FetchContent_MakeAvailable(zlib)
 
 find_program(CLANG_FORMAT "clang-format")
 if(CLANG_FORMAT)
-  add_custom_target(format COMMAND ${CLANG_FORMAT} -i ${FREEGAG_FORMAT_FILES})
-  add_custom_target(check-format COMMAND ${CLANG_FORMAT} --dry-run --Werror ${FREEGAG_FORMAT_FILES})
+  file(GLOB_RECURSE ALL_SOURCE_FILES
+    "src/*.cpp"
+    "src/*.h"
+    "tools/*.cpp"
+    "tools/*.h"
+  )
+
+  add_custom_target(format COMMAND ${CLANG_FORMAT} -i ${ALL_SOURCE_FILES})
+  add_custom_target(check-format COMMAND ${CLANG_FORMAT} --dry-run --Werror ${ALL_SOURCE_FILES})
 else()
   message(WARNING "clang-format not found, source code formatting targets will not be available")
 endif()
 
-add_subdirectory(src)
-add_subdirectory(tools)
+add_subdirectory("src")
+add_subdirectory("tools")

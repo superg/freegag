@@ -1,9 +1,19 @@
 # Learned patterns
 
-- Portable game paths use an empty installation prefix and retain bare relative archive/file names; do not substitute the executable directory or scan drives.
+- Portable game paths use an empty installation prefix and retain bare relative archive/file names, including `XTETDLL.SFS`; resolve them from the process working directory rather than the executable directory or drive scans.
 - Local archive startup must not benchmark throughput or reject/prompt based on the original CD-drive speed threshold.
 - Local preferences belong in `freegag.ini` in the process working directory. Resolve its explicit `.\\freegag.ini` name to an absolute path before calling Win32 profile APIs, because bare profile filenames otherwise use Windows-specific search behavior.
 - Preference reads and writes are nonfatal. Apply the existing settings mask only after strict numeric parsing, and accept window geometry only when all four coordinates parse, meet minimum dimensions, avoid arithmetic overflow, and intersect a monitor.
-- Keep the recovered fixed-slot application message table byte layout unchanged even when legacy registry diagnostics become unreachable.
-- During the current high-change decompilation phase, keep the repository free of first-party tests and explicit test hooks. Do not add or restore tests without an explicit user instruction; future reenablement remains intentionally unspecified.
+- Keep the fixed-capacity application message table layout unchanged even when legacy diagnostics become unreachable.
+- During the current high-change cleanup phase, keep the repository free of first-party tests and explicit test hooks. Do not add or restore tests without an explicit user instruction; future reenablement remains intentionally unspecified.
 - Game-state save and load always use the scripted in-game `SAVELOAD.CFG` flow. Do not reintroduce a build option or the recovered native dialog path; keep shared archive enumeration and CDF persistence available to the scripted UI and autosave.
+- Modern Windows compatibility is the sole production behavior. Do not reintroduce `FREEGAG_WINDOWS_FIXES`, its legacy branches, or physical display-mode switching; fullscreen is implemented as a borderless window.
+- Treat decompilation as complete: do not add executable-address annotations, recovered layout assertions, provenance labels, address-derived identifiers, or intentional emulation of undefined stack values. Comments should explain current behavior and maintenance constraints.
+- Keep production source free of `_DEBUG` blocks and debug-only trace infrastructure unless the user explicitly requests diagnostic instrumentation later.
+- Set the C++ language level globally in the root CMake file (`CMAKE_CXX_STANDARD 23`, required, extensions off) instead of repeating target-level compile features.
+- Discover formatter inputs with one root-level recursive glob over `src/*.cpp`, `src/*.h`, `tools/*.cpp`, and `tools/*.h`; do not maintain propagated per-directory source lists or include in-tree build dependencies.
+- XTET is statically integrated; keep its application boundary in `src/xtet/integration.cpp` and do not reintroduce unused DLL entry-point typedefs or DLL-lifecycle framing.
+- Keep XTET's platform-specific host interaction localized to `src/xtet/integration.cpp`; its public host context currently requires Win32 window, graphics-handle, palette, and message types.
+- Use `std::chrono::steady_clock` for XTET's monotonic millisecond timestamps and `std::this_thread::sleep_for` for animation delays; XTET does not require `winmm`.
+- Report XTET initialization failures with exceptions. Keep cleanup at the existing startup exception boundary rather than adding XTET-owned debugger output or dialogs.
+- Use the standard `main(int, char **)` entry point and CMake's console executable default. Acquire the `HINSTANCE` inside startup with `GetModuleHandleA(nullptr)` and consume supported switches directly from `argv`.

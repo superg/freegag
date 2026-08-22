@@ -140,7 +140,6 @@ struct ScriptedSaveLoadController
     uint32_t snapshot_size;
     bool owns_snapshot;
     uintptr_t script_state;
-    uint32_t preview_render_attempts;
 };
 
 void *capture_save_state(void *game_context, uint32_t *size, int mode)
@@ -155,7 +154,7 @@ uintptr_t get_save_script_state()
 
 bool write_save_state(char *path, char *name, void *bitmap, uintptr_t script_state)
 {
-    return run_synchronized_state_operation_176a0(path, name, bitmap, reinterpret_cast<void *>(script_state));
+    return write_synchronized_cdf_package(path, name, bitmap, reinterpret_cast<void *>(script_state));
 }
 
 uint32_t get_save_file_attributes(const char *path)
@@ -166,52 +165,6 @@ uint32_t get_save_file_attributes(const char *path)
 ScriptedSaveLoadPersistenceApi persistence_api{ capture_save_state, get_save_script_state, free_heap_memory, write_save_state, get_save_file_attributes };
 ScriptedSaveLoadController controller{};
 
-#if defined(_DEBUG)
-bool save_preview_trace_started;
-
-void trace_save_preview(const char *event, const void *source = nullptr, uint32_t source_size = 0, const DisplaySceneNode *scene = nullptr, int64_t result = -1)
-{
-    char path[MAX_PATH];
-    const DWORD length = GetModuleFileNameA(nullptr, path, static_cast<DWORD>(std::size(path)));
-    if(length == 0 || length >= std::size(path))
-    {
-        return;
-    }
-    char *separator = std::strrchr(path, '\\');
-    separator = separator == nullptr ? path : separator + 1;
-    static constexpr char file_name[] = "save-preview-trace.log";
-    if(static_cast<size_t>(separator - path) + sizeof(file_name) > std::size(path))
-    {
-        return;
-    }
-    std::memcpy(separator, file_name, sizeof(file_name));
-    FILE *file = nullptr;
-    if(fopen_s(&file, path, save_preview_trace_started ? "a" : "w") != 0 || file == nullptr)
-    {
-        return;
-    }
-    save_preview_trace_started = true;
-    const intptr_t preview_identifier = controller.preview_layer == nullptr ? 0 : controller.preview_layer->scene_identifier;
-    const intptr_t caption_identifier = controller.caption_layer == nullptr ? 0 : controller.caption_layer->scene_identifier;
-    std::fprintf(file,
-        "tick=%llu thread=%lu event=%s mode=%s pending=%u tree=%p preview_link=%p preview_id=%p caption_link=%p caption_id=%p snapshot=%p snapshot_size=%u owns=%u saves=%u selection=%u " "attempt" "s" "=" "%" "u" " " "source" "=%p " "source" "_size=" "%u " "result" "=%lld",
-        static_cast<unsigned long long>(GetTickCount64()), static_cast<unsigned long>(GetCurrentThreadId()), event, controller.mode == SaveLoadScreenMode::save ? "save" : "load",
-        controller.pending ? 1u : 0u, controller.tree, controller.preview_layer, reinterpret_cast<void *>(preview_identifier), controller.caption_layer, reinterpret_cast<void *>(caption_identifier),
-        controller.snapshot, controller.snapshot_size, controller.owns_snapshot ? 1u : 0u, controller.saves.count, controller.selection, controller.preview_render_attempts, source, source_size,
-        static_cast<long long>(result));
-    if(scene != nullptr)
-    {
-        std::fprintf(file, " scene=%p identifier=%p flags=%08X size=%dx%d stride=%d bpp=%u pixels=%p callback=%p palette=%p", scene, reinterpret_cast<void *>(scene->identifier), scene->flags,
-            scene->width, scene->height, scene->sync_secondary_position, scene->rectangle_callback_format.bits_per_pixel,
-            reinterpret_cast<void *>(static_cast<uintptr_t>(scene->callback_first_position)), reinterpret_cast<const void *>(scene->rectangle_callback),
-            scene->rectangle_callback_format.palette_source);
-    }
-    std::fputc('\n', file);
-    std::fclose(file);
-}
-#else
-#define trace_save_preview(...) ((void)0)
-#endif
 
 uint64_t file_time_value(const FILETIME &time)
 {
@@ -263,12 +216,9 @@ void activate_scripted_layer(RuntimeTreeSceneLink *link)
 {
     if(link == nullptr || link->scene_identifier == 0)
     {
-        trace_save_preview("activate skipped: missing layer", link);
         return;
     }
-    [[maybe_unused]] auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(link->scene_identifier));
-    [[maybe_unused]] const bool activated = activate_display_scene_node(link->scene_identifier);
-    trace_save_preview("activate layer", link, 0, scene, activated ? 1 : 0);
+    activate_display_scene_node(link->scene_identifier);
 }
 
 void prepare_caption_layer(RuntimeTreeSceneLink *link)
@@ -277,7 +227,6 @@ void prepare_caption_layer(RuntimeTreeSceneLink *link)
     {
         return;
     }
-    static_assert(sizeof(PALETTEENTRY) == sizeof(uint32_t));
     auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(link->scene_identifier));
     const PALETTEENTRY *palette = get_display_palette_entries();
     if(palette != nullptr)
@@ -392,12 +341,10 @@ void clear_scene(RuntimeTreeSceneLink *link)
 {
     if(link == nullptr || link->scene_identifier == 0)
     {
-        trace_save_preview("clear skipped: missing layer");
         return;
     }
     auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(link->scene_identifier));
     const uint32_t begin_result = begin_display_scene_update(link->scene_identifier);
-    trace_save_preview("clear begin", nullptr, 0, scene, begin_result);
     if(begin_result != 0)
     {
         return;
@@ -406,21 +353,18 @@ void clear_scene(RuntimeTreeSceneLink *link)
     DisplayRectangle rectangle{ 0, 0, scene->width, scene->height };
     DisplaySceneDescriptor descriptor{ 0, 0, static_cast<int16_t>(scene->width), static_cast<int16_t>(scene->height), 1, 0, scene->callback_first_position };
     const DisplayRectangleTransform transform{ descriptor.x, descriptor.y, static_cast<uint16_t>(descriptor.width), static_cast<uint16_t>(descriptor.height) };
-    [[maybe_unused]] const uint32_t end_result = end_display_scene_update(link->scene_identifier, &transform, &rectangle);
-    trace_save_preview("clear end", nullptr, 0, scene, end_result);
+    end_display_scene_update(link->scene_identifier, &transform, &rectangle);
 }
 
 void render_preview_data(const uint8_t *data, uint32_t size)
 {
     if(controller.preview_layer == nullptr || controller.preview_layer->scene_identifier == 0)
     {
-        trace_save_preview("draw skipped: missing layer", data, size);
         return;
     }
     auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(controller.preview_layer->scene_identifier));
     DecodedPreview preview{};
     const bool valid = validate_preview(data, size, &preview);
-    trace_save_preview("draw validate", data, size, scene, valid ? 1 : 0);
     if(!valid || scene->width != static_cast<int32_t>(preview_width) || scene->height != static_cast<int32_t>(preview_height))
     {
         return;
@@ -430,14 +374,12 @@ void render_preview_data(const uint8_t *data, uint32_t size)
         uint32_t palette[256];
         prepare_preview_palette(preview, palette);
         const bool palette_result = configure_display_scene_palette(scene, palette, 256);
-        trace_save_preview("draw palette", data, size, scene, palette_result ? 1 : 0);
         if(!palette_result)
         {
             return;
         }
     }
     const uint32_t begin_result = begin_display_scene_update(controller.preview_layer->scene_identifier);
-    trace_save_preview("draw begin", data, size, scene, begin_result);
     if(begin_result != 0)
     {
         return;
@@ -448,20 +390,16 @@ void render_preview_data(const uint8_t *data, uint32_t size)
         DisplayRectangle rectangle{ 0, 0, scene->width, scene->height };
         DisplaySceneDescriptor descriptor{ 0, 0, static_cast<int16_t>(scene->width), static_cast<int16_t>(scene->height), 1, 0, scene->callback_first_position };
         const DisplayRectangleTransform transform{ descriptor.x, descriptor.y, static_cast<uint16_t>(descriptor.width), static_cast<uint16_t>(descriptor.height) };
-        [[maybe_unused]] const uint32_t end_result = end_display_scene_update(controller.preview_layer->scene_identifier, &transform, &rectangle);
-        trace_save_preview("draw copied", data, size, scene, end_result);
+        end_display_scene_update(controller.preview_layer->scene_identifier, &transform, &rectangle);
     }
     else
     {
-        [[maybe_unused]] const uint32_t end_result = end_display_scene_update(controller.preview_layer->scene_identifier, nullptr, nullptr);
-        trace_save_preview("draw copy failed", data, size, scene, end_result);
+        end_display_scene_update(controller.preview_layer->scene_identifier, nullptr, nullptr);
     }
 }
 
 void render_preview()
 {
-    ++controller.preview_render_attempts;
-    trace_save_preview("render preview", controller.snapshot, controller.snapshot_size);
     clear_scene(controller.preview_layer);
     if(controller.preview_layer == nullptr || controller.preview_layer->scene_identifier == 0)
     {
@@ -949,7 +887,6 @@ bool request_scripted_save_load_screen(SaveLoadScreenMode mode, ApplicationState
             controller.script_state = persistence_api.get_script_state();
         }
     }
-    trace_save_preview("request ready", controller.snapshot, controller.snapshot_size, nullptr, state == nullptr ? -1 : static_cast<int64_t>(state->flags));
     set_runtime_paths_once("SAVELOAD.CFG", save_load_screen_section(mode));
     return true;
 }
@@ -1026,7 +963,6 @@ bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *stat
     }
     if(message == initialize_save_screen_message)
     {
-        trace_save_preview("message 2105 initialize", controller.snapshot, controller.snapshot_size);
         set_script_boolean("CLOSE", false);
         set_script_boolean("EMPTY", controller.saves.count == 0);
         render_preview();
@@ -1055,23 +991,13 @@ void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree)
     }
     if(tree == nullptr || _stricmp(tree->name, save_load_screen_section(controller.mode)) != 0)
     {
-        trace_save_preview("tree rebuilt unexpected", tree);
         return;
     }
-    trace_save_preview("tree rebuilt accepted", tree);
     controller.pending = false;
     controller.tree = tree;
     controller.preview_layer = find_tree_scene_link(tree, "SavePreview");
     controller.caption_layer = find_tree_scene_link(tree, "SaveCaption");
-    trace_save_preview("tree layers found", controller.snapshot, controller.snapshot_size,
-        controller.preview_layer == nullptr || controller.preview_layer->scene_identifier == 0
-            ? nullptr
-            : reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(controller.preview_layer->scene_identifier)));
     activate_scripted_layer(controller.preview_layer);
-    trace_save_preview("preview activated", controller.snapshot, controller.snapshot_size,
-        controller.preview_layer == nullptr || controller.preview_layer->scene_identifier == 0
-            ? nullptr
-            : reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(controller.preview_layer->scene_identifier)));
     prepare_caption_layer(controller.caption_layer);
     render_selection();
 }

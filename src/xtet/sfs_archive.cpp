@@ -222,9 +222,7 @@ bool SfsArchive::decode_block(size_t block_index, std::vector<uint8_t> &bytes) c
     const int result = inflate(&stream, Z_FINISH);
     const size_t decoded_size = stream.total_out;
     inflateEnd(&stream);
-    // Some full SFS blocks end exactly at the 32 KiB output boundary before the
-    // inflater can consume an end marker. The original cache accepts
-    // that complete logical block; partial output still requires a clean end.
+    // Some full SFS blocks end exactly at the 32 KiB output boundary before the inflater can consume an end marker. Accept that complete logical block; partial output still requires a clean end.
     if(result != Z_STREAM_END && decoded_size != kAllocationBlockSize)
         return false;
     bytes.resize(decoded_size);

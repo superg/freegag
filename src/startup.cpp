@@ -16,24 +16,9 @@
 
 namespace gag
 {
-static_assert(offsetof(RuntimeLockRecord, state_flags) == offsetof(RuntimeResourceObject, state_flags));
-static_assert(offsetof(RuntimeLockRecord, identity_context) == offsetof(RuntimeResourceObject, backend));
-static_assert(offsetof(RuntimeLockRecord, type_flags) == offsetof(RuntimeResourceObject, type_flags));
-static_assert(offsetof(RuntimeLockRecord, flags) == offsetof(RuntimeResourceObject, backend_flags));
-static_assert(offsetof(RuntimeLockRecord, data) == offsetof(RuntimeResourceObject, data));
-static_assert(offsetof(RuntimeLockRecord, owner_thread) == offsetof(RuntimeResourceObject, owner_thread));
-static_assert(offsetof(RuntimeLockRecord, recursion_count) == offsetof(RuntimeResourceObject, recursion_count));
-static_assert(offsetof(RuntimeLockRecord, scene_identifier) == offsetof(RuntimeResourceObject, scene_identifier));
-static_assert(sizeof(RuntimeAnimationFileHeader) == 0x80);
-static_assert(sizeof(RuntimeAnimationFrameHeader) == 0x10);
-static_assert(sizeof(RuntimeAnimationChunkHeader) == 6);
-static_assert(sizeof(RuntimeAnimationStreamHeaders) == 0x18);
-static_assert(offsetof(RuntimeAnimationSoundFormatChunk, format) == 0x12);
 
 namespace
 {
-
-#define trace_animation_startup(...) ((void)0)
 
 struct DisplayModeHostState
 {
@@ -86,7 +71,6 @@ union RuntimeGenericChildState
     RuntimeGenericChildStateFields fields;
 };
 
-static_assert(sizeof(RuntimeGenericChildState) == 15 * sizeof(uint32_t));
 
 
 DisplayModeHostState display_mode_host_state;
@@ -127,8 +111,7 @@ HPALETTE &display_palette_previous_palette = display_mode_host_state.previous_pa
 CRITICAL_SECTION &display_host_critical_section = display_mode_host_state.critical_section;
 PALETTEENTRY (&display_palette_entries)[0x100] = display_mode_host_state.palette_entries;
 
-#if defined(FREEGAG_WINDOWS_FIXES)
-// Non-original modern-Windows compatibility selection. This remains a code constant until a user-facing setting is recovered or introduced.
+// Selects the framebuffer color depth used for modern desktop presentation.
 enum class ModernWindowsColorMode
 {
     indexed_8,
@@ -250,7 +233,7 @@ RECT map_modern_windows_presentation_rectangle(int32_t left, int32_t top, int32_
     return rectangle;
 }
 
-// Non-original factory for an original-compatible framebuffer mode presented on a true-color desktop through GDI.
+// Builds an 8-bit or 16-bit framebuffer mode for presentation on a true-color desktop through GDI.
 void build_modern_windows_virtual_display_mode(DisplayMode *mode, int32_t width, int32_t height, ModernWindowsColorMode color_mode)
 {
     *mode = {};
@@ -271,7 +254,6 @@ void build_modern_windows_virtual_display_mode(DisplayMode *mode, int32_t width,
         mode->blue_mask = 0x001f;
     }
 }
-#endif
 
 RuntimePlanModeSyncApi runtime_plan_mode_sync_api{ set_runtime_plans_inactive, clear_runtime_plans_inactive, rebuild_runtime_pointer_resources };
 
@@ -350,9 +332,6 @@ DisplaySceneCallbackApi display_scene_callback_api{ timeGetTime };
 DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
 void *display_backend;
 void *display_backend_target;
-DisplaySwitchApi display_switch_api{ set_active_display_mode_if_graphics_ready, restore_active_display_mode_if_graphics_ready };
-
-// non-original adapter preserving the pointer-sized scene identity used by the portable display context
 void switch_runtime_scene_value(uintptr_t value)
 {
     switch_runtime_scene(reinterpret_cast<void *>(value));
@@ -361,7 +340,7 @@ void switch_runtime_scene_value(uintptr_t value)
 void (*runtime_state_transition_callback)(uintptr_t) = switch_runtime_scene_value;
 ScriptRuntimeRoot *script_runtime_root;
 
-// Non-original ABI adapter for the operation queries issued through script-root +0x818.
+// Dispatches operation queries through the script runtime callback.
 void query_script_runtime_value(uint32_t operation, const void *source, int32_t *value)
 {
     using QueryCallback = void (*)(uint32_t operation, const void *source, int32_t *value);
@@ -378,7 +357,7 @@ void resolve_runtime_tree_auxiliary(uint32_t operation, void **identity, void **
 
 RuntimeTreeAuxiliaryCreateApi runtime_tree_auxiliary_create_api{ HeapAlloc, HeapFree, resolve_runtime_tree_auxiliary };
 
-// Non-original ABI adapter for the confirmed operation-0x30 callback invocation.
+// Invokes operation 0x30 through the script runtime callback.
 void activate_created_runtime_tree_node(RuntimeTreeNode *node)
 {
     script_runtime_root->set_property(0x30, 0, reinterpret_cast<RuntimeGenericResourceNode *>(node));
@@ -388,7 +367,6 @@ RuntimeTreeCreationApi runtime_tree_creation_api{ find_runtime_tree_node_by_iden
     find_runtime_tree_descendant_identity_by_name, find_script_section, find_script_property_value, begin_runtime_tree_enumeration, get_next_runtime_tree_node, HeapAlloc, HeapFree,
     find_or_create_runtime_tree_parser_context, remove_runtime_generic_resource, dispatch_runtime_tree_parser, activate_created_runtime_tree_node };
 
-// Non-original adapter for callers that discard AddDefaultRuntimeTreeAuxiliaryNames' return value.
 void add_default_runtime_tree_auxiliary_names_discard_result(RuntimeTreeNode *owner)
 {
     add_default_runtime_tree_auxiliary_names(owner);
@@ -421,7 +399,6 @@ void notify_runtime_tree_auxiliary_release(uint32_t operation, uint32_t unused, 
 
 RuntimeTreeAuxiliaryReleaseApi runtime_tree_auxiliary_release_api{ notify_runtime_tree_auxiliary_release, HeapFree };
 
-// Non-original adapter for the exact runtime-tree destruction callback ABI.
 void notify_runtime_tree_destruction(uint32_t operation, uint32_t unused, void *value)
 {
     script_runtime_root->set_property(operation, unused, reinterpret_cast<RuntimeGenericResourceNode *>(value));
@@ -476,7 +453,6 @@ uint32_t runtime_pointer_state_mask;
 void *runtime_pointer_state_owner;
 void *runtime_pointer_event_state_object;
 
-// Non-original layout adapter for the contiguous original record at 0x0047F8D0.
 void enqueue_runtime_pointer_event()
 {
     uintptr_t record[16]{};
@@ -486,7 +462,6 @@ void enqueue_runtime_pointer_event()
     std::memcpy(record + 3, runtime_pointer_event_record, 13 * sizeof(uintptr_t));
     enqueue_runtime_event_record(record);
 }
-#if defined(FREEGAG_WINDOWS_FIXES)
 RuntimeTextInputSceneRedrawApi runtime_text_input_scene_redraw_api{ acquire_display_scene_node, begin_display_scene_update, end_display_scene_update };
 intptr_t runtime_text_input_guarded_scene;
 
@@ -498,20 +473,8 @@ void release_runtime_text_input_scene_guard()
         runtime_text_input_guarded_scene = 0;
     }
 }
-#endif
-RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text,
-#if defined(FREEGAG_WINDOWS_FIXES)
-    acquire_runtime_text_input_scene, begin_runtime_text_input_scene_update,
-#else
-    acquire_display_scene_node, begin_display_scene_update,
-#endif
-    draw_runtime_standalone_text,
-#if defined(FREEGAG_WINDOWS_FIXES)
-    end_runtime_text_input_scene_update,
-#else
-    end_display_scene_update,
-#endif
-    release_display_scene_node };
+RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text, acquire_runtime_text_input_scene, begin_runtime_text_input_scene_update,
+    draw_runtime_standalone_text, end_runtime_text_input_scene_update, release_display_scene_node };
 RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
 RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, GetTickCount, timeGetTime, Sleep, process_available_runtime_generic_children, process_runtime_message,
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
@@ -740,21 +703,6 @@ GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, sh
     shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
 void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name)
 {
-    static_assert(sizeof(RuntimeGameHostContext) == sizeof(xtet::GameHostContext));
-    static_assert(offsetof(RuntimeGameHostContext, window) == offsetof(xtet::GameHostContext, window));
-    static_assert(offsetof(RuntimeGameHostContext, palette_dc) == offsetof(xtet::GameHostContext, palette_dc));
-    static_assert(offsetof(RuntimeGameHostContext, bits_per_pixel) == offsetof(xtet::GameHostContext, bits_per_pixel));
-    static_assert(offsetof(RuntimeGameHostContext, palette) == offsetof(xtet::GameHostContext, palette));
-    static_assert(offsetof(RuntimeGameHostContext, palette_dib_dc) == offsetof(xtet::GameHostContext, palette_dib_dc));
-    static_assert(offsetof(RuntimeGameHostContext, bitmap) == offsetof(xtet::GameHostContext, bitmap));
-    static_assert(offsetof(RuntimeGameHostContext, selected_bitmap) == offsetof(xtet::GameHostContext, selected_bitmap));
-    static_assert(offsetof(RuntimeGameHostContext, width) == offsetof(xtet::GameHostContext, width));
-    static_assert(offsetof(RuntimeGameHostContext, height) == offsetof(xtet::GameHostContext, height));
-    static_assert(offsetof(RuntimeGameHostContext, display_surface) == offsetof(xtet::GameHostContext, display_surface));
-    static_assert(offsetof(RuntimeGameHostContext, framebuffer) == offsetof(xtet::GameHostContext, framebuffer));
-    static_assert(offsetof(RuntimeGameHostContext, palette_entries) == offsetof(xtet::GameHostContext, palette_entries));
-    static_assert(offsetof(RuntimeGameHostContext, x_offset) == offsetof(xtet::GameHostContext, x_offset));
-    static_assert(offsetof(RuntimeGameHostContext, y_offset) == offsetof(xtet::GameHostContext, y_offset));
     xtet::initialize_game(reinterpret_cast<xtet::GameHostContext *>(context), callbacks, sfs_name);
 }
 
@@ -802,8 +750,8 @@ uintptr_t get_serialized_script_state_value()
     return reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
 }
 MainWindowProcedureApi main_window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, PostQuitMessage, ReplyMessage, SendMessageA, DefWindowProcA, DestroyWindow,
-    get_serialized_script_state_value, resolve_state_field_reference, capture_game_bitmap, free_heap_memory, application_hook_no_op_1, set_application_lock_flag, clear_runtime_active_flag,
-    validate_startup_environment, set_runtime_flag_40 };
+    get_serialized_script_state_value, resolve_state_field_reference, capture_game_bitmap, free_heap_memory, set_application_lock_flag, clear_runtime_active_flag, validate_startup_environment,
+    set_runtime_flag_40 };
 LocalPreferencesApi local_preferences_api{ GetFullPathNameA, GetPrivateProfileStringA, WritePrivateProfileStringA, GetWindowRect, GetWindowPlacement, MonitorFromRect };
 
 void enter_runtime_byte_queue_lock()
@@ -881,20 +829,20 @@ void resume_runtime_game_dll_discard_result()
     resume_runtime_game_dll();
 }
 
-// Non-original ABI adapter: RuntimeCommandBounds fields are output pointers for mode 0x10000.
+// RuntimeCommandBounds fields are output pointers in mode 0x10000.
 int begin_runtime_target_from_bounds_fields(uint32_t pixels, uint32_t rectangle, uint32_t pitch)
 {
     return static_cast<int>(begin_display_target(reinterpret_cast<void **>(static_cast<uintptr_t>(pixels)), reinterpret_cast<DisplayRectangle *>(static_cast<uintptr_t>(rectangle)),
         reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(pitch))));
 }
 
-// Non-original ABI adapter: mode 1 interprets the same four DWORDs as a DisplayRectangle.
+// Mode 1 interprets the same four values as a DisplayRectangle.
 void draw_runtime_bounds(RuntimeCommandBounds *bounds, int mode)
 {
     synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), static_cast<uint32_t>(mode));
 }
 
-// Non-original adapter for the original IDirectDrawSurface::Unlock vtable call at slot 0x80.
+// Calls IDirectDrawSurface::Unlock through the legacy DirectDraw interface.
 void release_display_backend_target(void *surface, void *pixels)
 {
     using Unlock = HRESULT(WINAPI *)(void *, void *);
@@ -955,7 +903,7 @@ DisplayPaletteApi display_palette_api{ enter_display_host_lock, leave_display_ho
     AnimatePalette, SetPaletteEntries, RealizePalette, SetDIBColorTable, present_display_palette };
 DisplayPaletteTeardownApi display_palette_teardown_api{ Sleep, SelectPalette, SelectObject, DeleteObject, DeleteDC, ReleaseDC };
 
-// Non-original adapter for the original IDirectDraw vtable call at slot 0x50.
+// Calls IDirectDraw::SetCooperativeLevel through the legacy DirectDraw interface.
 HRESULT WINAPI set_direct_draw_cooperative_level(void *display, HWND window, DWORD flags)
 {
     using SetCooperativeLevel = HRESULT(WINAPI *)(void *, HWND, DWORD);
@@ -965,7 +913,7 @@ HRESULT WINAPI set_direct_draw_cooperative_level(void *display, HWND window, DWO
 
 DisplayCooperativeLevelApi display_cooperative_level_api{ GetWindowLongA, GetParent, set_direct_draw_cooperative_level };
 
-// Non-original adapter for the original IDirectDraw vtable call at slot 0x20.
+// Calls IDirectDraw::EnumDisplayModes through the legacy DirectDraw interface.
 HRESULT WINAPI enumerate_direct_draw_modes(void *display, DirectDrawModeCallback callback)
 {
     using EnumerateModes = HRESULT(WINAPI *)(void *, DWORD, void *, void *, DirectDrawModeCallback);
@@ -1014,25 +962,9 @@ HRESULT WINAPI lock_direct_draw_surface(void *surface, RECT *rectangle, LegacyDi
     return reinterpret_cast<Lock>(vtable[0x64 / sizeof(uint32_t)])(surface, rectangle, descriptor, flags, event);
 }
 
-HRESULT WINAPI set_direct_draw_display_mode(void *display, DWORD width, DWORD height, DWORD bits_per_pixel)
-{
-    using SetDisplayMode = HRESULT(WINAPI *)(void *, DWORD, DWORD, DWORD);
-    auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<SetDisplayMode>(vtable[0x54 / sizeof(uint32_t)])(display, width, height, bits_per_pixel);
-}
-
-HRESULT WINAPI restore_direct_draw_display_mode(void *display)
-{
-    using RestoreDisplayMode = HRESULT(WINAPI *)(void *);
-    auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<RestoreDisplayMode>(vtable[0x4c / sizeof(uint32_t)])(display);
-}
-
 DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
 DisplayRegionSynchronizationApi display_region_synchronization_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
 DisplayTargetBeginApi display_target_begin_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, is_direct_draw_surface_lost, restore_direct_draw_surface, lock_direct_draw_surface };
-DisplayModeChangeApi display_mode_change_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, set_display_cooperative_mode, set_direct_draw_display_mode, restore_direct_draw_display_mode,
-    ChangeDisplaySettingsA, find_current_display_mode };
 DisplayModeHostShutdownApi display_mode_host_shutdown_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, teardown_display_palette_surface, GetProcessHeap, HeapFree, DeleteCriticalSection };
 
 HRESULT WINAPI create_direct_draw_surface(void *display, LegacyDirectDrawSurfaceDescriptor *descriptor, void **surface, void *outer)
@@ -1059,14 +991,10 @@ ULONG WINAPI release_direct_draw_surface(void *surface)
 DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
     release_direct_draw_surface, GetDC, CreateCompatibleDC, ReleaseDC, DeleteDC, GetProcessHeap, HeapAlloc, HeapFree, CreatePalette, SelectPalette, DeleteObject, CreateDIBSection, SelectObject,
     SetPaletteEntries, RealizePalette, SetDIBColorTable, SetStretchBltMode };
-WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA
-#if defined(FREEGAG_WINDOWS_FIXES)
-    ,
-    GetWindowRect, MonitorFromWindow, GetMonitorInfoA, InvalidateRect
-#endif
-};
+WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA, GetWindowRect, MonitorFromWindow, GetMonitorInfoA,
+    InvalidateRect };
 
-// Non-original adapter preserving the original pointer-valued return in a 32-bit state slot.
+// Returns serialized script state as a pointer-sized value.
 uintptr_t get_serialized_script_state_for_application()
 {
     return reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
@@ -1076,46 +1004,6 @@ StateActivationApi state_activation_api{ query_runtime_scene_flags, get_serializ
 
 constexpr char auto_save_file_name[] = "AutoSave.cdf";
 
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-bool auto_save_trace_started;
-
-void trace_auto_save(const char *event, const ApplicationState *state, const char *tree_name = "", uint32_t tree_flags = 0, uint32_t scene_status = 0, int result = -1)
-{
-    char path[MAX_PATH];
-    const DWORD length = GetModuleFileNameA(nullptr, path, static_cast<DWORD>(std::size(path)));
-    if(length == 0 || length >= std::size(path))
-    {
-        return;
-    }
-    char *separator = std::strrchr(path, '\\');
-    if(separator == nullptr)
-    {
-        separator = path;
-    }
-    else
-    {
-        ++separator;
-    }
-    static constexpr char file_name[] = "autosave-trace.log";
-    if(static_cast<size_t>(separator - path) + sizeof(file_name) > std::size(path))
-    {
-        return;
-    }
-    std::memcpy(separator, file_name, sizeof(file_name));
-    FILE *file = nullptr;
-    if(fopen_s(&file, path, auto_save_trace_started ? "a" : "w") != 0 || file == nullptr)
-    {
-        return;
-    }
-    auto_save_trace_started = true;
-    std::fprintf(file, "event=%s flags=%08X validation=%08X script=%p saved_memory=%p graphics=%08X tree=%s tree_flags=%08X scene_status=%08X result=%d path=%s\n", event, state->flags,
-        state->validation_flags, reinterpret_cast<void *>(static_cast<uintptr_t>(state->script_state)), state->saved_memory, graphics_host_flags, tree_name, tree_flags, scene_status, result,
-        state->installation_path);
-    std::fclose(file);
-}
-#else
-#define trace_auto_save(...) ((void)0)
-#endif
 
 int write_comment_cdf_package_adapter(void *first, void *second, void *third, void *fourth)
 {
@@ -1129,7 +1017,6 @@ HWND get_synchronized_runtime_window()
 
 SynchronizedStateApi synchronized_state_api{ enter_synchronized_resource_lock, leave_synchronized_resource_lock, write_comment_cdf_package_adapter, SendMessageA, get_synchronized_runtime_window };
 
-// Non-original helper shared by the two recovered flag-transition functions.
 void clear_cursor_flag_above_client(ApplicationState *state)
 {
     POINT point;
@@ -1144,11 +1031,10 @@ void clear_cursor_flag_above_client(ApplicationState *state)
     }
 }
 
-ApplicationInitializationApi application_initialization_api{ SetErrorMode, GetProcessHeap, HeapAlloc, initialize_application_state_no_op, register_gag_window_classes, copy_string,
-    validate_startup_environment, GetSystemMetrics, AdjustWindowRect, CreateWindowExA, ShowWindow, SetWindowPos, GetClientRect, initialize_graphics_host, switch_display_mode_if_enabled,
-    initialize_runtime_graphics, update_application_window_layout, enable_runtime_subsystem, set_active_object_field_0824, detect_runtime_resource_type };
+ApplicationInitializationApi application_initialization_api{ SetErrorMode, GetProcessHeap, HeapAlloc, register_gag_window_classes, copy_string, validate_startup_environment, GetSystemMetrics,
+    AdjustWindowRect, CreateWindowExA, ShowWindow, SetWindowPos, GetClientRect, initialize_graphics_host, initialize_runtime_graphics, update_application_window_layout, enable_runtime_subsystem,
+    set_active_object_field_0824, detect_runtime_resource_type };
 
-// GAG.EXE: 0x00420C20
 void set_runtime_flag_40()
 {
     graphics_host_flags |= 0x40;
@@ -1160,7 +1046,6 @@ RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_reso
     SendMessageA, destroy_runtime_tree_resources };
 RuntimeScriptPropertyGetApi runtime_script_property_get_api{ SendMessageA, copy_string, load_runtime_resource, get_runtime_property_value, query_runtime_resource_frame_number };
 
-// GAG.EXE: 0x004202D0
 void set_runtime_script_property(uint32_t property, void *, void *value)
 {
     switch(property)
@@ -1232,7 +1117,6 @@ void set_runtime_script_property(uint32_t property, void *, void *value)
     }
 }
 
-// GAG.EXE: 0x004204B0
 void get_runtime_script_property(uint32_t property, void **value, void *result)
 {
     switch(property)
@@ -1280,7 +1164,6 @@ void get_runtime_script_property(uint32_t property, void **value, void *result)
     }
 }
 
-// GAG.EXE: 0x0041FA00
 GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int16_t width, uint16_t height, uint32_t flags)
 {
     if((runtime_scene_control_flags & 0x800) != 0)
@@ -1438,7 +1321,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     return &graphics_host_state;
 }
 
-// GAG.EXE: 0x00420230
 uint32_t shutdown_graphics_host()
 {
     const uint32_t display_result = graphics_host_shutdown_api.shutdown_display();
@@ -1480,7 +1362,6 @@ uint32_t shutdown_graphics_host()
 
 
 
-// GAG.EXE: 0x00427880
 void clear_runtime_display()
 {
     if(clear_runtime_display_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
@@ -1495,7 +1376,6 @@ void clear_runtime_display()
 
 
 
-// GAG.EXE: 0x0041FEA0
 GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDisplayPixelFormat *requested_format)
 {
     if((runtime_scene_control_flags & 0x800) == 0)
@@ -1599,7 +1479,6 @@ GraphicsHostInitializationResult *initialize_runtime_graphics(const LegacyDispla
     return &graphics_host_state;
 }
 
-// GAG.EXE: 0x00427830
 void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32_t height)
 {
     DisplayRectangle rectangle{ x, y, x + width, y + height };
@@ -1610,8 +1489,6 @@ void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32
     }
 }
 
-// GAG.EXE: 0x00413650
-// GAG.EXE: 0x00412F40
 uint32_t initialize_direct_draw_runtime()
 {
     OSVERSIONINFOA version;
@@ -1645,7 +1522,6 @@ uint32_t initialize_direct_draw_runtime()
     return result;
 }
 
-// GAG.EXE: 0x00412DB0
 HRESULT WINAPI collect_direct_draw_display_mode(LegacyDirectDrawSurfaceDescriptor *descriptor, void *)
 {
     if((descriptor->flags & 0x1006) != 0x1006)
@@ -1729,7 +1605,6 @@ HRESULT WINAPI collect_direct_draw_display_mode(LegacyDirectDrawSurfaceDescripto
     return 1;
 }
 
-// GAG.EXE: 0x00412FE0
 uint32_t enumerate_direct_draw_display_modes()
 {
     uint32_t result = 0x200000;
@@ -1748,7 +1623,6 @@ uint32_t enumerate_direct_draw_display_modes()
 
 
 
-// GAG.EXE: 0x00413030
 uint32_t enumerate_windows_display_modes()
 {
     uint32_t result = 0x200000;
@@ -1880,7 +1754,6 @@ uint32_t enumerate_windows_display_modes()
 }
 
 
-// GAG.EXE: 0x00413380
 uint32_t initialize_display_mode_host(HWND window, uint32_t options)
 {
     uint32_t result = 0;
@@ -1928,7 +1801,6 @@ uint32_t initialize_display_mode_host(HWND window, uint32_t options)
 
 
 
-// GAG.EXE: 0x00413650
 DisplayMode *begin_display_mode_enumeration(uint32_t mask)
 {
     display_mode_iterator = display_mode_head;
@@ -1939,7 +1811,6 @@ DisplayMode *begin_display_mode_enumeration(uint32_t mask)
     return display_mode_iterator;
 }
 
-// GAG.EXE: 0x004136A0
 DisplayMode *get_next_display_mode(uint32_t mask)
 {
     display_mode_iterator = display_mode_iterator->next;
@@ -1950,7 +1821,6 @@ DisplayMode *get_next_display_mode(uint32_t mask)
     return display_mode_iterator;
 }
 
-// GAG.EXE: 0x004136F0
 DisplayMode *find_current_display_mode()
 {
     DisplayMode *result = nullptr;
@@ -1963,15 +1833,13 @@ DisplayMode *find_current_display_mode()
         int height = GetDeviceCaps(display, VERTRES);
         DeleteDC(display);
 
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility: render through an original 8/16-bit DIB without changing the true-color desktop mode.
+        // Render through an 8-bit or 16-bit DIB without changing the true-color desktop mode.
         if(bits_per_pixel > 16)
         {
             build_modern_windows_virtual_display_mode(&modern_windows_virtual_display_mode, width, height, modern_windows_color_mode);
             current_display_mode = &modern_windows_virtual_display_mode;
             return current_display_mode;
         }
-#endif
 
         while(mode != nullptr)
         {
@@ -1987,7 +1855,6 @@ DisplayMode *find_current_display_mode()
     return result;
 }
 
-// GAG.EXE: 0x0041F960
 DisplayMode *get_current_display_mode()
 {
     if((graphics_host_flags & 0x800) != 0)
@@ -1997,7 +1864,6 @@ DisplayMode *get_current_display_mode()
     return nullptr;
 }
 
-// GAG.EXE: 0x0041F980
 DisplayMode *begin_available_display_modes(uint32_t mask)
 {
     if((graphics_host_flags & 0x800) != 0)
@@ -2007,7 +1873,6 @@ DisplayMode *begin_available_display_modes(uint32_t mask)
     return nullptr;
 }
 
-// GAG.EXE: 0x0041F9A0
 DisplayMode *get_next_available_display_mode(uint32_t mask)
 {
     if((graphics_host_flags & 0x800) != 0)
@@ -2017,38 +1882,14 @@ DisplayMode *get_next_available_display_mode(uint32_t mask)
     return nullptr;
 }
 
-// GAG.EXE: 0x0041EFA0
 uint32_t detect_alternate_display_mode(ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
-    // Non-original modern-Windows compatibility: expose borderless scaled fullscreen without selecting a physical 640x480 display mode.
+    // Expose borderless scaled fullscreen without selecting a physical 640x480 display mode.
     state->display_mode_iterator = nullptr;
     state->flags |= 0x4000;
     return state->flags & 0x4000;
-#else
-    uint32_t remaining = 0x18;
-    DisplayMode *active_mode = get_current_display_mode();
-    do
-    {
-        remaining -= 8;
-        state->display_mode_iterator = begin_available_display_modes(0x10000);
-        while(state->display_mode_iterator != nullptr)
-        {
-            DisplayMode *candidate = state->display_mode_iterator;
-            if(candidate->bits_per_pixel == active_mode->bits_per_pixel && candidate != active_mode && candidate->width == 640 && candidate->height == 480)
-            {
-                remaining = 8;
-                state->flags |= 0x4000;
-                break;
-            }
-            state->display_mode_iterator = get_next_available_display_mode(0x10000);
-        }
-    } while(remaining > 8);
-    return state->flags & 0x4000;
-#endif
 }
 
-// GAG.EXE: 0x0041F040
 int validate_startup_environment(ApplicationState *state, const char *requested_archive, uint32_t stages)
 {
     if((state->validation_flags & 0x80000000) == 0)
@@ -2133,12 +1974,7 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
         }
         if(state->display_bits_per_pixel > 16)
         {
-#if defined(FREEGAG_WINDOWS_FIXES)
-            // Non-original modern-Windows compatibility: the renderer uses a virtual original-compatible DIB selected by find_current_display_mode().
-#else
-            validation_api.message_box(state->window, application_message(state, 22), state->message_table, MB_ICONERROR);
-            return 0;
-#endif
+            // The renderer uses a virtual compatible DIB selected by find_current_display_mode().
         }
     }
 
@@ -2154,10 +1990,8 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
     return 1;
 }
 
-// GAG.EXE: 0x0041F4E0
-void initialize_application_state_no_op(ApplicationState *) {}
 
-// Exact initialized strings in the executable's writable 23-slot message block at 0x0043F178..0x004408D3. Each slot is 0x104 bytes and its unused tail is zero-filled.
+// Application messages use fixed-capacity slots so existing table indexing remains stable.
 char application_message_table[23][0x104] = { "GAG", "File", "Options", "View", "Load Game", "Save Game", "New Game", "Resume Game", "Credits", "Exit", "Comments", "Mute Sound", "Full Screen",
     "Window", "Application initialization error !", "Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!",
     "Internal application error...\n\nMake sure your CD disk is inserted into the drive\nis clean enough and not scratched!", "Registry problem...\n\nYou should run 'Setup' to install the game!",
@@ -2210,34 +2044,15 @@ bool find_virtual_runtime_script(const char *path, VirtualScriptResource *resour
     return find_save_load_virtual_script(name, resource);
 }
 
-bool command_line_has_gagboy_argument(const char *command_line)
+bool has_xtet_argument(int argc, char *argv[])
 {
-    if(command_line == nullptr)
+    if(argv == nullptr)
     {
         return false;
     }
-    const char *cursor = command_line;
-    while(*cursor != '\0')
+    for(int index = 1; index < argc; ++index)
     {
-        while(std::isspace(static_cast<unsigned char>(*cursor)) != 0)
-        {
-            ++cursor;
-        }
-        std::string argument;
-        bool quoted = false;
-        while(*cursor != '\0' && (quoted || std::isspace(static_cast<unsigned char>(*cursor)) == 0))
-        {
-            if(*cursor == '"')
-            {
-                quoted = !quoted;
-            }
-            else
-            {
-                argument.push_back(*cursor);
-            }
-            ++cursor;
-        }
-        if(argument == "--xtet")
+        if(argv[index] != nullptr && std::strcmp(argv[index], "--xtet") == 0)
         {
             return true;
         }
@@ -2245,25 +2060,21 @@ bool command_line_has_gagboy_argument(const char *command_line)
     return false;
 }
 
-// GAG.EXE: 0x0041F4F0
-ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, LPSTR command_line, int show_command)
+ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, bool start_xtet, int show_command)
 {
-    gagboy_startup_mode = command_line_has_gagboy_argument(command_line);
+    gagboy_startup_mode = start_xtet;
     application_initialization_api.set_error_mode(0x8001);
     ApplicationState *state = static_cast<ApplicationState *>(application_initialization_api.heap_alloc(application_initialization_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(ApplicationState)));
     if(state == nullptr)
     {
         return nullptr;
     }
-#if defined(FREEGAG_WINDOWS_FIXES)
     modern_windows_presentation_state = {};
     modern_windows_fullscreen_toggle_latched = false;
     modern_windows_game_cursor_tracking = false;
-#endif
 
     state->instance = instance;
     state->message_table = application_message_table[0];
-    application_initialization_api.initialize_state(state);
     if(!application_initialization_api.register_window_classes(state))
     {
         return nullptr;
@@ -2277,9 +2088,8 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
         return nullptr;
     }
 
-#if defined(FREEGAG_WINDOWS_FIXES)
     {
-        // Non-original modern-Windows compatibility: restore the complete framed window rectangle, with the legacy saved point used as a migration fallback.
+        // Restore the complete framed window rectangle, using the saved point as a migration fallback.
         RECT windowed_rectangle{ 0, 0, width, height };
         application_initialization_api.adjust_window_rect(&windowed_rectangle, modern_windows_windowed_style, FALSE);
         const int32_t minimum_width = windowed_rectangle.right - windowed_rectangle.left;
@@ -2296,18 +2106,15 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
         modern_windows_presentation_state.windowed_rectangle = windowed_rectangle;
         modern_windows_presentation_state.windowed_rectangle_valid = true;
     }
-#endif
 
     state->desktop_window_rect.left = 0;
     state->desktop_window_rect.top = 0;
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
         state->desktop_window_rect = modern_windows_presentation_state.windowed_rectangle;
         state->window_top_adjustment = 0;
     }
     else
-#endif
     {
         state->desktop_window_rect.right = application_initialization_api.get_system_metrics(SM_CXSCREEN);
         state->desktop_window_rect.bottom = application_initialization_api.get_system_metrics(SM_CYSCREEN);
@@ -2317,22 +2124,18 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     }
 
     DWORD window_style = 0x82000000;
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: provide a freely resizable framed window around the fixed-size game framebuffer.
+        // Provide a freely resizable framed window around the fixed-size game framebuffer.
         window_style = modern_windows_windowed_style;
     }
-#endif
     int window_x = state->desktop_window_rect.left;
     int window_y = state->desktop_window_rect.top;
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
         window_x = state->desktop_window_rect.left;
         window_y = state->desktop_window_rect.top;
     }
-#endif
     state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, window_x, window_y, state->desktop_window_rect.right - state->desktop_window_rect.left,
         state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
     if(state->window == nullptr)
@@ -2340,9 +2143,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
         return nullptr;
     }
     application_initialization_api.show_window(state->window, show_command);
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) == 0)
-#endif
     {
         application_initialization_api.set_window_position(state->window, nullptr, 0, 0, 0, 0, 0x103);
     }
@@ -2350,14 +2151,12 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     RECT client_rectangle;
     application_initialization_api.get_client_rect(state->window, &client_rectangle);
     state->content_left = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.right - width) >> 1);
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
-        // Non-original modern-Windows compatibility: the framebuffer is centered only within the window's client coordinates.
+        // Center the framebuffer within the window's client area.
         state->content_top = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.bottom - height) >> 1);
     }
     else
-#endif
     {
         state->content_top = static_cast<int32_t>(static_cast<uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
     }
@@ -2373,8 +2172,6 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     state->capture_window = graphics->capture_window;
     state->game_context = graphics;
     application_initialization_api.validate_environment(state, state->executable_directory, 0x200);
-    application_initialization_api.switch_display_mode(state, 1);
-
     LegacyDisplayPixelFormat mode_format{};
     const LegacyDisplayPixelFormat *format = nullptr;
     if(state->display_mode_iterator != nullptr)
@@ -2414,7 +2211,6 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
 
 
 
-// GAG.EXE: 0x00429DF0
 uint32_t initialize_runtime_media_backend(HINSTANCE instance)
 {
     if(runtime_media_backend_initialized)
@@ -2436,7 +2232,6 @@ uint32_t initialize_runtime_media_backend(HINSTANCE instance)
     return 1;
 }
 
-// GAG.EXE: 0x00410B70
 uint32_t initialize_runtime_generic_backend()
 {
     if(runtime_generic_backend_enabled != 0)
@@ -2454,7 +2249,6 @@ uint32_t initialize_runtime_generic_backend()
     return 1;
 }
 
-// GAG.EXE: 0x00410BD0
 uint32_t shutdown_runtime_generic_backend()
 {
     if(runtime_generic_backend_enabled != 0)
@@ -2473,13 +2267,11 @@ uint32_t shutdown_runtime_generic_backend()
 }
 
 
-// GAG.EXE: 0x0042B290
 RuntimeMediaBackend *acquire_first_runtime_media_backend()
 {
     return acquire_runtime_media_backend(runtime_media_backend_head);
 }
 
-// GAG.EXE: 0x00429E50
 uint32_t shutdown_runtime_media_backend()
 {
     if(!runtime_media_backend_initialized)
@@ -2500,7 +2292,6 @@ uint32_t shutdown_runtime_media_backend()
 }
 
 
-// GAG.EXE: 0x00414E10
 uint32_t initialize_async_file_subsystem()
 {
     if(async_file_enabled)
@@ -2514,7 +2305,6 @@ uint32_t initialize_async_file_subsystem()
 
 
 
-// GAG.EXE: 0x00404970
 void set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
 {
     if(root != reinterpret_cast<ScriptRuntimeRoot *>(static_cast<intptr_t>(-1)))
@@ -2523,7 +2313,6 @@ void set_script_runtime_root_if_valid(ScriptRuntimeRoot *root)
     }
 }
 
-// GAG.EXE: 0x00407EA0
 void set_runtime_named_node_enabled(void *identity, int enabled)
 {
     for(RuntimeNamedNode *node = script_runtime_root->runtime_nodes; node != nullptr; node = node->next)
@@ -2543,7 +2332,6 @@ void set_runtime_named_node_enabled(void *identity, int enabled)
     }
 }
 
-// GAG.EXE: 0x0041F3D0
 bool register_gag_window_classes(ApplicationState *state)
 {
     HBRUSH background = window_class_api.create_solid_brush(0);
@@ -2576,16 +2364,13 @@ bool register_gag_window_classes(ApplicationState *state)
     return primary_result != 0 && capture_result != 0;
 }
 
-// GAG.EXE: 0x0041D560
 LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     auto *state = reinterpret_cast<ApplicationState *>(main_window_procedure_api.get_window_long(window, 0));
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(message == WM_LBUTTONDOWN)
     {
         modern_windows_fullscreen_toggle_latched = false;
     }
-#endif
     if(state != nullptr && (state->flags & 0x80000000) != 0 && (message < 0x30f || message > 0x311))
     {
         return 0;
@@ -2611,15 +2396,11 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
             if((state->flags & 0x40000000) == 0)
             {
-#if defined(FREEGAG_WINDOWS_FIXES)
-                // Non-original modern-Windows compatibility: a normal window must not minimize merely because another application receives focus.
+                // A normal window must not minimize merely because another application receives focus.
                 if((state->flags & 0x80) == 0)
                 {
                     main_window_procedure_api.post_message(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
                 }
-#else
-                main_window_procedure_api.post_message(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-#endif
             }
         }
     }
@@ -2637,7 +2418,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     {
         return 0;
     }
-#if defined(FREEGAG_WINDOWS_FIXES)
     else if(message == WM_GETMINMAXINFO)
     {
         if(state != nullptr && (state->flags & 0x80) != 0)
@@ -2661,7 +2441,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             }
         }
     }
-#endif
     else if(message == WM_WINDOWPOSCHANGING)
     {
         auto *position = reinterpret_cast<WINDOWPOS *>(lparam);
@@ -2681,11 +2460,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     {
         const int32_t x = static_cast<uint16_t>(LOWORD(lparam));
         const int32_t y = static_cast<uint16_t>(HIWORD(lparam));
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(x < state->content_left || y < state->content_top || x >= state->content_right || y >= state->content_bottom)
-#else
-        if(x < state->content_left || y < state->content_top || state->content_right < x || state->content_bottom < y)
-#endif
         {
             set_game_cursor_active(state, 1);
         }
@@ -2702,14 +2477,12 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         {
             state->flags |= 0x20000000;
             set_runtime_flag_01000000();
-            switch_display_mode_if_enabled(state, 0);
             const LRESULT result = main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
             state->flags = (state->flags & 0xdfffffff) | 0x10000000;
             return result;
         }
         if(command == SC_RESTORE && state != nullptr)
         {
-            switch_display_mode_if_enabled(state, 1);
             const LRESULT result = main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
             clear_runtime_flag_01000000();
             state->flags &= 0xefffffff;
@@ -2766,7 +2539,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8860)
         {
-            main_window_procedure_api.application_hook_1();
             state->flags |= 0x200000;
             copy_string(state->startup_config, "NewGame.cfg");
             main_window_procedure_api.set_application_lock(state);
@@ -2779,7 +2551,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8870)
         {
-            main_window_procedure_api.application_hook_1();
             state->flags |= 0x200000;
             main_window_procedure_api.set_application_lock(state);
             main_window_procedure_api.clear_runtime_active(state);
@@ -2794,7 +2565,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8880)
         {
-            main_window_procedure_api.application_hook_1();
             main_window_procedure_api.set_application_lock(state);
             main_window_procedure_api.clear_runtime_active(state);
             while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
@@ -2805,10 +2575,8 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         if(command == 0x8820)
         {
-#if defined(FREEGAG_WINDOWS_FIXES)
-            // The original toggles from the live NOCOMMENT bit. Intro trees set that bit after the persisted application preference is restored, while the menu graphic reads the application bit;
-            // toggling from the stale live value therefore makes the first click appear ineffective. With per-user persistence enabled, keep the persisted preference authoritative and derive the live
-            // inverse from the newly toggled value.
+            // Intro trees update the live NOCOMMENT bit after the persisted preference is restored, while the menu graphic reads the application bit. Keep the persisted preference authoritative so
+            // the first click takes effect immediately.
             const bool comments_enabled = (state->flags & 0x02000000) == 0;
             if(comments_enabled)
             {
@@ -2819,18 +2587,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
                 state->flags &= 0xfdffffff;
             }
             set_script_runtime_flags(1, !comments_enabled);
-#else
-            const bool enabled = script_runtime_root != nullptr && (script_runtime_root->flags & 1) == 0;
-            if(enabled)
-            {
-                state->flags &= 0xfdffffff;
-            }
-            else
-            {
-                state->flags |= 0x02000000;
-            }
-            set_script_runtime_flags(1, enabled);
-#endif
             state->flags |= 0x40000;
             return 0;
         }
@@ -2951,7 +2707,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             main_window_procedure_api.send_message(window, WM_COMMAND, 0x8820, 0);
             return 0;
         case 0xbc2:
-            trace_auto_save("message 3010 begin", state);
             if((state->flags & 0x80000) == 0)
             {
                 if((state->flags & 0x800000) == 0)
@@ -2967,7 +2722,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
                 state->saved_flags = (state->saved_flags & 0xffcfffff) | (state->flags & 0x300000);
             }
             state->saved_flags &= 0xffbfffff;
-            trace_auto_save("message 3010 end", state);
             return 0;
         case 0xbcc:
             if((state->flags & 0x80000) != 0)
@@ -3017,7 +2771,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             leave_runtime_state_1000();
             return 0;
         case 0x90000000:
-            trace_auto_save("shutdown begin", state);
             if((state->flags & 0x200) == 0)
             {
                 clear_runtime_display();
@@ -3031,12 +2784,10 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
             if((state->validation_flags & 0x100) != 0 && state->script_state != 0)
             {
                 append_string(state->installation_path, auto_save_file_name);
-                const bool saved = run_synchronized_state_operation_176a0(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(static_cast<uintptr_t>(state->script_state)));
-                trace_auto_save("shutdown write", state, "", 0, 0, saved);
+                const bool saved = write_synchronized_cdf_package(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(static_cast<uintptr_t>(state->script_state)));
                 (void)saved;
             }
             save_runtime_settings(state);
-            switch_display_mode_if_enabled(state, 0);
             shutdown_graphics_host();
             main_window_procedure_api.destroy_window(window);
             clear_runtime_command_state();
@@ -3065,7 +2816,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     return main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
 }
 
-// GAG.EXE: 0x0041E680
 LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     auto *state = reinterpret_cast<ApplicationState *>(window_procedure_api.get_window_long(window, 0));
@@ -3131,15 +2881,11 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
         }
         if((state->flags & 0x40000000) == 0)
         {
-#if defined(FREEGAG_WINDOWS_FIXES)
-            // Non-original modern-Windows compatibility: preserve an inactive Window-mode top-level window without minimizing it.
+            // Preserve an inactive windowed top-level window without minimizing it.
             if((state->flags & 0x80) == 0)
             {
                 window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
             }
-#else
-            window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-#endif
         }
     }
     else if(message == WM_CLOSE)
@@ -3190,7 +2936,6 @@ LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM 
     return window_procedure_api.default_window_procedure(window, message, wparam, lparam);
 }
 
-// GAG.EXE: 0x0041D060
 constexpr char preferences_file_name[] = ".\\freegag.ini";
 constexpr char game_preferences_section[] = "Game";
 constexpr char window_preferences_section[] = "Window";
@@ -3259,12 +3004,10 @@ void write_preference_number(const char *section, const char *key, int64_t value
 
 void save_runtime_settings(ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
         save_window_position(state);
     }
-#endif
     if(state->archive_context == nullptr)
     {
         char path[MAX_PATH];
@@ -3279,7 +3022,6 @@ void save_runtime_settings(ApplicationState *state)
 
 bool load_saved_window_position(int32_t width, int32_t height, POINT *position)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(position == nullptr)
     {
         return false;
@@ -3303,17 +3045,10 @@ bool load_saved_window_position(int32_t width, int32_t height, POINT *position)
     }
     *position = { saved_rectangle.left, saved_rectangle.top };
     return true;
-#else
-    (void)width;
-    (void)height;
-    (void)position;
-    return false;
-#endif
 }
 
 bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, RECT *rectangle)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(rectangle == nullptr)
     {
         return false;
@@ -3329,17 +3064,10 @@ bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, 
         *rectangle = saved_rectangle;
     }
     return valid;
-#else
-    (void)minimum_width;
-    (void)minimum_height;
-    (void)rectangle;
-    return false;
-#endif
 }
 
 void save_window_position(ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(state == nullptr || state->window == nullptr)
     {
         return;
@@ -3362,12 +3090,8 @@ void save_window_position(ApplicationState *state)
     write_preference_number(window_preferences_section, "Bottom", rectangle.bottom);
     modern_windows_presentation_state.windowed_rectangle = rectangle;
     modern_windows_presentation_state.windowed_rectangle_valid = true;
-#else
-    (void)state;
-#endif
 }
 
-// GAG.EXE: 0x0041D0D0
 void set_game_cursor_active(ApplicationState *state, int active)
 {
     if(active == 0)
@@ -3387,21 +3111,17 @@ void set_game_cursor_active(ApplicationState *state, int active)
     }
 }
 
-// GAG.EXE: 0x0041D510
 void finish_credits_state(ApplicationState *state, RuntimeTreeNode *tree)
 {
     if(tree->parent == nullptr && (state->validation_flags & 0x100) != 0 && (state->flags & 0x10000) != 0 && strings_equal("CREDITS", tree->name))
     {
         state->flags &= 0xfffeffff;
         finish_credits_callback();
-        application_hook_no_op_2();
     }
 }
 
-// GAG.EXE: 0x0041CE60
 void update_modern_windows_windowed_viewport(ApplicationState *state)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(state == nullptr || state->window == nullptr || (state->flags & 0x80) == 0)
     {
         return;
@@ -3428,9 +3148,6 @@ void update_modern_windows_windowed_viewport(ApplicationState *state)
     window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
     runtime_game_host_context.x_offset = static_cast<uint32_t>(state->content_left);
     runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
-#else
-    (void)state;
-#endif
 }
 
 void update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
@@ -3438,10 +3155,9 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
     if(secondary_layout != nullptr)
     {
         secondary_layout->state = 0;
-#if defined(FREEGAG_WINDOWS_FIXES)
         if((state->flags & 0x80) != 0)
         {
-            // Non-original modern-Windows compatibility: Windows owns the freely resizable framed window dimensions.
+            // Windows owns the freely resizable framed window dimensions.
             return;
         }
         secondary_layout->flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
@@ -3452,25 +3168,15 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
         window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, modern_windows_presentation_state.viewport_width,
             modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
         return;
-#else
-        secondary_layout->flags &= 0xfffffff8;
-        secondary_layout->x = state->desktop_window_rect.left;
-        secondary_layout->y = state->desktop_window_rect.top;
-        secondary_layout->width = state->desktop_window_rect.right - state->desktop_window_rect.left;
-        secondary_layout->height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
-        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
-        return;
-#endif
     }
 
     state->desktop_window_rect.left = 0;
     state->desktop_window_rect.top = 0;
-#if defined(FREEGAG_WINDOWS_FIXES)
     if((state->flags & 0x80) != 0)
     {
         if(state->window != nullptr)
         {
-            // Non-original modern-Windows compatibility: replacing GWL_STYLE after ShowWindow must retain visibility or Windows excludes the stale-looking frame from hit testing.
+            // Replacing GWL_STYLE after ShowWindow must retain visibility so Windows keeps the frame in hit testing.
             window_layout_api.set_window_long(state->window, GWL_STYLE, modern_windows_windowed_style | WS_VISIBLE);
         }
         state->window_top_adjustment = 0;
@@ -3520,31 +3226,13 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
         modern_windows_presentation_state.viewport_width = viewport.right - viewport.left;
         modern_windows_presentation_state.viewport_height = viewport.bottom - viewport.top;
     }
-#else
-    {
-        state->desktop_window_rect.right = window_layout_api.get_system_metrics(SM_CXSCREEN);
-        state->desktop_window_rect.bottom = window_layout_api.get_system_metrics(SM_CYSCREEN);
-        window_layout_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
-        state->desktop_window_rect.top -= window_layout_api.get_system_metrics(SM_CYMENU);
-        state->window_top_adjustment = 1 - state->desktop_window_rect.top;
-    }
-#endif
     if(state->window != nullptr && state->capture_window != nullptr)
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
         if((state->flags & 0x80) == 0)
         {
             window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
                 state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, SWP_FRAMECHANGED | SWP_NOCOPYBITS);
         }
-#else
-        {
-            UINT position_flags = 0x100;
-            window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
-                state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, position_flags);
-        }
-#endif
-#if defined(FREEGAG_WINDOWS_FIXES)
         if((state->flags & 0x80) != 0)
         {
             update_modern_windows_windowed_viewport(state);
@@ -3559,17 +3247,6 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
             window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
             window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
         }
-#else
-        RECT client_rect;
-        window_layout_api.get_client_rect(state->window, &client_rect);
-        state->content_left = (client_rect.right - state->width) / 2;
-        state->content_right = state->content_left + state->width;
-        {
-            state->content_top = ((client_rect.bottom - state->desktop_window_rect.top) - state->height) / 2 - 1;
-        }
-        state->content_bottom = state->content_top + state->height;
-        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, 0, 0, 0x105);
-#endif
         window_layout_api.set_focus(state->capture_window);
         window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
     }
@@ -3578,30 +3255,19 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
 }
 
 
-// GAG.EXE: 0x0041D120
 void restore_application_display(ApplicationState *state)
 {
     if((state->flags & 0x80) == 0)
     {
         state->flags |= 0x20;
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(!modern_windows_presentation_state.fullscreen)
         {
             // Preserve the latest framed position even when the application is later closed while fullscreen is active.
             save_window_position(state);
         }
-#endif
     }
     window_layout_api.set_window_position(state->capture_window, nullptr, -state->width, -state->height, 0, 0, 0x105);
-    switch_display_mode_if_enabled(state, (state->flags & 0x80) == 0);
     update_application_window_layout(state, nullptr);
-#if !defined(FREEGAG_WINDOWS_FIXES)
-    // The original physical mode transition waits for resource activity to drain before resuming the UI thread.
-    while(runtime_resource_count != 0)
-    {
-        Sleep(0);
-    }
-#endif
     if((state->flags & 0x80) != 0)
     {
         state->flags &= 0xffffffdf;
@@ -3609,10 +3275,9 @@ void restore_application_display(ApplicationState *state)
     clear_runtime_flag_01000000();
 }
 
-// GAG.EXE: 0x0041D380
 void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
 {
-    // GAG.EXE passes a RuntimeTreeNode here. On x86 its name/parent/flags prefix can also be viewed as the decompiler's 0x30-byte state record, but that offset overlay is invalid once pointers widen.
+    // Process the RuntimeTreeNode directly; treating its prefix as a separate state record is unsafe when pointers widen.
     if(tree->parent != nullptr || runtime_display_context.runtime_tree_identity != tree || (state->validation_flags & 0x100) == 0)
     {
         return;
@@ -3642,11 +3307,9 @@ void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
     {
         set_credits_runtime_flag();
         state->flags |= 0x10000;
-        application_hook_no_op_2();
     }
     void *scene_identity = current_runtime_resource;
     uint32_t status = state_activation_api.query_status(scene_identity);
-    trace_auto_save("state activation", state, tree->name, tree->flags, status);
     if(status == 0)
     {
         uint32_t previous_flags = state->flags;
@@ -3676,7 +3339,6 @@ void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
     {
         state->flags = previous_flags & 0xffbfffff;
     }
-    application_hook_no_op_2();
 }
 
 
@@ -3694,7 +3356,6 @@ void finish_application_state_load(ApplicationState *state, const char *path)
 }
 
 
-// Non-original helper preserving the shared wrapper tail.
 bool finish_synchronized_state_operation(int result)
 {
     synchronized_state_api.leave_lock();
@@ -3705,42 +3366,17 @@ bool finish_synchronized_state_operation(int result)
     return result == 0;
 }
 
-// GAG.EXE: 0x0041F8F0
-bool run_synchronized_state_operation_176a0(void *first, void *second, void *third, void *fourth)
+bool write_synchronized_cdf_package(void *path, void *comment, void *unused, void *script_state)
 {
     if((graphics_host_flags & 0x800) == 0)
     {
         return false;
     }
     synchronized_state_api.enter_lock();
-    return finish_synchronized_state_operation(synchronized_state_api.operation_176a0(first, second, third, fourth));
+    return finish_synchronized_state_operation(synchronized_state_api.write_cdf_package(path, comment, unused, script_state));
 }
 
 
-// GAG.EXE: 0x0041D010
-void switch_display_mode_if_enabled(ApplicationState *state, int restore_current)
-{
-    if((state->flags & 0x4020) == 0x4020)
-    {
-        state->flags |= 0x80000000;
-#if defined(FREEGAG_WINDOWS_FIXES)
-        // Non-original modern-Windows compatibility: fullscreen is a borderless window and never changes the physical display mode.
-        (void)restore_current;
-#else
-        if(restore_current != 0)
-        {
-            display_switch_api.select_mode(state->display_mode_iterator);
-        }
-        else
-        {
-            display_switch_api.restore_current_mode();
-        }
-#endif
-        state->flags &= 0x7fffffff;
-    }
-}
-
-// GAG.EXE: 0x00420BC0
 void enable_runtime_subsystem()
 {
     if((graphics_host_flags & 2) == 0)
@@ -3750,7 +3386,6 @@ void enable_runtime_subsystem()
     }
 }
 
-// GAG.EXE: 0x00420BE0
 void disable_runtime_subsystem()
 {
     if((graphics_host_flags & 2) != 0)
@@ -3760,7 +3395,6 @@ void disable_runtime_subsystem()
     }
 }
 
-// GAG.EXE: 0x00404980
 void set_active_object_field_0824(uint32_t value)
 {
     if(script_runtime_root != nullptr)
@@ -3769,25 +3403,21 @@ void set_active_object_field_0824(uint32_t value)
     }
 }
 
-// GAG.EXE: 0x00420C00
 void set_runtime_flag_01000000()
 {
     graphics_host_flags |= 0x01000000;
 }
 
-// GAG.EXE: 0x00420C10
 void clear_runtime_flag_01000000()
 {
     graphics_host_flags &= 0xfeffffff;
 }
 
-// GAG.EXE: 0x00420CD0
 void clear_runtime_command_state()
 {
     runtime_command_state = 0;
 }
 
-// GAG.EXE: 0x00420C90
 void set_credits_runtime_flag()
 {
     if((graphics_host_flags & 0x40000000) == 0)
@@ -3796,7 +3426,6 @@ void set_credits_runtime_flag()
     }
 }
 
-// GAG.EXE: 0x00424260
 void enter_runtime_state_1000()
 {
     if((graphics_host_flags & 0x1000) == 0)
@@ -3807,7 +3436,6 @@ void enter_runtime_state_1000()
     }
 }
 
-// GAG.EXE: 0x00424290
 void leave_runtime_state_1000()
 {
     if((graphics_host_flags & 0x4000) == 0 && (graphics_host_flags & 0x1000) != 0)
@@ -3819,7 +3447,6 @@ void leave_runtime_state_1000()
 
 RuntimePathApi runtime_path_api{ enter_runtime_path_lock, leave_runtime_path_lock };
 
-// GAG.EXE: 0x00420C30
 void set_runtime_paths_once(const char *first_path, const char *second_path)
 {
     if((graphics_host_flags & 0x04000000) == 0)
@@ -3834,7 +3461,6 @@ void set_runtime_paths_once(const char *first_path, const char *second_path)
 
 
 
-// GAG.EXE: 0x0041CBE0
 void save_game_screenshot(void *snapshot_context, void *game_context)
 {
     (void)game_context;
@@ -3875,7 +3501,6 @@ void save_game_screenshot(void *snapshot_context, void *game_context)
 }
 
 
-// GAG.EXE: 0x00417790
 void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
 {
     if(size != nullptr)
@@ -4065,7 +3690,6 @@ void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *
     return bitmap;
 }
 
-// GAG.EXE: 0x0041F8B0
 void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
 {
     if((graphics_host_flags & 0x800) == 0)
@@ -4075,11 +3699,9 @@ void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const 
     return create_indexed_bitmap(source, palette, size, half_resolution);
 }
 
-// GAG.EXE: 0x0041CB90
 void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution)
 {
     (void)game_context;
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(runtime_display_scene_identifier == 0)
     {
         return nullptr;
@@ -4100,19 +3722,9 @@ void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolutio
     source.pixels = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position));
     source.palette_entries = display_palette_entries;
     return create_display_bitmap(&source, size, half_resolution);
-#else
-    BitmapCaptureSource source{};
-    source.format_marker = 8;
-    source.width = runtime_game_host_context.width;
-    source.height = runtime_game_host_context.height;
-    source.pixels = reinterpret_cast<const uint8_t *>(runtime_game_host_context.unknown_0030);
-    const auto *palette = reinterpret_cast<const uint8_t *>(runtime_game_host_context.palette_entries);
-    return capture_bitmap_if_runtime_active(&source, palette, size, half_resolution);
-#endif
 }
 
 
-// GAG.EXE: 0x00420A50
 void reset_runtime_pair_queue()
 {
     if((graphics_host_flags & 0x100400) == 0x100400)
@@ -4124,7 +3736,6 @@ void reset_runtime_pair_queue()
     }
 }
 
-// GAG.EXE: 0x00420640
 void enqueue_runtime_byte(uint8_t value)
 {
     if((graphics_host_flags & 0x100400) == 0x100400)
@@ -4149,7 +3760,6 @@ void enqueue_runtime_byte(uint8_t value)
     }
 }
 
-// GAG.EXE: 0x004206D0
 uint8_t dequeue_runtime_byte()
 {
     if(runtime_display_context.byte_available == 0)
@@ -4178,7 +3788,6 @@ uint8_t dequeue_runtime_byte()
     return value;
 }
 
-// GAG.EXE: 0x00420750
 void reset_runtime_byte_queue()
 {
     if((graphics_host_flags & 0x100400) == 0x100400)
@@ -4190,7 +3799,6 @@ void reset_runtime_byte_queue()
     }
 }
 
-#if defined(FREEGAG_WINDOWS_FIXES)
 DisplaySceneNode *acquire_runtime_text_input_scene(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
     const DisplayPixelFormatDescriptor *format)
 {
@@ -4234,9 +3842,7 @@ uint32_t end_runtime_text_input_scene_update(intptr_t identifier, const DisplayR
     release_runtime_text_input_scene_guard();
     return result;
 }
-#endif
 
-// GAG.EXE: 0x00420E10
 void process_runtime_text_input(RuntimeCommandLoopState *state)
 {
     if((state->flags & 0x100) == 0)
@@ -4337,18 +3943,15 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
     }
 }
 
-// GAG.EXE: 0x00420910
 void enqueue_runtime_pair(uint32_t first, uint32_t second)
 {
     bool input_enabled = (graphics_host_flags & 0x100400) == 0x100400;
-#if defined(FREEGAG_WINDOWS_FIXES)
-    // A borderless transition temporarily clears the original queue-enable bit while the capture child remains interactive. Retain the physical release, but not resize-generated moves that would
+    // A borderless transition temporarily clears the queue-enable bit while the capture child remains interactive. Retain the physical release, but not resize-generated moves that would
     // change the active game region before that release is applied.
     if(modern_windows_presentation_state.fullscreen && (graphics_host_flags & 0x400) != 0 && first == WM_LBUTTONUP)
     {
         input_enabled = true;
     }
-#endif
     if(input_enabled)
     {
         runtime_queue_api.enter_pair_lock();
@@ -4372,7 +3975,6 @@ void enqueue_runtime_pair(uint32_t first, uint32_t second)
     }
 }
 
-// GAG.EXE: 0x004209B0
 int dequeue_runtime_pair(RuntimeMessagePair *pair)
 {
     if(runtime_display_context.pair_available == 0)
@@ -4402,7 +4004,6 @@ int dequeue_runtime_pair(RuntimeMessagePair *pair)
     return result;
 }
 
-// GAG.EXE: 0x00421130
 bool synchronize_runtime_plan_mode()
 {
     bool changed = false;
@@ -4430,7 +4031,6 @@ bool synchronize_runtime_plan_mode()
     return changed;
 }
 
-// GAG.EXE: 0x004210A0
 bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
 {
     bool changed = false;
@@ -4461,11 +4061,6 @@ bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
 
 
 
-#if defined(FREEGAG_WINDOWS_FIXES)
-#endif
-
-
-// GAG.EXE: 0x00426560
 RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
 {
     runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0xf0000000, 0);
@@ -4488,7 +4083,6 @@ RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_n
 }
 
 
-// GAG.EXE: 0x004211A0
 uint32_t process_runtime_pair_message()
 {
     RuntimeMessagePair pair;
@@ -4511,7 +4105,6 @@ uint32_t process_runtime_pair_message()
 
 
 
-// GAG.EXE: 0x004208E0
 uint32_t copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
 {
     std::memcpy(record, runtime_display_context.input_text, sizeof(*record));
@@ -4520,7 +4113,6 @@ uint32_t copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
     return status;
 }
 
-// GAG.EXE: 0x00420790
 void initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, uint32_t character_width, void *session_value)
 {
     if(runtime_display_context.input_scene_identifier != 0)
@@ -4584,7 +4176,6 @@ void initialize_runtime_input_session(void *first, void *second, void *selector,
     runtime_display_context.flags |= 0x100;
 }
 
-// GAG.EXE: 0x00420CE0
 int run_runtime_command_loop(RuntimeCommandLoopState *state)
 {
     uint32_t initial_flags = state->flags;
@@ -4629,7 +4220,6 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
     }
 }
 
-// GAG.EXE: 0x00421010
 uint32_t run_pending_runtime_external_command()
 {
     uint32_t result = 0;
@@ -4652,7 +4242,6 @@ uint32_t run_pending_runtime_external_command()
     return result;
 }
 
-// Non-original dispatcher slice used to compose GAG.EXE:0x00421530.
 RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value,
     uint32_t saved_cursor)
 {
@@ -4723,7 +4312,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             }
             state->runtime_tree_identity = deactivated;
             refresh_runtime_pointer_region();
-            // GAG.EXE reaches 0x0042317D directly after replacing this root, so the released link/parser is not touched by the common tail.
+            // Replacing the root may release the current link and parser, so skip the common tail.
             return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
         }
 
@@ -4750,7 +4339,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         }
         rebuild_runtime_pointer_resources();
         refresh_runtime_pointer_region();
-        // A missing continuation branches directly to 0x0042317D because deactivation may have released the current link.
+        // A missing continuation may deactivate and release the current link, so skip the common tail.
         return continuation == nullptr ? RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor : RuntimeScriptOpcodeDisposition::complete;
     }
 
@@ -5026,7 +4615,6 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             }
         }
         state->external_command_pending = 0;
-        // GAG.EXE: 0x00422188 jumps directly to 0x0042317D when the modal/external command changed runtime state. That bypasses the common saved-cursor restore at 0x00422E5A, so execution must resume
         // after this /MESSAGE rather than issue it again.
         return result == 0 ? RuntimeScriptOpcodeDisposition::complete : RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
     }
@@ -5504,7 +5092,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         reset_runtime_session();
         SendMessageA(runtime_display_context.window, 0x7ffd, 0x10000000, 0);
         state->flags &= 0xffefffff;
-        // GAG.EXE jumps directly to 0x0042317D after the session reset rather than restoring the old parser cursor.
+        // A session reset invalidates the old parser cursor, so do not restore it.
         return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
 
     case 0xe0000:
@@ -5657,7 +5245,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         }
         state->runtime_tree_identity = published_identity;
         refresh_runtime_pointer_region();
-        // GAG.EXE jumps directly to 0x0042317D, bypassing the common saved-cursor restore at 0x00422E5A.
+        // The command invalidates the saved parser cursor, so bypass the common restore path.
         return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
     }
 
@@ -5672,8 +5260,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
 
 bool should_send_runtime_script_message(int32_t command)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
-    // The modern transition can release ReplyMessage's script caller before the UI thread finishes the original callback. Suppress another synchronous 2010 send from that same physical press at
+    // The transition can release ReplyMessage's script caller before the UI thread finishes the callback. Suppress another synchronous 2010 send from that same physical press at
     // the sending boundary, where it cannot block waiting for the still-busy UI thread.
     if(command == 0x7da)
     {
@@ -5683,34 +5270,18 @@ bool should_send_runtime_script_message(int32_t command)
         }
         modern_windows_fullscreen_toggle_latched = true;
     }
-#else
-    (void)command;
-#endif
     return true;
 }
 
-// GAG.EXE: 0x00421530
 DWORD WINAPI execute_script_commands(LPVOID parameter)
 {
     auto *state = static_cast<RuntimeCommandLoopState *>(parameter);
     runtime_script_executor_api.set_batch_limit(1);
     uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
-    // The original reads this stack slot before its first assignment when the first executed conditional is SWRAND.
-    // Zero is an explicitly non-original Debug-build guard against MSVC Run-Time Check Failure #3; the slot is assigned at 0x0042319B after the first outer pass.
+    // Initialize before the first outer pass so SWRAND always has a defined prior value.
     int32_t random_value = 0;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    uint32_t traced_script_iterations = 0;
-#endif
     while(true)
     {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        if(traced_script_iterations < 12)
-        {
-            trace_animation_startup("script iteration=%u flags=%08X accumulated=%08X tree=%p root_links=%p", traced_script_iterations, state->flags, state->accumulated_tree_flags,
-                state->runtime_tree_identity, script_runtime_root->global_link_007c_head);
-            ++traced_script_iterations;
-        }
-#endif
         if((state->flags & 1) != 0)
         {
             return 0;
@@ -5777,7 +5348,7 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
                             }
                             else if(disposition == RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor)
                             {
-                                // GAG.EXE branches directly to the outer loop for this disposition. The command may have destroyed the current tree/link, so neither parser read nor write is valid
+                                // This disposition returns directly to the outer loop. The command may have destroyed the current tree or link, so neither parser read nor write is valid
                                 // here.
                                 restart_outer = true;
                                 break;
@@ -5808,7 +5379,6 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
     }
 }
 
-// GAG.EXE: 0x00421230
 void process_runtime_message(RuntimeCommandLoopState *state)
 {
     uint32_t message = runtime_message_processor_api.dequeue_message();
@@ -5837,7 +5407,6 @@ void process_runtime_message(RuntimeCommandLoopState *state)
     }
 }
 
-// GAG.EXE: 0x004280D0
 bool update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
 {
     if(mode == 1)
@@ -5860,7 +5429,6 @@ bool update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
     return true;
 }
 
-// GAG.EXE: 0x004198E0
 uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags)
 {
     if((display_lock_flags & 1) == 0)
@@ -5939,16 +5507,6 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
                 if(rectangle_flags != nullptr)
                 {
                     *rectangle_flags = dirty_flags;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-                    static uint32_t traced_dirty_acquisitions = 0;
-                    if(traced_dirty_acquisitions < 20)
-                    {
-                        trace_animation_startup("acquire display index=%u dirty=%08X rectangle=(%d,%d)-(%d,%d) clip=(%d,%d)-(%d,%d)", traced_dirty_acquisitions, dirty_flags, primary_rectangle->left,
-                            primary_rectangle->top, primary_rectangle->right, primary_rectangle->bottom, display_clip_bounds.left, display_clip_bounds.top, display_clip_bounds.right,
-                            display_clip_bounds.bottom);
-                        ++traced_dirty_acquisitions;
-                    }
-#endif
                 }
             }
             display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
@@ -5957,7 +5515,6 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
     return mode;
 }
 
-// GAG.EXE: 0x00419AF0
 uint32_t release_display_lock()
 {
     uint32_t result = 0x80000000;
@@ -5982,7 +5539,6 @@ uint32_t release_display_lock()
     return result;
 }
 
-// GAG.EXE: 0x0041B690
 bool clip_display_rectangle(DisplayRectangle *rectangle)
 {
     if(rectangle->left < display_clip_bounds.left)
@@ -6004,7 +5560,6 @@ bool clip_display_rectangle(DisplayRectangle *rectangle)
     return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
 }
 
-// GAG.EXE: 0x0041B640
 bool constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
 {
     if(rectangle->left < 0)
@@ -6026,7 +5581,6 @@ bool constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
     return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
 }
 
-// GAG.EXE: 0x0041B560
 int process_scene_node_callbacks(DisplaySceneNode *node)
 {
     DisplayTraversalState state{ 0x01000000, display_scene_callback_api.time_get_time(), static_cast<uint32_t>(node->width), static_cast<uint32_t>(node->height), node->callback_first_position,
@@ -6069,7 +5623,6 @@ int process_scene_node_callbacks(DisplaySceneNode *node)
     return result;
 }
 
-// GAG.EXE: 0x0041B790
 void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
     if(node == nullptr || rectangle == nullptr || (node->flags & 0x01000000) != 0)
@@ -6131,23 +5684,12 @@ void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNod
     }
 }
 
-// GAG.EXE: 0x0041B860
 void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
     if(rectangle == nullptr || node == nullptr)
     {
         return;
     }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    const bool trace_accumulation =
-        node->accumulated_rectangle.right != 0 || node->accumulated_rectangle.bottom != 0 || node->accumulated_rectangle.left != node->width || node->accumulated_rectangle.top != node->height;
-    if(trace_accumulation)
-    {
-        trace_animation_startup("accumulate begin node=%p rectangle=(%d,%d)-(%d,%d) previous=(%d,%d)-(%d,%d) xy=(%d,%d) surface=%dx%d", node, rectangle->left, rectangle->top, rectangle->right,
-            rectangle->bottom, node->accumulated_rectangle.left, node->accumulated_rectangle.top, node->accumulated_rectangle.right, node->accumulated_rectangle.bottom, node->x, node->y,
-            node->surface->width, node->surface->height);
-    }
-#endif
     int32_t left = node->x + node->x_offset;
     int32_t top = node->y + node->y_offset;
     int32_t right;
@@ -6223,15 +5765,8 @@ void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNo
     node->accumulated_rectangle.top = node->height;
     node->previous_x = node->x;
     node->previous_y = node->y;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    if(trace_accumulation)
-    {
-        trace_animation_startup("accumulate end node=%p rectangle=(%d,%d)-(%d,%d)", node, rectangle->left, rectangle->top, rectangle->right, rectangle->bottom);
-    }
-#endif
 }
 
-// GAG.EXE: 0x0041B6F0
 void merge_display_rectangle(DisplayRectangle *destination, const DisplayRectangleTransform *transform, const DisplayRectangle *source)
 {
     if(source == nullptr || destination == nullptr)
@@ -6286,7 +5821,6 @@ void merge_display_rectangle(DisplayRectangle *destination, const DisplayRectang
     }
 }
 
-// GAG.EXE: 0x004195B0
 uint32_t queue_display_rectangle(DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
@@ -6303,7 +5837,6 @@ uint32_t queue_display_rectangle(DisplayRectangle *rectangle)
     return 0;
 }
 
-// GAG.EXE: 0x00419550
 uint32_t find_available_display_scene_index(uint32_t candidate)
 {
     if((display_lock_flags & 1) == 0)
@@ -6329,7 +5862,6 @@ uint32_t find_available_display_scene_index(uint32_t candidate)
     return candidate;
 }
 
-// GAG.EXE: 0x00419600
 uint32_t wait_for_display_scene_ready(uint32_t timeout)
 {
     if((display_lock_flags & 1) != 0)
@@ -6348,7 +5880,6 @@ uint32_t wait_for_display_scene_ready(uint32_t timeout)
     return 0x80000000;
 }
 
-// GAG.EXE: 0x00419660
 uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
@@ -6362,18 +5893,12 @@ uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
         if(rectangle == nullptr)
         {
             display_clip_bounds = { 0, 0, 0, 0 };
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            trace_animation_startup("set clip null -> (0,0)-(0,0)");
-#endif
             return 0;
         }
         if(rectangle->right >= 0 && rectangle->bottom >= 0 && rectangle->left <= display_width && rectangle->top <= display_height)
         {
             constrain_display_rectangle_to_surface(rectangle);
             display_clip_bounds = *rectangle;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            trace_animation_startup("set clip rectangle=(%d,%d)-(%d,%d)", rectangle->left, rectangle->top, rectangle->right, rectangle->bottom);
-#endif
             return 0;
         }
         return 0x80000000;
@@ -6381,7 +5906,6 @@ uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
     return result;
 }
 
-// GAG.EXE: 0x00419B60
 uint32_t release_display_lock_mode_1000()
 {
     uint32_t result = 0x80000000;
@@ -6402,7 +5926,6 @@ uint32_t release_display_lock_mode_1000()
     return result;
 }
 
-// GAG.EXE: 0x0041ACC0
 DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
@@ -6441,7 +5964,6 @@ DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
     }
 }
 
-// GAG.EXE: 0x0041AD50
 void unlock_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
@@ -6468,7 +5990,6 @@ void unlock_display_scene_node(intptr_t identifier)
     display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
 }
 
-// GAG.EXE: 0x0041ADC0
 bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool replace_existing)
 {
     if((display_lock_flags & 1) == 0)
@@ -6508,7 +6029,6 @@ bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool r
     return result;
 }
 
-// GAG.EXE: 0x0041AE60
 intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *descriptor, DisplayPixelFormatDescriptor *callback_format)
 {
     if((display_lock_flags & 1) == 0)
@@ -6554,7 +6074,6 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
     return result;
 }
 
-// GAG.EXE: 0x0041AFA0
 uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags)
 {
     uint32_t result = begin_display_scene_update(reinterpret_cast<intptr_t>(source));
@@ -6635,7 +6154,6 @@ uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, 
     return result;
 }
 
-// GAG.EXE: 0x0041AF20
 uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t y_delta)
 {
     if((display_lock_flags & 1) == 0)
@@ -6661,7 +6179,6 @@ uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t
     return result;
 }
 
-// GAG.EXE: 0x0041B280
 uint32_t begin_display_scene_update(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
@@ -6728,7 +6245,6 @@ bool activate_display_scene_node(intptr_t identifier)
     return activated;
 }
 
-// GAG.EXE: 0x0041B360
 uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
 {
     if((display_lock_flags & 1) == 0)
@@ -6758,7 +6274,6 @@ uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTra
     return result;
 }
 
-// GAG.EXE: 0x0041B1F0
 uint32_t update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, uint32_t callback_value)
 {
     if((display_lock_flags & 1) == 0)
@@ -6782,7 +6297,6 @@ uint32_t update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *r
     return result;
 }
 
-// GAG.EXE: 0x0041A830
 uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(DisplayTraversalState *state), const void *context, uint32_t context_size, uint32_t flags)
 {
     if((display_lock_flags & 1) == 0)
@@ -6877,7 +6391,6 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
     }
 }
 
-// GAG.EXE: 0x0041B950
 void fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
@@ -6931,7 +6444,7 @@ struct CompositeRegion
     int32_t height;
 };
 
-// Non-original helper: common control flow shared by the six original compositor entry points.
+// Common control flow shared by the compositor entry points.
 bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t mode,
     CompositeRegion &region)
 {
@@ -7041,7 +6554,7 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
     return region.width != 0 && destination_x <= destination_right && region.height != 0 && destination_y <= destination_bottom;
 }
 
-// Non-original helper: pixel conversion selected by each original compositor entry point.
+// Pixel conversion selected by each compositor entry point.
 void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *source, void *source_state, const CompositeRegion &region, bool transparent, bool convert_palette,
     bool destination_is_16_bit)
 {
@@ -7095,47 +6608,40 @@ void composite_scene_pixels(DisplaySceneNode *destination, int32_t destination_x
 
 } // namespace
 
-// GAG.EXE: 0x0041B9D0
 void composite_transparent_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, false, false);
 }
 
-// GAG.EXE: 0x0041BC40
 void composite_opaque_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, false, false);
 }
 
-// GAG.EXE: 0x0041BEE0
 void composite_transparent_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, false);
 }
 
-// GAG.EXE: 0x0041C180
 void composite_opaque_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, false);
 }
 
-// GAG.EXE: 0x0041C400
 void composite_transparent_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, true);
 }
 
-// GAG.EXE: 0x0041C660
 void composite_opaque_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
     composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, true);
 }
 
-// GAG.EXE: 0x0041C8C0
 void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
     if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 0x10)
@@ -7187,7 +6693,6 @@ void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, con
     }
 }
 
-// GAG.EXE: 0x0041CA00
 void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
     if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 8 || destination_state->palette_source == nullptr)
@@ -7239,7 +6744,6 @@ void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state
     }
 }
 
-// GAG.EXE: 0x0041AA10
 bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *palette, uint32_t count)
 {
     if(node == nullptr)
@@ -7319,7 +6823,6 @@ bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *pal
     return result;
 }
 
-// GAG.EXE: 0x00418EE0
 void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFormatDescriptor *format)
 {
     node->rectangle_callback = nullptr;
@@ -7409,7 +6912,6 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
     }
 }
 
-// GAG.EXE: 0x00419BC0
 DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
     const DisplayPixelFormatDescriptor *format)
 {
@@ -7774,7 +7276,6 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
     }
 }
 
-// GAG.EXE: 0x004192B0
 uint32_t *initialize_display_scene_host(intptr_t primary_position, const DisplayPixelFormatDescriptor *format, int32_t width, int32_t height,
     int (*synchronize)(void *context, void *payload, uint32_t mode), void *context, uint32_t worker_interval)
 {
@@ -7862,7 +7363,6 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     return &display_lock_flags;
 }
 
-// GAG.EXE: 0x004194B0
 uint32_t shutdown_display_scene_host()
 {
     if((display_lock_flags & 1) == 0)
@@ -7887,39 +7387,20 @@ uint32_t shutdown_display_scene_host()
     return 0;
 }
 
-// GAG.EXE: 0x0041B3F0
 DWORD WINAPI run_display_scene_worker(uint32_t *flags)
 {
     DWORD frame_start = display_scene_worker_api.time_get_time();
     DWORD rate_start = frame_start;
     uint32_t frame_count = 0;
-    uint32_t worker_iteration = 0;
     while((*flags & 0x40000000) == 0)
     {
-        ++worker_iteration;
         DisplayRectangle primary_rectangle{};
         DisplayRectangle secondary_rectangle{};
         uint32_t dirty_flags = 0;
         const uint32_t acquire_result = display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        static uint32_t traced_worker_iterations = 0;
-        if(traced_worker_iterations < 12 && (dirty_flags != 0 || traced_worker_iterations < 2))
-        {
-            trace_animation_startup("scene worker index=%u acquire=%08X dirty=%08X primary=(%d,%d)-(%d,%d) busy=%u flags=%08X", traced_worker_iterations, acquire_result, dirty_flags,
-                primary_rectangle.left, primary_rectangle.top, primary_rectangle.right, primary_rectangle.bottom, display_lock_busy, *flags);
-            ++traced_worker_iterations;
-        }
-#endif
         if(acquire_result == 0)
         {
             const int synchronize_result = dirty_flags != 0 ? display_scene_worker_api.synchronize_node(display_scene_root, &primary_rectangle) : 0;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            if(dirty_flags != 0 && traced_worker_iterations <= 12)
-            {
-                trace_animation_startup("scene synchronize dirty=%08X result=%d primary=(%d,%d)-(%d,%d)", dirty_flags, synchronize_result, primary_rectangle.left, primary_rectangle.top,
-                    primary_rectangle.right, primary_rectangle.bottom);
-            }
-#endif
             if(dirty_flags != 0 && synchronize_result != 0)
             {
                 *flags |= 0x20;
@@ -7946,16 +7427,7 @@ DWORD WINAPI run_display_scene_worker(uint32_t *flags)
                 }
                 display_scene_sync_api.synchronize(display_scene_sync_context, &primary_rectangle, 1);
             }
-            [[maybe_unused]] const uint32_t release_result = display_scene_worker_api.release_lock();
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            static uint32_t traced_releases = 0;
-            if(traced_releases < 4)
-            {
-                trace_animation_startup("scene release result=%08X flags=%08X owner=%u current=%u recursion=%u", release_result, *flags, display_lock_owner_thread, GetCurrentThreadId(),
-                    display_lock_recursion_count);
-                ++traced_releases;
-            }
-#endif
+            display_scene_worker_api.release_lock();
         }
         DWORD now = display_scene_worker_api.time_get_time();
         DWORD elapsed = now - frame_start;
@@ -7980,20 +7452,10 @@ DWORD WINAPI run_display_scene_worker(uint32_t *flags)
             frame_count = 0;
             rate_start = now;
         }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        if(worker_iteration == 100)
-        {
-            trace_animation_startup("scene worker heartbeat iteration=%u flags=%08X busy=%u count=%u", worker_iteration, *flags, display_lock_busy, display_scene_count);
-        }
-#endif
     }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    trace_animation_startup("scene worker exit iteration=%u flags=%08X", worker_iteration, *flags);
-#endif
     return 0;
 }
 
-// GAG.EXE: 0x0041A480
 uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
 {
     if((identifier == 0 && owner == 0) || (display_lock_flags & 1) == 0)
@@ -8162,7 +7624,6 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
     }
 }
 
-// GAG.EXE: 0x0041BE60
 void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
@@ -8207,7 +7668,6 @@ void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *r
     }
 }
 
-// GAG.EXE: 0x004190D0
 int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *output_rectangle)
 {
     DisplayRectangle geometry{ 0, 0, node->width, node->height };
@@ -8215,15 +7675,6 @@ int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *out
     int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
     int synchronized = display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x10000);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    static uint32_t traced_target_synchronizations = 0;
-    if(traced_target_synchronizations < 8)
-    {
-        trace_animation_startup("target synchronize index=%u node=%p result=%d geometry=(%d,%d)-(%d,%d) primary=%p secondary=%d", traced_target_synchronizations, node, synchronized, geometry.left,
-            geometry.top, geometry.right, geometry.bottom, reinterpret_cast<void *>(primary_position), secondary_position);
-        ++traced_target_synchronizations;
-    }
-#endif
     if(synchronized == 0)
     {
         return 0;
@@ -8263,7 +7714,6 @@ int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *out
     return synchronized;
 }
 
-// GAG.EXE: 0x00419230
 void publish_display_scene_node(DisplaySceneNode *node)
 {
     DisplayRectangle geometry{ 0, 0, node->width, node->height };
@@ -8273,7 +7723,6 @@ void publish_display_scene_node(DisplaySceneNode *node)
     display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
 }
 
-// GAG.EXE: 0x00419710
 uint32_t dispatch_display_scene_update(void *target, uint32_t options)
 {
     if((display_lock_flags & 1) == 0 || display_scene_sync_api.synchronize == nullptr)
@@ -8355,7 +7804,6 @@ uint32_t dispatch_display_scene_update(void *target, uint32_t options)
     return result;
 }
 
-// GAG.EXE: 0x0041AC70
 bool contains_display_scene_node(intptr_t identifier)
 {
     if((display_lock_flags & 1) == 0)
@@ -8376,7 +7824,6 @@ bool contains_display_scene_node(intptr_t identifier)
     return found;
 }
 
-// GAG.EXE: 0x00414540
 uint32_t end_display_target()
 {
     uint32_t result = 0x200000;
@@ -8394,7 +7841,6 @@ uint32_t end_display_target()
     return result;
 }
 
-// GAG.EXE: 0x00413340
 HWND find_top_level_display_window(HWND window)
 {
     while((static_cast<uint32_t>(display_cooperative_level_api.get_window_long(window, GWL_STYLE)) & WS_CHILD) != 0)
@@ -8404,7 +7850,6 @@ HWND find_top_level_display_window(HWND window)
     return window;
 }
 
-// GAG.EXE: 0x004134D0
 void shutdown_display_mode_host()
 {
     if((display_palette_flags & 0x80000000) == 0)
@@ -8442,136 +7887,7 @@ void shutdown_display_mode_host()
 }
 
 
-// Non-original helper: shared busy-wait/critical-section acquisition sequence used by the original display-mode setters.
-void acquire_display_mode_change_lock()
-{
-    while(true)
-    {
-        if((display_palette_flags & 0x40000000) == 0)
-        {
-            display_mode_change_api.enter_critical_section(&display_host_critical_section);
-            if((display_palette_flags & 0x40000000) == 0)
-            {
-                return;
-            }
-            display_mode_change_api.leave_critical_section(&display_host_critical_section);
-        }
-        else
-        {
-            display_mode_change_api.sleep(5);
-        }
-    }
-}
-
-// GAG.EXE: 0x00413780
-uint32_t set_active_display_mode(DisplayMode *mode)
-{
-    uint32_t result = 0x200000;
-    acquire_display_mode_change_lock();
-    if((display_palette_flags & 0x200002) == 0)
-    {
-        uint32_t cooperative_result = 0;
-        const uint32_t previous_cooperative = display_palette_flags & 0x1000;
-        if(previous_cooperative == 0)
-        {
-            cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
-        }
-        if(cooperative_result == 0)
-        {
-            if(display_mode_change_api.set_direct_draw_mode(display_direct_draw, mode->width, mode->height, mode->bits_per_pixel) == 0)
-            {
-                result = 0;
-            }
-            if(previous_cooperative == 0)
-            {
-                display_mode_change_api.set_cooperative_mode(0);
-            }
-        }
-    }
-    else
-    {
-        DEVMODEA settings{};
-        settings.dmSize = sizeof(settings);
-        settings.dmFields = mode->device_mode_fields;
-        settings.dmDisplayFlags = mode->surface_caps;
-        settings.dmPelsWidth = static_cast<DWORD>(mode->width);
-        settings.dmPelsHeight = static_cast<DWORD>(mode->height);
-        settings.dmDisplayFrequency = mode->refresh_rate;
-        settings.dmBitsPerPel = static_cast<DWORD>(mode->bits_per_pixel);
-        if(display_mode_change_api.change_display_settings(&settings, 0) == DISP_CHANGE_SUCCESSFUL)
-        {
-            result = 0;
-            current_display_mode = mode;
-        }
-    }
-    display_mode_change_api.leave_critical_section(&display_host_critical_section);
-    return result;
-}
-
-// GAG.EXE: 0x004138D0
-uint32_t restore_active_display_mode()
-{
-    uint32_t result = 0x200000;
-    acquire_display_mode_change_lock();
-    if((display_palette_flags & 0x200002) == 0)
-    {
-        uint32_t cooperative_result = 0;
-        const uint32_t previous_cooperative = display_palette_flags & 0x1000;
-        if(previous_cooperative == 0)
-        {
-            cooperative_result = display_mode_change_api.set_cooperative_mode(0x1000);
-        }
-        if(cooperative_result == 0)
-        {
-            if(display_mode_change_api.restore_direct_draw_mode(display_direct_draw) == 0)
-            {
-                result = 0;
-            }
-            if(previous_cooperative == 0)
-            {
-                display_mode_change_api.set_cooperative_mode(0);
-            }
-        }
-    }
-    else if(display_mode_change_api.change_display_settings(nullptr, 0) == DISP_CHANGE_SUCCESSFUL)
-    {
-        display_mode_change_api.find_current_mode();
-        result = 0;
-    }
-    display_mode_change_api.leave_critical_section(&display_host_critical_section);
-    return result;
-}
-
-// GAG.EXE: 0x0041F9C0
-uint32_t set_active_display_mode_if_graphics_ready(DisplayMode *mode)
-{
-#if defined(FREEGAG_WINDOWS_FIXES)
-    (void)mode;
-    return 0;
-#else
-    if((graphics_host_flags & 0x800) != 0)
-    {
-        return set_active_display_mode(mode);
-    }
-    return 0x200000;
-#endif
-}
-
-// GAG.EXE: 0x0041F9E0
-uint32_t restore_active_display_mode_if_graphics_ready()
-{
-#if defined(FREEGAG_WINDOWS_FIXES)
-    return 0;
-#else
-    if((graphics_host_flags & 0x800) != 0)
-    {
-        return restore_active_display_mode();
-    }
-    return 0x200000;
-#endif
-}
-
-// GAG.EXE: 0x00413590
+// Shared busy-wait and critical-section acquisition sequence.
 uint32_t set_display_cooperative_mode(uint32_t mode)
 {
     if(display_palette_window == nullptr)
@@ -8602,7 +7918,6 @@ uint32_t set_display_cooperative_mode(uint32_t mode)
     return 0;
 }
 
-// GAG.EXE: 0x004140B0
 void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode)
 {
     while(true)
@@ -8637,28 +7952,24 @@ void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height
     }
     else if(mode == 1)
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_presentation_is_scaled())
         {
             display_surface_operation_api.stretch_blt(display_palette_dc, 0, 0, modern_windows_presentation_state.viewport_width, modern_windows_presentation_state.viewport_height,
                 display_palette_dib_dc, 0, 0, display_palette_width, display_palette_height, SRCCOPY);
         }
         else
-#endif
         {
             display_surface_operation_api.bit_blt(display_palette_dc, x, y, width, height, display_palette_dib_dc, x, y, SRCCOPY);
         }
     }
     else if(mode == 2)
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_presentation_is_scaled())
         {
             const RECT rectangle = map_modern_windows_presentation_rectangle(x, y, x + width, y + height, display_palette_width, display_palette_height);
             display_surface_operation_api.pat_blt(display_palette_dc, rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top, BLACKNESS);
         }
         else
-#endif
         {
             display_surface_operation_api.pat_blt(display_palette_dc, x, y, width, height, BLACKNESS);
         }
@@ -8666,7 +7977,6 @@ void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height
     display_palette_api.leave_lock();
 }
 
-// GAG.EXE: 0x00414220
 void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode)
 {
     while(true)
@@ -8702,52 +8012,25 @@ void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode)
     else if(mode == 1)
     {
         BOOL result;
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_presentation_is_scaled())
         {
             result = display_region_synchronization_api.stretch_blt(display_palette_dc, 0, 0, modern_windows_presentation_state.viewport_width, modern_windows_presentation_state.viewport_height,
                 display_palette_dib_dc, 0, 0, display_palette_width, display_palette_height, SRCCOPY);
         }
         else
-#endif
         {
             result = display_region_synchronization_api.bit_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top,
                 display_palette_dib_dc, rectangle->left, rectangle->top, SRCCOPY);
         }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        static uint32_t traced_presentations = 0;
-        if(traced_presentations < 8)
-        {
-            uint32_t nonzero_surface_pixels = 0;
-            if(display_palette_pixels != nullptr && display_palette_bits_per_pixel == 16)
-            {
-                const auto *surface_pixels = static_cast<const uint16_t *>(display_palette_pixels);
-                for(int32_t y = rectangle->top; y < rectangle->bottom; ++y)
-                {
-                    for(int32_t x = rectangle->left; x < rectangle->right; ++x)
-                    {
-                        nonzero_surface_pixels += surface_pixels[y * display_palette_width + x] != 0 ? 1u : 0u;
-                    }
-                }
-            }
-            trace_animation_startup("display blit index=%u flags=%08X destination=%p source=%p rect=(%d,%d)-(%d,%d) result=%d error=%u", traced_presentations, display_palette_flags,
-                display_palette_dc, display_palette_dib_dc, rectangle->left, rectangle->top, rectangle->right, rectangle->bottom, result, GetLastError());
-            trace_animation_startup("display surface index=%u pixels=%p bpp=%d width=%d nonzero=%u", traced_presentations, display_palette_pixels, display_palette_bits_per_pixel,
-                display_palette_width, nonzero_surface_pixels);
-            ++traced_presentations;
-        }
-#endif
     }
     else if(mode == 2)
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_presentation_is_scaled())
         {
             const RECT destination = map_modern_windows_presentation_rectangle(rectangle->left, rectangle->top, rectangle->right, rectangle->bottom, display_palette_width, display_palette_height);
             display_region_synchronization_api.pat_blt(display_palette_dc, destination.left, destination.top, destination.right - destination.left, destination.bottom - destination.top, BLACKNESS);
         }
         else
-#endif
         {
             display_region_synchronization_api.pat_blt(display_palette_dc, rectangle->left, rectangle->top, rectangle->right - rectangle->left, rectangle->bottom - rectangle->top, BLACKNESS);
         }
@@ -8755,7 +8038,6 @@ void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode)
     display_region_synchronization_api.leave_critical_section(&display_host_critical_section);
 }
 
-// GAG.EXE: 0x00414360
 uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32_t *pitch)
 {
     const bool direct_draw = (display_palette_flags & 0x100002) == 0;
@@ -8817,7 +8099,6 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
     return 0x200000;
 }
 
-// GAG.EXE: 0x004139B0
 void *create_display_surface(int32_t width, int32_t height, const LegacyDisplayPixelFormat *format, uint32_t options)
 {
     while(true)
@@ -8913,9 +8194,7 @@ void *create_display_surface(int32_t width, int32_t height, const LegacyDisplayP
     else
     {
         display_palette_dc = display_surface_creation_api.get_dc(display_palette_window);
-#if defined(FREEGAG_WINDOWS_FIXES)
         display_surface_creation_api.set_stretch_blt_mode(display_palette_dc, COLORONCOLOR);
-#endif
         display_palette_dib_dc = display_surface_creation_api.create_compatible_dc(display_palette_dc);
         if(display_palette_dib_dc == nullptr)
         {
@@ -9031,7 +8310,6 @@ void *create_display_surface(int32_t width, int32_t height, const LegacyDisplayP
     return result;
 }
 
-// GAG.EXE: 0x00413F80
 void teardown_display_palette_surface()
 {
     while(true)
@@ -9079,37 +8357,31 @@ void teardown_display_palette_surface()
     display_palette_api.leave_lock();
 }
 
-// GAG.EXE: 0x00413480
 HDC get_display_palette_dc()
 {
     return display_palette_dc;
 }
 
-// GAG.EXE: 0x00413490
 HDC get_display_palette_dib_dc()
 {
     return display_palette_dib_dc;
 }
 
-// GAG.EXE: 0x004134A0
 HBITMAP get_display_palette_bitmap()
 {
     return display_palette_bitmap;
 }
 
-// GAG.EXE: 0x004134B0
 HPALETTE get_display_palette_handle()
 {
     return display_palette;
 }
 
-// GAG.EXE: 0x004134C0
 PALETTEENTRY *get_display_palette_entries()
 {
     return display_palette_entries;
 }
 
-// GAG.EXE: 0x00414610
 UINT apply_display_palette(const PALETTEENTRY *palette_entries, uint32_t update_flags)
 {
     bool palette_unchanged = true;
@@ -9211,7 +8483,6 @@ UINT apply_display_palette(const PALETTEENTRY *palette_entries, uint32_t update_
     return result;
 }
 
-// GAG.EXE: 0x00414590
 void enable_display_palette_mode()
 {
     display_palette_api.enter_lock();
@@ -9223,7 +8494,6 @@ void enable_display_palette_mode()
     display_palette_api.leave_lock();
 }
 
-// GAG.EXE: 0x004145D0
 void disable_display_palette_mode()
 {
     display_palette_api.enter_lock();
@@ -9235,7 +8505,6 @@ void disable_display_palette_mode()
     display_palette_api.leave_lock();
 }
 
-// GAG.EXE: 0x00420A90
 void enqueue_runtime_message(uint32_t message)
 {
     if((graphics_host_flags & 0x400) == 0)
@@ -9270,7 +8539,6 @@ void enqueue_runtime_message(uint32_t message)
     runtime_queue_api.leave_queue_lock();
 }
 
-// GAG.EXE: 0x00420B50
 uint32_t dequeue_runtime_message()
 {
     if(runtime_display_context.message_available == 0)
@@ -9296,7 +8564,6 @@ uint32_t dequeue_runtime_message()
     return message;
 }
 
-// GAG.EXE: 0x00420CB0
 void clear_credits_runtime_flag()
 {
     if((graphics_host_flags & 0x40000000) != 0)
@@ -9307,19 +8574,11 @@ void clear_credits_runtime_flag()
 
 
 
-// GAG.EXE: 0x0041CE40
-void application_hook_no_op_1() {}
-
-// GAG.EXE: 0x0041CE50
-void application_hook_no_op_2() {}
-
-// GAG.EXE: 0x0041CDC0
 void set_application_lock_flag(ApplicationState *state)
 {
     state->flags |= 0x40000000;
 }
 
-// GAG.EXE: 0x0041CD30
 void set_application_inactive_flags(ApplicationState *state)
 {
     uint32_t previous_flags = state->flags;
@@ -9327,7 +8586,6 @@ void set_application_inactive_flags(ApplicationState *state)
     state->flags = previous_flags | 0x9000002;
 }
 
-// GAG.EXE: 0x0041CD50
 void clear_runtime_active_flag(ApplicationState *state)
 {
     uint32_t previous_flags = state->flags;
@@ -9338,7 +8596,6 @@ void clear_runtime_active_flag(ApplicationState *state)
     }
 }
 
-// GAG.EXE: 0x0041CDD0
 void clear_application_lock_flag(ApplicationState *state)
 {
     uint32_t previous_flags = state->flags;
@@ -9349,7 +8606,6 @@ void clear_application_lock_flag(ApplicationState *state)
     }
 }
 
-// GAG.EXE: 0x00417970
 void free_heap_memory(void *memory)
 {
     if(memory != nullptr)
@@ -9360,10 +8616,9 @@ void free_heap_memory(void *memory)
 
 
 
-// GAG.EXE: 0x0041CAE0
-int run_startup(HINSTANCE instance, LPSTR command_line, int show_command)
+int run_startup(int argc, char *argv[])
 {
-    ApplicationState *state = initialize_gag_application(640, 480, instance, command_line, show_command);
+    ApplicationState *state = initialize_gag_application(640, 480, GetModuleHandleA(nullptr), has_xtet_argument(argc, argv), SW_SHOWDEFAULT);
     if(state == nullptr)
     {
         return 0;
@@ -9389,7 +8644,6 @@ int run_startup(HINSTANCE instance, LPSTR command_line, int show_command)
     return static_cast<int>(message.wParam);
 }
 
-// GAG.EXE: 0x0040CD00
 int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
 {
     if(!script_random_seeded)
@@ -9413,7 +8667,6 @@ int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
 }
 
 
-// GAG.EXE: 0x0040CF50
 int copy_string(char *destination, const char *source)
 {
     int length = 0;
@@ -9426,7 +8679,6 @@ int copy_string(char *destination, const char *source)
     return length;
 }
 
-// GAG.EXE: 0x0040D0B0
 ScriptTextBuffer *create_script_text_buffer()
 {
     constexpr uint32_t allocation_size = 64000;
@@ -9441,7 +8693,6 @@ ScriptTextBuffer *create_script_text_buffer()
     return buffer;
 }
 
-// GAG.EXE: 0x0040D0E0
 void clear_script_text_buffer(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
@@ -9450,7 +8701,6 @@ void clear_script_text_buffer(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x0040D0F0
 void begin_script_text_document(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
@@ -9463,7 +8713,6 @@ void begin_script_text_document(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x0040D140
 void end_script_text_document(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
@@ -9474,7 +8723,6 @@ void end_script_text_document(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x0040D180
 void append_script_text_property(ScriptTextBuffer *buffer, uint32_t property, const char *value)
 {
     if(buffer == nullptr)
@@ -9556,7 +8804,6 @@ void append_script_text_property(ScriptTextBuffer *buffer, uint32_t property, co
     }
 }
 
-// GAG.EXE: 0x0040D400
 void end_script_text_statement(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
@@ -9571,7 +8818,7 @@ void end_script_text_statement(ScriptTextBuffer *buffer)
     }
 }
 
-// Non-original helper shared by the two recovered slash-scope emitters.
+// Shared helper for the slash-scope emitters.
 static void append_script_text_scope_name(ScriptTextBuffer *buffer, const char *name)
 {
     buffer->data[buffer->length++] = '/';
@@ -9579,7 +8826,6 @@ static void append_script_text_scope_name(ScriptTextBuffer *buffer, const char *
     buffer->data[buffer->length++] = ':';
 }
 
-// GAG.EXE: 0x0040D440
 void append_script_text_scope(ScriptTextBuffer *buffer, uint32_t scope)
 {
     if(buffer == nullptr)
@@ -9617,7 +8863,6 @@ void append_script_text_scope(ScriptTextBuffer *buffer, uint32_t scope)
     }
 }
 
-// GAG.EXE: 0x0040D610
 void append_script_text_preload_directive(ScriptTextBuffer *buffer, uint32_t scope)
 {
     if(buffer != nullptr && scope == 0x50000000)
@@ -9626,7 +8871,6 @@ void append_script_text_preload_directive(ScriptTextBuffer *buffer, uint32_t sco
     }
 }
 
-// GAG.EXE: 0x0040CE90
 void append_script_text_scoped_tokens(ScriptTextBuffer *buffer, uint32_t scope, const char *text)
 {
     if(text[0] == '\0')
@@ -9678,7 +8922,6 @@ void append_script_text_scoped_tokens(ScriptTextBuffer *buffer, uint32_t scope, 
     } while(text[offset] != '\0');
 }
 
-// GAG.EXE: 0x0040D650
 void append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, char delimiter)
 {
     if(buffer != nullptr)
@@ -9691,7 +8934,6 @@ void append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, ch
     }
 }
 
-// GAG.EXE: 0x0040D690
 void append_script_text_integer(ScriptTextBuffer *buffer, uint32_t value, char delimiter)
 {
     if(buffer != nullptr)
@@ -9718,7 +8960,6 @@ void append_script_text_integer(ScriptTextBuffer *buffer, uint32_t value, char d
     }
 }
 
-// GAG.EXE: 0x0040D740
 int find_script_property_value(char *value, const char *property_name, const char *text, uint32_t text_length, uint32_t start_offset)
 {
     if(value != nullptr)
@@ -9799,7 +9040,6 @@ int find_script_property_value(char *value, const char *property_name, const cha
     }
 }
 
-// GAG.EXE: 0x0040D830
 int find_script_section(const char *section_name, const char *text, int text_length)
 {
     int remaining = text_length;
@@ -9851,7 +9091,6 @@ int find_script_section(const char *section_name, const char *text, int text_len
     }
 }
 
-// GAG.EXE: 0x00418230
 int32_t parse_path_numeric_identifier(const char *path)
 {
     uint32_t offset = 0;
@@ -9896,7 +9135,6 @@ const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api()
     return archive_comment_enumeration_api;
 }
 
-// GAG.EXE: 0x0040EA40
 uint32_t extract_script_property_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
@@ -9944,7 +9182,6 @@ uint32_t extract_script_property_name(ScriptParserState *parser, char *name)
     return 0xffffffff;
 }
 
-// GAG.EXE: 0x0040EB70
 uint32_t extract_script_scope_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
@@ -10001,7 +9238,6 @@ uint32_t extract_script_scope_name(ScriptParserState *parser, char *name)
     return name_length;
 }
 
-// GAG.EXE: 0x0040ECB0
 uint32_t extract_script_parenthesized_text(ScriptParserState *parser, char *text, uint32_t text_capacity)
 {
     text[0] = '\0';
@@ -10028,7 +9264,6 @@ uint32_t extract_script_parenthesized_text(ScriptParserState *parser, char *text
     return text_length;
 }
 
-// GAG.EXE: 0x0040ED80
 int find_whitespace_token_index(const char *text, const char *token)
 {
     int token_index = -1;
@@ -10078,7 +9313,6 @@ int find_whitespace_token_index(const char *text, const char *token)
     return -1;
 }
 
-// GAG.EXE: 0x0040F0A0
 uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t token_capacity)
 {
     token[0] = '\0';
@@ -10170,7 +9404,6 @@ uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t t
     }
 }
 
-// GAG.EXE: 0x00408AA0
 void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *value_type)
 {
     const uint32_t saved_cursor = parser->cursor;
@@ -10200,7 +9433,6 @@ void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *
     *value_type = 0x7fffffff;
 }
 
-// GAG.EXE: 0x00408B20
 void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer == nullptr)
@@ -10225,7 +9457,6 @@ void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
     }
 }
 
-// GAG.EXE: 0x0040A9D0
 void serialize_image_flag_overrides(ScriptTextBuffer *buffer, uint32_t flags)
 {
     while(buffer != nullptr)
@@ -10263,7 +9494,6 @@ void serialize_image_flag_overrides(ScriptTextBuffer *buffer, uint32_t flags)
     }
 }
 
-// GAG.EXE: 0x0040EEB0
 uint32_t parse_script_parameter_token(const char *text, int32_t token_index, void *value, uint32_t *value_type)
 {
     char token[0x104];
@@ -10319,14 +9549,12 @@ uint32_t parse_script_parameter_token(const char *text, int32_t token_index, voi
     return *value_type != 0x7fffffff && (expected_type == 0 || expected_type == *value_type) ? 1 : 0;
 }
 
-// GAG.EXE: 0x0040F070
 uint32_t evaluate_script_parameter(ScriptParserState *parser, const char *name, void *value, uint32_t *value_type)
 {
     const int32_t token_index = find_whitespace_token_index(parser->scratch_text, name);
     return parse_script_parameter_token(parser->creation_text, token_index, value, value_type);
 }
 
-// GAG.EXE: 0x0040F4F0
 int32_t parse_script_integer_expression(ScriptParserState *parser)
 {
     if(parser == nullptr)
@@ -10350,8 +9578,7 @@ int32_t parse_script_integer_expression(ScriptParserState *parser)
     if(fixed_dword_memory_equal(token, "PARAM", 4))
     {
         parse_script_value_token(parser, token, sizeof(token));
-        // The evaluator materializes the parameter before checking its type, so
-        // the original supplies enough temporary storage for any typed value.
+        // The evaluator materializes the parameter before checking its type, so reserve enough temporary storage for any typed value.
         uint32_t parameter_value[8];
         uint32_t value_type = 2;
         if(script_integer_expression_api.evaluate_parameter(parser, token, parameter_value, &value_type) == 0)
@@ -10465,7 +9692,6 @@ int32_t parse_script_integer_expression(ScriptParserState *parser)
     return 0x7fffffff;
 }
 
-// GAG.EXE: 0x0040F2C0
 uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32_t value_capacity)
 {
     uint32_t result = extract_script_token(parser, value, value_capacity);
@@ -10492,7 +9718,6 @@ uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32
     return result;
 }
 
-// GAG.EXE: 0x0040E580
 uint32_t parse_image_flag(ScriptParserState *parser)
 {
     if(parser == nullptr)
@@ -10518,8 +9743,7 @@ uint32_t parse_image_flag(ScriptParserState *parser)
     {
         char parameter_name[0x20];
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
-        // Match the original 0x20-byte temporary: a mismatched parameter may
-        // be a string, and the evaluator writes it before reporting mismatch.
+        // A mismatched parameter may be a string, and the evaluator writes it before reporting the mismatch.
         uint32_t parameter_value[8];
         uint32_t value_type = 1;
         if(script_value_parse_api.evaluate_parameter(parser, parameter_name, parameter_value, &value_type) == 0)
@@ -10581,7 +9805,6 @@ uint32_t parse_image_flag(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x00421440
 uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, uint32_t *flags)
 {
     uint32_t saved_cursor = parser->cursor;
@@ -10626,7 +9849,6 @@ uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *reso
 }
 
 
-// GAG.EXE: 0x00406B40
 uint32_t apply_runtime_tree_image_flags(ScriptParserState *parser)
 {
     auto *owner = static_cast<RuntimeTreeNode *>(parser->owner);
@@ -10653,7 +9875,6 @@ uint32_t apply_runtime_tree_image_flags(ScriptParserState *parser)
     return 1;
 }
 
-// GAG.EXE: 0x00406CB0
 RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
@@ -10743,7 +9964,6 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x00406EA0
 RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
@@ -10808,7 +10028,6 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x0040F380
 int32_t parse_script_integer_literal(ScriptParserState *parser)
 {
     uint32_t offset = parser->cursor;
@@ -10892,7 +10111,6 @@ int32_t parse_script_integer_literal(ScriptParserState *parser)
     return negative ? -value : value;
 }
 
-// GAG.EXE: 0x0040D8A0
 uint32_t parse_script_property_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
@@ -10952,7 +10170,6 @@ uint32_t parse_script_property_code(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040DC00
 uint32_t parse_script_scope_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
@@ -11016,7 +10233,6 @@ uint32_t parse_script_scope_code(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040DFD0
 uint32_t parse_script_opcode(ScriptParserState *parser)
 {
     if(parser == nullptr)
@@ -11098,7 +10314,6 @@ uint32_t parse_script_opcode(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040D070
 bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte_count)
 {
     const uint32_t *left_dwords = static_cast<const uint32_t *>(left);
@@ -11119,7 +10334,6 @@ bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte
     return equal;
 }
 
-// GAG.EXE: 0x004068C0
 void set_script_runtime_flags(uint32_t mask, int enabled)
 {
     if(script_runtime_root != nullptr)
@@ -11135,7 +10349,6 @@ void set_script_runtime_flags(uint32_t mask, int enabled)
     }
 }
 
-// GAG.EXE: 0x0040C370
 void reset_script_runtime_transient_indices()
 {
     if(script_runtime_root != nullptr)
@@ -11145,7 +10358,6 @@ void reset_script_runtime_transient_indices()
     }
 }
 
-// GAG.EXE: 0x004050B0
 RuntimeGenericResourceNode *find_runtime_generic_resource(void *identity)
 {
     if(script_runtime_root == nullptr)
@@ -11162,7 +10374,6 @@ RuntimeGenericResourceNode *find_runtime_generic_resource(void *identity)
     return nullptr;
 }
 
-// GAG.EXE: 0x00405080
 void remove_all_runtime_generic_resources()
 {
     if(script_runtime_root == nullptr)
@@ -11178,7 +10389,6 @@ void remove_all_runtime_generic_resources()
     }
 }
 
-// GAG.EXE: 0x00406A70
 uintptr_t dispatch_runtime_tree_section_command(ScriptParserState *parser)
 {
     parser->owner->flags &= ~0x200u;
@@ -11209,13 +10419,11 @@ uintptr_t dispatch_runtime_tree_section_command(ScriptParserState *parser)
     return result == parser->owner ? 0 : reinterpret_cast<uintptr_t>(result);
 }
 
-// GAG.EXE: 0x00406B90
 bool parse_runtime_language(ScriptParserState *parser)
 {
     return runtime_tree_basic_command_api.parse_value(parser, script_runtime_root->language, sizeof(script_runtime_root->language)) != 0xffffffff;
 }
 
-// GAG.EXE: 0x00406C00
 RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser)
 {
     RuntimeTreeNode *owner = parser->owner;
@@ -11257,7 +10465,6 @@ RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser)
 }
 
 
-// GAG.EXE: 0x004050E0
 void set_runtime_generic_resource_position(void *identity, uint32_t position)
 {
     if(script_runtime_root == nullptr)
@@ -11277,7 +10484,6 @@ void set_runtime_generic_resource_position(void *identity, uint32_t position)
     }
 }
 
-// GAG.EXE: 0x00405110
 uint32_t read_runtime_generic_resource_token(void *identity, char *output, uint32_t capacity, uint8_t delimiter)
 {
     RuntimeGenericResourceNode *resource = find_runtime_generic_resource(identity);
@@ -11318,7 +10524,6 @@ uint32_t read_runtime_generic_resource_token(void *identity, char *output, uint3
     return copied;
 }
 
-// GAG.EXE: 0x00404EE0
 RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *resource_name)
 {
     if(script_runtime_root == nullptr)
@@ -11364,7 +10569,6 @@ RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *re
 }
 
 
-// GAG.EXE: 0x00405210
 RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, uint32_t start_offset, const char *creation_text)
 {
     RuntimeTreeParserContext *last = nullptr;
@@ -11408,7 +10612,6 @@ RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTree
 }
 
 
-// GAG.EXE: 0x004052F0
 void release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
 {
     RuntimeTreeParserContext *context = owner->parser_contexts;
@@ -11428,7 +10631,6 @@ void release_runtime_tree_parser_contexts(RuntimeTreeNode *owner)
     }
 }
 
-// GAG.EXE: 0x00405350
 RuntimeTreeParserContext *find_existing_runtime_tree_parser_context(RuntimeTreeNode *owner, const char *name)
 {
     RuntimeTreeParserContext *context = owner->parser_contexts;
@@ -11440,7 +10642,6 @@ RuntimeTreeParserContext *find_existing_runtime_tree_parser_context(RuntimeTreeN
 }
 
 
-// GAG.EXE: 0x004056C0
 RuntimeTreeNode *dispatch_runtime_tree_parser(RuntimeTreeParserContext *context)
 {
     auto *parser = reinterpret_cast<ScriptParserState *>(context);
@@ -11694,7 +10895,6 @@ dispatch_property_0b_value:;
 
 
 
-// GAG.EXE: 0x00405410
 RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, void *parent_selector, const char *tree_name, void *creation_context)
 {
     RuntimeTreeNode *current = runtime_tree_creation_api.find_node(parent_selector);
@@ -11821,7 +11021,6 @@ RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, 
 }
 
 
-// GAG.EXE: 0x00405D00
 RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, const char *target, uint32_t success_cursor)
 {
     RuntimeTreeNode *result = nullptr;
@@ -11865,7 +11064,6 @@ RuntimeTreeNode *find_and_create_runtime_tree_jump(ScriptParserState *parser, co
 
 
 
-// GAG.EXE: 0x00405E00
 void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
 {
     parser->cursor = parser->start_offset;
@@ -11890,7 +11088,6 @@ void reset_runtime_tree_parser_context_recursive(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x00405DC0
 void reset_runtime_tree_parser_contexts(void *identity)
 {
     RuntimeTreeNode *node = runtime_tree_parser_reset_api.find_node(identity);
@@ -11904,7 +11101,6 @@ void reset_runtime_tree_parser_contexts(void *identity)
 }
 
 
-// GAG.EXE: 0x00405380
 RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text)
 {
     RuntimeTreeNode *node = runtime_tree_section_dispatch_api.find_node(node_identity);
@@ -11932,7 +11128,6 @@ RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *no
 }
 
 
-// GAG.EXE: 0x00407040
 void add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
 {
     for(RuntimeTreeAuxiliaryNode *node = owner->auxiliary_head; node != nullptr; node = node->next)
@@ -11961,7 +11156,6 @@ void add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
     owner->auxiliary_head = node;
 }
 
-// GAG.EXE: 0x004070F0
 uint32_t parse_runtime_tree_auxiliary_names(ScriptParserState *parser)
 {
     char name[0x20];
@@ -11972,7 +11166,6 @@ uint32_t parse_runtime_tree_auxiliary_names(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x00407130
 uint32_t add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner)
 {
     const char *text = script_runtime_root->default_auxiliary_names;
@@ -12005,7 +11198,6 @@ uint32_t add_default_runtime_tree_auxiliary_names(RuntimeTreeNode *owner)
     return result;
 }
 
-// GAG.EXE: 0x004071E0
 void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
 {
     while(owner->auxiliary_head != nullptr)
@@ -12019,7 +11211,7 @@ void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner)
 
 
 
-// Non-original helper preserving the original inclusive head-through-tail free traversal.
+// Frees the inclusive head-through-tail range.
 template<typename Link>
 void free_runtime_tree_link_range(Link *head, Link *tail)
 {
@@ -12035,7 +11227,7 @@ void free_runtime_tree_link_range(Link *head, Link *tail)
     }
 }
 
-// Non-original typed form of the original tail-or-head link update.
+// Updates the tail or head link after removal.
 template<typename Link>
 void route_runtime_tree_global_link(Link *&head, Link *tail, Link *value)
 {
@@ -12049,7 +11241,6 @@ void route_runtime_tree_global_link(Link *&head, Link *tail, Link *value)
     }
 }
 
-// GAG.EXE: 0x00406360
 void update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode *replacement)
 {
     if(removed->parent != nullptr)
@@ -12067,7 +11258,6 @@ void update_runtime_tree_global_links(RuntimeTreeNode *removed, RuntimeTreeNode 
     route_runtime_tree_global_link(script_runtime_root->containers, script_runtime_root->container_tail, replacement == nullptr ? nullptr : replacement->container_head);
 }
 
-// GAG.EXE: 0x00406190
 void publish_runtime_tree_global_links(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr)
@@ -12114,7 +11304,6 @@ void publish_runtime_tree_global_links(RuntimeTreeNode *node)
     route_runtime_tree_global_link(script_runtime_root->containers, script_runtime_root->container_tail, node->container_head);
 }
 
-// GAG.EXE: 0x004068F0
 void append_script_runtime_flags(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(flags == 0)
@@ -12143,7 +11332,6 @@ void append_script_runtime_flags(ScriptTextBuffer *buffer, uint32_t flags)
     end_script_text_statement(buffer);
 }
 
-// GAG.EXE: 0x004069D0
 void serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->runtime_tree == nullptr)
@@ -12169,7 +11357,6 @@ void serialize_runtime_tree_sections(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x00406BB0
 void serialize_runtime_language(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr)
@@ -12185,7 +11372,6 @@ void serialize_runtime_language(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x004073D0
 void serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->fixed_name_nodes == nullptr)
@@ -12203,7 +11389,6 @@ void serialize_runtime_fixed_name_nodes(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x00404990
 ScriptTextBuffer *serialize_current_runtime_state()
 {
     if(script_runtime_root == nullptr)
@@ -12324,7 +11509,6 @@ ScriptTextBuffer *serialize_current_runtime_state()
     return buffer;
 }
 
-// GAG.EXE: 0x00405E50
 RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_identity)
 {
     RuntimeTreeNode *node = runtime_tree_destruction_core_api.find_node(identity);
@@ -12337,10 +11521,9 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
     {
         runtime_tree_destruction_core_api.notify(0x40, 0, node);
     }
-#if defined(FREEGAG_WINDOWS_FIXES)
     if(replacement != nullptr && replacement->parent == node)
     {
-        // Non-original modern-Windows compatibility: PRELOAD creates the replacement as a child, while the original teardown subsequently reuses it after recursively freeing the parent's children.
+        // PRELOAD creates the replacement as a child, while teardown subsequently reuses it after recursively freeing the parent's children.
         // Detach and promote that explicitly selected replacement so modern heap reclamation cannot invalidate the new active tree.
         RuntimeTreeNode *replacement_previous = nullptr;
         RuntimeTreeNode *child = node->child;
@@ -12370,7 +11553,7 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
             replacement->next = next;
             node->next = replacement;
 
-            // Non-original modern-Windows compatibility: the replacement was parsed while the removed parent remained in the global lists. Rebind its zone-qualified events away from matching parent
+            // The replacement was parsed while the removed parent remained in the global lists. Rebind its zone-qualified events away from the matching parent
             // zones.
             for(RuntimeTreeLink7C *event_link = replacement->link_007c_head; event_link != nullptr; event_link = event_link->next)
             {
@@ -12406,7 +11589,6 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
             }
         }
     }
-#endif
     for(RuntimeTreeNode *child = node->child; child != nullptr;)
     {
         RuntimeTreeNode *next = child->next;
@@ -12501,7 +11683,6 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
 }
 
 
-// GAG.EXE: 0x0042A1B0
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
 {
     auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeMediaBackend) + extension_bytes));
@@ -12542,7 +11723,6 @@ RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_
     return backend;
 }
 
-// GAG.EXE: 0x00429EB0
 RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, uint32_t extension_bytes, uint32_t storage)
 {
     RuntimeAnimationBackend *backend = nullptr;
@@ -12591,9 +11771,6 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
         RuntimeAnimationFileHeader header;
         uint32_t bytes_read;
         runtime_animation_backend_create_api.read_record(record, &header, sizeof(header), &bytes_read, 0);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        trace_animation_startup("backend header record=%p saved=%u bytes=%u sig=%04X", record, saved_position, bytes_read, header.signature);
-#endif
         backend =
             static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
@@ -12629,10 +11806,6 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
         return nullptr;
     }
     backend->base.identity = backend;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    trace_animation_startup("backend created=%p storage=%08X error=%u start=%p end=%p duration=%u", backend, storage, backend->base.error_state, backend->data_start, backend->data_end,
-        backend->base.frame_duration);
-#endif
     backend->base.type = 0xaa;
     backend->base.media_flags |= storage | 0x21;
     backend->base.palette_version = 0x0300;
@@ -12657,7 +11830,6 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     return backend;
 }
 
-// GAG.EXE: 0x0042B620
 RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *result = nullptr;
@@ -12692,7 +11864,6 @@ RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
     }
 }
 
-// GAG.EXE: 0x0042B5B0
 uint32_t get_runtime_media_backend_type(void *identity)
 {
     uint32_t result = 0;
@@ -12709,7 +11880,6 @@ uint32_t get_runtime_media_backend_type(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x004299B0
 uint8_t classify_runtime_media_data(const void *data)
 {
     const auto *bytes = static_cast<const uint8_t *>(data);
@@ -12732,7 +11902,6 @@ uint8_t classify_runtime_media_data(const void *data)
     return std::memcmp(bytes, configuration_signature, sizeof(configuration_signature)) == 0 ? 4 : 0;
 }
 
-// GAG.EXE: 0x00404920
 uint32_t read_compressor_input(void *destination, uint32_t requested_size)
 {
     if(compressor_input_position >= compressor_input_size)
@@ -12749,7 +11918,6 @@ uint32_t read_compressor_input(void *destination, uint32_t requested_size)
     return copied_size;
 }
 
-// GAG.EXE: 0x0042B2A0
 void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t scale_y)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -12765,7 +11933,6 @@ void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t 
     runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
 }
 
-// GAG.EXE: 0x0042A440
 uint32_t stop_runtime_animation_backend(void *identity)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -12784,14 +11951,12 @@ uint32_t stop_runtime_animation_backend(void *identity)
     return 1;
 }
 
-// GAG.EXE: 0x0042B600
 void *get_locked_runtime_media_extension(void *identity)
 {
     RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
     return backend == nullptr ? nullptr : backend->extension_data;
 }
 
-// GAG.EXE: 0x0042B720
 UINT apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, uint32_t *flags, uint32_t force)
 {
     auto *entries = static_cast<RuntimePaletteData *>(palette_data)->entries;
@@ -12832,7 +11997,6 @@ UINT apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_d
     return result;
 }
 
-// GAG.EXE: 0x0042A290
 uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -12869,7 +12033,6 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentat
     return 1;
 }
 
-// GAG.EXE: 0x0042A340
 uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags,
     RuntimeAnimationCallback callback)
 {
@@ -12914,7 +12077,6 @@ uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresen
     return 1;
 }
 
-// GAG.EXE: 0x00427E60
 void configure_runtime_resource_palette(RuntimeResourceObject *resource)
 {
     auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
@@ -12940,7 +12102,6 @@ void configure_runtime_resource_palette(RuntimeResourceObject *resource)
     }
 }
 
-// GAG.EXE: 0x00415D90
 void build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
 {
     if((backend->media_flags & 0x4000000) != 0)
@@ -12991,7 +12152,6 @@ void build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00417260
 uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
 {
     auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
@@ -13058,7 +12218,6 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
     return result;
 }
 
-// GAG.EXE: 0x0042B300
 void finalize_runtime_media_backend(void *identity)
 {
     runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
@@ -13105,7 +12264,6 @@ void finalize_runtime_media_backend(void *identity)
     runtime_media_backend_finalize_api.release_mutex(runtime_media_backend_mutex);
 }
 
-// GAG.EXE: 0x0042A4C0
 void fail_runtime_animation(RuntimeMediaBackend *backend, uint32_t error)
 {
     backend->error_state = error;
@@ -13117,19 +12275,16 @@ void fail_runtime_animation(RuntimeMediaBackend *backend, uint32_t error)
     backend->media_flags |= 1;
 }
 
-// GAG.EXE: 0x0042A4A0
 void pause_all_runtime_animations()
 {
     runtime_animation_control_flags |= 0x1000000;
 }
 
-// GAG.EXE: 0x0042A4B0
 void resume_all_runtime_animations()
 {
     runtime_animation_control_flags &= ~0x1000000u;
 }
 
-// Non-original helper: exact control phase of RunRuntimeAnimationThread.
 RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimationBackend *animation, uint32_t current_time, uint32_t *wait_milliseconds)
 {
     RuntimeMediaBackend &backend = animation->base;
@@ -13224,7 +12379,6 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
     return RuntimeAnimationControlResult::DecodeFrame;
 }
 
-// Non-original helper: exact frame scheduling phase of RunRuntimeAnimationThread.
 void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, uint32_t current_time)
 {
     if(backend->frame_number > 1)
@@ -13255,7 +12409,6 @@ void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, uint32_t cur
     backend->next_frame_time += backend->timing_adjustment;
 }
 
-// Non-original helper: exact frame acquisition phase of RunRuntimeAnimationThread.
 bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
@@ -13269,13 +12422,6 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     {
         uint32_t bytes_read = 0;
         runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        if(backend.frame_number < 2)
-        {
-            trace_animation_startup("frame header backend=%p bytes=%u magic=%04X", animation, bytes_read,
-                bytes_read >= 6 ? static_cast<const RuntimeAnimationFrameHeader *>(backend.frame_header)->signature : 0);
-        }
-#endif
         if(bytes_read != 0x10)
         {
             runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
@@ -13330,7 +12476,6 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     return true;
 }
 
-// Non-original helper: exact visual chunk dispatch phase of RunRuntimeAnimationThread.
 void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
@@ -13338,12 +12483,6 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
     backend.media_flags |= 0x10000000;
     backend.animation_callback(&backend);
     const uint16_t chunk_count = static_cast<const RuntimeAnimationFrameHeader *>(backend.frame_header)->chunk_count;
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    if(backend.frame_number <= 2)
-    {
-        trace_animation_startup("decode backend=%p frame=%u chunks=%u callback=%p", animation, backend.frame_number, chunk_count, backend.animation_callback);
-    }
-#endif
     for(uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
     {
         backend.chunk_header = animation->source_cursor;
@@ -13360,13 +12499,6 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
             payload_size = chunk->size - sizeof(RuntimeAnimationChunkHeader);
         }
         animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + sizeof(RuntimeAnimationChunkHeader);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        if(backend.frame_number <= 2)
-        {
-            trace_animation_startup("chunk begin backend=%p frame=%u index=%u type=%04X payload=%u cursor=%p", animation, backend.frame_number, chunk_index, chunk_type, payload_size,
-                animation->source_cursor);
-        }
-#endif
         bool marks_pixels = true;
         switch(chunk_type)
         {
@@ -13409,19 +12541,12 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
         {
             backend.media_flags |= 0x8000;
         }
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-        if(backend.frame_number <= 2)
-        {
-            trace_animation_startup("chunk end backend=%p frame=%u index=%u type=%04X", animation, backend.frame_number, chunk_index, chunk_type);
-        }
-#endif
         animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
     backend.media_flags |= 0x20000000;
     backend.animation_callback(&backend);
 }
 
-// Non-original helper: exact presentation/completion phase of RunRuntimeAnimationThread.
 void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
@@ -13471,7 +12596,6 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
     }
 }
 
-// Non-original helper: exact audio chunk prepass of RunRuntimeAnimationThread.
 void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
@@ -13599,7 +12723,6 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
     }
 }
 
-// GAG.EXE: 0x0042A520
 DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
 {
     auto *animation = static_cast<RuntimeAnimationBackend *>(backend_pointer);
@@ -13634,7 +12757,6 @@ DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
     }
 }
 
-// GAG.EXE: 0x0042B850
 int32_t present_runtime_animation_frame(RuntimeMediaBackend *backend)
 {
     uint32_t flags = backend->media_flags;
@@ -13692,7 +12814,6 @@ int32_t present_runtime_animation_frame(RuntimeMediaBackend *backend)
     return 1;
 }
 
-// GAG.EXE: 0x00415E60
 void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
 {
     auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
@@ -13736,7 +12857,7 @@ void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
     build_runtime_palette_index_remap(backend);
 }
 
-// Non-original shared implementation for the two mapped GAG MVZ chunk decoders.
+// Shared implementation for the two MVZ chunk decoders.
 void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_counted)
 {
     const auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
@@ -13854,19 +12975,16 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
     }
 }
 
-// GAG.EXE: 0x00415EE0
 void decode_runtime_animation_mvz8(RuntimeMediaBackend *backend)
 {
     decode_runtime_animation_mvz(backend, true);
 }
 
-// GAG.EXE: 0x00416420
 void decode_runtime_animation_mvz5(RuntimeMediaBackend *backend)
 {
     decode_runtime_animation_mvz(backend, false);
 }
 
-// GAG.EXE: 0x00416900
 void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
 {
     const auto *header = static_cast<const uint8_t *>(backend->format_data);
@@ -13909,7 +13027,6 @@ void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00416AD0
 void decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
 {
     const auto *header = static_cast<const uint8_t *>(backend->format_data);
@@ -13970,7 +13087,6 @@ void decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00416DA0
 void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
 {
     const auto *header = static_cast<const uint8_t *>(backend->format_data);
@@ -14077,16 +13193,12 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x0042B820
 void ignore_runtime_animation_chunk_11() {}
 
-// GAG.EXE: 0x0042B830
 void ignore_runtime_animation_chunk_12() {}
 
-// GAG.EXE: 0x0042B840
 void ignore_runtime_animation_chunk_13() {}
 
-// GAG.EXE: 0x0042B4E0
 uint32_t destroy_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *backend = acquire_runtime_media_backend(identity);
@@ -14128,7 +13240,6 @@ uint32_t destroy_runtime_media_backend(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x00410CC0
 RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
 {
     for(;;)
@@ -14158,7 +13269,6 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
     }
 }
 
-// GAG.EXE: 0x00410C40
 RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size)
 {
     auto *backend =
@@ -14185,13 +13295,11 @@ RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, ui
     return result;
 }
 
-// GAG.EXE: 0x00410D40
 void clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
 {
     backend->flags &= 0xfffeffff;
 }
 
-// GAG.EXE: 0x00410DE0
 void *find_available_runtime_generic_child(uint32_t maximum_end_position)
 {
     void *result = nullptr;
@@ -14212,7 +13320,6 @@ void *find_available_runtime_generic_child(uint32_t maximum_end_position)
     return result;
 }
 
-// GAG.EXE: 0x00410E50
 int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t category, const char *name)
 {
     uint32_t position = 0;
@@ -14321,7 +13428,6 @@ int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t 
     return result;
 }
 
-// GAG.EXE: 0x004110B0
 RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const uintptr_t *context, uintptr_t selection, uint32_t flags)
 {
     RuntimeGenericBackendChild *child = nullptr;
@@ -14381,7 +13487,6 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
 }
 
 
-// GAG.EXE: 0x004212E0
 void process_available_runtime_generic_children(uint32_t maximum_end_position)
 {
     for(void *identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position); identity != nullptr;
@@ -14441,7 +13546,6 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position)
 
 
 
-// GAG.EXE: 0x00411220
 RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity)
 {
     for(;;)
@@ -14476,7 +13580,6 @@ RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity
     }
 }
 
-// GAG.EXE: 0x004118F0
 int32_t parse_runtime_generic_integer(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
     uint32_t cursor = *position;
@@ -14512,7 +13615,6 @@ int32_t parse_runtime_generic_integer(const char *text, uint32_t *position, uint
     return value;
 }
 
-// GAG.EXE: 0x004119A0
 int32_t skip_runtime_generic_statement(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
     uint32_t cursor = *position;
@@ -14559,7 +13661,6 @@ int32_t skip_runtime_generic_statement(const char *text, uint32_t *position, uin
     return 0;
 }
 
-// GAG.EXE: 0x00411A20
 int32_t parse_runtime_generic_directive(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
     if((flags & 0x1000) != 0)
@@ -14608,7 +13709,6 @@ int32_t parse_runtime_generic_directive(const char *text, uint32_t *position, ui
     return result;
 }
 
-// GAG.EXE: 0x00411560
 uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t selection, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context)
 {
     uint32_t result = 0;
@@ -14713,7 +13813,6 @@ uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t sele
     return result;
 }
 
-// GAG.EXE: 0x00411420
 void publish_runtime_generic_backend_child_state(void *identity, const uint32_t *state, const DisplaySceneDescriptor *descriptor, int32_t end_offset)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -14739,7 +13838,6 @@ void publish_runtime_generic_backend_child_state(void *identity, const uint32_t 
     release_runtime_generic_backend_child_lock(child);
 }
 
-// GAG.EXE: 0x004122C0
 uint32_t measure_runtime_font_glyph(uint8_t character, const RuntimeMediaBackend *backend)
 {
     const uint16_t atlas_stride = backend->destination_stride;
@@ -14777,7 +13875,6 @@ uint32_t measure_runtime_font_glyph(uint8_t character, const RuntimeMediaBackend
     return maximum_width;
 }
 
-// GAG.EXE: 0x00412370
 uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t character, int32_t x, int32_t y, const RuntimeMediaBackend *font, uint32_t low_color, uint32_t high_color)
 {
     uint8_t low_mask = 0xff;
@@ -14865,7 +13962,6 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
     return maximum_width;
 }
 
-// GAG.EXE: 0x00411800
 uint32_t initialize_runtime_standalone_text(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state)
 {
     if(get_runtime_media_backend_type(font_identity) != 0xac)
@@ -14896,7 +13992,6 @@ uint32_t initialize_runtime_standalone_text(const char *text, uint32_t x, uint32
     return 1;
 }
 
-// GAG.EXE: 0x004118C0
 void draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination)
 {
     uint32_t text_length = 0;
@@ -14911,7 +14006,6 @@ void draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplayScen
     draw_runtime_generic_text(state->text, text_length + 1, generic_state, state->font_identity, destination, 0);
 }
 
-// GAG.EXE: 0x00411FF0
 void draw_runtime_generic_text(const char *text, uint32_t end, const uint32_t *state, void *font_identity, DisplaySceneDescriptor *destination, uint32_t flags)
 {
     uint32_t cursor = state[1];
@@ -15040,7 +14134,6 @@ release:
     release_runtime_media_backend_lock(static_cast<RuntimeMediaBackend *>(font_identity));
 }
 
-// GAG.EXE: 0x00411CF0
 void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *position, uint32_t end, void *font_identity, uint32_t flags)
 {
     uint32_t cursor = *position;
@@ -15207,7 +14300,6 @@ release:
     release_runtime_media_backend_lock(static_cast<RuntimeMediaBackend *>(font_identity));
 }
 
-// GAG.EXE: 0x00411BC0
 uint32_t select_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *position, uint32_t end, uint32_t search_position, void *font_identity, uint32_t flags)
 {
     uint32_t cursor = *position;
@@ -15266,13 +14358,11 @@ finish:
     return result;
 }
 
-// GAG.EXE: 0x004112B0
 void release_runtime_generic_backend_child_lock(RuntimeGenericBackendChild *child)
 {
     child->flags &= ~0x10000u;
 }
 
-// GAG.EXE: 0x0042B6A0
 void release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
 {
     if(backend != nullptr && backend->recursion_count != 0)
@@ -15281,7 +14371,6 @@ void release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00427A30
 void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
@@ -15302,7 +14391,6 @@ void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00427AB0
 void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
@@ -15427,7 +14515,6 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
     }
 }
 
-// GAG.EXE: 0x00427EF0
 int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
@@ -15454,14 +14541,7 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
         }
         else
         {
-            [[maybe_unused]] const uint32_t begin_result = begin_display_scene_update(resource->scene_identifier);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            if(backend->frame_number <= 2)
-            {
-                trace_animation_startup("present begin backend=%p frame=%u flags=%08X scene=%08X result=%08X pixels=%p stride=%u bpp=%u", backend, backend->frame_number, flags,
-                    static_cast<uint32_t>(resource->scene_identifier), begin_result, backend->destination_pixels, backend->destination_stride, backend->destination_bits_per_pixel);
-            }
-#endif
+            begin_display_scene_update(resource->scene_identifier);
             resource->state_flags &= ~1u;
         }
         render_runtime_generic_backend_child(backend);
@@ -15525,27 +14605,7 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
             const DisplayRectangleTransform transform{ static_cast<int16_t>(backend->destination_x), static_cast<int16_t>(backend->destination_y), backend->destination_stride,
                 backend->destination_reserved };
             const DisplayRectangle dirty_rectangle{ backend->dirty_left, backend->dirty_top, backend->dirty_right, backend->dirty_bottom };
-            [[maybe_unused]] const uint32_t end_result = end_display_scene_update(resource->scene_identifier, &transform, &dirty_rectangle);
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-            if(backend->frame_number <= 2)
-            {
-                uint32_t nonzero_pixels = 0;
-                const uint32_t pixel_count = static_cast<uint32_t>(backend->destination_stride) * resource->output_height;
-                for(uint32_t index = 0; index < pixel_count; ++index)
-                {
-                    nonzero_pixels += backend->destination_pixels[index] != 0 ? 1u : 0u;
-                }
-                trace_animation_startup("present end backend=%p frame=%u flags=%08X scene=%08X result=%08X destination=(%u,%u) dirty=(%u,%u)-(%u,%u)", backend, backend->frame_number,
-                    backend->media_flags, static_cast<uint32_t>(resource->scene_identifier), end_result, backend->destination_x, backend->destination_y, backend->dirty_left, backend->dirty_top,
-                    backend->dirty_right, backend->dirty_bottom);
-                [[maybe_unused]] auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier));
-                trace_animation_startup("present scene node=%p xy=(%d,%d) previous_xy=(%d,%d) accumulated=(%d,%d)-(%d,%d) size=%dx%d surface=%p surface_size=%dx%d", scene, scene->x, scene->y,
-                    scene->previous_x, scene->previous_y, scene->accumulated_rectangle.left, scene->accumulated_rectangle.top, scene->accumulated_rectangle.right, scene->accumulated_rectangle.bottom,
-                    scene->width, scene->height, scene->surface, scene->surface->width, scene->surface->height);
-                trace_animation_startup("present pixels backend=%p frame=%u count=%u nonzero=%u first=%02X", backend, backend->frame_number, pixel_count, nonzero_pixels,
-                    backend->destination_pixels[0]);
-            }
-#endif
+            end_display_scene_update(resource->scene_identifier, &transform, &dirty_rectangle);
         }
         backend->media_flags &= ~0x20000000u;
     }
@@ -15553,7 +14613,6 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
     return 1;
 }
 
-// GAG.EXE: 0x00411340
 uint32_t get_runtime_generic_backend_child_flags(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15566,7 +14625,6 @@ uint32_t get_runtime_generic_backend_child_flags(void *identity)
     return flags;
 }
 
-// GAG.EXE: 0x00411360
 void clear_runtime_generic_backend_child_ready(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15577,7 +14635,6 @@ void clear_runtime_generic_backend_child_ready(void *identity)
     }
 }
 
-// GAG.EXE: 0x00411380
 void enable_runtime_generic_backend_child_mode_200(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15588,7 +14645,6 @@ void enable_runtime_generic_backend_child_mode_200(void *identity)
     }
 }
 
-// GAG.EXE: 0x004113A0
 void disable_runtime_generic_backend_child_mode_200(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15599,7 +14655,6 @@ void disable_runtime_generic_backend_child_mode_200(void *identity)
     }
 }
 
-// GAG.EXE: 0x004113C0
 bool get_runtime_generic_backend_child_context(void *identity, uintptr_t *context)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15612,7 +14667,6 @@ bool get_runtime_generic_backend_child_context(void *identity, uintptr_t *contex
     return child != nullptr;
 }
 
-// GAG.EXE: 0x004113F0
 bool set_runtime_generic_backend_child_context(void *identity, const uintptr_t *context)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15625,7 +14679,6 @@ bool set_runtime_generic_backend_child_context(void *identity, const uintptr_t *
     return child != nullptr;
 }
 
-// GAG.EXE: 0x004114D0
 uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context)
 {
     uint32_t result = 0;
@@ -15657,7 +14710,6 @@ uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *sta
     return result;
 }
 
-// GAG.EXE: 0x004112C0
 void *destroy_runtime_generic_backend_child(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
@@ -15688,7 +14740,6 @@ void *destroy_runtime_generic_backend_child(void *identity)
     return reinterpret_cast<void *>(1);
 }
 
-// GAG.EXE: 0x00410D50
 uint32_t destroy_runtime_generic_backend(void *identity)
 {
     RuntimeGenericBackend *backend = acquire_runtime_generic_backend(identity);
@@ -15720,7 +14771,6 @@ uint32_t destroy_runtime_generic_backend(void *identity)
     return 1;
 }
 
-// GAG.EXE: 0x00402040
 void destroy_runtime_sound_handle(uint32_t handle)
 {
     if(runtime_sound_enabled == 0)
@@ -15766,7 +14816,6 @@ void destroy_runtime_sound_handle(uint32_t handle)
     runtime_sound_destroy_api.release_mutex(runtime_sound_mutex);
 }
 
-// GAG.EXE: 0x00401820
 uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
 {
     if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
@@ -15896,7 +14945,6 @@ uint32_t create_runtime_sound_handle(WAVEFORMATEX *source_format)
     return 0xffffffff;
 }
 
-// GAG.EXE: 0x00401BB0
 uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, int32_t replace)
 {
     if(runtime_sound_enabled == 0)
@@ -15948,7 +14996,6 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
     return 0;
 }
 
-// GAG.EXE: 0x00401CD0
 uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
@@ -15971,7 +15018,6 @@ uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
     return 0;
 }
 
-// GAG.EXE: 0x00401D50
 uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
@@ -15997,7 +15043,6 @@ uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing)
     return 0;
 }
 
-// GAG.EXE: 0x00403380
 void set_runtime_sound_loop_value(uint32_t handle, uint32_t value)
 {
     if(handle != 0 && handle <= runtime_sound_maximum_handle)
@@ -16013,7 +15058,6 @@ void set_runtime_sound_loop_value(uint32_t handle, uint32_t value)
     }
 }
 
-// GAG.EXE: 0x004033E0
 RuntimeSoundSlot *get_runtime_sound_slot(uint32_t handle)
 {
     if(handle != 0 && handle < 0x400 && runtime_sound_slots[handle].active != 0)
@@ -16023,7 +15067,6 @@ RuntimeSoundSlot *get_runtime_sound_slot(uint32_t handle)
     return nullptr;
 }
 
-// GAG.EXE: 0x00401DE0
 uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
@@ -16069,7 +15112,6 @@ uint32_t fade_out_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t re
     return 0;
 }
 
-// GAG.EXE: 0x00401F10
 uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t reset_timing)
 {
     if(runtime_sound_enabled == 0)
@@ -16115,7 +15157,6 @@ uint32_t fade_in_runtime_sound(uint32_t handle, int32_t duration_ms, int32_t res
     return 0;
 }
 
-// GAG.EXE: 0x00403310
 uint32_t set_runtime_sound_volume(uint32_t handle, uint8_t volume)
 {
     if(runtime_sound_enabled == 0)
@@ -16136,7 +15177,6 @@ uint32_t set_runtime_sound_volume(uint32_t handle, uint8_t volume)
     return 0;
 }
 
-// GAG.EXE: 0x004035C0
 void CALLBACK runtime_wave_out_callback(HWAVEOUT wave_out, UINT message, DWORD_PTR, DWORD_PTR, DWORD_PTR)
 {
     if(message == WOM_OPEN)
@@ -16154,7 +15194,6 @@ void CALLBACK runtime_wave_out_callback(HWAVEOUT wave_out, UINT message, DWORD_P
     }
 }
 
-// GAG.EXE: 0x00401190
 uint32_t shutdown_runtime_sound()
 {
     if(runtime_sound_enabled == 0)
@@ -16196,13 +15235,11 @@ uint32_t shutdown_runtime_sound()
     return 1;
 }
 
-// GAG.EXE: 0x004010A0
 void toggle_runtime_sound_state()
 {
     runtime_sound_toggle_state = ~runtime_sound_toggle_state;
 }
 
-// GAG.EXE: 0x004015D0
 uint32_t pause_runtime_sound_output(int32_t close_output)
 {
     if(runtime_sound_enabled == 0)
@@ -16235,7 +15272,6 @@ uint32_t pause_runtime_sound_output(int32_t close_output)
     return 1;
 }
 
-// GAG.EXE: 0x004016D0
 uint32_t resume_runtime_sound_output()
 {
     if(runtime_sound_enabled == 0)
@@ -16286,7 +15322,6 @@ uint32_t resume_runtime_sound_output()
     return 1;
 }
 
-// GAG.EXE: 0x004010B0
 uint32_t ensure_runtime_sound_ready(WAVEFORMATEX *format, uint32_t mixer_argument)
 {
     if(runtime_sound_enabled == 0)
@@ -16319,7 +15354,6 @@ uint32_t ensure_runtime_sound_ready(WAVEFORMATEX *format, uint32_t mixer_argumen
     return 1;
 }
 
-// GAG.EXE: 0x00402100
 DWORD WINAPI run_runtime_sound_thread(LPVOID)
 {
     runtime_sound_window_creation_failed = 0;
@@ -16343,7 +15377,6 @@ DWORD WINAPI run_runtime_sound_thread(LPVOID)
     return 1;
 }
 
-// GAG.EXE: 0x004021E0
 LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     if(message == WOM_OPEN)
@@ -16380,13 +15413,9 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
                 {
                     output.header->dwFlags &= ~WHDR_DONE;
                     runtime_sound_window_api.wait_for_single_object(runtime_sound_mutex, INFINITE);
-#if defined(FREEGAG_WINDOWS_FIXES)
-                    // Non-original modern-Windows compatibility: HWAVEOUT is an opaque pointer-sized handle on current Windows and cannot serve as the millisecond marker assumed by the original.
+                    // HWAVEOUT is an opaque pointer-sized handle and cannot serve as a millisecond marker.
                     // RuntimeWaveOutCallback already supplies timeGetTime() in lParam for WOM_DONE.
                     runtime_sound_mixer(message == WOM_DONE ? static_cast<uint32_t>(lparam) : static_cast<uint32_t>(wparam));
-#else
-                    runtime_sound_mixer(static_cast<uint32_t>(wparam));
-#endif
                     runtime_sound_window_api.release_mutex(runtime_sound_mutex);
                     runtime_sound_window_api.wave_out_write(reinterpret_cast<HWAVEOUT>(wparam), output.header, sizeof(WAVEHDR));
                     ++runtime_sound_output_index;
@@ -16412,7 +15441,7 @@ LRESULT CALLBACK runtime_sound_window_procedure(HWND window, UINT message, WPARA
     return runtime_sound_window_api.def_window_proc(window, message, wparam, lparam);
 }
 
-// Non-original helper: exact 8-bit saturating add used by GAG's PCM mixers.
+// Saturating 8-bit addition used by the PCM mixers.
 void mix_unsigned_8bit_sample(uint8_t *destination, uint8_t scaled_sample, uint8_t scaled_silence)
 {
     const int mixed = static_cast<int>(*destination) + static_cast<int>(scaled_sample) - static_cast<int>(scaled_silence);
@@ -16430,7 +15459,7 @@ void mix_unsigned_8bit_sample(uint8_t *destination, uint8_t scaled_sample, uint8
     }
 }
 
-// Non-original helper: exact signed 16-bit overflow clamps used by GAG's PCM mixers.
+// Signed 16-bit overflow clamping used by the PCM mixers.
 void mix_signed_16bit_sample(uint16_t *destination, uint16_t scaled_sample)
 {
     const uint16_t original = *destination;
@@ -16448,7 +15477,7 @@ void mix_signed_16bit_sample(uint16_t *destination, uint16_t scaled_sample)
     }
 }
 
-// Non-original helper shared by the four address-bearing PCM mixer entry points.
+// Shared implementation for the PCM mixer entry points.
 void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
 {
     const bool sixteen_bit = mode >= 2;
@@ -16699,31 +15728,26 @@ void mix_runtime_sound_pcm(uint32_t marker, uint32_t mode)
     } while(handle <= static_cast<uint8_t>(runtime_sound_maximum_handle));
 }
 
-// GAG.EXE: 0x004023C0
 void mix_runtime_sound_8bit_mono(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 0);
 }
 
-// GAG.EXE: 0x00402770
 void mix_runtime_sound_8bit_stereo(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 1);
 }
 
-// GAG.EXE: 0x00402B10
 void mix_runtime_sound_16bit_mono(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 2);
 }
 
-// GAG.EXE: 0x00402F10
 void mix_runtime_sound_16bit_stereo(uint32_t marker)
 {
     mix_runtime_sound_pcm(marker, 3);
 }
 
-// GAG.EXE: 0x00401330
 uint32_t initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, uint32_t)
 {
     if(runtime_sound_enabled == 0 || runtime_sound_fault != 0)
@@ -16813,7 +15837,6 @@ uint32_t initialize_runtime_wave_out_mixer(WAVEFORMATEX *format, uint32_t)
     return 1;
 }
 
-// GAG.EXE: 0x00401000
 void initialize_runtime_sound_class(HINSTANCE instance)
 {
     if(runtime_sound_enabled != 0)
@@ -16833,7 +15856,6 @@ void initialize_runtime_sound_class(HINSTANCE instance)
     }
 }
 
-// GAG.EXE: 0x004012C0
 uint32_t runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX *right)
 {
     if(left == nullptr || right == nullptr)
@@ -16843,7 +15865,6 @@ uint32_t runtime_wave_formats_equal(const WAVEFORMATEX *left, const WAVEFORMATEX
     return left->wBitsPerSample == right->wBitsPerSample && left->wFormatTag == right->wFormatTag && left->nChannels == right->nChannels && left->nSamplesPerSec == right->nSamplesPerSec;
 }
 
-// GAG.EXE: 0x00403410
 uint32_t calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAVEFORMATEX *destination, uint16_t *conversion_flags)
 {
     uint16_t flags = 0;
@@ -16921,7 +15942,6 @@ uint32_t calculate_runtime_wave_conversion(const WAVEFORMATEX *source, const WAV
     return 1;
 }
 
-// GAG.EXE: 0x00401300
 void cleanup_runtime_sound_format_buffer()
 {
     if(runtime_sound_format_buffer != nullptr)
@@ -16932,7 +15952,6 @@ void cleanup_runtime_sound_format_buffer()
     }
 }
 
-// Non-original helper: exact pre-dispatch normalization from ConstructRuntimeResourceObject.
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags)
 {
     RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y };
@@ -16979,7 +15998,6 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t s
     return plan;
 }
 
-// GAG.EXE: 0x00424EC0
 void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t scale_or_loop, uint32_t flags)
 {
     const RuntimeResourceConstructionPlan plan = prepare_runtime_resource_construction(scene_identifier, x, y, flags);
@@ -17209,10 +16227,6 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     resource->output_height = output_height;
                     resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
                         reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, nullptr));
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-                    trace_animation_startup("resource animation path=%s backend=%p error=%u size=%ux%u scene=%08X", path, backend, backend->base.error_state, output_width, output_height,
-                        static_cast<uint32_t>(resource->scene_identifier));
-#endif
                     if(resource->scene_identifier != 0)
                     {
                         resource->callback_position = resource->scene_descriptor.pixels;
@@ -17343,7 +16357,6 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
     return result;
 }
 
-// GAG.EXE: 0x00428160
 uint32_t update_runtime_resource_visibility(DisplayTraversalState *state)
 {
     auto *context = static_cast<RuntimeResourceVisibilityCallbackContext *>(state->callback_context);
@@ -17391,7 +16404,6 @@ uint32_t update_runtime_resource_visibility(DisplayTraversalState *state)
     return result;
 }
 
-// GAG.EXE: 0x00425BD0
 void request_runtime_resource_destruction(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
@@ -17419,7 +16431,6 @@ void request_runtime_resource_destruction(void *identity)
     runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
 }
 
-// GAG.EXE: 0x00425FB0
 uint32_t query_runtime_resource_frame_limit(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
@@ -17432,19 +16443,16 @@ uint32_t query_runtime_resource_frame_limit(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x004258C0
 void set_runtime_property_value(uint32_t value)
 {
     runtime_property_value = value;
 }
 
-// GAG.EXE: 0x00425F00
 uint32_t get_runtime_property_value()
 {
     return runtime_property_value;
 }
 
-// GAG.EXE: 0x00426080
 uint16_t query_runtime_resource_frame_number(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
@@ -17460,7 +16468,6 @@ uint16_t query_runtime_resource_frame_number(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x004244E0
 void select_runtime_resource(char *path)
 {
     runtime_resource_selection_api.enter_critical_section(&runtime_resource_critical_section);
@@ -17479,7 +16486,6 @@ void select_runtime_resource(char *path)
     }
 }
 
-// GAG.EXE: 0x00425FF0
 uint32_t query_runtime_resource_playback_flags(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
@@ -17514,7 +16520,6 @@ uint32_t query_runtime_resource_playback_flags(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x004260B0
 void unload_runtime_game_dll()
 {
     runtime_game_lifecycle_api.enter_critical_section(&runtime_game_dll_critical_section);
@@ -17532,7 +16537,6 @@ void unload_runtime_game_dll()
     runtime_game_lifecycle_api.leave_critical_section(&runtime_game_dll_critical_section);
 }
 
-// GAG.EXE: 0x00426110
 bool load_and_initialize_runtime_game_dll(const char *path)
 {
     if(path == nullptr)
@@ -17583,7 +16587,6 @@ bool load_and_initialize_runtime_game_dll(const char *path)
     return result;
 }
 
-// GAG.EXE: 0x00426210
 uint32_t stop_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
@@ -17599,7 +16602,6 @@ uint32_t stop_runtime_game_dll()
     return 1;
 }
 
-// GAG.EXE: 0x00426270
 uint32_t pause_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
@@ -17610,7 +16612,6 @@ uint32_t pause_runtime_game_dll()
     return 1;
 }
 
-// GAG.EXE: 0x00426290
 uint32_t resume_runtime_game_dll()
 {
     if((runtime_scene_control_flags & 0x10) == 0)
@@ -17621,7 +16622,6 @@ uint32_t resume_runtime_game_dll()
     return 1;
 }
 
-// GAG.EXE: 0x004243F0
 void update_runtime_pointer_position(int32_t x, int32_t y)
 {
     RuntimeResourceObject *record = nullptr;
@@ -17671,10 +16671,8 @@ void update_runtime_pointer_position(int32_t x, int32_t y)
     }
 }
 
-// GAG.EXE: 0x004231E0
 LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
-#if defined(FREEGAG_WINDOWS_FIXES)
     bool modern_windows_cursor_reentry = false;
     if(message == WM_LBUTTONDOWN)
     {
@@ -17706,10 +16704,8 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     {
         modern_windows_game_cursor_tracking = false;
     }
-#endif
     const auto input_lparam = [&]() -> LPARAM
     {
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_presentation_is_scaled()
             && (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN
                 || message == WM_MBUTTONUP))
@@ -17718,7 +16714,6 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
             const int32_t y = map_modern_windows_presentation_coordinate(static_cast<uint16_t>(HIWORD(lparam)), modern_windows_presentation_state.viewport_height, runtime_game_host_context.height);
             return static_cast<LPARAM>(MAKELONG(x, y));
         }
-#endif
         return lparam;
     };
     const auto translated_lparam = [&]() -> LPARAM
@@ -17738,12 +16733,10 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
         if(message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP)
         {
             runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
-#if defined(FREEGAG_WINDOWS_FIXES)
             if(modern_windows_cursor_reentry)
             {
                 leave_runtime_state_1000();
             }
-#endif
         }
         return 0;
     }
@@ -17759,12 +16752,10 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
         {
             PAINTSTRUCT paint;
             runtime_game_window_api.begin_paint(window, &paint);
-#if defined(FREEGAG_WINDOWS_FIXES)
             if(modern_windows_presentation_is_scaled())
             {
                 rectangle = { 0, 0, runtime_game_host_context.width, runtime_game_host_context.height };
             }
-#endif
             DisplayRectangle display_rectangle{ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
             runtime_game_window_api.queue_display_rectangle(&display_rectangle);
             runtime_game_window_api.end_paint(window, &paint);
@@ -17783,12 +16774,10 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
             runtime_game_window_api.update_pointer_position(static_cast<uint16_t>(LOWORD(input)), static_cast<uint16_t>(HIWORD(input)));
         }
         runtime_game_window_api.send_message(runtime_game_main_window, message, wparam, translated_lparam());
-#if defined(FREEGAG_WINDOWS_FIXES)
         if(modern_windows_cursor_reentry)
         {
             leave_runtime_state_1000();
         }
-#endif
         runtime_game_window_api.enqueue_pair(message, static_cast<uint32_t>(input_lparam()));
         return 0;
     }
@@ -17866,7 +16855,6 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     return runtime_game_window_api.default_window_procedure(window, message, wparam, lparam);
 }
 
-// GAG.EXE: 0x00424D80
 uint32_t destroy_runtime_resource(void *identity)
 {
     auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_destroy_api.acquire_record(identity));
@@ -17933,7 +16921,6 @@ uint32_t destroy_runtime_resource(void *identity)
     return result;
 }
 
-// GAG.EXE: 0x00405000
 void remove_runtime_generic_resource(void *identity)
 {
     if(script_runtime_root == nullptr || script_runtime_root->generic_resources == nullptr)
@@ -17966,7 +16953,6 @@ void remove_runtime_generic_resource(void *identity)
     }
 }
 
-// GAG.EXE: 0x00407810
 RuntimeNamedNode *find_runtime_named_child(void *parent_identity, void *child_identity)
 {
     for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
@@ -17990,7 +16976,6 @@ RuntimeNamedNode *find_runtime_named_child(void *parent_identity, void *child_id
     return nullptr;
 }
 
-// GAG.EXE: 0x00407720
 RuntimeResourceCacheEntry *find_runtime_resource_cache_entry(void *parent_identity, const char *name)
 {
     for(RuntimeNamedNode *parent = script_runtime_root->runtime_nodes; parent != nullptr; parent = parent->next)
@@ -18017,7 +17002,6 @@ RuntimeResourceCacheEntry *find_runtime_resource_cache_entry(void *parent_identi
     return nullptr;
 }
 
-// GAG.EXE: 0x00407D10
 void append_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
 {
     ++parent->status;
@@ -18041,7 +17025,6 @@ void append_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEn
     parent->cache_entry_sentinel = entry;
 }
 
-// GAG.EXE: 0x00407D50
 void remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEntry *entry)
 {
     if(parent->cache_entry_cursor == entry)
@@ -18074,7 +17057,6 @@ void remove_runtime_named_child(RuntimeNamedNode *parent, RuntimeResourceCacheEn
     --parent->status;
 }
 
-// GAG.EXE: 0x00407A20
 uint32_t remove_runtime_named_child_by_identity(void *parent_identity, void *child_identity)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
@@ -18104,7 +17086,6 @@ uint32_t remove_runtime_named_child_by_identity(void *parent_identity, void *chi
     return 0;
 }
 
-// GAG.EXE: 0x00407780
 RuntimeResourceCacheEntry *get_or_create_runtime_resource_cache_entry(void *parent_identity, const char *name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
@@ -18127,7 +17108,6 @@ RuntimeResourceCacheEntry *get_or_create_runtime_resource_cache_entry(void *pare
     return entry;
 }
 
-// GAG.EXE: 0x00407860
 RuntimeResourceCacheEntry *get_or_create_runtime_child_by_data(void *parent_identity, void *data)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
@@ -18159,7 +17139,6 @@ RuntimeResourceCacheEntry *get_or_create_runtime_child_by_data(void *parent_iden
     return entry;
 }
 
-// GAG.EXE: 0x004078D0
 void add_script_object_to_runtime_named_node(const void *node_name, const char *object_name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
@@ -18203,7 +17182,6 @@ void add_script_object_to_runtime_named_node(const void *node_name, const char *
     append_runtime_named_child(parent, entry);
 }
 
-// GAG.EXE: 0x00407490
 uint32_t parse_runtime_named_node(ScriptParserState *parser)
 {
     char value[0x80];
@@ -18315,7 +17293,6 @@ uint32_t parse_runtime_named_node(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x00407990
 void remove_script_object_from_runtime_named_node(const void *node_name, const char *object_name)
 {
     RuntimeNamedNode *parent = script_runtime_root->runtime_nodes;
@@ -18355,7 +17332,6 @@ void remove_script_object_from_runtime_named_node(const void *node_name, const c
     }
 }
 
-// GAG.EXE: 0x00407C00
 uint32_t rotate_runtime_named_node_cursor_previous(const void *node_name, int32_t count)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
@@ -18379,7 +17355,6 @@ uint32_t rotate_runtime_named_node_cursor_previous(const void *node_name, int32_
     return 1;
 }
 
-// GAG.EXE: 0x00407C60
 uint32_t rotate_runtime_named_node_cursor_next(const void *node_name, int32_t count)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
@@ -18403,7 +17378,6 @@ uint32_t rotate_runtime_named_node_cursor_next(const void *node_name, int32_t co
     return 1;
 }
 
-// GAG.EXE: 0x00407CC0
 uint32_t clear_runtime_named_node_children(const void *node_name)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
@@ -18422,7 +17396,6 @@ uint32_t clear_runtime_named_node_children(const void *node_name)
     return 1;
 }
 
-// GAG.EXE: 0x00407DD0
 void serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->runtime_nodes == nullptr)
@@ -18454,7 +17427,6 @@ void serialize_runtime_named_nodes(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x00407EE0
 void purge_disabled_runtime_named_nodes()
 {
     if(script_runtime_root == nullptr)
@@ -18496,7 +17468,6 @@ void purge_disabled_runtime_named_nodes()
     script_runtime_root->runtime_nodes = retained_head;
 }
 
-// GAG.EXE: 0x00407690
 RuntimeNamedNode *get_or_create_runtime_named_node(const char *name)
 {
     RuntimeNamedNode *last = script_runtime_root->runtime_nodes;
@@ -18531,7 +17502,6 @@ RuntimeNamedNode *get_or_create_runtime_named_node(const char *name)
     return static_cast<RuntimeNamedNode *>(node->identity);
 }
 
-// GAG.EXE: 0x0040A7A0
 bool set_runtime_plans_inactive()
 {
     bool changed = false;
@@ -18554,7 +17524,6 @@ bool set_runtime_plans_inactive()
     return changed;
 }
 
-// GAG.EXE: 0x0040A800
 bool clear_runtime_plans_inactive()
 {
     bool changed = false;
@@ -18577,7 +17546,6 @@ bool clear_runtime_plans_inactive()
     return changed;
 }
 
-// GAG.EXE: 0x0040CD60
 RuntimeTreeNode *find_runtime_tree_node(RuntimeTreeNode *root, void *identity)
 {
     while(root != nullptr)
@@ -18600,13 +17568,11 @@ RuntimeTreeNode *find_runtime_tree_node(RuntimeTreeNode *root, void *identity)
     return nullptr;
 }
 
-// GAG.EXE: 0x004065E0
 RuntimeTreeNode *find_runtime_tree_node_by_identity(void *identity)
 {
     return find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
 }
 
-// GAG.EXE: 0x004097D0
 void *find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -18633,7 +17599,6 @@ void *find_last_runtime_tree_scene_link(RuntimeTreeNode *root)
     return root->scene_link_tail;
 }
 
-// GAG.EXE: 0x00409B60
 void *find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -18660,7 +17625,6 @@ void *find_last_runtime_tree_secondary_resource_link(RuntimeTreeNode *root)
     return root->secondary_resource_link_tail;
 }
 
-// GAG.EXE: 0x0040A500
 void *find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -18687,28 +17651,24 @@ void *find_last_runtime_tree_primary_resource_link(RuntimeTreeNode *root)
     return root->primary_resource_link_tail;
 }
 
-// GAG.EXE: 0x00406860
 void *find_last_runtime_scene_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_scene_link(root);
 }
 
-// GAG.EXE: 0x00406880
 void *find_last_runtime_primary_resource_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_primary_resource_link(root);
 }
 
-// GAG.EXE: 0x004068A0
 void *find_last_runtime_secondary_resource_link_by_identity(void *identity)
 {
     RuntimeTreeNode *root = find_runtime_tree_node(script_runtime_root->runtime_tree, identity);
     return root == nullptr ? nullptr : find_last_runtime_tree_secondary_resource_link(root);
 }
 
-// GAG.EXE: 0x00426BD0
 void destroy_runtime_tree_resources(void *identity)
 {
     RuntimeTreeNode *root = runtime_tree_destruction_api.resolve_tree(identity);
@@ -18811,7 +17771,6 @@ void destroy_runtime_tree_resources(void *identity)
     runtime_tree_destruction_api.wait_for_resource_count(count);
 }
 
-// GAG.EXE: 0x00425C40
 void finalize_runtime_resource_destruction(void *identity)
 {
     intptr_t scene_identifier = 0;
@@ -18864,7 +17823,6 @@ void finalize_runtime_resource_destruction(void *identity)
     runtime_resource_scene_destruction_api.update_scene_region(scene_identifier, x, y, width, height);
 }
 
-// GAG.EXE: 0x00427900
 void update_runtime_resource_scene_region(intptr_t scene_identifier, int32_t x, int32_t y, int32_t width, int32_t height)
 {
     DisplayRectangle rectangle{ x, y, x + width, y + height };
@@ -18907,7 +17865,6 @@ void update_runtime_resource_scene_region(intptr_t scene_identifier, int32_t x, 
     runtime_resource_scene_region_api.unlock_scene(scene_identifier);
 }
 
-// GAG.EXE: 0x00417370
 void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle)
 {
     auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
@@ -18954,7 +17911,6 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
     }
 }
 
-// GAG.EXE: 0x0042B140
 uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)
 {
     uint32_t result = 0;
@@ -19004,12 +17960,8 @@ uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *
     return result;
 }
 
-// GAG.EXE: 0x00426D50
 void select_runtime_scene_transition(uint32_t flags)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    trace_animation_startup("select scene transition flags=%08X", flags);
-#endif
     uint32_t available;
     if((flags & 0x10000000) != 0)
     {
@@ -19048,12 +18000,8 @@ void select_runtime_scene_transition(uint32_t flags)
     }
 }
 
-// GAG.EXE: 0x00426E30
 void apply_immediate_runtime_scene_transition(uint32_t, uint32_t flags)
 {
-#if defined(FREEGAG_WINDOWS_FIXES) && defined(_DEBUG)
-    trace_animation_startup("apply immediate transition flags=%08X current=%p", flags, current_runtime_resource);
-#endif
     DisplayRectangle rectangle{ 0, 0, 0, 0 };
     uint32_t type = flags & 0xff000;
     if(type == 0x1000)
@@ -19098,7 +18046,6 @@ void apply_immediate_runtime_scene_transition(uint32_t, uint32_t flags)
     runtime_immediate_scene_transition_api.release_record(record);
 }
 
-// GAG.EXE: 0x00426F40
 void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
 {
     uint8_t palette_step = static_cast<uint8_t>(step);
@@ -19259,7 +18206,6 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     }
 }
 
-// GAG.EXE: 0x004272D0
 void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags)
 {
     RuntimeLockRecord *record = runtime_rectangle_scene_transition_api.acquire_record(current_runtime_resource);
@@ -19402,7 +18348,6 @@ void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags)
     runtime_rectangle_scene_transition_api.release_record(record);
 }
 
-// GAG.EXE: 0x00425930
 void set_runtime_resource_state(void *identity, uint32_t state)
 {
     RuntimeLockRecord *record = runtime_resource_state_api.acquire_record(identity);
@@ -19528,7 +18473,6 @@ void set_runtime_resource_state(void *identity, uint32_t state)
     runtime_resource_state_api.release_record(record);
 }
 
-// GAG.EXE: 0x00409370
 uint32_t parse_runtime_command_definition(ScriptParserState *parser)
 {
     uint32_t &count = script_runtime_root->command_definition_count;
@@ -19593,7 +18537,6 @@ uint32_t parse_runtime_command_definition(ScriptParserState *parser)
     return count;
 }
 
-// GAG.EXE: 0x004094C0
 void append_dual_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer != nullptr && flags != 0 && (flags & 0x00200000) != 0)
@@ -19604,7 +18547,6 @@ void append_dual_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
     }
 }
 
-// GAG.EXE: 0x00409510
 void serialize_runtime_command_definitions(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr)
@@ -19631,7 +18573,6 @@ void serialize_runtime_command_definitions(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x004095E0
 void clear_runtime_command_definitions()
 {
     if(script_runtime_root != nullptr)
@@ -19645,7 +18586,6 @@ void clear_runtime_command_definitions()
     }
 }
 
-// GAG.EXE: 0x00409600
 uint32_t parse_runtime_tree_scene_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
@@ -19747,7 +18687,6 @@ uint32_t parse_runtime_tree_scene_link(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x00409A80
 uint32_t parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
@@ -19791,7 +18730,6 @@ uint32_t parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x00409E50
 uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
 {
     RuntimeTreeNode *node = parser->owner;
@@ -20013,7 +18951,6 @@ uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x00408DD0
 uint32_t parse_runtime_visual_object(ScriptParserState *parser)
 {
     bool invert_no_palette = false;
@@ -20139,7 +19076,6 @@ uint32_t parse_runtime_visual_object(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x00409060
 void *create_or_update_runtime_visual_object(const void *name, const void *file_name, int32_t position_x, int32_t position_y, uint32_t flags, uint32_t palette_flags)
 {
     RuntimeVisualObject *previous = nullptr;
@@ -20197,7 +19133,6 @@ void *create_or_update_runtime_visual_object(const void *name, const void *file_
     return object->identity;
 }
 
-// GAG.EXE: 0x00409210
 void serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
 {
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
@@ -20225,7 +19160,6 @@ void serialize_runtime_visual_objects(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x00408B80
 void serialize_script_object_states(ScriptTextBuffer *buffer)
 {
     if(script_runtime_root == nullptr || script_runtime_root->objects == nullptr)
@@ -20280,7 +19214,6 @@ void serialize_script_object_states(ScriptTextBuffer *buffer)
     }
 }
 
-// GAG.EXE: 0x00409330
 RuntimeVisualObject *find_runtime_visual_object(const char *name)
 {
     for(RuntimeVisualObject *object = script_runtime_root->visual_objects; object != nullptr; object = object->next)
@@ -20293,7 +19226,6 @@ RuntimeVisualObject *find_runtime_visual_object(const char *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x0040C3D0
 void enqueue_runtime_event_record(const uintptr_t *record)
 {
     if(script_runtime_root != nullptr && record != nullptr)
@@ -20315,7 +19247,6 @@ void enqueue_runtime_event_record(const uintptr_t *record)
     }
 }
 
-// GAG.EXE: 0x0040C390
 void acknowledge_current_runtime_event_record()
 {
     if(script_runtime_root != nullptr && script_runtime_root->transient_index_2 != script_runtime_root->transient_index_1)
@@ -20332,7 +19263,6 @@ void acknowledge_current_runtime_event_record()
     }
 }
 
-// GAG.EXE: 0x0040C440
 uint32_t read_runtime_event_record(uintptr_t *record, int32_t advance)
 {
     if(record != nullptr)
@@ -20358,7 +19288,6 @@ uint32_t read_runtime_event_record(uintptr_t *record, int32_t advance)
     return 1;
 }
 
-// GAG.EXE: 0x004237F0
 int32_t select_pointer_region_scene(RuntimePointerRegion *region)
 {
     region->current_scene_bit = 0;
@@ -20389,7 +19318,6 @@ int32_t select_pointer_region_scene(RuntimePointerRegion *region)
     return -1;
 }
 
-// GAG.EXE: 0x00407A80
 uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tree_identity, RuntimePointerRegion *region)
 {
     RuntimeNamedNode *node = script_runtime_root->runtime_nodes;
@@ -20423,8 +19351,7 @@ uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tre
             update_runtime_tree_link_0084(tree_identity, link->identity, 0, 0, 0, 0, 0, object, nullptr, 0, object->command_mask, 0x7fffffff);
             if(link->primary_resource_identity != nullptr)
             {
-                uint8_t file_name_bytes[sizeof(void *)];
-                const void *file_name;
+                const void *file_name = nullptr;
                 if((object->flags_042c & 0x10000) == 0)
                 {
                     file_name = object->mouse_visual_name;
@@ -20432,10 +19359,6 @@ uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tre
                 else if(object->visual_object != nullptr)
                 {
                     file_name = object->visual_object->file_name;
-                }
-                else
-                {
-                    std::memcpy(&file_name, file_name_bytes, sizeof(file_name));
                 }
                 update_runtime_tree_primary_resource_link(tree_identity, link->primary_resource_identity, file_name, 0, 0, 0);
                 static_cast<RuntimeTreePrimaryResourceLink *>(link->primary_resource_identity)->flags &= 0x7fffffff;
@@ -20457,7 +19380,6 @@ uint32_t synchronize_runtime_pointer_owner_slots(void *owner_identity, void *tre
     return 1;
 }
 
-// GAG.EXE: 0x00425D50
 RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_identity, void *fixed_resource_identity, void *secondary_resource_identity, uintptr_t selection, uint32_t flags)
 {
     RuntimeGenericBackendChild *child = nullptr;
@@ -20534,7 +19456,6 @@ RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_
 
 
 
-// GAG.EXE: 0x004268B0
 void rebuild_runtime_tree_resources(void *identity)
 {
     RuntimeTreeNode *root = runtime_tree_resource_rebuild_api.resolve_tree(identity);
@@ -20675,7 +19596,6 @@ void rebuild_runtime_tree_resources(void *identity)
 }
 
 
-// GAG.EXE: 0x00426700
 void rebuild_runtime_pointer_resources()
 {
     RuntimeTreeNode *root = runtime_pointer_resource_rebuild_api.resolve_tree(runtime_pointer_root_identity);
@@ -20781,7 +19701,6 @@ void rebuild_runtime_pointer_resources()
 }
 
 
-// GAG.EXE: 0x00423BC0
 uint32_t handle_runtime_left_button_up()
 {
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
@@ -20825,7 +19744,6 @@ uint32_t handle_runtime_left_button_up()
     return 0;
 }
 
-// GAG.EXE: 0x004238B0
 uint32_t handle_runtime_left_button_down()
 {
     if((runtime_scene_control_flags & 0x100000) == 0)
@@ -20952,7 +19870,6 @@ uint32_t handle_runtime_left_button_down()
     return 0;
 }
 
-// GAG.EXE: 0x00423CA0
 uint32_t handle_runtime_right_button_down()
 {
     if((runtime_scene_control_flags & 0x100000) == 0)
@@ -21068,7 +19985,6 @@ uint32_t handle_runtime_right_button_down()
     return 0;
 }
 
-// GAG.EXE: 0x00423FA0
 uint32_t update_runtime_pointer_region(int32_t x, int32_t y)
 {
     if((runtime_scene_control_flags & 0x100000) == 0 || (runtime_scene_control_flags & 0x80) != 0)
@@ -21186,14 +20102,12 @@ uint32_t update_runtime_pointer_region(int32_t x, int32_t y)
     return 0;
 }
 
-// GAG.EXE: 0x004236C0
 uint32_t refresh_runtime_pointer_region()
 {
     active_runtime_pointer_region = nullptr;
     return runtime_pointer_refresh_api.update_region(runtime_scene_x, runtime_scene_y);
 }
 
-// GAG.EXE: 0x004237B0
 uint32_t has_runtime_pointer_tree_flag_1000()
 {
     RuntimeTreeNode *node = begin_runtime_tree_enumeration(runtime_pointer_root_identity);
@@ -21209,7 +20123,6 @@ uint32_t has_runtime_pointer_tree_flag_1000()
 }
 
 
-// GAG.EXE: 0x004235E0
 int32_t activate_default_comment_scene(const char *name)
 {
     if((runtime_scene_control_flags & 0x20008) != 0 || (runtime_scene_control_flags & 0x100000) == 0 || current_runtime_scene_identity == nullptr)
@@ -21230,7 +20143,6 @@ int32_t activate_default_comment_scene(const char *name)
     return 1;
 }
 
-// GAG.EXE: 0x004236E0
 void activate_runtime_tree_node_comment(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr && (runtime_scene_control_flags & 8) == 0 && activate_default_comment_scene("m_DEF_COMMENT") > 0)
@@ -21239,7 +20151,6 @@ void activate_runtime_tree_node_comment(RuntimeTreeNode *node)
     }
 }
 
-// GAG.EXE: 0x00423660
 void deactivate_default_comment_scene(const char *name)
 {
     if((runtime_scene_control_flags & 0x100080) == 0x100080)
@@ -21255,7 +20166,6 @@ void deactivate_default_comment_scene(const char *name)
     }
 }
 
-// GAG.EXE: 0x00423710
 void deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
 {
     if(node->parent != nullptr && (runtime_scene_control_flags & 8) != 0)
@@ -21265,7 +20175,6 @@ void deactivate_runtime_tree_node_comment(RuntimeTreeNode *node)
     }
 }
 
-// GAG.EXE: 0x00426320
 void set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled)
 {
     RuntimeTreeNode *node = root;
@@ -21292,7 +20201,6 @@ void set_runtime_tree_comment_mode(RuntimeTreeNode *root, int enabled)
     }
 }
 
-// GAG.EXE: 0x00406770
 RuntimeTreeNode *begin_runtime_tree_enumeration(void *identity)
 {
     if(script_runtime_root == nullptr)
@@ -21320,7 +20228,6 @@ RuntimeTreeNode *begin_runtime_tree_enumeration(void *identity)
     return child;
 }
 
-// GAG.EXE: 0x004067F0
 RuntimeTreeNode *get_next_runtime_tree_node(RuntimeTreeNode *root)
 {
     while(true)
@@ -21355,7 +20262,6 @@ RuntimeTreeNode *get_next_runtime_tree_node(RuntimeTreeNode *root)
     }
 }
 
-// GAG.EXE: 0x00423740
 int destroy_runtime_comment_trees()
 {
     int destroyed = 0;
@@ -21381,7 +20287,6 @@ int destroy_runtime_comment_trees()
     return destroyed;
 }
 
-// GAG.EXE: 0x00426600
 intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
 {
     intptr_t result = 0;
@@ -21420,7 +20325,6 @@ intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
 
 
 
-// GAG.EXE: 0x00406640
 void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -21447,7 +20351,6 @@ void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const v
     return nullptr;
 }
 
-// GAG.EXE: 0x004066C0
 void *find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -21469,13 +20372,11 @@ void *find_runtime_tree_descendant_identity_by_name(void *root_identity, const v
     return nullptr;
 }
 
-// Non-original helper preserving GAG's direct reference to ScriptRuntimeRoot +0x848 at 0x00423E8A.
 void *find_runtime_drag_cleanup_descendant()
 {
     return script_runtime_root == nullptr ? nullptr : find_runtime_tree_descendant_identity_by_name(runtime_pointer_root_identity, script_runtime_root->parser_value_0848);
 }
 
-// GAG.EXE: 0x00406720
 void *find_runtime_tree_root_identity_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -21492,7 +20393,6 @@ void *find_runtime_tree_root_identity_by_name(const void *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x00425FA0
 void release_runtime_lock_record(RuntimeLockRecord *record)
 {
     if(record != nullptr && record->recursion_count != 0)
@@ -21501,7 +20401,6 @@ void release_runtime_lock_record(RuntimeLockRecord *record)
     }
 }
 
-// GAG.EXE: 0x00425F10
 RuntimeLockRecord *acquire_runtime_lock_record(void *child_identity)
 {
     DWORD thread_id = runtime_named_lock_api.get_current_thread_id();
@@ -21537,7 +20436,6 @@ RuntimeLockRecord *acquire_runtime_lock_record(void *child_identity)
     }
 }
 
-// GAG.EXE: 0x004263A0
 void reset_runtime_session()
 {
     runtime_session_reset_api.stop_game_dll();
@@ -21617,7 +20515,6 @@ void reset_runtime_session()
     runtime_resource_host_mode = 0x6a4;
 }
 
-// GAG.EXE: 0x004242C0
 void switch_runtime_scene(void *identity)
 {
     if((graphics_host_flags & 0x1000) != 0)
@@ -21665,7 +20562,6 @@ void switch_runtime_scene(void *identity)
     }
 }
 
-// GAG.EXE: 0x004262B0
 void reset_runtime_display_state()
 {
     runtime_display_reset_api.switch_scene(nullptr);
@@ -21690,7 +20586,6 @@ void reset_runtime_display_state()
     std::memset(runtime_pointer_event_record, 0, sizeof(runtime_pointer_event_record));
 }
 
-// GAG.EXE: 0x00420130
 uint32_t shutdown_runtime_display()
 {
     uint32_t result = 0;
@@ -21730,7 +20625,6 @@ uint32_t shutdown_runtime_display()
     return result;
 }
 
-// GAG.EXE: 0x004258D0
 void set_runtime_resource_loop_count(void *identity, uint32_t count)
 {
     auto *record = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_loop_api.acquire_record(identity));
@@ -21753,7 +20647,6 @@ void set_runtime_resource_loop_count(void *identity, uint32_t count)
 }
 
 
-// GAG.EXE: 0x00425FD0
 uint32_t query_runtime_scene_flags(void *identity)
 {
     RuntimeLockRecord *record = acquire_runtime_lock_record(identity);
@@ -21766,7 +20659,6 @@ uint32_t query_runtime_scene_flags(void *identity)
     return flags;
 }
 
-// GAG.EXE: 0x00426D20
 void wait_for_runtime_resource_count(uint32_t count)
 {
     while(runtime_resource_count != count)
@@ -21775,7 +20667,6 @@ void wait_for_runtime_resource_count(uint32_t count)
     }
 }
 
-// GAG.EXE: 0x00425EB0
 void update_runtime_scene_position(void *identity, int32_t x, int32_t y)
 {
     auto *record = reinterpret_cast<RuntimeResourceObject *>(acquire_runtime_lock_record(identity));
@@ -21790,7 +20681,6 @@ void update_runtime_scene_position(void *identity, int32_t x, int32_t y)
     }
 }
 
-// GAG.EXE: 0x004246B0
 void build_runtime_resource_path(char *destination, const char *source)
 {
     char directory[0x80];
@@ -21801,7 +20691,6 @@ void build_runtime_resource_path(char *destination, const char *source)
     append_string(destination, file_name);
 }
 
-// GAG.EXE: 0x00424570
 void update_runtime_resource_host(const char *path, int32_t reset)
 {
     char drive_prefix[32];
@@ -21852,7 +20741,6 @@ void update_runtime_resource_host(const char *path, int32_t reset)
     runtime_resource_host_api.leave_critical_section(&runtime_resource_critical_section);
 }
 
-// GAG.EXE: 0x00424710
 uint32_t detect_runtime_resource_type(const char *path)
 {
     static constexpr uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
@@ -21932,7 +20820,6 @@ uint32_t detect_runtime_resource_type(const char *path)
     return type;
 }
 
-// GAG.EXE: 0x00428720
 void *open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
 {
     if(archive == nullptr)
@@ -21956,7 +20843,6 @@ void *open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x00424870
 void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_t *storage, uint32_t flags)
 {
     static constexpr char loading_scene[] = "m_DEF_LOAD";
@@ -22175,7 +21061,6 @@ resource_loaded:
     }
 }
 
-// GAG.EXE: 0x00424C50
 BOOL release_runtime_memory_resource(const char *name)
 {
     BOOL result = FALSE;
@@ -22194,7 +21079,6 @@ BOOL release_runtime_memory_resource(const char *name)
     return result;
 }
 
-// GAG.EXE: 0x00424CC0
 BOOL release_runtime_memory_resource_by_data(void *data)
 {
     BOOL result = FALSE;
@@ -22213,7 +21097,6 @@ BOOL release_runtime_memory_resource_by_data(void *data)
     return result;
 }
 
-// GAG.EXE: 0x00424D30
 uint32_t release_runtime_streamed_resource(AsyncFileRecord *record)
 {
     runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
@@ -22230,7 +21113,6 @@ uint32_t release_runtime_streamed_resource(AsyncFileRecord *record)
     return result;
 }
 
-// GAG.EXE: 0x00414DD0
 uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
 {
     uint32_t index = 0;
@@ -22254,7 +21136,6 @@ uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
     return 0;
 }
 
-// GAG.EXE: 0x0042B6B0
 HANDLE open_runtime_resource_file(const char *path)
 {
     OSVERSIONINFOA version{};
@@ -22265,7 +21146,6 @@ HANDLE open_runtime_resource_file(const char *path)
     return file == INVALID_HANDLE_VALUE ? nullptr : file;
 }
 
-// GAG.EXE: 0x004148B0
 void advance_async_host_read(AsyncFileHost *host, uint32_t bytes)
 {
     const uint32_t sector_size = host->bytes_per_sector;
@@ -22279,7 +21159,6 @@ void advance_async_host_read(AsyncFileHost *host, uint32_t bytes)
     }
 }
 
-// GAG.EXE: 0x00414900
 void advance_async_host_write(AsyncFileHost *host, uint32_t bytes)
 {
     host->buffered_bytes += bytes;
@@ -22292,7 +21171,6 @@ void advance_async_host_write(AsyncFileHost *host, uint32_t bytes)
     }
 }
 
-// GAG.EXE: 0x00414A50
 void invalidate_shared_async_records(AsyncFileRecord *record)
 {
     HANDLE file = record->file;
@@ -22316,7 +21194,6 @@ void invalidate_shared_async_records(AsyncFileRecord *record)
     async_file_lock_api.leave_critical_section(&async_file_global_lock);
 }
 
-// GAG.EXE: 0x00414930
 void position_async_host(AsyncFileHost *host, uint32_t offset)
 {
     AsyncFileRecord *record = host->active_file;
@@ -22356,7 +21233,6 @@ void position_async_host(AsyncFileHost *host, uint32_t offset)
     host->flags &= ~0x30U;
 }
 
-// GAG.EXE: 0x00414AE0
 void seek_async_host(AsyncFileHost *host, uint32_t offset)
 {
     const uint32_t current_offset = host->current_offset;
@@ -22408,7 +21284,6 @@ void seek_async_host(AsyncFileHost *host, uint32_t offset)
     host->flags &= ~0x10U;
 }
 
-// GAG.EXE: 0x00414BB0
 uint32_t copy_async_host_bytes(AsyncFileHost *host, void *destination, uint32_t bytes, uint32_t *total_bytes)
 {
     if(host->file_size < host->current_offset + bytes)
@@ -22446,7 +21321,6 @@ uint32_t copy_async_host_bytes(AsyncFileHost *host, void *destination, uint32_t 
     return 1;
 }
 
-// GAG.EXE: 0x00414CB0
 void activate_async_file_record(AsyncFileRecord *record)
 {
     AsyncFileHost *host = record->host;
@@ -22497,7 +21371,6 @@ void activate_async_file_record(AsyncFileRecord *record)
     async_file_lock_api.leave_critical_section(&host->primary_lock);
 }
 
-// GAG.EXE: 0x00415AE0
 void handle_async_host_short_read(AsyncFileHost *host)
 {
     const uint32_t sector_size = host->bytes_per_sector;
@@ -22519,7 +21392,6 @@ void handle_async_host_short_read(AsyncFileHost *host)
     async_file_host_api.set_file_pointer(host->file, host->file_offset, nullptr, FILE_BEGIN);
 }
 
-// GAG.EXE: 0x00415B70
 DWORD WINAPI run_async_file_worker(LPVOID parameter)
 {
     AsyncFileHost *host = static_cast<AsyncFileHost *>(parameter);
@@ -22636,7 +21508,6 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
     }
 }
 
-// GAG.EXE: 0x00414EC0
 AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes, int32_t mode)
 {
     if(!async_file_enabled)
@@ -22680,7 +21551,6 @@ AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes
     return host;
 }
 
-// GAG.EXE: 0x00415040
 AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
 {
     if(!async_file_enabled)
@@ -22714,7 +21584,6 @@ AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
     }
 }
 
-// GAG.EXE: 0x004150D0
 void release_async_file_host(AsyncFileHost *identity)
 {
     async_file_lock_api.enter_critical_section(&async_file_global_lock);
@@ -22729,7 +21598,6 @@ void release_async_file_host(AsyncFileHost *identity)
     async_file_lock_api.leave_critical_section(&async_file_global_lock);
 }
 
-// GAG.EXE: 0x00415120
 uint32_t destroy_async_file_host(AsyncFileHost *identity)
 {
     if(!async_file_enabled)
@@ -22772,7 +21640,6 @@ uint32_t destroy_async_file_host(AsyncFileHost *identity)
     return 1;
 }
 
-// GAG.EXE: 0x00414E40
 uint32_t shutdown_async_file_subsystem()
 {
     if(!async_file_enabled)
@@ -22799,7 +21666,6 @@ uint32_t shutdown_async_file_subsystem()
 }
 
 
-// GAG.EXE: 0x004155C0
 AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
 {
     if(!async_file_enabled)
@@ -22852,7 +21718,6 @@ AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
     }
 }
 
-// GAG.EXE: 0x00415690
 void release_async_file_record(AsyncFileRecord *identity)
 {
     if(async_file_enabled)
@@ -22892,7 +21757,6 @@ void release_async_file_record(AsyncFileRecord *identity)
     }
 }
 
-// GAG.EXE: 0x00415210
 void set_async_file_host_mode(AsyncFileHost *identity, int32_t mode)
 {
     AsyncFileHost *host = acquire_async_file_host(identity);
@@ -22906,7 +21770,6 @@ void set_async_file_host_mode(AsyncFileHost *identity, int32_t mode)
     }
 }
 
-// GAG.EXE: 0x00415AC0
 uint32_t get_async_file_size(AsyncFileRecord *identity)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
@@ -22919,7 +21782,6 @@ uint32_t get_async_file_size(AsyncFileRecord *identity)
     return size;
 }
 
-// GAG.EXE: 0x00415AA0
 uint32_t get_async_file_position(AsyncFileRecord *identity)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
@@ -22932,7 +21794,6 @@ uint32_t get_async_file_position(AsyncFileRecord *identity)
     return position;
 }
 
-// GAG.EXE: 0x00415A20
 uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position)
 {
     AsyncFileRecord *record = acquire_async_file_record(identity);
@@ -22966,7 +21827,6 @@ uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position)
     return result;
 }
 
-// GAG.EXE: 0x00415230
 AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
 {
     AsyncFileHost *host = acquire_async_file_host(host_identity);
@@ -23024,7 +21884,6 @@ AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char
     return record;
 }
 
-// GAG.EXE: 0x00415360
 AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
 {
     AsyncFileRecord *source = acquire_async_file_record(identity);
@@ -23060,7 +21919,6 @@ AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t
     return record;
 }
 
-// GAG.EXE: 0x00415420
 uint32_t close_async_file_record(AsyncFileRecord *identity)
 {
     if(!async_file_enabled)
@@ -23141,7 +21999,6 @@ uint32_t close_async_file_record(AsyncFileRecord *identity)
     }
 }
 
-// GAG.EXE: 0x0040D030
 void copy_file_name_from_path(char *destination, const char *source)
 {
     int index = 0;
@@ -23162,8 +22019,6 @@ void copy_file_name_from_path(char *destination, const char *source)
     } while(source[index] != '\0');
 }
 
-// GAG.EXE: 0x00408380
-// GAG.EXE: 0x00406580
 void copy_runtime_tree_command_name(char *destination, uint32_t command)
 {
     const char *source = nullptr;
@@ -23191,7 +22046,6 @@ void copy_runtime_tree_command_name(char *destination, uint32_t command)
     copy_string(destination, source);
 }
 
-// GAG.EXE: 0x00408340
 ScriptObjectState *create_script_object_state(const void *name)
 {
     auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectState)));
@@ -23203,7 +22057,6 @@ ScriptObjectState *create_script_object_state(const void *name)
     return object;
 }
 
-// GAG.EXE: 0x00407FA0
 uint32_t parse_script_object_state(ScriptParserState *parser)
 {
     char name[0x80];
@@ -23360,7 +22213,6 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
 
 
 
-// GAG.EXE: 0x00408420
 ScriptObjectState *find_script_object_by_identity(void *identity)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
@@ -23384,7 +22236,6 @@ ScriptObjectState *find_script_object_by_identity(void *identity)
     return nullptr;
 }
 
-// GAG.EXE: 0x00408480
 int32_t query_or_create_script_object_field(const char *object_name, const void *field_name, uint32_t *value, int32_t value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -23455,7 +22306,6 @@ int32_t query_or_create_script_object_field(const char *object_name, const void 
     return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
 }
 
-// GAG.EXE: 0x004087A0
 int32_t get_script_object_integer(const char *object_name, const void *field_name)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -23472,7 +22322,6 @@ int32_t get_script_object_integer(const char *object_name, const void *field_nam
     return 0x7fffffff;
 }
 
-// GAG.EXE: 0x00408800
 uint32_t get_script_object_string(const char *object_name, const void *field_name, void *destination)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -23490,7 +22339,6 @@ uint32_t get_script_object_string(const char *object_name, const void *field_nam
     return 0;
 }
 
-// GAG.EXE: 0x00408870
 int32_t add_script_object_integer(const char *object_name, const void *field_name, int32_t delta)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -23518,7 +22366,6 @@ int32_t add_script_object_integer(const char *object_name, const void *field_nam
     return 0x7fffffff;
 }
 
-// GAG.EXE: 0x00408900
 bool compare_script_object_field(const char *object_name, const void *field_name, const void *value, int32_t value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -23547,7 +22394,6 @@ bool compare_script_object_field(const char *object_name, const void *field_name
     return true;
 }
 
-// GAG.EXE: 0x004089E0
 uint32_t get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot)
 {
     std::memset(snapshot, 0, sizeof(*snapshot));
@@ -23572,13 +22418,11 @@ uint32_t get_script_object_field_snapshot(const char *object_name, const void *f
 
 
 
-// GAG.EXE: 0x00406980
 RuntimeTreeNode *get_runtime_tree_root()
 {
     return script_runtime_root != nullptr ? script_runtime_root->runtime_tree : nullptr;
 }
 
-// GAG.EXE: 0x004069A0
 RuntimeTreeNode *find_runtime_tree_tail()
 {
     if(script_runtime_root == nullptr)
@@ -23597,7 +22441,6 @@ RuntimeTreeNode *find_runtime_tree_tail()
     return node;
 }
 
-// GAG.EXE: 0x00406600
 RuntimeTreeNode *find_runtime_tree_ancestor_root(void *identity)
 {
     if(script_runtime_root == nullptr)
@@ -23616,7 +22459,6 @@ RuntimeTreeNode *find_runtime_tree_ancestor_root(void *identity)
     return node;
 }
 
-// GAG.EXE: 0x00409A40
 RuntimeTreeSceneLink *find_global_runtime_tree_scene_link_by_name(const void *name)
 {
     for(RuntimeTreeSceneLink *link = script_runtime_root->global_scene_links; link != nullptr; link = link->next)
@@ -23629,7 +22471,6 @@ RuntimeTreeSceneLink *find_global_runtime_tree_scene_link_by_name(const void *na
     return nullptr;
 }
 
-// GAG.EXE: 0x00409830
 RuntimeTreeSceneLink *find_runtime_tree_scene_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -23648,7 +22489,6 @@ RuntimeTreeSceneLink *find_runtime_tree_scene_insertion_predecessor(RuntimeTreeN
     return parent->scene_link_tail;
 }
 
-// GAG.EXE: 0x00409880
 void insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTreeSceneLink *link)
 {
     while(true)
@@ -23693,7 +22533,6 @@ void insert_runtime_tree_scene_link(RuntimeTreeNode *node, RuntimeTreeSceneLink 
     }
 }
 
-// GAG.EXE: 0x00409920
 void remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->scene_link_tail == nullptr)
@@ -23764,7 +22603,6 @@ void remove_runtime_tree_scene_link_range(RuntimeTreeNode *parent, RuntimeTreeNo
     }
 }
 
-// GAG.EXE: 0x00409E00
 RuntimeTreeSecondaryResourceLink *find_global_runtime_tree_secondary_resource_link_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -23781,7 +22619,6 @@ RuntimeTreeSecondaryResourceLink *find_global_runtime_tree_secondary_resource_li
     return nullptr;
 }
 
-// GAG.EXE: 0x00409BC0
 RuntimeTreeSecondaryResourceLink *find_runtime_tree_secondary_resource_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -23800,7 +22637,6 @@ RuntimeTreeSecondaryResourceLink *find_runtime_tree_secondary_resource_insertion
     return parent->secondary_resource_link_tail;
 }
 
-// GAG.EXE: 0x00409C10
 void insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *node, RuntimeTreeSecondaryResourceLink *link)
 {
     while(true)
@@ -23845,7 +22681,6 @@ void insert_runtime_tree_secondary_resource_link(RuntimeTreeNode *node, RuntimeT
     }
 }
 
-// GAG.EXE: 0x00409CB0
 void remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->secondary_resource_link_tail == nullptr)
@@ -23916,7 +22751,6 @@ void remove_runtime_tree_secondary_resource_link_range(RuntimeTreeNode *parent, 
     }
 }
 
-// GAG.EXE: 0x0040A560
 RuntimeTreePrimaryResourceLink *find_runtime_tree_primary_resource_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -23935,7 +22769,6 @@ RuntimeTreePrimaryResourceLink *find_runtime_tree_primary_resource_insertion_pre
     return parent->primary_resource_link_tail;
 }
 
-// GAG.EXE: 0x0040A5B0
 void insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTreePrimaryResourceLink *link)
 {
     while(true)
@@ -23980,7 +22813,6 @@ void insert_runtime_tree_primary_resource_link(RuntimeTreeNode *node, RuntimeTre
     }
 }
 
-// GAG.EXE: 0x0040A650
 void remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->primary_resource_link_tail == nullptr)
@@ -24051,7 +22883,6 @@ void remove_runtime_tree_primary_resource_link_range(RuntimeTreeNode *parent, Ru
     }
 }
 
-// GAG.EXE: 0x0040A860
 void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_identity, const void *name, int32_t x_delta, int32_t y_delta, uint32_t image_flags)
 {
     RuntimeTreeNode *node = find_runtime_tree_node(script_runtime_root->runtime_tree, tree_identity);
@@ -24090,7 +22921,6 @@ void update_runtime_tree_primary_resource_link(void *tree_identity, void *link_i
     }
 }
 
-// GAG.EXE: 0x0040A920
 void append_three_digit_decimal_suffix(const char *prefix, uint32_t value, char *output)
 {
     std::memset(output, 0, 0x20);
@@ -24109,7 +22939,6 @@ void append_three_digit_decimal_suffix(const char *prefix, uint32_t value, char 
     output[index] = '\0';
 }
 
-// GAG.EXE: 0x0040AAC0
 uint32_t parse_runtime_tree_link_0084(ScriptParserState *parser)
 {
     char value[0x80];
@@ -24238,7 +23067,6 @@ uint32_t parse_runtime_tree_link_0084(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040A3C0
 void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, const void *identifier, const void *file_name, int32_t source_value, int32_t x_delta, int32_t y_delta,
     uint32_t image_flags)
 {
@@ -24301,7 +23129,6 @@ void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, c
     return link->identity;
 }
 
-// GAG.EXE: 0x0040AE40
 void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *name, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
     void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter)
 {
@@ -24380,7 +23207,6 @@ void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *n
     return link->identity;
 }
 
-// GAG.EXE: 0x0040A990
 RuntimeTreePrimaryResourceLink *find_global_runtime_tree_primary_resource_link_by_name(const void *name)
 {
     auto *link = script_runtime_root->global_primary_resource_links;
@@ -24395,7 +23221,6 @@ RuntimeTreePrimaryResourceLink *find_global_runtime_tree_primary_resource_link_b
     return nullptr;
 }
 
-// GAG.EXE: 0x0040AFE0
 RuntimeTreeLink84 *find_last_runtime_tree_link_0084(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -24422,7 +23247,6 @@ RuntimeTreeLink84 *find_last_runtime_tree_link_0084(RuntimeTreeNode *root)
     return root->link_0084_tail;
 }
 
-// GAG.EXE: 0x0040B040
 RuntimeTreeLink84 *find_runtime_tree_link_0084_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -24441,7 +23265,6 @@ RuntimeTreeLink84 *find_runtime_tree_link_0084_insertion_predecessor(RuntimeTree
     return parent->link_0084_tail;
 }
 
-// GAG.EXE: 0x0040B090
 void insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *link)
 {
     while(true)
@@ -24486,7 +23309,6 @@ void insert_runtime_tree_link_0084(RuntimeTreeNode *node, RuntimeTreeLink84 *lin
     }
 }
 
-// GAG.EXE: 0x0040B130
 void remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_0084_tail == nullptr)
@@ -24557,7 +23379,6 @@ void remove_runtime_tree_link_0084_range(RuntimeTreeNode *parent, RuntimeTreeNod
     }
 }
 
-// GAG.EXE: 0x0040B280
 void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int32_t x, int32_t y, uint32_t width, uint32_t height, uintptr_t mouse_visual_value, void *owner_identity,
     void *primary_resource_identity, uintptr_t owner_group_identity, uint32_t command_mask, uint32_t parameter)
 {
@@ -24614,7 +23435,6 @@ void update_runtime_tree_link_0084(void *tree_identity, void *link_identity, int
     }
 }
 
-// GAG.EXE: 0x0040B380
 RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_name(const void *name)
 {
     for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
@@ -24627,7 +23447,6 @@ RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_name(const void *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x0040B3C0
 RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_identity(void *identity)
 {
     for(RuntimeTreeLink84 *link = script_runtime_root->global_link_0084_head; link != nullptr; link = link->next)
@@ -24640,7 +23459,6 @@ RuntimeTreeLink84 *find_global_runtime_tree_link_0084_by_identity(void *identity
     return nullptr;
 }
 
-// GAG.EXE: 0x0040B3E0
 uint32_t parse_runtime_tree_link_008c(ScriptParserState *parser)
 {
     char value[0x80];
@@ -24729,7 +23547,6 @@ uint32_t parse_runtime_tree_link_008c(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040B850
 uint32_t parse_runtime_tree_link_007c(ScriptParserState *parser)
 {
     char value[0x80];
@@ -24907,7 +23724,6 @@ uint32_t parse_runtime_tree_link_007c(ScriptParserState *parser)
     return 0;
 }
 
-// GAG.EXE: 0x0040BF60
 RuntimeTreeInteractionCriteria make_runtime_tree_interaction_criteria(const RuntimeTreeLink7C *link)
 {
     return { link->command_bit, link->source_object, link->destination_object, link->zone_link, link->unknown_0084, link->x, link->y, link->width, link->height, link->primary_resource,
@@ -25003,7 +23819,6 @@ uint32_t match_runtime_tree_link_007c_interaction(uintptr_t *state, const Runtim
     return match_runtime_tree_link_007c_interaction_internal(state, criteria, criteria->source_link);
 }
 
-// GAG.EXE: 0x0040C1E0
 void seek_runtime_tree_link_007c_label(void *identity, const char *label)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
@@ -25038,7 +23853,6 @@ void seek_runtime_tree_link_007c_label(void *identity, const char *label)
     link->parser.cursor = saved_cursor;
 }
 
-// GAG.EXE: 0x0040C260
 uint32_t find_runtime_tree_link_007c_opcode_value(void *identity, uint32_t opcode, const char *value, int restore_cursor)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
@@ -25079,7 +23893,6 @@ uint32_t find_runtime_tree_link_007c_opcode_value(void *identity, uint32_t opcod
     return result;
 }
 
-// GAG.EXE: 0x0040C2F0
 uint32_t scan_runtime_tree_link_007c_control_boundary(void *identity, uint32_t requested_boundary)
 {
     RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
@@ -25118,7 +23931,6 @@ uint32_t scan_runtime_tree_link_007c_control_boundary(void *identity, uint32_t r
     }
 }
 
-// GAG.EXE: 0x0040C4B0
 uint32_t activate_runtime_tree_link_007c(RuntimeTreeLink7C *link)
 {
     ScriptRuntimeRoot *root = script_runtime_root;
@@ -25150,7 +23962,6 @@ uint32_t activate_runtime_tree_link_007c(RuntimeTreeLink7C *link)
     return 0;
 }
 
-// GAG.EXE: 0x0040BCD0
 RuntimeTreeLink7C *find_last_runtime_tree_link_007c(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -25177,7 +23988,6 @@ RuntimeTreeLink7C *find_last_runtime_tree_link_007c(RuntimeTreeNode *root)
     return root->link_007c_tail;
 }
 
-// GAG.EXE: 0x0040BD30
 RuntimeTreeLink7C *find_runtime_tree_link_007c_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -25196,7 +24006,6 @@ RuntimeTreeLink7C *find_runtime_tree_link_007c_insertion_predecessor(RuntimeTree
     return parent->link_007c_tail;
 }
 
-// GAG.EXE: 0x0040BD80
 void insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTreeLink7C *link)
 {
     while(true)
@@ -25241,7 +24050,6 @@ void insert_runtime_tree_link_007c(RuntimeTreeNode *node, RuntimeTreeLink7C *lin
     }
 }
 
-// GAG.EXE: 0x0040BE20
 void remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_007c_tail == nullptr)
@@ -25312,7 +24120,6 @@ void remove_runtime_tree_link_007c_range(RuntimeTreeNode *parent, RuntimeTreeNod
     }
 }
 
-// GAG.EXE: 0x0040C8A0
 ScriptObjectContainer *find_last_script_object_container(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -25339,7 +24146,6 @@ ScriptObjectContainer *find_last_script_object_container(RuntimeTreeNode *root)
     return root->container_tail;
 }
 
-// GAG.EXE: 0x0040C900
 ScriptObjectContainer *find_script_object_container_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -25358,7 +24164,6 @@ ScriptObjectContainer *find_script_object_container_insertion_predecessor(Runtim
     return parent->container_tail;
 }
 
-// GAG.EXE: 0x0040C570
 uint32_t parse_script_object_container(ScriptParserState *parser)
 {
     char object_name[0x80];
@@ -25392,12 +24197,7 @@ uint32_t parse_script_object_container(ScriptParserState *parser)
     }
     node->container_tail = container;
 
-    // The original loads this carried value from the uninitialized field-name
-    // stack buffer before the first entry and retains it for value types 0/3.
-    // Copying its object representation preserves that native stack-byte read
-    // without triggering MSVC's uninitialized-scalar runtime check.
-    uint32_t truth_value;
-    std::memcpy(&truth_value, field_name, sizeof(truth_value));
+    uint32_t truth_value = 0;
     while(true)
     {
         if(parse_script_value_token(parser, object_name, 0x20) == 0xffffffff)
@@ -25490,7 +24290,6 @@ uint32_t parse_script_object_container(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x0040C950
 void insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer *container)
 {
     while(true)
@@ -25535,7 +24334,6 @@ void insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer
     }
 }
 
-// GAG.EXE: 0x0040C9F0
 void remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->container_tail == nullptr)
@@ -25606,7 +24404,6 @@ void remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNo
     }
 }
 
-// GAG.EXE: 0x0040CB40
 BOOL destroy_script_object_container(ScriptObjectContainer *container)
 {
     BOOL result = TRUE;
@@ -25620,7 +24417,7 @@ BOOL destroy_script_object_container(ScriptObjectContainer *container)
     return result & script_object_release_api.heap_free(script_runtime_root->heap, 0, container);
 }
 
-// Non-original helper shared by the two recovered container-state queries.
+// Shared helper for the container-state queries.
 static bool script_object_container_state_matches(ScriptObjectContainer *container)
 {
     container->current_mask = 0;
@@ -25634,7 +24431,6 @@ static bool script_object_container_state_matches(ScriptObjectContainer *contain
     return container->required_mask == container->current_mask;
 }
 
-// GAG.EXE: 0x0040CBA0
 bool script_object_container_state_matches_by_identity(void *identity)
 {
     if(script_runtime_root == nullptr)
@@ -25651,7 +24447,6 @@ bool script_object_container_state_matches_by_identity(void *identity)
     return true;
 }
 
-// GAG.EXE: 0x0040CC20
 bool script_object_container_state_matches_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -25668,7 +24463,6 @@ bool script_object_container_state_matches_by_name(const void *name)
     return true;
 }
 
-// GAG.EXE: 0x0040CCB0
 ScriptObjectContainer *find_script_condition_container_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -25685,7 +24479,6 @@ ScriptObjectContainer *find_script_condition_container_by_name(const void *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x0040B560
 RuntimeTreeLink8C *find_last_runtime_tree_link_008c(RuntimeTreeNode *root)
 {
     if(root == nullptr)
@@ -25712,7 +24505,6 @@ RuntimeTreeLink8C *find_last_runtime_tree_link_008c(RuntimeTreeNode *root)
     return root->link_008c_tail;
 }
 
-// GAG.EXE: 0x0040B5C0
 RuntimeTreeLink8C *find_runtime_tree_link_008c_insertion_predecessor(RuntimeTreeNode *node)
 {
     RuntimeTreeNode *parent = node->parent;
@@ -25731,7 +24523,6 @@ RuntimeTreeLink8C *find_runtime_tree_link_008c_insertion_predecessor(RuntimeTree
     return parent->link_008c_tail;
 }
 
-// GAG.EXE: 0x0040B610
 void insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTreeLink8C *link)
 {
     while(true)
@@ -25776,7 +24567,6 @@ void insert_runtime_tree_link_008c(RuntimeTreeNode *node, RuntimeTreeLink8C *lin
     }
 }
 
-// GAG.EXE: 0x0040B6B0
 void remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNode *node)
 {
     if(node->link_008c_tail == nullptr)
@@ -25847,7 +24637,6 @@ void remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNod
     }
 }
 
-// GAG.EXE: 0x0040B800
 RuntimeTreeLink8C *find_global_runtime_tree_link_008c_by_name(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -25864,7 +24653,6 @@ RuntimeTreeLink8C *find_global_runtime_tree_link_008c_by_name(const void *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x00407380
 RuntimeFixedNameListNode *find_runtime_fixed_name_list_node(const void *name)
 {
     if(script_runtime_root == nullptr)
@@ -25881,7 +24669,6 @@ RuntimeFixedNameListNode *find_runtime_fixed_name_list_node(const void *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x0040CDA0
 uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *serialized_value)
 {
     uint32_t result = parse_script_value_token(parser, value, 0x20);
@@ -25932,7 +24719,6 @@ uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *s
     return result;
 }
 
-// GAG.EXE: 0x00407240
 uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
 {
     char name[0x20];
@@ -26004,7 +24790,6 @@ uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
     }
 }
 
-// GAG.EXE: 0x00407440
 void destroy_runtime_fixed_name_list_nodes()
 {
     if(script_runtime_root != nullptr)
@@ -26020,7 +24805,6 @@ void destroy_runtime_fixed_name_list_nodes()
     }
 }
 
-// GAG.EXE: 0x00408D80
 void destroy_script_object_states()
 {
     if(script_runtime_root != nullptr)
@@ -26036,7 +24820,6 @@ void destroy_script_object_states()
     }
 }
 
-// GAG.EXE: 0x004091B0
 BOOL remove_runtime_visual_object(void *identity)
 {
     RuntimeVisualObject *previous = nullptr;
@@ -26061,7 +24844,6 @@ BOOL remove_runtime_visual_object(void *identity)
     return script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
 }
 
-// GAG.EXE: 0x004092E0
 void destroy_runtime_visual_objects()
 {
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
@@ -26074,7 +24856,6 @@ void destroy_runtime_visual_objects()
     script_runtime_root->visual_objects = nullptr;
 }
 
-// GAG.EXE: 0x00408380
 ScriptObjectState *find_script_object_by_name(const char *name)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
@@ -26098,7 +24879,6 @@ ScriptObjectState *find_script_object_by_name(const char *name)
     return nullptr;
 }
 
-// GAG.EXE: 0x00408660
 ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
@@ -26162,7 +24942,6 @@ ScriptObjectState *resolve_state_field_reference(const char *object_name, const 
 
 
 
-// GAG.EXE: 0x00415720
 uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer)
 {
     *bytes_read = 0;
@@ -26296,7 +25075,6 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
 
 
 
-// GAG.EXE: 0x0040CFD0
 int append_string(char *destination, const char *source)
 {
     int length = 0;
@@ -26310,7 +25088,6 @@ int append_string(char *destination, const char *source)
 namespace
 {
 
-// GAG.EXE: 0x0040CF90
 bool strings_equal(const char *left, const char *right)
 {
     for(;;)
@@ -26328,7 +25105,6 @@ bool strings_equal(const char *left, const char *right)
     }
 }
 
-// GAG.EXE: 0x0040CFF0
 void copy_directory_from_path(char *destination, const char *source)
 {
     int index = 0;

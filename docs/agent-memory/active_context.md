@@ -2,11 +2,21 @@
 
 - Startup is fully detached from the Windows registry. There are no production `Reg*` calls, registry API seams, installation/version checks, or logical-drive/CD discovery.
 - The legacy archive/CD read-speed benchmark and startup speed gate have also been removed, including their API and tests.
-- `ApplicationState::installation_path` is initialized to an empty prefix. `Gag01.cdf`, autosaves, and generated `.GSF` paths resolve relative to the process working directory.
+- `ApplicationState::installation_path` is initialized to an empty prefix. `Gag01.cdf`, `XTETDLL.SFS`, autosaves, and generated `.GSF` paths resolve relative to the process working directory.
 - Runtime settings and modern-window geometry persist in `freegag.ini` in the working directory. The file uses `[Game] Settings` and `[Window] Left/Top/Right/Bottom`; invalid or unavailable values fall back nonfatally.
 - The optional `gag_resources.rc` build pipeline and `gag_resource_test` were removed. `src/resource_test.cpp` was deleted, and `advapi32` is no longer linked.
-- First-party test sources, CTest targets, `GAG_TESTING` code, and explicit `*_for_testing` hooks are intentionally absent during the current decompilation phase. Tests may be reenabled later, but no restoration approach has been selected.
+- Decompilation is considered complete; the project is now entering source cleanup and reorganization.
+- First-party test sources, CTest targets, `GAG_TESTING` code, and explicit `*_for_testing` hooks remain intentionally absent. Tests may be reenabled later, but no restoration approach has been selected.
 - Do not create, restore, or add tests unless the user explicitly instructs you to do so.
-- Scripted in-game save/load is unconditional. `FREEGAG_IN_GAME_SAVE_LOAD` and the recovered native save/load dialog path have been removed; this behavior applies whether `FREEGAG_WINDOWS_FIXES` is enabled or disabled. Screenshot export still uses its separate Win32 save-file dialog.
-- Verified Debug builds with MSVC both with and without modern Windows fixes; the resource extractor and repository `check-format` target also pass. Fresh CTest discovery reports zero tests in both configurations.
+- Scripted in-game save/load is unconditional. `FREEGAG_IN_GAME_SAVE_LOAD` and the recovered native save/load dialog path have been removed. Screenshot export still uses its separate Win32 save-file dialog.
+- Modern Windows compatibility is unconditional. `FREEGAG_WINDOWS_FIXES`, its legacy disabled branches, and the now-unreachable physical display-mode switching layer have been removed; fullscreen always uses the borderless-window path.
+- Source-level decompilation metadata has been removed: executable-address annotations, structure size/offset assertions, provenance wording, empty application hooks, and an address-derived save function name. Script container parsing now initializes its carried truth value instead of emulating uninitialized stack data.
+- Debug-only source paths are intentionally absent. All `_DEBUG` blocks, trace helpers/calls, trace counters, release-mode no-op macros, and debug-only ignored-result temporaries have been removed.
+- C++23 is required globally from the root CMake configuration, with compiler-specific language extensions disabled; individual targets do not repeat the standard requirement.
+- The root CMake formatting targets use root-relative recursive globs to discover all project-owned `.cpp` and `.h` files under `src/` and `tools/`; per-directory formatter lists are removed, and in-tree build/dependency sources are excluded by scope.
+- XTET is integrated as a static library. Its application-facing integration is implemented in `src/xtet/integration.cpp`; unused DLL entry-point typedefs and an empty architecture guard have been removed. The script and startup contracts were not changed as part of this cleanup.
+- XTET's direct Windows API calls are confined to `src/xtet/integration.cpp`: host window messaging, keyboard-message draining, and cursor coordinate conversion. Timing and animation delays use `std::chrono::steady_clock` and `std::this_thread::sleep_for`; the XTET target no longer links `winmm`. `src/xtet/api.h` retains Win32 handle and message types required by the game host interface.
+- XTET initialization failures throw `std::runtime_error`. The existing startup exception boundary shuts XTET down and restores host state before rethrowing; XTET has no debugger-output or error-dialog path.
+- The game uses the standard `main(int, char **)` entry point and is linked as a console application. `run_startup` obtains the process module handle internally, uses `SW_SHOWDEFAULT`, and detects `--xtet` directly from `argv`; internal Win32 runtime behavior remains unchanged.
+- Verified fresh Debug and Release builds with MSVC, including the game and resource extractor. The repository `check-format` target passes and CTest discovery reports zero tests.
 - No open questions or immediate follow-up work for this task.

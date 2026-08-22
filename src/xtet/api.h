@@ -41,12 +41,6 @@ struct GameResultDescriptor
     uint32_t size;
     const void *data;
 };
-#if defined(_M_IX86) || defined(__i386__)
-#endif
-
-using GameInit = void (*)(GameHostContext *, void **, const char *);
-using GameWndProc = uint32_t (*)(HWND, UINT, WPARAM, LPARAM);
-using GameExec = void (*)(uint32_t);
 using DirtyRegionCallback = void (*)(int32_t, int32_t, int32_t, int32_t);
 using SoundCreateCallback = uint32_t (*)(const PcmFormat *);
 using SoundDestroyCallback = void (*)(uint32_t);

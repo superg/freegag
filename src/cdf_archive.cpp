@@ -7,7 +7,7 @@
 namespace gag
 {
 
-// Non-original library adapter. GAG.EXE delegates this operation to its bundled inflate implementation rooted at 0x0040F8D0.
+// Inflates a raw DEFLATE stream through zlib.
 int zlib_cdf_decompressor(const void *source, uint32_t source_size, void *destination)
 {
     if(source == nullptr || destination == nullptr || source_size < 2)
@@ -43,7 +43,7 @@ int zlib_cdf_decompressor(const void *source, uint32_t source_size, void *destin
     return result;
 }
 
-// Non-original library adapter. GAG.EXE delegates this operation to its bundled GNU gzip implementation at 0x00418E90.
+// Writes gzip-compressed data through zlib.
 uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *destination, uint32_t destination_capacity)
 {
     if((source == nullptr && source_size != 0) || destination == nullptr || destination_capacity < 2)
@@ -183,7 +183,6 @@ void close_archive_handles(CdfArchive *archive)
 
 } // namespace
 
-// GAG.EXE: 0x004282A0
 CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
 {
     cdf_last_error = 0x1000000;
@@ -257,7 +256,6 @@ CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
     return archive;
 }
 
-// GAG.EXE: 0x00428620
 const char *get_cdf_entry_name_by_index(CdfArchive *archive, uint32_t index)
 {
     if(archive == nullptr)
@@ -267,19 +265,16 @@ const char *get_cdf_entry_name_by_index(CdfArchive *archive, uint32_t index)
     return archive->entries[index]->name;
 }
 
-// GAG.EXE: 0x00428690
 uint32_t get_cdf_entry_count(CdfArchive *archive)
 {
     return archive == nullptr ? 0 : archive->entry_count;
 }
 
-// GAG.EXE: 0x00428710
 uint32_t get_cdf_index_data_size(CdfArchive *archive)
 {
     return archive == nullptr ? 0 : archive->index_data_size;
 }
 
-// GAG.EXE: 0x00428630
 uint8_t get_cdf_entry_flags(CdfArchive *archive, const char *name)
 {
     if(archive == nullptr)
@@ -297,7 +292,6 @@ uint8_t get_cdf_entry_flags(CdfArchive *archive, const char *name)
     return 0;
 }
 
-// GAG.EXE: 0x004286A0
 uint32_t get_cdf_entry_size(CdfArchive *archive, uint8_t selector, const char *name)
 {
     if(archive == nullptr)
@@ -316,7 +310,6 @@ uint32_t get_cdf_entry_size(CdfArchive *archive, uint8_t selector, const char *n
     return 0;
 }
 
-// GAG.EXE: 0x00429320
 int read_uncompressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *destination)
 {
     CdfEntry *entry = archive->entries[entry_index];
@@ -341,7 +334,6 @@ int read_uncompressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void 
     return 1;
 }
 
-// GAG.EXE: 0x004293D0
 int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *destination)
 {
     CdfEntry *entry = archive->entries[entry_index];
@@ -422,7 +414,6 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
     return result;
 }
 
-// GAG.EXE: 0x004284E0
 int read_cdf_entry(CdfArchive *archive, uint8_t selector, const char *name, void *destination)
 {
     if(archive == nullptr)
@@ -447,7 +438,6 @@ int read_cdf_entry(CdfArchive *archive, uint8_t selector, const char *name, void
     return 0;
 }
 
-// GAG.EXE: 0x00428590
 uint32_t close_cdf_archive(CdfArchive *archive)
 {
     if(archive == nullptr)
@@ -476,7 +466,6 @@ uint32_t close_cdf_archive(CdfArchive *archive)
     return result & close_result & free_result;
 }
 
-// GAG.EXE: 0x004287E0
 int initialize_cdf_index(CdfArchive *archive)
 {
     if(archive == nullptr)
@@ -628,7 +617,6 @@ int initialize_cdf_index(CdfArchive *archive)
     return result;
 }
 
-// GAG.EXE: 0x00429A90
 uint32_t write_uncompressed_cdf_entry(CdfArchive *archive, const void *data)
 {
     CdfEntry *entry = archive->entries[archive->write_entry_index];
@@ -657,7 +645,6 @@ uint32_t write_uncompressed_cdf_entry(CdfArchive *archive, const void *data)
     return 1;
 }
 
-// GAG.EXE: 0x00429070
 uint32_t write_compressed_cdf_index(CdfArchive *archive)
 {
     if(archive == nullptr)
@@ -723,7 +710,6 @@ uint32_t write_compressed_cdf_index(CdfArchive *archive)
     return result;
 }
 
-// GAG.EXE: 0x00429B50
 uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data)
 {
     CdfEntry *entry = archive->entries[archive->write_entry_index];
@@ -784,7 +770,6 @@ uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data)
     return result;
 }
 
-// GAG.EXE: 0x004298E0
 uint32_t finalize_cdf_writer(CdfArchive *archive)
 {
     if(archive == nullptr)
@@ -805,7 +790,6 @@ uint32_t finalize_cdf_writer(CdfArchive *archive)
     return 0;
 }
 
-// GAG.EXE: 0x004297E0
 uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const void *data, uint32_t size, int compressed)
 {
     if(archive == nullptr || archive->write_entry_index >= archive->entry_count)
@@ -832,7 +816,6 @@ uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const vo
     return result;
 }
 
-// GAG.EXE: 0x00429630
 CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
 {
     cdf_last_error = 0x1000000;
@@ -878,13 +861,11 @@ CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
     return archive;
 }
 
-// GAG.EXE: 0x00428280
 uint32_t get_cdf_error(CdfArchive *archive)
 {
     return archive == nullptr ? cdf_last_error : archive->error;
 }
 
-// GAG.EXE: 0x004176A0
 uint32_t write_comment_cdf_package(const char *path, const void *comment, const void *bitmap, const ScriptTextBuffer *configuration)
 {
     CdfArchive *archive = cdf_comment_package_api.create_writer(path, 3);

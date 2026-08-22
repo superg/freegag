@@ -13,8 +13,8 @@ struct Region
 };
 
 inline constexpr Region regions[]{
-    { 300, 80, 620, 390 },
-    { 12, 402, 135, 430 },
+    { 300, 80,  620, 390 },
+    { 12,  402, 135, 430 },
 };
 inline constexpr uint32_t decoded_size = 102644;
 inline constexpr uint32_t compressed_size = 65288;

@@ -2,13 +2,14 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <map>
-#include <mmsystem.h>
 #include <mutex>
 #include <stdexcept>
+#include <thread>
 #include "action_definitions.h"
 #include "api.h"
 #include "asset_decoders.h"
@@ -26,6 +27,11 @@
 
 namespace
 {
+
+uint32_t current_time_milliseconds()
+{
+    return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 struct GameState
 {
@@ -53,8 +59,7 @@ struct GameState
     std::atomic_bool initialized{};
 };
 
-// Declared before g_game so it remains alive while GameWorker is stopped by
-// GameState destruction during DLL unload.
+// Declared before g_game so it remains alive while GameWorker is stopped during process shutdown.
 std::recursive_mutex g_mutex;
 GameState g_game;
 
@@ -67,21 +72,9 @@ void send_result()
     SendMessageA(g_game.window, xtet::kGameMessage, (WPARAM)&descriptor, 0x40);
 }
 
-void fail_initialization()
+[[noreturn]] void throw_initialization_error(const std::string &message)
 {
-    g_game.worker.setEnabled(false);
-    g_game.audio.destroy();
-    g_game.initialized = false;
-    send_result();
-    PostMessageA(g_game.window, xtet::kGameMessage, 0, 1);
-}
-
-void fail_initialization(const std::string &message)
-{
-    OutputDebugStringA(message.c_str());
-    OutputDebugStringA("\n");
-    MessageBoxA(g_game.window, message.c_str(), "GAGBoy initialization error", MB_OK | MB_ICONERROR);
-    fail_initialization();
+    throw std::runtime_error(message);
 }
 
 void drain_keyboard_messages()
@@ -240,7 +233,7 @@ void present_score(const xtet::GameProgress &progress, const xtet::ProgressUpdat
         present_level_face(progress.level, false);
         present_level_face(progress.level, true);
         g_game.level_effect_active = true;
-        g_game.level_effect_deadline = timeGetTime() + 1000;
+        g_game.level_effect_deadline = current_time_milliseconds() + 1000;
         if(g_game.audio_enabled)
             g_game.audio.queueRandom("level", (uint32_t)std::rand());
     }
@@ -317,7 +310,8 @@ bool present_match_effect(const xtet::FallingFigurine &first, const xtet::Fallin
         present_dirty_region({ (int32_t)left, (int32_t)top, (uint32_t)(right - left), (uint32_t)(bottom - top) });
     };
     return xtet::render_match_blink_sequence(
-        first, second, action, g_game.animations, framebuffer, present_animation_region, [](uint32_t delay) { Sleep(delay); }, homes[0]->children[1].position->x, homes[0]->children[1].position->y);
+        first, second, action, g_game.animations, framebuffer, present_animation_region, [](uint32_t delay) { std::this_thread::sleep_for(std::chrono::milliseconds(delay)); },
+        homes[0]->children[1].position->x, homes[0]->children[1].position->y);
 }
 
 bool initialize_audio()
@@ -361,7 +355,7 @@ void run_game_tick()
     xtet::IndexedFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer))
         throw std::runtime_error("XTET framebuffer unavailable");
-    const uint32_t current_time = timeGetTime();
+    const uint32_t current_time = current_time_milliseconds();
     if(g_game.level_effect_active && g_game.level_effect_deadline < current_time)
     {
         present_level_face(g_game.gameplay_runtime.progress().level, false);
@@ -459,7 +453,7 @@ void dispatch_key_down(uint32_t key)
     xtet::GameProgress &progress = g_game.gameplay_runtime.progress();
     const xtet::GameKeyDownCallbacks key_callbacks{ []() { stop_gameplay(); }, [](uint32_t score) { post_game_result(score); }, []() { post_game_termination(); },
         [](uint32_t gameplay_key) { handle_gameplay_key(gameplay_key); }, []() { drain_keyboard_messages(); } };
-    xtet::handle_game_key_down(progress.gameplay_state, key, timeGetTime(), g_game.gameplay_runtime.resultInputDeadline(), progress.score, key_callbacks);
+    xtet::handle_game_key_down(progress.gameplay_state, key, current_time_milliseconds(), g_game.gameplay_runtime.resultInputDeadline(), progress.score, key_callbacks);
 }
 
 int find_pressed_button()
@@ -609,17 +603,11 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
     }
     std::string resource_error;
     const std::string sfs_display_name = sfs_name != nullptr && *sfs_name != '\0' ? sfs_name : "XTET SFS";
-    if(!load_executable_sfs(sfs_name, g_game.sfs_bytes, resource_error))
-    {
-        fail_initialization(resource_error);
-        return;
-    }
+    if(!load_sfs_from_working_directory(sfs_name, g_game.sfs_bytes, resource_error))
+        throw_initialization_error(resource_error);
     g_game.sfs = { g_game.sfs_bytes.data(), g_game.sfs_bytes.size() };
     if(!g_game.archive.mount(g_game.sfs))
-    {
-        fail_initialization(sfs_display_name + " beside gag.exe is malformed or unsupported.");
-        return;
-    }
+        throw_initialization_error(sfs_display_name + " in the working directory is malformed or unsupported.");
     g_game.action_definitions.clear();
     g_game.asset_manifest = {};
     g_game.bitmaps.clear();
@@ -633,19 +621,13 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
         || !xtet::load_asset_manifest(g_game.archive, { "base_scr.txt", "man.txt", "woman.txt" }, g_game.asset_manifest) || !load_declared_assets()
         || !xtet::load_scene_description(g_game.archive, { "base_scr.txt", "man.txt", "woman.txt" }, g_game.scene)
         || !xtet::load_rli_animations(g_game.archive, { "m.rli", "rm.rli", "w.rli", "rw.rli" }, g_game.animations) || !initialize_audio() || !render_initial_frame())
-    {
-        fail_initialization(sfs_display_name + " does not contain the expected GAGBoy data.");
-        return;
-    }
+        throw_initialization_error(sfs_display_name + " does not contain the expected GAGBoy data.");
 
     g_game.figurine_geometry = xtet::build_figurine_geometry_tables();
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(homes.size() != 1 || homes[0]->children.size() != 3 || homes[0]->children[1].children.size() != 117
         || !g_game.gameplay_runtime.initialize(15, homes[0]->children[1].children.size() - 14, { 0, 1, 1, 1 }) || !initialize_worker())
-    {
-        fail_initialization(sfs_display_name + " contains an invalid GAGBoy scene or gameplay configuration.");
-        return;
-    }
+        throw_initialization_error(sfs_display_name + " contains an invalid GAGBoy scene or gameplay configuration.");
     std::srand((unsigned int)std::time(nullptr));
     g_game.initialized = true;
     g_game.worker.setEnabled(true);
@@ -653,9 +635,7 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
 
 uint32_t xtet::dispatch_game_window_message(HWND, UINT message, WPARAM wparam, LPARAM)
 {
-    // The original ordinal checks inactive gameplay state before entering its
-    // recursive Win32 critical section. This also lets synchronous result or
-    // failure reporting re-enter through the host without blocking on state
+    // Check inactive gameplay state before entering the recursive Win32 critical section. This lets synchronous result or failure reporting re-enter through the host without blocking on state
     // synchronization owned by the reporting thread.
     if(!g_game.initialized.load())
         return 1;
