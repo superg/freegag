@@ -10,8 +10,8 @@
 #include <stdexcept>
 #include <string>
 #include "cdf_archive.h"
-#include "save_load.h"
-#include "synthesized_resource.h"
+#include "extra/save_load.h"
+#include "extra/synthesized_resource.h"
 #include "xtet/api.h"
 
 namespace gag

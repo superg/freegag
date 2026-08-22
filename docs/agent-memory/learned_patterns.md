@@ -17,3 +17,4 @@
 - Use `std::chrono::steady_clock` for XTET's monotonic millisecond timestamps and `std::this_thread::sleep_for` for animation delays; XTET does not require `winmm`.
 - Report XTET initialization failures with exceptions. Keep cleanup at the existing startup exception boundary rather than adding XTET-owned debugger output or dialogs.
 - Use the standard `main(int, char **)` entry point and CMake's console executable default. Acquire the `HINSTANCE` inside startup with `GetModuleHandleA(nullptr)` and consume supported switches directly from `argv`.
+- Keep project-added save/load and synthesized-resource implementation under `src/extra/`, list those files directly in `src/CMakeLists.txt`, and do not add `src/extra/CMakeLists.txt`.
