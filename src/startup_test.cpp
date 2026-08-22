@@ -10765,6 +10765,8 @@ void test_save_load_screen_selection()
     reset_scripted_save_persistence();
     require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
     require(scripted_save_capture_count == 1 && gag::get_scripted_save_load_selection_for_testing() == 3);
+    require(gag::get_scripted_save_load_preview_render_attempts_for_testing() == 0);
+    require(gag::handle_scripted_save_load_message(2105, &state) && gag::get_scripted_save_load_preview_render_attempts_for_testing() == 1);
     require(std::strcmp(gag::get_scripted_save_load_current_name_for_testing(), "LegacyNameLongerThan15") == 0);
     char displayed_name[0x104]{};
     gag::prepare_scripted_save_name_display_for_testing(gag::get_scripted_save_load_current_name_for_testing(), displayed_name);
@@ -10841,6 +10843,11 @@ void test_save_load_screen_selection()
     const uint32_t free_count_with_borrow = scripted_save_free_count;
     require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::load, &state));
     require(scripted_save_free_count == free_count_with_borrow);
+    state.saved_memory = nullptr;
+    state.script_state = 0x8877665544332211;
+    const uint32_t capture_count_before_missing_cache = scripted_save_capture_count;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(scripted_save_capture_count == capture_count_before_missing_cache + 1);
     state.flags &= ~0x80000;
 
     reset_archive_comment_test();
@@ -10933,7 +10940,7 @@ void test_save_load_virtual_script()
     require(std::strstr(resource.data, "mouse=NM /FILE:K_None.bmp /F:NOPAL;") != nullptr);
     require(std::strstr(resource.data, "mouse=EXM /FILE:K_None.bmp /F:NOPAL;") != nullptr);
     require(std::strstr(resource.data, "object=MM EXIT::OFF SEL::0;") != nullptr);
-    const char *load_declarations[]{ "sublocation=COMMON;", "zone=z_PREVIEW /POS::293,139,320,240 /COMM:Comment /MOUSE:CM /P:100;", "sublocation=TAG_LOAD;",
+    const char *load_declarations[]{ "sublocation=COMMON;", "zone=z_PREVIEW /POS::294,120,320,240 /COMM:Comment /MOUSE:CM /P:100;", "sublocation=TAG_LOAD;",
         "image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;", "image=i_dSAVE /FILE::Fscr0014.bmp /POS::18,146 /F:SEPARATED /F:NOPAL;", "event=e_LOAD /ZONE::z_LOAD /COMM:Comment /MESSAGE::2102;",
         R"(event=e_PREVIEW_CLEAR /ZONE::z_PREVIEW /TRANSPARENT /SWVALUE::MM::SEL /VALUE::0 /GOTO::e_PREVIEW_CLEAR /BREAK /CSEND /CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70 /LABEL::e_PREVIEW_CLEAR /SET::MM::SEL::0;)",
         "event=e_PREVIEW /ZONE::z_PREVIEW /COMM:Comment /MESSAGE::2102;", "event=e_EXIT_LOAD /ZONE::z_EXIT /COMM:Comment /PEXIT:NOFADE;" };
@@ -10943,10 +10950,10 @@ void test_save_load_virtual_script()
     }
     require(!section_contains(load_section, save_section, "Fscr0015.bmp"));
     const char *save_declarations[]{ "sublocation=COMMON;", "sublocation=TAG_SAVE;", "image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;",
-        "image=i_dLOAD /FILE::Fscr0015.bmp /POS::7,171 /F:SEPARATED /F:NOPAL;", "zone=z_NAME /POS::301,385,304,28 /C:l_SAVE_NOT_EDITING /COMM:Comment /MOUSE:CM /P:100;",
+        "image=i_dLOAD /FILE::Fscr0015.bmp /POS::7,171 /F:SEPARATED /F:NOPAL;", "zone=z_NAME /POS::302,366,304,28 /C:l_SAVE_NOT_EDITING /COMM:Comment /MOUSE:CM /P:100;",
         R"(event=e_SAVE /ZONE::z_SAVE /COMM:Comment /MESSAGE::2102 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)",
-        R"(event=e_NAME /ZONE::z_NAME /COMM:Comment /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:301:385:SaveCaption:15:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)",
-        R"(event=e_INIT /C:l_INIT /SET::SL:INIT:ON /MESSAGE::2105 /SWVALUE::SL::EMPTY /VALUE::ON /GOTO::e_INIT_INPUT /BREAK /CSEND /GOTO::e_INIT_DONE /LABEL::e_INIT_INPUT /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:301:385:SaveCaption:15:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND /LABEL::e_INIT_DONE;)",
+        R"(event=e_NAME /ZONE::z_NAME /COMM:Comment /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:302:366:SaveCaption:51:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)",
+        R"(event=e_INIT /C:l_INIT /SET::SL:INIT:ON /MESSAGE::2105 /SWVALUE::SL::EMPTY /VALUE::ON /GOTO::e_INIT_INPUT /BREAK /CSEND /GOTO::e_INIT_DONE /LABEL::e_INIT_INPUT /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:302:366:SaveCaption:51:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND /LABEL::e_INIT_DONE;)",
         R"(event=e_EXIT_SAVE /ZONE::z_EXIT /COMM:Comment /MESSAGE::2106 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)" };
     const char *common_offset = std::strstr(save_section, "[COMMON]");
     require(common_offset != nullptr);
@@ -10956,11 +10963,14 @@ void test_save_load_virtual_script()
     }
     require(!section_contains(save_section, common_offset, "zone=z_PREVIEW"));
     require(!section_contains(save_section, common_offset, "event=e_CLOSE"));
+    constexpr uint32_t private_preview_scene_index = 0x70000;
+    constexpr uint32_t private_caption_scene_index = 0x70001;
+    require(private_preview_scene_index > 50000 && private_caption_scene_index < 0x80000);
     const char *shared_declarations[]{ "zone=z_MAIN /RECT::0,0,640,480 /MOUSE:NM /COMM:Go;", "sublocation=TAG_NEXT;", "sublocation=TAG_BACK;", "sublocation=TAG_EXIT;",
         "image=i_dNEW /FILE::Fscr0011.bmp /POS::98,41 /F:SEPARATED /F:NOPAL;", "image=i_dEXIT /FILE::Fscr0012.bmp /POS::89,70 /F:SEPARATED /F:NOPAL;",
         "image=i_dCONT /FILE::Fscr0013.bmp /POS::63,100 /F:SEPARATED /F:NOPAL;", "image=i_dHELP /FILE::Fscr0016.bmp /POS::59,196 /F:SEPARATED /F:NOPAL;",
-        "image=i_dCRED /FILE::Fscr0017.bmp /POS::57,244 /F:SEPARATED /F:NOPAL;", "font=SaveCaption /FILE:Font2.rus;", "layer=SavePreview /POS:293,139,320,240 /Z:524289;",
-        "layer=SaveCaption /POS:301,385,304,28 /Z:524290;", "event=e_BACK /ZONE::z_BACK /COMM:Comment /MESSAGE::2100;", "event=e_NEXT /ZONE::z_NEXT /COMM:Comment /MESSAGE::2101;" };
+        "image=i_dCRED /FILE::Fscr0017.bmp /POS::57,244 /F:SEPARATED /F:NOPAL;", "font=SaveCaption /FILE:Font2.rus;", "layer=SavePreview /POS:294,120,320,240 /Z:458752;",
+        "layer=SaveCaption /POS:302,366,304,28 /Z:458753;", "event=e_BACK /ZONE::z_BACK /COMM:Comment /MESSAGE::2100;", "event=e_NEXT /ZONE::z_NEXT /COMM:Comment /MESSAGE::2101;" };
     for(const char *declaration : shared_declarations)
     {
         require(section_contains(common_offset, script_end, declaration));
@@ -11915,10 +11925,16 @@ uint32_t runtime_text_input_acquire_width;
 uint32_t runtime_text_input_acquire_height;
 uint32_t runtime_text_input_acquire_flags;
 intptr_t runtime_text_input_acquire_owner;
+gag::DisplaySceneNode *runtime_text_input_acquire_result;
 int32_t runtime_text_input_release_identifier;
 intptr_t runtime_text_input_release_owner;
 uint32_t runtime_text_input_initialize_values[4];
 void *runtime_text_input_initialize_font;
+intptr_t runtime_text_input_begin_identifiers[4];
+int runtime_text_input_begin_count;
+int runtime_text_input_begin_failure_call;
+intptr_t runtime_text_input_end_identifiers[4];
+int runtime_text_input_end_count;
 
 uint8_t dequeue_test_runtime_text_input()
 {
@@ -11957,14 +11973,14 @@ gag::DisplaySceneNode *acquire_test_runtime_text_input(uint32_t index, int32_t x
     runtime_text_input_acquire_flags = flags;
     runtime_text_input_acquire_owner = owner;
     std::memset(descriptor, 0, sizeof(*descriptor));
-    return reinterpret_cast<gag::DisplaySceneNode *>(0x3456);
+    return runtime_text_input_acquire_result;
 }
 
 uint32_t begin_test_runtime_text_input(intptr_t identifier)
 {
     runtime_text_input_events[runtime_text_input_event_count++] = 5;
-    require(identifier == 0x3456);
-    return runtime_text_input_begin_result;
+    runtime_text_input_begin_identifiers[runtime_text_input_begin_count++] = identifier;
+    return identifier == 0 || (runtime_text_input_begin_failure_call != 0 && runtime_text_input_begin_count == runtime_text_input_begin_failure_call) ? 0x80000000 : runtime_text_input_begin_result;
 }
 
 void draw_test_runtime_text_input(gag::RuntimeStandaloneTextState *, gag::DisplaySceneDescriptor *)
@@ -11975,7 +11991,11 @@ void draw_test_runtime_text_input(gag::RuntimeStandaloneTextState *, gag::Displa
 uint32_t end_test_runtime_text_input(intptr_t identifier, const gag::DisplayRectangleTransform *, const gag::DisplayRectangle *rectangle)
 {
     runtime_text_input_events[runtime_text_input_event_count++] = 7;
-    require(identifier == 0x3456 && rectangle->right == 37 && rectangle->bottom == 19);
+    runtime_text_input_end_identifiers[runtime_text_input_end_count++] = identifier;
+    if(rectangle != nullptr)
+    {
+        require(rectangle->right == 37 && rectangle->bottom == 19);
+    }
     return 0;
 }
 
@@ -12003,6 +12023,10 @@ void reset_test_runtime_text_input(gag::RuntimeCommandLoopState *state)
     runtime_text_input_initialize_result = 1;
     runtime_text_input_begin_result = 0;
     runtime_text_input_event_count = 0;
+    runtime_text_input_acquire_result = reinterpret_cast<gag::DisplaySceneNode *>(0x3456);
+    runtime_text_input_begin_count = 0;
+    runtime_text_input_begin_failure_call = 0;
+    runtime_text_input_end_count = 0;
 }
 
 void test_runtime_text_input()
@@ -12105,6 +12129,57 @@ void test_runtime_text_input()
     gag::process_runtime_text_input(state);
     const int expected_events_2[]{ 1, 2, 3, 4, 5 };
     require(runtime_text_input_event_count == static_cast<int>(std::size(expected_events_2)) && std::memcmp(runtime_text_input_events, expected_events_2, sizeof(expected_events_2)) == 0);
+
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::RuntimeTextInputSceneRedrawApi redraw_api{ acquire_test_runtime_text_input, begin_test_runtime_text_input, end_test_runtime_text_input };
+    gag::set_runtime_text_input_scene_redraw_api_for_testing(redraw_api);
+    gag::RuntimeTextInputApi guarded_api{ dequeue_test_runtime_text_input, time_test_runtime_text_input, initialize_test_runtime_text_input, gag::acquire_runtime_text_input_scene,
+        gag::begin_runtime_text_input_scene_update, draw_test_runtime_text_input, gag::end_runtime_text_input_scene_update, release_test_runtime_text_input };
+    gag::set_runtime_text_input_api_for_testing(guarded_api);
+
+    gag::DisplaySceneNode input_scene{};
+    input_scene.identifier = reinterpret_cast<intptr_t>(&input_scene);
+    input_scene.width = 80;
+    input_scene.height = 30;
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = input_scene.identifier;
+    state->input_caret_tick = 1000;
+    state->input_text[0] = '-';
+    runtime_text_input_tick = 1250;
+    runtime_text_input_acquire_result = &input_scene;
+    gag::process_runtime_text_input(state);
+    const int guarded_events[]{ 1, 2, 3, 5, 4, 5, 6, 7, 7 };
+    require(runtime_text_input_event_count == static_cast<int>(std::size(guarded_events)) && std::memcmp(runtime_text_input_events, guarded_events, sizeof(guarded_events)) == 0);
+    require(runtime_text_input_acquire_flags == 0x320000 && runtime_text_input_begin_count == 2 && runtime_text_input_begin_identifiers[0] == input_scene.identifier
+            && runtime_text_input_begin_identifiers[1] == input_scene.identifier && runtime_text_input_end_count == 2 && runtime_text_input_end_identifiers[0] == input_scene.identifier
+            && runtime_text_input_end_identifiers[1] == input_scene.identifier);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = input_scene.identifier;
+    state->input_caret_tick = 1000;
+    state->input_text[0] = '-';
+    runtime_text_input_tick = 1250;
+    runtime_text_input_acquire_result = nullptr;
+    gag::process_runtime_text_input(state);
+    const int acquire_failure_events[]{ 1, 2, 3, 5, 4, 7, 5 };
+    require(runtime_text_input_event_count == static_cast<int>(std::size(acquire_failure_events)) && std::memcmp(runtime_text_input_events, acquire_failure_events, sizeof(acquire_failure_events)) == 0
+            && runtime_text_input_end_count == 1 && runtime_text_input_end_identifiers[0] == input_scene.identifier);
+
+    reset_test_runtime_text_input(state);
+    state->input_scene_identifier = input_scene.identifier;
+    state->input_caret_tick = 1000;
+    state->input_text[0] = '-';
+    runtime_text_input_tick = 1250;
+    runtime_text_input_acquire_result = &input_scene;
+    runtime_text_input_begin_failure_call = 2;
+    gag::process_runtime_text_input(state);
+    const int begin_failure_events[]{ 1, 2, 3, 5, 4, 5, 7 };
+    require(runtime_text_input_event_count == static_cast<int>(std::size(begin_failure_events)) && std::memcmp(runtime_text_input_events, begin_failure_events, sizeof(begin_failure_events)) == 0
+            && runtime_text_input_end_count == 1 && runtime_text_input_end_identifiers[0] == input_scene.identifier);
+
+    gag::set_runtime_text_input_api_for_testing(api);
+    gag::set_runtime_text_input_scene_redraw_api_for_testing({ gag::acquire_display_scene_node, gag::begin_display_scene_update, gag::end_display_scene_update });
+#endif
 }
 
 uint32_t direct_dispatch_properties[32];
@@ -13122,6 +13197,7 @@ void test_zlib_cdf_adapters()
     constexpr uint32_t palette_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
     constexpr uint32_t pixel_offset = palette_offset + 256 * sizeof(RGBQUAD);
     const RGBQUAD *destination_palette = reinterpret_cast<const RGBQUAD *>(synthesized_help_source.data() + palette_offset);
+    require(destination_palette[51].rgbRed == 233 && destination_palette[51].rgbGreen == 185 && destination_palette[51].rgbBlue == 79);
     auto build_mapping = [&](const std::vector<uint8_t> &source)
     {
         const RGBQUAD *source_palette = reinterpret_cast<const RGBQUAD *>(source.data() + palette_offset);
@@ -13160,7 +13236,7 @@ void test_zlib_cdf_adapters()
     blit_expected(synthesized_fullscreen_source, 0, 0, 280, 300);
     blit_expected(synthesized_help_page_source, 530, 420, 610, 450);
     constexpr uint32_t manual_patch_regions[][4]{
-        { 303, 87,  605, 148 },
+        { 300, 80,  620, 390 },
         { 12,  402, 135, 430 }
     };
     uint32_t manual_patch_changes = 0;

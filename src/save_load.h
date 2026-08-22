@@ -64,6 +64,7 @@ const ArchiveCommentEntry *get_scripted_save_load_selected_entry_for_testing();
 void set_scripted_save_load_collection_for_testing(ArchiveCommentCollection collection, uint32_t selection);
 const char *get_scripted_save_load_current_name_for_testing();
 bool get_scripted_save_load_editing_for_testing();
+uint32_t get_scripted_save_load_preview_render_attempts_for_testing();
 void set_scripted_save_load_persistence_api_for_testing(const ScriptedSaveLoadPersistenceApi &api);
 void finish_scripted_save_name_for_testing(const char *input, ApplicationState *state);
 void prepare_scripted_save_name_display_for_testing(const char *name, char *display);

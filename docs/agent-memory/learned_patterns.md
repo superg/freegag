@@ -2429,3 +2429,18 @@ do not replace prior entries without correcting a demonstrated error.
   original palette, replace only diagnostic holes and explicitly requested
   foreground glyph masks, and independently assert zero RGB differences outside
   the mask before delivery.
+# 2026-08-21 - Reproducible embedded indexed-image patches
+
+- Keep manual embedded bitmap-region payloads paired with a deterministic generator that validates the source BMP dimensions, bit depth, compression, and row orientation. Mirror the generator's half-open rectangle bounds in a focused test so geometry changes cannot silently leave stale expectations.
+
+# 2026-08-21 - Guard clear-before-begin scene redraws at the adapter boundary
+
+- When a recovered renderer clears or resizes a reusable scene before entering its ordinary begin/end update pair, a modern compositor can expose the intermediate blank buffer. Preserve the recovered routine and make the integration adapter hold an outer update only when the replacement fits the current allocation; retain that allocation through the reacquire, release after the nested redraw commits, and explicitly release on acquire or nested-begin failure. Do not hold the guard across a possible reallocating acquire because allocation failure may destroy the guarded scene.
+
+# 2026-08-21 - Keep fixed script-layer indices outside dynamic scene pools
+
+- A scripted layer's `Z` value is also its display-scene lookup index. Fixed private layers must not use values in recovered dynamic allocator bands such as `0x80000`: ownerless acquisition can return an already-existing same-index scene without resizing it, producing state-dependent geometry and content collisions. Diagnose an intermittent blank synthesized layer by comparing the link's requested geometry with the resolved scene geometry before investigating its source bitmap or compositor.
+
+# 2026-08-21 - Match static text to stock INPSTR at the font-renderer boundary
+
+- `/INPSTR` echo parameters four and five are direct foreground and frame palette indices, and its acquired text scene draws at local origin `(0,0)`. A static label intended to transition seamlessly into that editor should initialize the same font state with the same two indices and draw at the same origin; independent RGB remapping or centering produces a visible state change. Derive requested color indices from the authoritative active background palette rather than assuming VGA palette positions.

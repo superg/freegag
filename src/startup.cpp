@@ -485,8 +485,32 @@ void enqueue_runtime_pointer_event()
     std::memcpy(record + 3, runtime_pointer_event_record, 13 * sizeof(uintptr_t));
     enqueue_runtime_event_record(record);
 }
-RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text, acquire_display_scene_node, begin_display_scene_update, draw_runtime_standalone_text,
-    end_display_scene_update, release_display_scene_node };
+#if defined(FREEGAG_WINDOWS_FIXES)
+RuntimeTextInputSceneRedrawApi runtime_text_input_scene_redraw_api{ acquire_display_scene_node, begin_display_scene_update, end_display_scene_update };
+intptr_t runtime_text_input_guarded_scene;
+
+void release_runtime_text_input_scene_guard()
+{
+    if(runtime_text_input_guarded_scene != 0)
+    {
+        runtime_text_input_scene_redraw_api.end_update(runtime_text_input_guarded_scene, nullptr, nullptr);
+        runtime_text_input_guarded_scene = 0;
+    }
+}
+#endif
+RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, timeGetTime, initialize_runtime_standalone_text,
+#if defined(FREEGAG_WINDOWS_FIXES)
+    acquire_runtime_text_input_scene, begin_runtime_text_input_scene_update,
+#else
+    acquire_display_scene_node, begin_display_scene_update,
+#endif
+    draw_runtime_standalone_text,
+#if defined(FREEGAG_WINDOWS_FIXES)
+    end_runtime_text_input_scene_update,
+#else
+    end_display_scene_update,
+#endif
+    release_display_scene_node };
 RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
 RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, GetTickCount, timeGetTime, Sleep, process_available_runtime_generic_children, process_runtime_message,
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
@@ -4981,6 +5005,52 @@ void reset_runtime_byte_queue()
     }
 }
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+DisplaySceneNode *acquire_runtime_text_input_scene(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
+    const DisplayPixelFormatDescriptor *format)
+{
+    release_runtime_text_input_scene_guard();
+    const intptr_t current_identifier = runtime_display_context.input_scene_identifier;
+    if(current_identifier != 0 && runtime_text_input_scene_redraw_api.begin_update(current_identifier) == 0)
+    {
+        auto *current = reinterpret_cast<DisplaySceneNode *>(current_identifier);
+        if(width <= static_cast<uint32_t>(current->width) && height <= static_cast<uint32_t>(current->height))
+        {
+            runtime_text_input_guarded_scene = current_identifier;
+            flags |= 0x200000;
+        }
+        else
+        {
+            runtime_text_input_scene_redraw_api.end_update(current_identifier, nullptr, nullptr);
+        }
+    }
+
+    DisplaySceneNode *scene = runtime_text_input_scene_redraw_api.acquire_scene(index, x, y, width, height, flags, owner, descriptor, format);
+    if(scene == nullptr)
+    {
+        release_runtime_text_input_scene_guard();
+    }
+    return scene;
+}
+
+uint32_t begin_runtime_text_input_scene_update(intptr_t identifier)
+{
+    const uint32_t result = runtime_text_input_scene_redraw_api.begin_update(identifier);
+    if(result != 0)
+    {
+        release_runtime_text_input_scene_guard();
+    }
+    return result;
+}
+
+uint32_t end_runtime_text_input_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
+{
+    const uint32_t result = runtime_text_input_scene_redraw_api.end_update(identifier, transform, rectangle);
+    release_runtime_text_input_scene_guard();
+    return result;
+}
+#endif
+
 // GAG.EXE: 0x00420E10
 void process_runtime_text_input(RuntimeCommandLoopState *state)
 {
@@ -5214,6 +5284,14 @@ void set_runtime_text_input_api_for_testing(const RuntimeTextInputApi &api)
 {
     runtime_text_input_api = api;
 }
+
+#if defined(FREEGAG_WINDOWS_FIXES)
+void set_runtime_text_input_scene_redraw_api_for_testing(const RuntimeTextInputSceneRedrawApi &api)
+{
+    release_runtime_text_input_scene_guard();
+    runtime_text_input_scene_redraw_api = api;
+}
+#endif
 
 RuntimeCommandLoopState *get_runtime_command_loop_state_for_testing()
 {

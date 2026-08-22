@@ -4489,6 +4489,21 @@ struct RuntimeInputSessionApi
     void (*release_record)(RuntimeLockRecord *record);
 };
 
+#if defined(FREEGAG_WINDOWS_FIXES)
+struct RuntimeTextInputSceneRedrawApi
+{
+    DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
+        const DisplayPixelFormatDescriptor *format);
+    uint32_t (*begin_update)(intptr_t identifier);
+    uint32_t (*end_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+};
+
+DisplaySceneNode *acquire_runtime_text_input_scene(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
+    const DisplayPixelFormatDescriptor *format);
+uint32_t begin_runtime_text_input_scene_update(intptr_t identifier);
+uint32_t end_runtime_text_input_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+#endif
+
 // GAG.EXE: 0x00420790
 void initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, uint32_t character_width, void *session_value);
 
@@ -4510,6 +4525,9 @@ void reset_runtime_pair_queue_for_testing();
 void set_runtime_input_session_record_for_testing(const RuntimeInputSessionRecord &record, uint32_t status);
 void set_runtime_input_session_api_for_testing(const RuntimeInputSessionApi &api);
 void set_runtime_input_alternate_scene_for_testing(intptr_t identifier);
+#if defined(FREEGAG_WINDOWS_FIXES)
+void set_runtime_text_input_scene_redraw_api_for_testing(const RuntimeTextInputSceneRedrawApi &api);
+#endif
 
 struct RuntimeCommandLoopState
 {
