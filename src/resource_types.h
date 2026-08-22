@@ -24,7 +24,7 @@ struct RuntimeResourceConstructionPlanApi
 
 struct RuntimeMediaBackend;
 struct RuntimeAnimationBackend;
-struct RuntimeSoundSlot;
+struct RuntimeSoundStatus;
 struct RuntimeGenericBackend;
 struct RuntimeGenericResourceNode;
 struct RuntimeTreeNode;
@@ -47,7 +47,7 @@ struct RuntimeResourceConstructionApi
     RuntimeMediaBackend *(*create_bitmap)(uint32_t unused, uint32_t extension_bytes, void *data);
     RuntimeAnimationBackend *(*create_animation)(uint32_t unused, void *data, uint32_t extension_bytes, uint32_t storage);
     uint32_t (*create_sound)(const RuntimePcmFormat *format);
-    RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
+    uint32_t (*set_sound_playback_marker)(uint32_t handle, uint32_t marker);
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*queue_sound)(uint32_t handle, void *data, uint32_t size, int32_t replace);
     void (*set_sound_loop)(uint32_t handle, uint32_t value);
@@ -106,14 +106,12 @@ struct RuntimeResourceDestroyApi
     BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
 };
 
-struct RuntimeSoundSlot;
-
 struct RuntimeResourceControlApi
 {
     RuntimeLockRecord *(*acquire_record)(void *identity);
     void (*release_record)(RuntimeLockRecord *record);
     uint32_t (*destroy_resource)(void *identity);
-    RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
+    uint32_t (*query_sound)(uint32_t handle, RuntimeSoundStatus *status);
 };
 
 

@@ -1,4 +1,5 @@
 #include "resource.h"
+#include <cstring>
 #include "runtime_internal.h"
 
 namespace gag
@@ -172,7 +173,6 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
             const uint32_t sound = runtime_resource_construction_api.create_sound(&wave_file->format);
             if(sound != 0)
             {
-                RuntimeSoundSlot *slot = runtime_resource_construction_api.get_sound_slot(sound);
                 auto *wave = reinterpret_cast<RuntimeRiffChunk *>(wave_file + 1);
                 constexpr char wave_data_chunk_id[4]{ 'd', 'a', 't', 'a' };
                 while(!fixed_dword_memory_equal(wave->identifier, wave_data_chunk_id, sizeof(wave_data_chunk_id)))
@@ -189,7 +189,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     runtime_resource_construction_api.start_sound(sound, 1);
                     runtime_resource_construction_api.queue_sound(sound, wave->data, wave->size, 1);
                     runtime_resource_construction_api.set_sound_loop(sound, (flags & 0x400) != 0 ? 0xffffffff : (scale_or_loop == 0 ? 1 : scale_or_loop));
-                    slot->playback_state = 0xffffffff;
+                    runtime_resource_construction_api.set_sound_playback_marker(sound, 0xffffffff);
                     if((flags & 0x200) == 0)
                     {
                         runtime_resource_construction_api.stop_sound(sound, 1);
@@ -553,16 +553,21 @@ uint32_t query_runtime_resource_playback_flags(void *identity)
     else if(type == 0x8000)
     {
         result = 0x1000000;
-        auto *slot = runtime_resource_control_api.get_sound_slot(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource->backend)));
-        if(slot->playing != 0)
+        RuntimeSoundStatus status{};
+        if(runtime_resource_control_api.query_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource->backend)), &status) == 0)
+        {
+            runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
+            return 0;
+        }
+        if(status.control_state != 0)
         {
             result = 0x1000001;
         }
-        if(slot->playback_state != 0 || (slot->schedule_state == 0 && slot->playing == 0))
+        if(status.playback_marker != 0 || (status.schedule_marker == 0 && status.control_state == 0))
         {
             result |= 0x2000;
         }
-        if(slot->loop_value_1 == 0xffffffff)
+        if(status.infinite_loop != 0)
         {
             result |= 0x400;
         }
@@ -1387,13 +1392,7 @@ void set_runtime_resource_state(void *identity, uint32_t state)
         uint32_t handle = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(resource->backend));
         if(force_refresh)
         {
-            RuntimeSoundSlot *slot = runtime_resource_state_api.get_sound_slot(handle);
-            if(slot != nullptr)
-            {
-                slot->fade_current = slot->fade_block_index;
-                runtime_resource_state_api.queue_sound_data(handle, slot->buffers->data, slot->buffers->size, 1);
-                runtime_resource_state_api.stop_sound(handle, 1);
-            }
+            runtime_resource_state_api.restart_sound_data(handle);
             if(resource->generic_backend_child != nullptr)
             {
                 runtime_resource_state_api.clear_child_ready(resource->generic_backend_child);

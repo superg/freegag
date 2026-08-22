@@ -513,7 +513,7 @@ inline uint32_t &runtime_property_value = runtime_display_context.script_clock;
 inline uint32_t &runtime_resource_presentation_owner = runtime_display_context.script_clock;
 inline RuntimeResourceStateApi runtime_resource_state_api{ acquire_runtime_lock_record, begin_display_scene_update, finalize_runtime_media_backend, configure_runtime_resource_palette,
     end_display_scene_update, clear_runtime_generic_backend_child_ready, enable_runtime_generic_backend_child_mode_200, disable_runtime_generic_backend_child_mode_200, select_runtime_scene_transition,
-    get_runtime_sound_slot, queue_runtime_sound_data, start_runtime_sound, stop_runtime_sound, release_runtime_lock_record };
+    restart_runtime_sound_data, start_runtime_sound, stop_runtime_sound, release_runtime_lock_record };
 inline RuntimeImmediateSceneTransitionApi runtime_immediate_scene_transition_api{ acquire_display_lock, set_display_clip_rectangle, release_display_lock, acquire_runtime_lock_record,
     dispatch_display_scene_update, Sleep, synchronize_display_region, apply_display_palette, release_runtime_lock_record };
 inline RuntimeSceneTransitionSelectionApi runtime_scene_transition_selection_api{ std::rand, apply_immediate_runtime_scene_transition, apply_palette_runtime_scene_transition,
@@ -589,7 +589,7 @@ inline RuntimeAnimationDecodeApi runtime_animation_decode_api{ decode_runtime_an
     ignore_runtime_animation_chunk_11, ignore_runtime_animation_chunk_12, ignore_runtime_animation_chunk_13, decode_runtime_animation_byte_run, decode_runtime_animation_literal };
 inline RuntimeAnimationCompletionApi runtime_animation_completion_api{ Sleep, PostMessageA, set_async_file_position };
 inline RuntimeAnimationAudioApi runtime_animation_audio_api{ runtime_milliseconds, Sleep, HeapAlloc, HeapReAlloc, destroy_runtime_sound_handle, queue_runtime_sound_data, stop_runtime_sound,
-    start_runtime_sound, create_runtime_sound_handle, get_runtime_sound_slot };
+    start_runtime_sound, create_runtime_sound_handle, query_runtime_sound_status, set_runtime_sound_playback_marker, set_runtime_sound_schedule_marker };
 inline RuntimeAnimationWorkerApi runtime_animation_worker_api{ GdiSetBatchLimit, Sleep, runtime_milliseconds, ExitThread };
 inline RuntimeResourceConstructionPlanApi runtime_resource_construction_plan_api{ find_available_display_scene_index };
 inline RuntimeResourceConstructionApi runtime_resource_construction_api{
@@ -604,7 +604,7 @@ inline RuntimeResourceConstructionApi runtime_resource_construction_api{
     create_runtime_bitmap_backend,
     create_runtime_animation_backend,
     create_runtime_sound_handle,
-    get_runtime_sound_slot,
+    set_runtime_sound_playback_marker,
     start_runtime_sound,
     queue_runtime_sound_data,
     set_runtime_sound_loop_value,
@@ -647,7 +647,7 @@ inline RuntimeBackendInitializationApi runtime_backend_initialization_api{ HeapC
 inline RuntimeResourceDestroyApi runtime_resource_destroy_api{ acquire_runtime_lock_record, EnterCriticalSection, LeaveCriticalSection, find_runtime_generic_resource, remove_runtime_generic_resource,
     destroy_runtime_media_backend, release_runtime_memory_resource_by_data, release_runtime_streamed_resource, destroy_runtime_sound_handle, destroy_runtime_generic_backend,
     release_display_scene_node, remove_runtime_named_child_by_identity, GetProcessHeap, HeapFree };
-inline RuntimeResourceControlApi runtime_resource_control_api{ acquire_runtime_lock_record, release_runtime_lock_record, destroy_runtime_resource, get_runtime_sound_slot };
+inline RuntimeResourceControlApi runtime_resource_control_api{ acquire_runtime_lock_record, release_runtime_lock_record, destroy_runtime_resource, query_runtime_sound_status };
 inline CRITICAL_SECTION &runtime_game_dll_critical_section = runtime_display_context.resource_critical_section;
 inline RuntimeGameDllWindowProcedure &runtime_game_dll_window_procedure = runtime_display_context.game_dll_window_procedure;
 inline RuntimeGameDllExecute &runtime_game_dll_execute = runtime_display_context.game_dll_execute;

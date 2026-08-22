@@ -663,8 +663,7 @@ struct RuntimeResourceStateApi
     void (*enable_child_mode)(void *identity);
     void (*disable_child_mode)(void *identity);
     void (*select_transition)(uint32_t flags);
-    RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
-    uint32_t (*queue_sound_data)(uint32_t handle, void *data, uint32_t size, int32_t replace);
+    uint32_t (*restart_sound_data)(uint32_t handle);
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
     void (*release_record)(RuntimeLockRecord *record);

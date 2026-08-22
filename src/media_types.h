@@ -5,7 +5,7 @@
 
 namespace gag
 {
-struct RuntimeSoundSlot;
+struct RuntimeSoundStatus;
 struct RuntimeMediaBackend;
 struct DisplaySceneDescriptor;
 using RuntimeAnimationCallback = int32_t (*)(RuntimeMediaBackend *backend);
@@ -47,7 +47,6 @@ struct RuntimeMediaBackend
     void *format_data;
     void *frame_header;
     void *chunk_header;
-    RuntimeSoundSlot *sound_slot;
     void *audio_buffer;
     void *frame_buffer;
     int32_t dirty_left;
@@ -285,7 +284,9 @@ struct RuntimeAnimationAudioApi
     uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*create_sound)(const RuntimePcmFormat *format);
-    RuntimeSoundSlot *(*get_sound_slot)(uint32_t handle);
+    uint32_t (*query_sound)(uint32_t handle, RuntimeSoundStatus *status);
+    uint32_t (*set_playback_marker)(uint32_t handle, uint32_t marker);
+    uint32_t (*set_schedule_marker)(uint32_t handle, uint32_t marker);
 };
 
 

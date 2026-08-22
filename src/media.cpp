@@ -3,7 +3,6 @@
 
 namespace gag
 {
-
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
 {
     auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeMediaBackend) + extension_bytes));
@@ -940,14 +939,24 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
         animation->source_cursor = chunk + 1;
         if(chunk_type == 0x300)
         {
-            if(backend.sound_slot != nullptr && (backend.media_flags & 0x800000) == 0)
+            RuntimeSoundStatus sound_status{};
+            if(backend.sound_handle != 0 && runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & 0x800000) == 0)
             {
                 const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
-                while(backend.sound_slot->playback_state == 0 && (backend.media_flags & 0x10000) == 0)
+                bool sound_available = true;
+                while(sound_status.playback_marker == 0 && (backend.media_flags & 0x10000) == 0)
                 {
                     runtime_animation_audio_api.sleep(0);
+                    if(runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) == 0)
+                    {
+                        sound_available = false;
+                        break;
+                    }
                 }
-                backend.timing_adjustment = ((wait_start - backend.frame_duration * 5u) - backend.sound_slot->playback_state) / (backend.synchronized_sound_frame - backend.frame_number);
+                if(sound_available && sound_status.playback_marker != 0)
+                {
+                    backend.timing_adjustment = ((wait_start - backend.frame_duration * 5u) - sound_status.playback_marker) / (backend.synchronized_sound_frame - backend.frame_number);
+                }
                 const uint32_t wait_end = runtime_animation_audio_api.time_get_time();
                 backend.previous_frame_time += wait_end - wait_start;
                 backend.next_frame_time += wait_end - wait_start;
@@ -971,16 +980,17 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                     std::memcpy(destination, animation->source_cursor, payload_size);
                     runtime_animation_audio_api.queue_sound_data(backend.sound_handle, destination, payload_size, 0);
                 }
-                backend.sound_slot->playback_state = 0;
+                runtime_animation_audio_api.set_playback_marker(backend.sound_handle, 0);
                 backend.synchronized_sound_frame = backend.frame_number;
             }
         }
         else if(chunk_type == 0x200)
         {
-            if(backend.sound_slot != nullptr && (backend.media_flags & 0x800000) == 0)
+            RuntimeSoundStatus sound_status{};
+            if(backend.sound_handle != 0 && runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & 0x800000) == 0)
             {
-                backend.sound_slot->schedule_state = 0;
-                backend.sound_slot->playback_state = 0;
+                runtime_animation_audio_api.set_schedule_marker(backend.sound_handle, 0);
+                runtime_animation_audio_api.set_playback_marker(backend.sound_handle, 0);
                 backend.media_flags |= 0x400000;
                 const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
                 bool available = true;
@@ -999,7 +1009,7 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                         {
                             available = false;
                             runtime_animation_audio_api.destroy_sound(backend.sound_handle);
-                            backend.sound_slot = nullptr;
+                            backend.sound_handle = 0;
                         }
                         else
                         {
@@ -1018,13 +1028,22 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                     runtime_animation_audio_api.queue_sound_data(backend.sound_handle, backend.audio_buffer, half_size, 1);
                     runtime_animation_audio_api.queue_sound_data(backend.sound_handle, static_cast<uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
                     runtime_animation_audio_api.stop_sound(backend.sound_handle, 0);
-                    while(backend.sound_slot->schedule_state == 0 && (backend.media_flags & 0x10000) == 0)
+                    bool sound_available = true;
+                    while(sound_status.schedule_marker == 0 && (backend.media_flags & 0x10000) == 0)
                     {
                         runtime_animation_audio_api.sleep(0);
+                        if(runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) == 0)
+                        {
+                            sound_available = false;
+                            break;
+                        }
                     }
-                    const uint32_t elapsed = backend.sound_slot->schedule_state - wait_start;
-                    backend.previous_frame_time += elapsed;
-                    backend.next_frame_time += elapsed;
+                    if(sound_available && sound_status.schedule_marker != 0)
+                    {
+                        const uint32_t elapsed = sound_status.schedule_marker - wait_start;
+                        backend.previous_frame_time += elapsed;
+                        backend.next_frame_time += elapsed;
+                    }
                 }
                 backend.synchronized_sound_frame = backend.frame_number;
             }
@@ -1038,7 +1057,6 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
         {
             auto *sound_chunk = reinterpret_cast<RuntimeAnimationSoundFormatChunk *>(chunk);
             backend.sound_handle = runtime_animation_audio_api.create_sound(&sound_chunk->format);
-            backend.sound_slot = runtime_animation_audio_api.get_sound_slot(backend.sound_handle);
         }
         animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
