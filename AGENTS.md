@@ -7,8 +7,8 @@ from `GAG.EXE`.
 
 - C++17 and the Win32 API.
 - CMake 3.20 or newer.
-- 32-bit x86 builds only: the original DLL uses an x86 `__fastcall` ABI.
-- MSVC Win32 is the primary tested toolchain; 32-bit MinGW may be supported.
+- AMD64/x64 is the primary development and testing architecture.
+- The original DLL's x86 ABI remains reverse-engineering evidence, not a build-target restriction.
 - GDI supplies the compatibility window and 8-bit DIB framebuffer.
 - Ghidra plus its MCP bridge is the source of truth for static ABI findings.
 
@@ -33,18 +33,19 @@ from `GAG.EXE`.
   expand, or maintain README documentation unless the user requests it later.
 - Preserve the repository `.gitattributes` line-ending policy: all project text
   uses LF on every platform.
-- Configure with `cmake -S . -B build -A Win32`. Use
+- Configure with `cmake -S . -B build -A x64`. Use
   `cmake --build build --config Debug` for routine development and verification;
   build Release only when the user requests it or release-specific behavior must
   be checked.
-- Use the existing root `build/` directory for all routine Win32 Debug
+- Use the existing root `build/` directory for all routine Debug
   configuration, builds, and acceptance checks. Do not create alternate build
   directories such as `build-acceptance/` or `build-zlib-acceptance/` unless the
   user explicitly requests an isolated build tree.
 - Never change or overwrite binaries under `data/orig/`; treat them as immutable
   reverse-engineering evidence.
-- Preserve the DLL's 32-bit register ABI explicitly. Do not replace
-  `__fastcall` declarations with platform-default function pointers.
+- Preserve confirmed facts about the original DLL's 32-bit register ABI in
+  reverse-engineering records. Recompiled application interfaces use native-width
+  types and the current platform ABI.
 - Distinguish confirmed disassembly facts from runtime hypotheses in code,
   documentation, and Ghidra comments.
 - Do not guess compatibility data or behavior—including palettes, pixel formats,
@@ -59,7 +60,7 @@ from `GAG.EXE`.
   with loader-facing declarations when reverse-engineering changes the ABI model.
 - Prefer small compatibility shims over copying unrelated parts of the original
   GAG graphics or audio engine.
-- Verify source changes with a Win32 Debug build by default. Interactive
+- Verify source changes with an x64 Debug build by default. Interactive
   rendering or audio changes also require a user/runtime check.
 - Do not commit generated `build/` contents as source artifacts.
 

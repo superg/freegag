@@ -430,9 +430,11 @@ do not replace prior entries without correcting a demonstrated error.
 
 ## 2026-08-14 — Development configuration
 
-- This repository's routine development and runtime-testing configuration is
-  Win32 Debug. Release builds are optional unless release-specific behavior is
-  under investigation.
+- Use the repository's current architecture target for routine development and
+  runtime testing. Architecture-specific constraints from earlier recovery
+  phases are historical and must not override the active build configuration.
+- Release builds are optional unless release-specific behavior is under
+  investigation.
 - The Git repository uses `main` as its initial branch.
 - Cross-platform line endings are repository-controlled through
   `.gitattributes`: all detected text uses LF. This takes precedence over
@@ -2285,3 +2287,145 @@ do not replace prior entries without correcting a demonstrated error.
 - A Win32 structure with pointer-sized fields cannot be overlaid with an original x86 all-DWORD helper even when later integer fields have matching names. Copy the semantic fields into the recovered helper and copy mutable results back. `WINDOWPOS` is a critical example because its two leading `HWND` fields expand before `x`, `y`, dimensions, and flags.
 - Fixed serialized formats should use packed file-view structures and compile-time size/offset checks. Live runtime state should use native typed structures and explicit conversions; do not make a single overlay serve both domains.
 - When original storage is deliberately polymorphic, expose named union aliases for each confirmed interpretation instead of scattering casts between unrelated node types. Use a typed common prefix only when every consumed field has compile-time `offsetof` equality checks.
+
+# Replace native modal UI at the orchestration boundary
+
+- Keep recovered native dialog procedures intact for fidelity builds, but branch to a compatibility-owned controller before dialog creation. This makes it structurally impossible for the compatibility path to instantiate child controls or secondary prompts while preserving the original implementation as executable evidence.
+- A synchronous in-engine modal can use the host window's message pump when its active controller intercepts input before normal game dispatch. Render the overlay as higher scene nodes, leave the underlying scene unchanged, and release only overlay-owned scenes when the modal completes.
+- Separate save discovery from presentation by returning path/caption records and the next numeric identifier. Both native widgets and engine UI can then share archive validation and naming rules without passing `HWND`, listbox messages, or control identifiers through the data layer.
+- Treat save previews as untrusted archive content: validate bounded bitmap headers and palette/pixel ranges before scaling, then remap source palette colors to the active indexed palette. Validate compatibility UI assets through the active archive and show a modal engine error if they are absent; do not silently substitute loose or executable resources.
+- A fixed-name resource identity is an owning `RuntimeResourceObject` wrapper, not necessarily the identity accepted by a media renderer. Follow the normal engine acquisition path: lock the resource wrapper, extract and validate its backend, release the wrapper lock, and pass the backend identity to font/bitmap media operations. Resolve compatibility assets by their serialized archive filename when script aliases are not a stable interface.
+- GAG's font renderer treats atlas pixels below `0x10` and at or above `0x10` as separate replaceable color layers. Supplying one color for both destroys the authored stroke/shadow distinction and makes `FONT2.RUS` look substantially heavier; preserve a contrasting low layer and main high layer when drawing compatibility text.
+- Keep a non-original compatibility UI in its own translation unit, including its model, rendering, input state, resource decoding, lifecycle, and test hooks. Let recovered orchestration call a narrow run/message/activity interface, and expose only small semantic accessors for engine-owned state; this keeps fidelity code readable and prevents compatibility state from leaking into recovered dialog procedures.
+- When one compatibility feature should be independently comparable, give it a subordinate build option instead of tying it permanently to the umbrella fixes flag. Test all three meaningful configurations: fidelity build, fixes with the recovered path, and fixes with the replacement path.
+- A nested in-engine modal message loop must explicitly unwind on a top-level close request. Mark the modal complete before allowing the normal window shutdown handler to continue; otherwise shutdown state can be set while the modal keeps waiting for unrelated input.
+
+# Use virtual scripts for engine-native compatibility screens
+
+- Model a compatibility screen as an ordinary script root when existing script declarations already cover its images, zones, cursors, and exit behavior. An embedded CFG can introduce no loose assets while retaining normal scene parsing, resource ownership, input dispatch, and `/PEXIT` restoration of the preceding root.
+- Virtual resource lookup should return the resource bytes, byte count, and configuration type, and it must run before filesystem or archive probing in both classification and loading. Keeping these results together prevents each caller from reintroducing filename-specific type assumptions.
+- When a synchronous script message formerly opened a modal dialog, route the replacement directly to the engine's pending-root transition and return without `ReplyMessage` or a nested command/dialog path. This leaves the script thread free to finish its event and lets the ordinary root-transition loop activate the new screen.
+- Dynamic compatibility content does not require a new script grammar when the recovered language already exposes blank scene layers. Declare positioned layers in the embedded CFG, associate them with the owning tree during the normal rebuild lifecycle, and let the feature module fill and clear their pixel buffers. This preserves ordinary tree ownership and teardown while keeping dynamic archive decoding and interaction state outside recovered parser code.
+- Help control BMPs such as `HELPEXIT.BMP`, `HELPBACK.BMP`, and `HELPNEXT.BMP` are hover-highlight overlays; the unselected artwork is already part of the Help background. Reuse the recovered `MENU_3S` state template so the overlay resource is stopped in the unselected state, restarted on selection, and removed by restoring the background rectangle when the pointer leaves. Drawing these assets unconditionally produces a permanently highlighted control.
+- Reusing a script control entails its ownership hierarchy as well as its template body. The Help hover/reset behavior relies on CFG-owned `MM` state, a root `z_MAIN`, tag sublocations, and their shared `MENU_3S` clear event. Preserve that hierarchy and remap only the final click events when adapting the controls to a compatibility screen.
+- Dynamic scene-link `Z` values participate in the display scene index ordering, not a small local layer scale; ordinary media resources allocate from `0x80000`, so compatibility layers should reserve deliberate indices relative to that range. Ordering alone is insufficient: a newly acquired ownerless scene retains the compositor's `0x01000000` inactive bit, and the normal begin-update path only clears it for scenes with registered owners. Explicitly activate compatibility-owned blank layers before drawing them, without changing recovered scene-link activation globally.
+- A blank 8-bit scene layer does not carry a source palette like a BMP-backed resource. On a high-color display root this leaves its rectangle compositor callback null even when its pixel buffer is populated and active. Assign the current game palette to a dynamic indexed layer before drawing so the engine builds its indexed-to-destination mapping and installs the appropriate callback.
+
+# Mediate a stock script editor through completion outcomes
+
+- When an existing script text editor already supplies the required keyboard,
+  caret, font, and capacity behavior, keep it unchanged and coordinate external
+  controls around its normal completion boundary. Record a pending semantic
+  outcome, enqueue the editor's ordinary Enter byte, and interpret the completed
+  text only after the paused script event resumes. This lets navigation and Exit
+  discard input while Save submits it without introducing a second keyboard
+  path or duplicating editor state.
+- Keep the static caption and editor mutually exclusive in the script. A
+  conditionally active name zone can hide the caption before `/INPSTR`, while a
+  one-time initialization event can start the same editor for an empty
+  collection. Controls that must remain live during editing should send
+  controller messages; controls that must be inert should have no zone in that
+  mode.
+- For archive-backed save names, separate the displayed caption, current full
+  key, and physical archive path. Apply truncation only to display text, compare
+  full `COMMENT.TXT` keys case-insensitively, resolve duplicate keys from newest
+  to oldest, and allocate a physical filename only when no key matches.
+- Prefer an inline state check after an action over a free-running conditional
+  `/PEXIT` event in a compatibility screen. The inline form makes scene exit
+  causally dependent on Save or completed input and prevents initialization-time
+  event evaluation from dismissing a newly built screen. When initialization
+  must conditionally enter a pausing opcode, use the script language's established
+  `GOTO`/`BREAK`/`CSEND` label pattern instead of nesting one switch inside
+  another.
+- Do not use an editor-state object as a shared mode gate when multiple script
+  sections reuse one common control hierarchy. Keep the visual tag shared, but
+  let each mode own the click action: an unconditional action can exit directly,
+  while the editor-owning mode can route the click through its controller and
+  finish a paused editor before exiting.
+- A parameterized script `/MESSAGE` is conditional on resolving an active object
+  field; if lookup fails (including a legitimate empty string), the engine skips
+  sending the message. Do not use that form for a completion callback that must
+  always run. Stock `/INPSTR` retains its 32-byte session buffer after completion,
+  so an unconditional message can copy that buffer at the immediate boundary and
+  preserve both nonempty text and the empty-input case without changing the editor.
+
+# Synthesize archive-backed resources after archive lookup
+
+- Keep generated compatibility assets behind the ordinary archive lookup rather than treating them as virtual resources. Query the registry during type detection without building, and invoke its builder only after an active-CDF miss during loading. A real archive entry then remains authoritative, while successful generated bytes can use the ordinary memory-backed cache, reference counting, and release path.
+- When combining indexed images with different palettes, choose one source's complete BMP as the authoritative output container and palette. Map each other source index to the nearest authoritative RGB entry with a deterministic tie rule before copying pixels; directly copying indices would silently reinterpret colors. Treat requested rectangles as top-left screen coordinates and translate their rows when accessing bottom-up BMP storage. Validate dimensions, bit depth, compression, full palette, row stride, pixel bounds, and declared file size before accessing either source.
+
+# Preserve a dynamic indexed layer's authoritative palette
+
+- Do not pre-remap a dynamic indexed image into the scene palette when the
+  compositor already accepts a palette per source layer. Keep the original
+  indices and install the image's palette on that layer. An indexed display can
+  still perform its recovered indexed-to-indexed mapping, while a high-color
+  display converts directly from every source palette entry and avoids a lossy
+  intermediate palette.
+- Convert file palettes explicitly into the engine's channel layout. Windows
+  `RGBQUAD` bytes are blue, green, red, reserved, while GAG's internal packed
+  palette stores red in the low byte, then green and blue. Reinterpreting the
+  file bytes swaps red and blue.
+- Keep unrelated dynamic layers independent: a text layer may require the
+  active game palette even when an adjacent screenshot layer owns a private
+  palette. Palette preparation belongs to the content being rendered, not to a
+  generic layer-activation helper.
+
+# Translate legacy palette blocks at typed portability boundaries
+
+- A legacy pointer typed as palette entries may actually address a larger
+  `LOGPALETTE`-style block whose header precedes entry zero. Confirm the producer
+  and the consumer's first byte access before replacing it with a direct typed
+  array; retaining the consumer's historical offset against the new pointer
+  silently shifts every color and can read past the array.
+- Capturing a display framebuffer into an indexed archive image must use the
+  source scene's actual bits per pixel, channel masks, and byte pitch. Copy
+  indices directly only for an indexed source. For high-color sources, decode
+  each sampled pixel and map it deterministically into the output palette; a
+  pointer plus width is not enough to reconstruct row geometry.
+
+# Reconstruct shared indexed backgrounds without inventing pixels
+
+- When aligned 8-bit screens share a visual background but not identical texture
+  samples, pixel inequality alone is not evidence that both pixels are damaged.
+  Preserve one source as the authoritative BMP container, identify foreground
+  through confirmed palette ranges and content geometry, and substitute exact
+  pixels from the second source only where the first foreground is masked and
+  the second is clean.
+- Represent regions obscured in every source with an unused palette entry whose
+  color is set to an unmistakable diagnostic red. This retains the original
+  indexed format, dimensions, header layout, and recoverable source pixels while
+  keeping uncertainty visually explicit.
+- Do not promote a shared foreground bounding rectangle or a dilated semantic
+  mask directly to pixel-level unknown status. A rectangle contains authentic
+  background between and around glyphs, and unconstrained dilation consumes
+  additional exposed pixels. Preserve source pixels that are identical across
+  inputs and distinguish foreground coverage at the individual-pixel level.
+- A strict aligned-image diff can establish only RGB equality or inequality. It
+  cannot classify matching pixels as shared foreground, nor determine which side
+  of an unequal pair exposes the background. Keep the exact diff artifact
+  separate from any semantic background reconstruction and state this limitation.
+- When the requested inference rule treats cross-image agreement as authoritative,
+  apply exact/near color agreement before semantic foreground classification.
+  Shared text or artwork then remains by design, while semantic masks operate
+  only on genuinely differing pixels. Use connected bright neutral regions to
+  seed grayscale overlays, expand narrowly for dark accents, select the clean
+  side for one-sided masks, and reserve red for overlapping differing masks.
+- When adding a third indexed reference with materially different authored art,
+  restrict recovery to explicit useful regions and express excluded artwork as
+  hard masks whose output is byte-compared against the base. Remap accepted
+  reference RGB colors to the authoritative output palette while excluding the
+  diagnostic-red entry; never copy foreign indices directly across palettes.
+- When every aligned source has dense, differently placed foreground and the
+  user permits inferred texture instead of diagnostic unknowns, a semantic
+  multi-reference reconstruction is more suitable than increasingly elaborate
+  indexed-pixel rules. Inventory every foreground class explicitly, preserve the
+  structural background invariants, inspect the generated result, then convert
+  non-destructively to the exact required dimensions and true-color BMP depth and
+  validate the serialized header.
+- To prevent any generative alignment drift, treat the generated reconstruction
+  only as a fill source and composite through an explicit edit mask over the
+  authoritative base. Convert every locked indexed pixel directly through its
+  original palette, replace only diagnostic holes and explicitly requested
+  foreground glyph masks, and independently assert zero RGB differences outside
+  the mask before delivery.

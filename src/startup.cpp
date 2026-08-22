@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <string>
 #include "cdf_archive.h"
+#include "save_load.h"
+#include "synthesized_resource.h"
 #include "xtet/api.h"
 
 namespace gag
@@ -1193,6 +1195,17 @@ void set_runtime_flag_40()
 }
 
 } // namespace
+
+#if defined(GAG_TESTING)
+bool uses_scripted_save_load_screens_for_testing()
+{
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
 
 RuntimeScriptPropertySetApi runtime_script_property_set_api{ select_runtime_resource, release_runtime_memory_resource, set_runtime_property_value, enter_runtime_state_1000, leave_runtime_state_1000,
     SendMessageA, destroy_runtime_tree_resources };
@@ -2739,9 +2752,9 @@ event=e_RUN /GAME:XTETDLL.DLL:GAGBoy::Score /QUIT;
 )";
 bool gagboy_startup_mode;
 
-bool is_gagboy_startup_resource(const char *path)
+bool find_virtual_runtime_script(const char *path, VirtualScriptResource *resource)
 {
-    if(!gagboy_startup_mode || path == nullptr)
+    if(path == nullptr || resource == nullptr)
     {
         return false;
     }
@@ -2753,7 +2766,14 @@ bool is_gagboy_startup_resource(const char *path)
             name = cursor + 1;
         }
     }
-    return _stricmp(name, "GAGBOY.CFG") == 0;
+    if(gagboy_startup_mode && _stricmp(name, "GAGBOY.CFG") == 0)
+    {
+        resource->data = gagboy_startup_script;
+        resource->size = static_cast<uint32_t>(sizeof(gagboy_startup_script) - 1);
+        resource->resource_type = 4;
+        return true;
+    }
+    return find_save_load_virtual_script(name, resource);
 }
 
 bool command_line_has_gagboy_argument(const char *command_line)
@@ -3367,6 +3387,14 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         {
             return 0;
         }
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+        if(command == 0x8780 || command == 0x8810)
+        {
+            const SaveLoadScreenMode mode = command == 0x8780 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load;
+            request_scripted_save_load_screen(mode, state);
+            return 0;
+        }
+#endif
         if(command == 0x8780)
         {
             main_window_procedure_api.application_hook_1();
@@ -3509,6 +3537,10 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         auto *tree = reinterpret_cast<RuntimeTreeNode *>(lparam);
         auto *query = reinterpret_cast<ApplicationStateFieldQuery *>(lparam);
         uint32_t value;
+        if(handle_scripted_save_load_message(wparam, state))
+        {
+            return 0;
+        }
         switch(static_cast<uint32_t>(wparam))
         {
         case 1:
@@ -3554,9 +3586,20 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
                 main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
             }
             return 0;
-        case 0x7d1:
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
         case 0x7d2:
         case 0x7d3:
+        {
+            const SaveLoadScreenMode mode = wparam == 0x7d3 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load;
+            request_scripted_save_load_screen(mode, state);
+            return 0;
+        }
+#endif
+        case 0x7d1:
+#if !defined(FREEGAG_WINDOWS_FIXES) || !defined(FREEGAG_IN_GAME_SAVE_LOAD)
+        case 0x7d2:
+        case 0x7d3:
+#endif
         case 0x7d4:
         case 0x7da:
             main_window_procedure_api.reply_message(1);
@@ -4354,10 +4397,7 @@ void open_application_state_interactive(ApplicationState *state, void *dialog_co
     }
     if(open_state_api.show_dialog(dialog_context, state->installation_path, save_dialog_data[0], state->installed_version) != 0)
     {
-        state->flags |= 0x200000;
-        copy_string(state->startup_config, "START.CFG");
-        runtime_state_transition_callback(0);
-        graphics_host_flags |= 0x40;
+        finish_application_state_load(state, state->installed_version);
         return;
     }
     if(state->display_bits_per_pixel == 8)
@@ -4371,6 +4411,19 @@ void open_application_state_interactive(ApplicationState *state, void *dialog_co
     clear_application_lock_flag(state);
     clear_runtime_flag_01000000();
     application_hook_no_op_2();
+}
+
+void finish_application_state_load(ApplicationState *state, const char *path)
+{
+    if(state == nullptr || path == nullptr)
+    {
+        return;
+    }
+    copy_string(state->installed_version, path);
+    state->flags |= 0x200000;
+    copy_string(state->startup_config, "START.CFG");
+    runtime_state_transition_callback(0);
+    graphics_host_flags |= 0x40;
 }
 
 void set_open_state_api_for_testing(const OpenStateApi &api)
@@ -4673,6 +4726,125 @@ void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *pa
     return bitmap;
 }
 
+uint8_t expand_masked_channel(uint32_t pixel, uint32_t mask)
+{
+    uint32_t shift = 0;
+    while((mask & 1) == 0)
+    {
+        mask >>= 1;
+        ++shift;
+    }
+    const uint32_t value = (pixel >> shift) & mask;
+    return static_cast<uint8_t>((value * 255 + mask / 2) / mask);
+}
+
+uint8_t find_nearest_palette_entry(uint8_t red, uint8_t green, uint8_t blue, const PALETTEENTRY *palette)
+{
+    uint32_t best_distance = UINT32_MAX;
+    uint8_t best_index = 0;
+    for(uint32_t index = 0; index < 256; ++index)
+    {
+        const int32_t red_difference = static_cast<int32_t>(red) - palette[index].peRed;
+        const int32_t green_difference = static_cast<int32_t>(green) - palette[index].peGreen;
+        const int32_t blue_difference = static_cast<int32_t>(blue) - palette[index].peBlue;
+        const uint32_t distance = static_cast<uint32_t>(red_difference * red_difference + green_difference * green_difference + blue_difference * blue_difference);
+        if(distance < best_distance)
+        {
+            best_distance = distance;
+            best_index = static_cast<uint8_t>(index);
+            if(distance == 0)
+            {
+                break;
+            }
+        }
+    }
+    return best_index;
+}
+
+void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution)
+{
+    if(size != nullptr)
+    {
+        *size = 0;
+    }
+    if(source == nullptr || source->pixels == nullptr || source->palette_entries == nullptr || source->width == 0 || source->height == 0)
+    {
+        return nullptr;
+    }
+    const uint32_t bytes_per_pixel = source->bits_per_pixel >> 3;
+    if((source->bits_per_pixel != 8 && source->bits_per_pixel != 16 && source->bits_per_pixel != 24 && source->bits_per_pixel != 32) || source->width > UINT32_MAX / bytes_per_pixel
+        || source->stride < source->width * bytes_per_pixel || (source->bits_per_pixel != 8 && (source->red_mask == 0 || source->green_mask == 0 || source->blue_mask == 0)))
+    {
+        return nullptr;
+    }
+
+    const uint32_t sample_step = half_resolution == 0 ? 1 : 2;
+    const uint32_t width = source->width / sample_step;
+    const uint32_t height = source->height / sample_step;
+    if(width == 0 || height == 0 || width > UINT32_MAX - 3)
+    {
+        return nullptr;
+    }
+    const uint32_t destination_stride = (width + 3) & ~3u;
+    constexpr uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + offsetof(RuntimeIndexedBitmapInfo, pixels);
+    if(height > (UINT32_MAX - pixel_offset) / destination_stride)
+    {
+        return nullptr;
+    }
+    const uint32_t bitmap_size = pixel_offset + destination_stride * height;
+    auto *bitmap = static_cast<uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
+    if(bitmap == nullptr)
+    {
+        return nullptr;
+    }
+
+    auto *file_header = reinterpret_cast<BITMAPFILEHEADER *>(bitmap);
+    file_header->bfType = 0x4d42;
+    file_header->bfSize = bitmap_size;
+    file_header->bfOffBits = pixel_offset;
+    auto *indexed_bitmap = reinterpret_cast<RuntimeIndexedBitmapInfo *>(bitmap + sizeof(BITMAPFILEHEADER));
+    indexed_bitmap->header.biSize = sizeof(BITMAPINFOHEADER);
+    indexed_bitmap->header.biWidth = static_cast<LONG>(width);
+    indexed_bitmap->header.biHeight = static_cast<LONG>(height);
+    indexed_bitmap->header.biPlanes = 1;
+    indexed_bitmap->header.biBitCount = 8;
+    indexed_bitmap->header.biCompression = BI_RGB;
+    indexed_bitmap->header.biSizeImage = destination_stride * height;
+    indexed_bitmap->header.biClrUsed = 256;
+    indexed_bitmap->header.biClrImportant = 256;
+    for(uint32_t index = 0; index < 256; ++index)
+    {
+        indexed_bitmap->colors[index] = { source->palette_entries[index].peBlue, source->palette_entries[index].peGreen, source->palette_entries[index].peRed, 0 };
+    }
+
+    for(uint32_t destination_y = 0; destination_y < height; ++destination_y)
+    {
+        const uint32_t source_y = source->height - 1 - destination_y * sample_step;
+        const uint8_t *source_row = source->pixels + static_cast<size_t>(source_y) * source->stride;
+        uint8_t *destination_row = indexed_bitmap->pixels + static_cast<size_t>(destination_y) * destination_stride;
+        for(uint32_t destination_x = 0; destination_x < width; ++destination_x)
+        {
+            const uint8_t *source_pixel = source_row + static_cast<size_t>(destination_x * sample_step) * bytes_per_pixel;
+            if(source->bits_per_pixel == 8)
+            {
+                destination_row[destination_x] = *source_pixel;
+                continue;
+            }
+            uint32_t pixel = 0;
+            std::memcpy(&pixel, source_pixel, bytes_per_pixel);
+            const uint8_t red = expand_masked_channel(pixel, source->red_mask);
+            const uint8_t green = expand_masked_channel(pixel, source->green_mask);
+            const uint8_t blue = expand_masked_channel(pixel, source->blue_mask);
+            destination_row[destination_x] = find_nearest_palette_entry(red, green, blue, source->palette_entries);
+        }
+    }
+    if(size != nullptr)
+    {
+        *size = bitmap_size;
+    }
+    return bitmap;
+}
+
 // GAG.EXE: 0x0041F8B0
 void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution)
 {
@@ -4687,6 +4859,28 @@ void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const 
 void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution)
 {
     (void)game_context;
+#if defined(FREEGAG_WINDOWS_FIXES)
+    if(runtime_display_scene_identifier == 0)
+    {
+        return nullptr;
+    }
+    const auto *scene = reinterpret_cast<const DisplaySceneNode *>(static_cast<uintptr_t>(runtime_display_scene_identifier));
+    if(scene->width <= 0 || scene->height <= 0 || scene->sync_secondary_position <= 0)
+    {
+        return nullptr;
+    }
+    DisplayBitmapCaptureSource source{};
+    source.width = static_cast<uint32_t>(scene->width);
+    source.height = static_cast<uint32_t>(scene->height);
+    source.stride = static_cast<uint32_t>(scene->sync_secondary_position);
+    source.bits_per_pixel = scene->rectangle_callback_format.bits_per_pixel;
+    source.red_mask = scene->rectangle_callback_format.red_mask;
+    source.green_mask = scene->rectangle_callback_format.green_mask;
+    source.blue_mask = scene->rectangle_callback_format.blue_mask;
+    source.pixels = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position));
+    source.palette_entries = display_palette_entries;
+    return create_display_bitmap(&source, size, half_resolution);
+#else
     BitmapCaptureSource source{};
     source.format_marker = 8;
     source.width = runtime_game_host_context.width;
@@ -4694,12 +4888,20 @@ void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolutio
     source.pixels = reinterpret_cast<const uint8_t *>(runtime_game_host_context.unknown_0030);
     const auto *palette = reinterpret_cast<const uint8_t *>(runtime_game_host_context.palette_entries);
     return capture_bitmap_if_runtime_active(&source, palette, size, half_resolution);
+#endif
 }
 
 void set_bitmap_capture_api_for_testing(const BitmapCaptureApi &api)
 {
     bitmap_capture_api = api;
 }
+
+#if defined(GAG_TESTING)
+void set_runtime_display_scene_for_bitmap_capture_testing(DisplaySceneNode *scene)
+{
+    runtime_display_scene_identifier = reinterpret_cast<intptr_t>(scene);
+}
+#endif
 
 // GAG.EXE: 0x00420A50
 void reset_runtime_pair_queue()
@@ -7294,6 +7496,28 @@ uint32_t begin_display_scene_update(intptr_t identifier)
         }
         display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
     }
+}
+
+bool activate_display_scene_node(intptr_t identifier)
+{
+    if((display_lock_flags & 1) == 0)
+    {
+        return false;
+    }
+    bool activated = false;
+    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            node->flags &= ~0x01000000u;
+            node->accumulated_rectangle = { 0, 0, node->width, node->height };
+            activated = true;
+            break;
+        }
+    }
+    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    return activated;
 }
 
 // GAG.EXE: 0x0041B360
@@ -11005,6 +11229,11 @@ uint32_t enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listb
 void set_archive_comment_enumeration_api_for_testing(const ArchiveCommentEnumerationApi &api)
 {
     archive_comment_enumeration_api = api;
+}
+
+const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api()
+{
+    return archive_comment_enumeration_api;
 }
 
 // GAG.EXE: 0x00418560
@@ -19210,7 +19439,7 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     {
         modern_windows_game_cursor_tracking = false;
         runtime_game_window_api.enter_runtime_state();
-        runtime_game_window_api.enqueue_pair(WM_MOUSEMOVE, MAKELPARAM(0xffff, 0xffff));
+        runtime_game_window_api.enqueue_pair(WM_MOUSEMOVE, static_cast<uint32_t>(MAKELPARAM(0xffff, 0xffff)));
         return 0;
     }
     if(message == WM_DESTROY)
@@ -20228,6 +20457,7 @@ void destroy_runtime_tree_resources(void *identity)
     {
         return;
     }
+    on_scripted_save_load_tree_resources_destroyed(root);
 
     if(root->identity == runtime_pointer_root_identity)
     {
@@ -22189,6 +22419,7 @@ void rebuild_runtime_tree_resources(void *identity)
         runtime_display_context.flags |= 0x100000;
     }
     runtime_tree_resource_rebuild_api.send_message(runtime_display_context.window, 0x7ffd, 0x40000000, reinterpret_cast<LPARAM>(root));
+    on_scripted_save_load_tree_rebuilt(root);
 }
 
 void set_runtime_tree_resource_rebuild_api_for_testing(const RuntimeTreeResourceRebuildApi &api)
@@ -23410,11 +23641,10 @@ uint32_t detect_runtime_resource_type(const char *path)
         {
             type = entry->flags_and_references >> 16;
         }
-        else if(is_gagboy_startup_resource(path))
+        else if(VirtualScriptResource virtual_script{}; find_virtual_runtime_script(path, &virtual_script))
         {
-            // Fixes-owned virtual startup content must be classified before archive/file probing. Resource construction dispatches configuration parsing from this result and only loads its bytes
-            // afterward.
-            type = 4;
+            // Fixes-owned virtual content must be classified before archive/file probing. Resource construction dispatches configuration parsing from this result and only loads its bytes afterward.
+            type = virtual_script.resource_type;
         }
         else if((runtime_scene_control_flags & 0x10000000) == 0)
         {
@@ -23464,6 +23694,10 @@ uint32_t detect_runtime_resource_type(const char *path)
         else if((runtime_scene_control_flags & 0x10000000) == 0x10000000)
         {
             type = runtime_resource_type_api.get_archive_flags(runtime_resource_archive, path) & ~0x10U;
+            if(type == 0)
+            {
+                type = get_synthesized_resource_type(path);
+            }
         }
         runtime_resource_type_api.leave_critical_section(&runtime_resource_critical_section);
     } while(retry != 0);
@@ -23519,13 +23753,13 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
             resource_storage = 0x01000000;
             ++entry->flags_and_references;
         }
-        else if(gagboy_startup_mode && _stricmp(name, "GAGBOY.CFG") == 0)
+        else if(VirtualScriptResource virtual_script{}; find_virtual_runtime_script(name, &virtual_script))
         {
-            resource_size = static_cast<uint32_t>(sizeof(gagboy_startup_script) - 1);
+            resource_size = virtual_script.size;
             resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, HEAP_ZERO_MEMORY, resource_size + 1);
             if(resource_data != nullptr)
             {
-                std::memcpy(resource_data, gagboy_startup_script, resource_size);
+                std::memcpy(resource_data, virtual_script.data, resource_size);
                 resource_storage = 0x01000000;
                 RuntimeResourceCacheEntry *new_entry = runtime_resource_load_api.get_or_create_cache_entry(runtime_resource_cache_parent_identity, name);
                 if(new_entry != nullptr)
@@ -23622,9 +23856,10 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
         else if((runtime_scene_control_flags & 0x10000000) == 0x10000000)
         {
             const uint8_t selector = runtime_resource_load_api.get_archive_flags(runtime_resource_archive, path);
+            const uint32_t archive_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
             if((selector & 0x10) == 0 && (flags & 0x20000000) == 0)
             {
-                resource_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
+                resource_size = archive_size;
                 if(resource_size != 0)
                 {
                     resource_data = runtime_resource_load_api.open_archive_stream(runtime_resource_archive, path);
@@ -23634,7 +23869,7 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
             else
             {
                 runtime_resource_load_api.activate_loading_scene(loading_scene);
-                resource_size = runtime_resource_load_api.get_archive_size(runtime_resource_archive, selector, path);
+                resource_size = archive_size;
                 if(resource_size != 0)
                 {
                     resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, 0, resource_size);
@@ -23665,6 +23900,28 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
                         new_entry->size = resource_size;
                         new_entry->data = resource_data;
                         new_entry->flags_and_references = (static_cast<uint32_t>(selector & ~0x10U) << 16) | 1;
+                    }
+                }
+            }
+            if(archive_size == 0)
+            {
+                const SynthesizedResourceSourceApi source_api{ runtime_resource_load_api.get_archive_size, runtime_resource_load_api.read_archive_entry };
+                SynthesizedResource synthesized;
+                if(synthesize_resource(runtime_resource_archive, path, source_api, &synthesized))
+                {
+                    resource_size = static_cast<uint32_t>(synthesized.data.size());
+                    resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, 0, resource_size);
+                    if(resource_data != nullptr)
+                    {
+                        std::memcpy(resource_data, synthesized.data.data(), resource_size);
+                        resource_storage = 0x01000000;
+                        RuntimeResourceCacheEntry *new_entry = runtime_resource_load_api.get_or_create_cache_entry(runtime_resource_cache_parent_identity, name);
+                        if(new_entry != nullptr)
+                        {
+                            new_entry->size = resource_size;
+                            new_entry->data = resource_data;
+                            new_entry->flags_and_references = (synthesized.resource_type << 16) | 1;
+                        }
                     }
                 }
             }

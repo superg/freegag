@@ -1,11 +1,15 @@
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include "cdf_archive.h"
+#include "save_load.h"
 #include "startup.h"
+#include "synthesized_resource.h"
 
 namespace
 {
@@ -863,10 +867,15 @@ const uint32_t *runtime_resource_palette_sources[2];
 uint32_t runtime_resource_palette_counts[2];
 gag::RuntimeResourceCacheEntry runtime_resource_load_created_entry;
 gag::AsyncFileRecord runtime_resource_load_record;
-uint8_t runtime_resource_load_memory[2048];
+uint8_t runtime_resource_load_memory[400000];
 uint32_t runtime_resource_load_size;
 uint32_t runtime_resource_load_reported_bytes;
 uint8_t runtime_resource_load_archive_flags;
+std::vector<uint8_t> synthesized_fullscreen_source;
+std::vector<uint8_t> synthesized_help_source;
+std::vector<uint8_t> synthesized_help_page_source;
+std::vector<uint8_t> synthesized_expected_output;
+uint32_t synthesized_source_read_count;
 BOOL runtime_resource_load_async_result;
 int runtime_resource_load_archive_result;
 bool runtime_resource_load_allocation_failure;
@@ -5665,7 +5674,7 @@ gag::RuntimeResourceCacheEntry *find_test_runtime_resource_type_cache(void *pare
     {
         return runtime_resource_type_cache_entry;
     }
-    require(_stricmp(name, "C:\\VIRTUAL\\gagboy.cfg") == 0);
+    require(_stricmp(name, "C:\\VIRTUAL\\gagboy.cfg") == 0 || _stricmp(name, "C:\\VIRTUAL\\saveload.cfg") == 0 || _stricmp(name, "DIR\\FGSL0000.BMP") == 0);
     return nullptr;
 }
 
@@ -5711,7 +5720,7 @@ LRESULT WINAPI send_test_runtime_resource_type_message(HWND window, UINT message
 
 uint8_t get_test_runtime_resource_archive_flags(gag::CdfArchive *archive, const char *name)
 {
-    require(archive == &discovery_archive && std::strcmp(name, "IMAGE.DAT") == 0);
+    require(archive == &discovery_archive && (std::strcmp(name, "IMAGE.DAT") == 0 || _stricmp(name, "DIR\\FGSL0000.BMP") == 0));
     return runtime_resource_type_archive_flags;
 }
 
@@ -5741,7 +5750,8 @@ DWORD WINAPI seek_test_runtime_cdf_file(HANDLE file, LONG distance, PLONG high_d
 
 gag::RuntimeResourceCacheEntry *find_test_runtime_resource_load_cache(void *parent_identity, const char *name)
 {
-    require(parent_identity == reinterpret_cast<void *>(103) && (std::strcmp(name, "IMAGE.DAT") == 0 || std::strcmp(name, "GAGBOY.CFG") == 0));
+    require(parent_identity == reinterpret_cast<void *>(103)
+            && (std::strcmp(name, "IMAGE.DAT") == 0 || std::strcmp(name, "GAGBOY.CFG") == 0 || std::strcmp(name, "SAVELOAD.CFG") == 0 || std::strcmp(name, "FGSL0000.BMP") == 0));
     return runtime_resource_load_cached_entry;
 }
 
@@ -5773,7 +5783,7 @@ int32_t activate_test_runtime_resource_loading(const char *name)
 LPVOID WINAPI allocate_test_runtime_resource(HANDLE heap, DWORD flags, SIZE_T bytes)
 {
     require(heap == reinterpret_cast<HANDLE>(110));
-    require((flags == 0 && bytes == runtime_resource_load_size) || (flags == HEAP_ZERO_MEMORY && bytes <= sizeof(runtime_resource_load_memory)));
+    require((flags == 0 && (bytes == runtime_resource_load_size || bytes == synthesized_expected_output.size())) || (flags == HEAP_ZERO_MEMORY && bytes <= sizeof(runtime_resource_load_memory)));
     ++runtime_resource_load_alloc_count;
     return runtime_resource_load_allocation_failure ? nullptr : runtime_resource_load_memory;
 }
@@ -5811,7 +5821,8 @@ void reset_test_runtime_resource_pair_queue()
 
 gag::RuntimeResourceCacheEntry *get_or_create_test_runtime_resource_load_cache(void *parent_identity, const char *name)
 {
-    require(parent_identity == reinterpret_cast<void *>(103) && (std::strcmp(name, "IMAGE.DAT") == 0 || std::strcmp(name, "GAGBOY.CFG") == 0));
+    require(parent_identity == reinterpret_cast<void *>(103)
+            && (std::strcmp(name, "IMAGE.DAT") == 0 || std::strcmp(name, "GAGBOY.CFG") == 0 || std::strcmp(name, "SAVELOAD.CFG") == 0 || std::strcmp(name, "FGSL0000.BMP") == 0));
     return &runtime_resource_load_created_entry;
 }
 
@@ -5825,25 +5836,52 @@ LRESULT WINAPI send_test_runtime_resource_load_message(HWND window, UINT message
 
 uint8_t get_test_runtime_resource_load_archive_flags(gag::CdfArchive *archive, const char *name)
 {
-    require(archive == &discovery_archive && std::strcmp(name, "DIR\\IMAGE.DAT") == 0);
+    require(archive == &discovery_archive && (std::strcmp(name, "DIR\\IMAGE.DAT") == 0 || _stricmp(name, "DIR\\FGSL0000.BMP") == 0));
     return runtime_resource_load_archive_flags;
 }
 
 uint32_t get_test_runtime_resource_load_archive_size(gag::CdfArchive *archive, uint8_t selector, const char *name)
 {
-    require(archive == &discovery_archive && selector == runtime_resource_load_archive_flags && std::strcmp(name, "DIR\\IMAGE.DAT") == 0);
+    require(archive == &discovery_archive);
+    if(_stricmp(name, "FSCR0000.BMP") == 0)
+    {
+        require(selector == 0);
+        return static_cast<uint32_t>(synthesized_fullscreen_source.size());
+    }
+    if(_stricmp(name, "HELP0000.BMP") == 0)
+    {
+        require(selector == 0);
+        return static_cast<uint32_t>(synthesized_help_source.size());
+    }
+    if(_stricmp(name, "HELP0001.BMP") == 0)
+    {
+        require(selector == 0);
+        return static_cast<uint32_t>(synthesized_help_page_source.size());
+    }
+    require(selector == runtime_resource_load_archive_flags && (std::strcmp(name, "DIR\\IMAGE.DAT") == 0 || _stricmp(name, "DIR\\FGSL0000.BMP") == 0));
     return runtime_resource_load_size;
 }
 
 void *open_test_runtime_resource_load_archive_stream(gag::CdfArchive *archive, const char *name)
 {
-    require(archive == &discovery_archive && std::strcmp(name, "DIR\\IMAGE.DAT") == 0);
+    require(archive == &discovery_archive && (std::strcmp(name, "DIR\\IMAGE.DAT") == 0 || _stricmp(name, "DIR\\FGSL0000.BMP") == 0));
     return runtime_resource_load_stream_result;
 }
 
 int read_test_runtime_resource_load_archive(gag::CdfArchive *archive, uint8_t selector, const char *name, void *destination)
 {
-    require(archive == &discovery_archive && selector == runtime_resource_load_archive_flags && std::strcmp(name, "DIR\\IMAGE.DAT") == 0 && destination == runtime_resource_load_memory);
+    require(archive == &discovery_archive);
+    if(_stricmp(name, "FSCR0000.BMP") == 0 || _stricmp(name, "HELP0000.BMP") == 0 || _stricmp(name, "HELP0001.BMP") == 0)
+    {
+        require(selector == 0 && destination != nullptr);
+        const std::vector<uint8_t> &source = _stricmp(name, "FSCR0000.BMP") == 0 ? synthesized_fullscreen_source
+                                           : _stricmp(name, "HELP0000.BMP") == 0 ? synthesized_help_source
+                                                                                 : synthesized_help_page_source;
+        std::memcpy(destination, source.data(), source.size());
+        ++synthesized_source_read_count;
+        return 1;
+    }
+    require(selector == runtime_resource_load_archive_flags && std::strcmp(name, "DIR\\IMAGE.DAT") == 0 && destination == runtime_resource_load_memory);
     ++runtime_resource_load_read_archive_count;
     return runtime_resource_load_archive_result;
 }
@@ -6955,6 +6993,64 @@ void free_main_procedure_memory(void *memory)
 {
     main_procedure_freed_memory = memory;
     ++main_procedure_free_count;
+}
+
+uint8_t scripted_save_bitmap[64]{};
+uint32_t scripted_save_capture_count;
+uint32_t scripted_save_free_count;
+uint32_t scripted_save_write_count;
+bool scripted_save_write_result = true;
+bool scripted_save_gag005_exists;
+char scripted_save_written_path[0x104]{};
+char scripted_save_written_name[0x104]{};
+void *scripted_save_written_bitmap;
+uintptr_t scripted_save_written_state;
+
+void *capture_scripted_save_bitmap(void *game_context, uint32_t *size, int half_resolution)
+{
+    require(game_context != nullptr && size != nullptr && half_resolution == 1);
+    *size = sizeof(scripted_save_bitmap);
+    ++scripted_save_capture_count;
+    return scripted_save_bitmap;
+}
+
+uintptr_t get_scripted_save_state()
+{
+    return 0x123456789abcdef0;
+}
+
+void free_scripted_save_bitmap(void *memory)
+{
+    require(memory == scripted_save_bitmap);
+    ++scripted_save_free_count;
+}
+
+bool write_scripted_save_state(char *path, char *name, void *bitmap, uintptr_t script_state)
+{
+    strcpy_s(scripted_save_written_path, path);
+    strcpy_s(scripted_save_written_name, name);
+    scripted_save_written_bitmap = bitmap;
+    scripted_save_written_state = script_state;
+    ++scripted_save_write_count;
+    return scripted_save_write_result;
+}
+
+uint32_t get_scripted_save_file_attributes(const char *path)
+{
+    return scripted_save_gag005_exists && std::strstr(path, "GAG005.GSF") != nullptr ? FILE_ATTRIBUTE_NORMAL : INVALID_FILE_ATTRIBUTES;
+}
+
+void reset_scripted_save_persistence()
+{
+    scripted_save_capture_count = 0;
+    scripted_save_free_count = 0;
+    scripted_save_write_count = 0;
+    scripted_save_write_result = true;
+    scripted_save_gag005_exists = false;
+    scripted_save_written_path[0] = '\0';
+    scripted_save_written_name[0] = '\0';
+    scripted_save_written_bitmap = nullptr;
+    scripted_save_written_state = 0;
 }
 
 int main_procedure_operation_events[16];
@@ -10311,6 +10407,7 @@ void test_runtime_tree_command_target()
 
 const char *archive_comment_files[12];
 const char *archive_comment_texts[12];
+uint64_t archive_comment_modification_times[12];
 uint32_t archive_comment_file_count;
 uint32_t archive_comment_file_index;
 uint32_t archive_comment_error;
@@ -10323,20 +10420,25 @@ uint32_t archive_comment_close_count;
 uint32_t archive_comment_free_count;
 uint32_t archive_comment_realloc_count;
 uint32_t archive_comment_find_close_count;
+uint32_t archive_comment_find_first_count;
 uint32_t archive_comment_delete_count;
 char archive_comment_deleted_path[0x104];
 char archive_comment_messages[12][0x104];
 uint32_t archive_comment_message_count;
+const char *archive_comment_pattern = "D:\\*.cdf";
 
 void populate_archive_comment_find_data(LPWIN32_FIND_DATAA data)
 {
     std::memset(data, 0, sizeof(*data));
     std::memcpy(data->cFileName, archive_comment_files[archive_comment_file_index], std::strlen(archive_comment_files[archive_comment_file_index]) + 1);
+    data->ftLastWriteTime.dwLowDateTime = static_cast<DWORD>(archive_comment_modification_times[archive_comment_file_index]);
+    data->ftLastWriteTime.dwHighDateTime = static_cast<DWORD>(archive_comment_modification_times[archive_comment_file_index] >> 32);
 }
 
 HANDLE WINAPI find_first_archive_comment(LPCSTR pattern, LPWIN32_FIND_DATAA data)
 {
-    require(std::strcmp(pattern, "D:\\*.cdf") == 0);
+    require(std::strcmp(pattern, archive_comment_pattern) == 0);
+    ++archive_comment_find_first_count;
     archive_comment_file_index = 0;
     if(archive_comment_file_count == 0)
     {
@@ -10367,13 +10469,13 @@ BOOL WINAPI find_close_archive_comment(HANDLE find)
 
 LPVOID WINAPI allocate_archive_comment(HANDLE heap, DWORD flags, SIZE_T bytes)
 {
-    require(heap == GetProcessHeap() && flags == 0 && bytes == 10 * 0x104);
+    require(heap == GetProcessHeap() && flags == 0 && (bytes == 10 * 0x104 || bytes == 10 * sizeof(gag::ArchiveCommentEntry)));
     return archive_comment_alloc_fails ? nullptr : HeapAlloc(heap, flags, bytes);
 }
 
 LPVOID WINAPI reallocate_archive_comment(HANDLE heap, DWORD flags, LPVOID memory, SIZE_T bytes)
 {
-    require(heap == GetProcessHeap() && flags == 0 && memory != nullptr && bytes == 20 * 0x104);
+    require(heap == GetProcessHeap() && flags == 0 && memory != nullptr && (bytes == 20 * 0x104 || bytes == 20 * sizeof(gag::ArchiveCommentEntry)));
     ++archive_comment_realloc_count;
     return archive_comment_realloc_fails ? nullptr : HeapReAlloc(heap, flags, memory, bytes);
 }
@@ -10439,6 +10541,7 @@ BOOL WINAPI delete_archive_comment_file(LPCSTR path)
 
 void reset_archive_comment_test()
 {
+    archive_comment_pattern = "D:\\*.cdf";
     archive_comment_error = 0;
     archive_comment_alloc_fails = false;
     archive_comment_realloc_fails = false;
@@ -10449,8 +10552,10 @@ void reset_archive_comment_test()
     archive_comment_free_count = 0;
     archive_comment_realloc_count = 0;
     archive_comment_find_close_count = 0;
+    archive_comment_find_first_count = 0;
     archive_comment_delete_count = 0;
     archive_comment_message_count = 0;
+    std::memset(archive_comment_modification_times, 0, sizeof(archive_comment_modification_times));
 }
 
 void test_archive_comment_enumeration()
@@ -10549,6 +10654,333 @@ void test_archive_comment_enumeration()
     require(gag::enumerate_archive_comments(&state, reinterpret_cast<HWND>(4)) == 0 && state.comment_count == 10 && state.comment_capacity == 10 && state.archive_paths != nullptr);
     require(archive_comment_realloc_count == 1 && archive_comment_close_count == 10 && archive_comment_find_close_count == 1);
     HeapFree(GetProcessHeap(), 0, state.archive_paths);
+
+    reset_archive_comment_test();
+    archive_comment_files[0] = "save2.cdf";
+    archive_comment_files[1] = "save12.cdf";
+    archive_comment_texts[0] = "Second";
+    archive_comment_texts[1] = "Twelfth";
+    archive_comment_file_count = 2;
+    gag::ArchiveCommentCollection collection{};
+    require(gag::enumerate_archive_comment_entries("D:\\", ".cdf", &collection) == 0);
+    require(collection.count == 2 && collection.capacity == 10 && collection.next_identifier == 13);
+    require(std::strcmp(collection.entries[0].path, "D:\\save2.cdf") == 0 && std::strcmp(collection.entries[0].comment, "Second") == 0);
+    require(std::strcmp(collection.entries[1].path, "D:\\save12.cdf") == 0 && std::strcmp(collection.entries[1].comment, "Twelfth") == 0);
+    require(archive_comment_message_count == 0 && archive_comment_close_count == 2 && archive_comment_find_close_count == 1);
+    gag::destroy_archive_comment_collection(&collection);
+    require(collection.entries == nullptr && collection.count == 0 && archive_comment_free_count == 1);
+
+    reset_archive_comment_test();
+    archive_comment_files[0] = "save2.cdf";
+    archive_comment_files[1] = "save12.cdf";
+    archive_comment_texts[0] = "Newer";
+    archive_comment_texts[1] = "Older";
+    archive_comment_modification_times[0] = 200;
+    archive_comment_modification_times[1] = 100;
+    archive_comment_file_count = 2;
+    require(gag::enumerate_archive_comment_entries("D:\\", ".cdf", &collection) == 0);
+    require(std::strcmp(collection.entries[0].comment, "Older") == 0 && std::strcmp(collection.entries[1].comment, "Newer") == 0);
+    gag::destroy_archive_comment_collection(&collection);
+
+    reset_archive_comment_test();
+    archive_comment_file_count = 0;
+    require(gag::enumerate_archive_comment_entries("D:\\", ".cdf", &collection) == 2 && collection.entries == nullptr && archive_comment_find_close_count == 0);
+
+    reset_archive_comment_test();
+    archive_comment_files[0] = "save0.cdf";
+    archive_comment_texts[0] = "Broken";
+    archive_comment_file_count = 1;
+    archive_comment_read_fails = true;
+    require(gag::enumerate_archive_comment_entries("D:\\", ".cdf", &collection) == 2 && collection.entries == nullptr);
+    require(archive_comment_close_count == 1 && archive_comment_free_count == 1);
+
+    reset_archive_comment_test();
+    archive_comment_open_fails = true;
+    archive_comment_error = 0x10000;
+    require(gag::enumerate_archive_comment_entries("D:\\", ".cdf", &collection) == 0x10000 && collection.entries == nullptr);
+    require(archive_comment_delete_count == 1 && std::strcmp(archive_comment_deleted_path, "D:\\save0.cdf") == 0 && archive_comment_free_count == 1);
+}
+
+void test_save_load_screen_selection()
+{
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    require(gag::uses_scripted_save_load_screens_for_testing());
+    reset_archive_comment_test();
+    archive_comment_pattern = "D:\\*.GSF";
+    archive_comment_file_count = 0;
+    gag::ApplicationState state{};
+    strcpy_s(state.installation_path, "D:\\");
+    require(!gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::load, &state));
+    reset_archive_comment_test();
+    archive_comment_pattern = "D:\\*.GSF";
+    archive_comment_files[0] = "GAG002.GSF";
+    archive_comment_files[1] = "GAG001.GSF";
+    archive_comment_texts[0] = "Newest";
+    archive_comment_texts[1] = "Oldest";
+    archive_comment_modification_times[0] = 200;
+    archive_comment_modification_times[1] = 100;
+    archive_comment_file_count = 2;
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::load, &state));
+    require(gag::get_scripted_save_load_selection_for_testing() == 1 && std::strcmp(gag::get_scripted_save_load_selected_entry_for_testing()->comment, "Newest") == 0);
+    gag::ArchiveCommentCollection collection{};
+    collection.entries = static_cast<gag::ArchiveCommentEntry *>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 3 * sizeof(gag::ArchiveCommentEntry)));
+    collection.count = 3;
+    collection.capacity = 3;
+    std::memcpy(collection.entries[0].comment, "First", 6);
+    std::memcpy(collection.entries[1].comment, "Second", 7);
+    std::memcpy(collection.entries[2].comment, "Third", 6);
+    std::memcpy(collection.entries[0].path, "D:\\GAG000.GSF", 14);
+    std::memcpy(collection.entries[1].path, "D:\\GAG001.GSF", 14);
+    std::memcpy(collection.entries[2].path, "D:\\GAG002.GSF", 14);
+    gag::set_scripted_save_load_collection_for_testing(collection, 2);
+    require(gag::handle_scripted_save_load_message(2101, &state) && gag::get_scripted_save_load_selection_for_testing() == 0);
+    require(std::strcmp(gag::get_scripted_save_load_selected_entry_for_testing()->comment, "First") == 0);
+    require(gag::handle_scripted_save_load_message(2100, &state) && gag::get_scripted_save_load_selection_for_testing() == 2);
+    require(std::strcmp(gag::get_scripted_save_load_selected_entry_for_testing()->comment, "Third") == 0);
+    runtime_state_transition_count = 0;
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::handle_scripted_save_load_message(2102, &state));
+    require(std::strcmp(state.installed_version, "D:\\GAG002.GSF") == 0 && std::strcmp(state.startup_config, "START.CFG") == 0 && (state.flags & 0x200000) != 0);
+    require(runtime_state_transition_count == 1 && runtime_state_transition_value == 0 && (gag::get_graphics_host_flags_for_testing() & 0x40) != 0);
+    gag::set_scripted_save_load_collection_for_testing({}, 0);
+
+    reset_archive_comment_test();
+    archive_comment_pattern = "D:\\*.GSF";
+    archive_comment_files[0] = "GAG001.GSF";
+    archive_comment_files[1] = "GAG002.GSF";
+    archive_comment_files[2] = "GAG003.GSF";
+    archive_comment_files[3] = "GAG004.GSF";
+    archive_comment_texts[0] = "Save007";
+    archive_comment_texts[1] = "duplicate";
+    archive_comment_texts[2] = "DUPLICATE";
+    archive_comment_texts[3] = "LegacyNameLongerThan15";
+    archive_comment_modification_times[0] = 10;
+    archive_comment_modification_times[1] = 20;
+    archive_comment_modification_times[2] = 30;
+    archive_comment_modification_times[3] = 40;
+    archive_comment_file_count = 4;
+    state.game_context = &state;
+    state.flags |= 0x100000;
+    reset_scripted_save_persistence();
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(scripted_save_capture_count == 1 && gag::get_scripted_save_load_selection_for_testing() == 3);
+    require(std::strcmp(gag::get_scripted_save_load_current_name_for_testing(), "LegacyNameLongerThan15") == 0);
+    char displayed_name[0x104]{};
+    gag::prepare_scripted_save_name_display_for_testing(gag::get_scripted_save_load_current_name_for_testing(), displayed_name);
+    require(std::strcmp(displayed_name, "LegacyNameLonge...") == 0);
+    gag::prepare_scripted_save_name_display_for_testing("123456789012345", displayed_name);
+    require(std::strcmp(displayed_name, "123456789012345") == 0);
+    gag::prepare_scripted_save_name_display_for_testing("1234567890123456", displayed_name);
+    require(std::strcmp(displayed_name, "123456789012345...") == 0);
+    require(gag::handle_scripted_save_load_message(2102, &state));
+    require(scripted_save_write_count == 1 && std::strcmp(scripted_save_written_path, "D:\\GAG004.GSF") == 0);
+    require(std::strcmp(scripted_save_written_name, "LegacyNameLongerThan15") == 0 && scripted_save_written_bitmap == scripted_save_bitmap);
+    require(scripted_save_written_state == 0x123456789abcdef0 && (state.flags & 0x100000) == 0);
+
+    state.flags |= 0x100000;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(gag::handle_scripted_save_load_message(2103, &state) && gag::get_scripted_save_load_editing_for_testing());
+    gag::set_graphics_host_flags_for_testing(0x100400);
+    gag::reset_runtime_byte_queue_for_testing();
+    require(gag::handle_scripted_save_load_message(2102, &state) && gag::dequeue_runtime_byte() == '\r');
+    gag::RuntimeInputSessionRecord completed_name{};
+    std::memcpy(&completed_name, "duplicate", 10);
+    gag::set_runtime_input_session_record_for_testing(completed_name, 10);
+    require(gag::handle_scripted_save_load_message(2104, &state));
+    require(!gag::get_scripted_save_load_editing_for_testing() && std::strcmp(scripted_save_written_path, "D:\\GAG003.GSF") == 0);
+    require(std::strcmp(scripted_save_written_name, "duplicate") == 0 && (state.flags & 0x100000) == 0);
+
+    state.flags |= 0x100000;
+    scripted_save_gag005_exists = true;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(gag::handle_scripted_save_load_message(2103, &state));
+    gag::finish_scripted_save_name_for_testing("", &state);
+    require(std::strcmp(scripted_save_written_name, "save8") == 0 && std::strcmp(scripted_save_written_path, "D:\\GAG006.GSF") == 0);
+
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(gag::get_scripted_save_load_selection_for_testing() == 3 && gag::handle_scripted_save_load_message(2103, &state));
+    gag::set_graphics_host_flags_for_testing(0x100400);
+    gag::reset_runtime_byte_queue_for_testing();
+    require(gag::handle_scripted_save_load_message(2100, &state) && gag::dequeue_runtime_byte() == '\r');
+    gag::finish_scripted_save_name_for_testing("discarded", &state);
+    require(gag::get_scripted_save_load_selection_for_testing() == 2 && std::strcmp(gag::get_scripted_save_load_current_name_for_testing(), "DUPLICATE") == 0);
+
+    const uint32_t writes_before_exit = scripted_save_write_count;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(gag::handle_scripted_save_load_message(2103, &state));
+    gag::set_graphics_host_flags_for_testing(0x100400);
+    gag::reset_runtime_byte_queue_for_testing();
+    require(gag::handle_scripted_save_load_message(2106, &state) && gag::dequeue_runtime_byte() == '\r');
+    gag::finish_scripted_save_name_for_testing("discarded", &state);
+    require(!gag::get_scripted_save_load_editing_for_testing() && scripted_save_write_count == writes_before_exit);
+
+    collection = {};
+    collection.entries = static_cast<gag::ArchiveCommentEntry *>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(gag::ArchiveCommentEntry)));
+    collection.count = 1;
+    collection.capacity = 1;
+    std::memcpy(collection.entries[0].comment, "Only", 5);
+    gag::set_scripted_save_load_collection_for_testing(collection, 0);
+    require(gag::handle_scripted_save_load_message(2103, &state));
+    gag::set_graphics_host_flags_for_testing(0x100400);
+    gag::reset_runtime_byte_queue_for_testing();
+    require(gag::handle_scripted_save_load_message(2101, &state) && gag::get_scripted_save_load_editing_for_testing());
+    require(gag::get_scripted_save_load_selection_for_testing() == 0 && gag::dequeue_runtime_byte() == 0);
+
+    scripted_save_write_result = false;
+    state.flags |= 0x100000;
+    gag::finish_scripted_save_name_for_testing("Failed", &state);
+    require(std::strcmp(gag::get_scripted_save_load_current_name_for_testing(), "Failed") == 0 && (state.flags & 0x100000) != 0);
+
+    const uint32_t free_count_before_borrow = scripted_save_free_count;
+    state.flags |= 0x80000;
+    state.saved_memory = reinterpret_cast<void *>(0x11223344);
+    state.script_state = 0x55667788;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(scripted_save_free_count == free_count_before_borrow + 1);
+    const uint32_t free_count_with_borrow = scripted_save_free_count;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::load, &state));
+    require(scripted_save_free_count == free_count_with_borrow);
+    state.flags &= ~0x80000;
+
+    reset_archive_comment_test();
+    archive_comment_pattern = "D:\\*.GSF";
+    archive_comment_file_count = 0;
+    require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
+    require(gag::get_scripted_save_load_entry_count_for_testing() == 0 && gag::get_scripted_save_load_current_name_for_testing()[0] == '\0');
+
+    constexpr uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD);
+    std::vector<uint8_t> bitmap(pixel_offset + 320 * 240);
+    BITMAPFILEHEADER file_header{};
+    file_header.bfType = 0x4d42;
+    file_header.bfSize = static_cast<DWORD>(bitmap.size());
+    file_header.bfOffBits = pixel_offset;
+    BITMAPINFOHEADER info_header{};
+    info_header.biSize = sizeof(info_header);
+    info_header.biWidth = 320;
+    info_header.biHeight = 240;
+    info_header.biPlanes = 1;
+    info_header.biBitCount = 8;
+    std::memcpy(bitmap.data(), &file_header, sizeof(file_header));
+    std::memcpy(bitmap.data() + sizeof(file_header), &info_header, sizeof(info_header));
+    auto *source_palette = reinterpret_cast<RGBQUAD *>(bitmap.data() + sizeof(file_header) + sizeof(info_header));
+    PALETTEENTRY *destination_palette = gag::get_display_palette_entries();
+    for(uint32_t index = 0; index < 256; ++index)
+    {
+        source_palette[index] = { static_cast<BYTE>(index), static_cast<BYTE>(index), static_cast<BYTE>(index), 0 };
+        destination_palette[index] = { static_cast<BYTE>(255 - index), 0, static_cast<BYTE>(index), 0 };
+    }
+    source_palette[1] = { 0, 0, 255, 0 };
+    source_palette[2] = { 0, 255, 0, 0 };
+    source_palette[3] = { 255, 0, 0, 0 };
+    source_palette[10] = { 255, 0, 0, 0 };
+    source_palette[20] = { 0, 0, 255, 0 };
+    std::memset(bitmap.data() + pixel_offset, 10, 320);
+    std::memset(bitmap.data() + pixel_offset + 239 * 320, 20, 320);
+    std::vector<uint8_t> pixels(320 * 240);
+    gag::DisplaySceneNode scene{};
+    scene.callback_first_position = reinterpret_cast<intptr_t>(pixels.data());
+    scene.sync_secondary_position = 320;
+    scene.width = 320;
+    scene.height = 240;
+    scene.rectangle_callback_format.bits_per_pixel = 8;
+    require(gag::decode_scripted_save_preview_for_testing(bitmap.data(), static_cast<uint32_t>(bitmap.size()), &scene));
+    require(pixels[0] == 20 && pixels[239 * 320] == 10);
+
+    uint32_t preview_palette[256]{};
+    require(gag::get_scripted_save_preview_palette_for_testing(bitmap.data(), static_cast<uint32_t>(bitmap.size()), preview_palette));
+    require(preview_palette[1] == 0x000000ff && preview_palette[2] == 0x0000ff00 && preview_palette[3] == 0x00ff0000);
+
+    std::vector<uint16_t> rgb565_pixels(320 * 240);
+    scene.callback_first_position = reinterpret_cast<intptr_t>(rgb565_pixels.data());
+    scene.sync_secondary_position = 320 * sizeof(uint16_t);
+    scene.rectangle_callback_format.bits_per_pixel = 16;
+    scene.rectangle_callback_format.red_mask = 0xf800;
+    scene.rectangle_callback_format.green_mask = 0x07e0;
+    scene.rectangle_callback_format.blue_mask = 0x001f;
+    require(gag::decode_scripted_save_preview_for_testing(bitmap.data(), static_cast<uint32_t>(bitmap.size()), &scene));
+    require(rgb565_pixels[0] == 0xf800 && rgb565_pixels[239 * 320] == 0x001f);
+
+    info_header.biWidth = 319;
+    std::memcpy(bitmap.data() + sizeof(file_header), &info_header, sizeof(info_header));
+    require(!gag::decode_scripted_save_preview_for_testing(bitmap.data(), static_cast<uint32_t>(bitmap.size()), &scene));
+    require(!gag::get_scripted_save_preview_palette_for_testing(bitmap.data(), static_cast<uint32_t>(bitmap.size()), preview_palette));
+#else
+    require(!gag::uses_scripted_save_load_screens_for_testing());
+    require(!gag::handle_scripted_save_load_message(2100, nullptr));
+#endif
+}
+
+void test_save_load_virtual_script()
+{
+    gag::VirtualScriptResource resource{};
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    require(gag::find_save_load_virtual_script("SAVELOAD.CFG", &resource));
+    require(resource.data != nullptr && resource.size == std::strlen(resource.data) && resource.resource_type == 4);
+    const int load_offset = gag::find_script_section("LOAD", resource.data, resource.size);
+    const int save_offset = gag::find_script_section("SAVE", resource.data, resource.size);
+    require(load_offset >= 0 && save_offset > load_offset);
+    const char *load_section = resource.data + load_offset;
+    const char *save_section = resource.data + save_offset;
+    const char *script_end = resource.data + resource.size;
+    auto section_contains = [](const char *section, const char *section_end, const char *declaration)
+    {
+        const char *match = std::strstr(section, declaration);
+        return match != nullptr && match < section_end;
+    };
+    require(std::strstr(resource.data, "[CFG]\nfademask=0;\nflags=NOSAVE;") != nullptr);
+    require(std::strstr(resource.data, "mouse=CM /FILE:K_Ukaz.bmp /F:NOPAL;") != nullptr);
+    require(std::strstr(resource.data, "mouse=NM /FILE:K_None.bmp /F:NOPAL;") != nullptr);
+    require(std::strstr(resource.data, "mouse=EXM /FILE:K_None.bmp /F:NOPAL;") != nullptr);
+    require(std::strstr(resource.data, "object=MM EXIT::OFF SEL::0;") != nullptr);
+    const char *load_declarations[]{ "sublocation=COMMON;", "zone=z_PREVIEW /POS::293,139,320,240 /COMM:Comment /MOUSE:CM /P:100;", "sublocation=TAG_LOAD;",
+        "image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;", "image=i_dSAVE /FILE::Fscr0014.bmp /POS::18,146 /F:SEPARATED /F:NOPAL;", "event=e_LOAD /ZONE::z_LOAD /COMM:Comment /MESSAGE::2102;",
+        R"(event=e_PREVIEW_CLEAR /ZONE::z_PREVIEW /TRANSPARENT /SWVALUE::MM::SEL /VALUE::0 /GOTO::e_PREVIEW_CLEAR /BREAK /CSEND /CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70 /LABEL::e_PREVIEW_CLEAR /SET::MM::SEL::0;)",
+        "event=e_PREVIEW /ZONE::z_PREVIEW /COMM:Comment /MESSAGE::2102;", "event=e_EXIT_LOAD /ZONE::z_EXIT /COMM:Comment /PEXIT:NOFADE;" };
+    for(const char *declaration : load_declarations)
+    {
+        require(section_contains(load_section, save_section, declaration));
+    }
+    require(!section_contains(load_section, save_section, "Fscr0015.bmp"));
+    const char *save_declarations[]{ "sublocation=COMMON;", "sublocation=TAG_SAVE;", "image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;",
+        "image=i_dLOAD /FILE::Fscr0015.bmp /POS::7,171 /F:SEPARATED /F:NOPAL;", "zone=z_NAME /POS::301,385,304,28 /C:l_SAVE_NOT_EDITING /COMM:Comment /MOUSE:CM /P:100;",
+        R"(event=e_SAVE /ZONE::z_SAVE /COMM:Comment /MESSAGE::2102 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)",
+        R"(event=e_NAME /ZONE::z_NAME /COMM:Comment /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:301:385:SaveCaption:15:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)",
+        R"(event=e_INIT /C:l_INIT /SET::SL:INIT:ON /MESSAGE::2105 /SWVALUE::SL::EMPTY /VALUE::ON /GOTO::e_INIT_INPUT /BREAK /CSEND /GOTO::e_INIT_DONE /LABEL::e_INIT_INPUT /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:301:385:SaveCaption:15:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND /LABEL::e_INIT_DONE;)",
+        R"(event=e_EXIT_SAVE /ZONE::z_EXIT /COMM:Comment /MESSAGE::2106 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;)" };
+    const char *common_offset = std::strstr(save_section, "[COMMON]");
+    require(common_offset != nullptr);
+    for(const char *declaration : save_declarations)
+    {
+        require(section_contains(save_section, common_offset, declaration));
+    }
+    require(!section_contains(save_section, common_offset, "zone=z_PREVIEW"));
+    require(!section_contains(save_section, common_offset, "event=e_CLOSE"));
+    const char *shared_declarations[]{ "zone=z_MAIN /RECT::0,0,640,480 /MOUSE:NM /COMM:Go;", "sublocation=TAG_NEXT;", "sublocation=TAG_BACK;", "sublocation=TAG_EXIT;",
+        "image=i_dNEW /FILE::Fscr0011.bmp /POS::98,41 /F:SEPARATED /F:NOPAL;", "image=i_dEXIT /FILE::Fscr0012.bmp /POS::89,70 /F:SEPARATED /F:NOPAL;",
+        "image=i_dCONT /FILE::Fscr0013.bmp /POS::63,100 /F:SEPARATED /F:NOPAL;", "image=i_dHELP /FILE::Fscr0016.bmp /POS::59,196 /F:SEPARATED /F:NOPAL;",
+        "image=i_dCRED /FILE::Fscr0017.bmp /POS::57,244 /F:SEPARATED /F:NOPAL;", "font=SaveCaption /FILE:Font2.rus;", "layer=SavePreview /POS:293,139,320,240 /Z:524289;",
+        "layer=SaveCaption /POS:301,385,304,28 /Z:524290;", "event=e_BACK /ZONE::z_BACK /COMM:Comment /MESSAGE::2100;", "event=e_NEXT /ZONE::z_NEXT /COMM:Comment /MESSAGE::2101;" };
+    for(const char *declaration : shared_declarations)
+    {
+        require(section_contains(common_offset, script_end, declaration));
+    }
+    require(!section_contains(common_offset, std::strstr(common_offset, "[TAG_NEXT]"), "/ZONE::z_EXIT"));
+    require(section_contains(save_section, script_end, "[TAG_SAVE]\ntemplate=MENU_3S( z_SAVE 18 146 246 25 Comment CM i_sSAVE Fscr0004.bmp 18 146"));
+    require(section_contains(save_section, script_end, "[TAG_LOAD]\ntemplate=MENU_3S( z_LOAD 7 171 266 25 Comment CM i_sLOAD Fscr0005.bmp 7 171"));
+    require(section_contains(save_section, script_end, "[TAG_NEXT]\ntemplate=MENU_3S( z_NEXT 536 420 100 60 Comment CM i_sNEXT Helpnext.bmp 536 420"));
+    require(section_contains(save_section, script_end, "[TAG_BACK]\ntemplate=MENU_3S( z_BACK 297 414 100 60 Comment CM i_sBACK Helpback.bmp 297 414"));
+    require(section_contains(save_section, script_end, "[TAG_EXIT]\ntemplate=MENU_3S( z_EXIT 211 416 100 60 Comment CM i_sEXIT Helpexit.bmp 211 416"));
+    require(section_contains(save_section, script_end, "class=TEMPLATE;"));
+    require(section_contains(save_section, script_end, "image=PARAM:p_ISn  /C::PARAM:p_LSssN  /FILE::PARAM:p_ISFn  /POS::PARAM:p_ISIpX,PARAM:p_ISIpY;"));
+    require(section_contains(save_section, script_end, "/PLAY::PARAM:p_ISn::RESTART"));
+    require(section_contains(save_section, script_end, "/CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70"));
+    require(std::strcmp(gag::save_load_screen_section(gag::SaveLoadScreenMode::load), "LOAD") == 0);
+    require(std::strcmp(gag::save_load_screen_section(gag::SaveLoadScreenMode::save), "SAVE") == 0);
+#else
+    require(!gag::find_save_load_virtual_script("SAVELOAD.CFG", &resource));
+#endif
+    require(!gag::find_save_load_virtual_script("DIALOG.CFG", &resource));
 }
 
 gag::ArchiveCommentDialogState *archive_dialog_state;
@@ -12652,6 +13084,121 @@ void test_zlib_cdf_adapters()
     require(gag::get_cdf_entry_flags(archive, "NewGame.cfg") == 0x14);
     require(gag::get_cdf_entry_flags(archive, "NEWGAME.CFG") == 0x14);
     require(gag::get_cdf_entry_flags(archive, "NEWGAME") == 0);
+
+    gag::CdfArchive *second_archive = gag::open_cdf_archive(FREEGAG_ORIGINAL_GAG02_CDF, 0);
+    require(second_archive != nullptr);
+    const char *save_ui_assets[]{ "HELP0000.BMP", "HELP0001.BMP", "FSCR0000.BMP", "FSCR0005.BMP", "FSCR0011.BMP", "FSCR0012.BMP", "FSCR0013.BMP", "FSCR0014.BMP", "FSCR0016.BMP", "FSCR0017.BMP",
+        "HELPBACK.BMP", "HELPEXIT.BMP", "HELPNEXT.BMP", "FONT2.RUS", "K_UKAZ.BMP", "K_NONE.BMP" };
+    const uint32_t expected_sizes[]{ 308278, 308278, 308278, 7242, 3454, 3470, 7630, 6782, 8806, 4690, 3958, 2198, 3526, 84022, 3382, 3382 };
+    for(size_t index = 0; index < std::size(save_ui_assets); ++index)
+    {
+        const uint32_t first_size = gag::get_cdf_entry_size(archive, 0, save_ui_assets[index]);
+        const uint32_t second_size = gag::get_cdf_entry_size(second_archive, 0, save_ui_assets[index]);
+        require(first_size == expected_sizes[index] && second_size == first_size);
+        std::vector<uint8_t> first_data(first_size);
+        std::vector<uint8_t> second_data(second_size);
+        require(gag::read_cdf_entry(archive, 0, save_ui_assets[index], first_data.data()) != 0);
+        require(gag::read_cdf_entry(second_archive, 0, save_ui_assets[index], second_data.data()) != 0);
+        require(first_data == second_data);
+    }
+
+    require(gag::get_synthesized_resource_type("FGSL0000.BMP") == 1);
+    require(gag::get_synthesized_resource_type("dir\\fgsl0000.bmp") == 1);
+    require(gag::get_synthesized_resource_type("MISSING.BMP") == 0);
+    const gag::SynthesizedResourceSourceApi source_api{ gag::get_cdf_entry_size, gag::read_cdf_entry };
+    gag::SynthesizedResource first_synthesized{};
+    gag::SynthesizedResource second_synthesized{};
+    require(gag::synthesize_resource(archive, "FGSL0000.BMP", source_api, &first_synthesized));
+    require(gag::synthesize_resource(second_archive, "fgsl0000.bmp", source_api, &second_synthesized));
+    require(first_synthesized.resource_type == 1 && first_synthesized.data.size() == 308278 && second_synthesized.data == first_synthesized.data);
+
+    synthesized_fullscreen_source.resize(gag::get_cdf_entry_size(archive, 0, "FSCR0000.BMP"));
+    synthesized_help_source.resize(gag::get_cdf_entry_size(archive, 0, "HELP0000.BMP"));
+    synthesized_help_page_source.resize(gag::get_cdf_entry_size(archive, 0, "HELP0001.BMP"));
+    require(gag::read_cdf_entry(archive, 0, "FSCR0000.BMP", synthesized_fullscreen_source.data()) != 0);
+    require(gag::read_cdf_entry(archive, 0, "HELP0000.BMP", synthesized_help_source.data()) != 0);
+    require(gag::read_cdf_entry(archive, 0, "HELP0001.BMP", synthesized_help_page_source.data()) != 0);
+    synthesized_expected_output = synthesized_help_source;
+    constexpr uint32_t palette_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    constexpr uint32_t pixel_offset = palette_offset + 256 * sizeof(RGBQUAD);
+    const RGBQUAD *destination_palette = reinterpret_cast<const RGBQUAD *>(synthesized_help_source.data() + palette_offset);
+    auto build_mapping = [&](const std::vector<uint8_t> &source)
+    {
+        const RGBQUAD *source_palette = reinterpret_cast<const RGBQUAD *>(source.data() + palette_offset);
+        std::array<uint8_t, 256> mapping{};
+        for(uint32_t source_index = 0; source_index < mapping.size(); ++source_index)
+        {
+            uint32_t closest_distance = UINT32_MAX;
+            for(uint32_t destination_index = 0; destination_index < mapping.size(); ++destination_index)
+            {
+                const int32_t red = static_cast<int32_t>(source_palette[source_index].rgbRed) - destination_palette[destination_index].rgbRed;
+                const int32_t green = static_cast<int32_t>(source_palette[source_index].rgbGreen) - destination_palette[destination_index].rgbGreen;
+                const int32_t blue = static_cast<int32_t>(source_palette[source_index].rgbBlue) - destination_palette[destination_index].rgbBlue;
+                const uint32_t distance = static_cast<uint32_t>(red * red + green * green + blue * blue);
+                if(distance < closest_distance)
+                {
+                    closest_distance = distance;
+                    mapping[source_index] = static_cast<uint8_t>(destination_index);
+                }
+            }
+        }
+        return mapping;
+    };
+    auto blit_expected = [&](const std::vector<uint8_t> &source, uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)
+    {
+        const std::array<uint8_t, 256> mapping = build_mapping(source);
+        for(uint32_t y = top; y < bottom; ++y)
+        {
+            const uint32_t stored_y = 479 - y;
+            for(uint32_t x = left; x < right; ++x)
+            {
+                const uint32_t position = pixel_offset + stored_y * 640 + x;
+                synthesized_expected_output[position] = mapping[source[position]];
+            }
+        }
+    };
+    blit_expected(synthesized_fullscreen_source, 0, 0, 280, 300);
+    blit_expected(synthesized_help_page_source, 530, 420, 610, 450);
+    constexpr uint32_t manual_patch_regions[][4]{
+        { 303, 87,  605, 148 },
+        { 12,  402, 135, 430 }
+    };
+    uint32_t manual_patch_changes = 0;
+    for(const auto &region : manual_patch_regions)
+    {
+        for(uint32_t y = region[1]; y < region[3]; ++y)
+        {
+            const uint32_t stored_y = 479 - y;
+            for(uint32_t x = region[0]; x < region[2]; ++x)
+            {
+                const uint32_t position = pixel_offset + stored_y * 640 + x;
+                manual_patch_changes += first_synthesized.data[position] != synthesized_expected_output[position];
+                synthesized_expected_output[position] = first_synthesized.data[position];
+            }
+        }
+    }
+    require(manual_patch_changes != 0);
+    require(first_synthesized.data == synthesized_expected_output);
+
+    const gag::SynthesizedResourceSourceApi test_source_api{ get_test_runtime_resource_load_archive_size, read_test_runtime_resource_load_archive };
+    gag::SynthesizedResource rejected{};
+    synthesized_source_read_count = 0;
+    require(gag::synthesize_resource(&discovery_archive, "FGSL0000.BMP", test_source_api, &rejected));
+    require(synthesized_source_read_count == 3);
+    const uint8_t saved_width_byte = synthesized_fullscreen_source[18];
+    synthesized_fullscreen_source[18] = 0;
+    require(!gag::synthesize_resource(&discovery_archive, "FGSL0000.BMP", test_source_api, &rejected));
+    synthesized_fullscreen_source[18] = saved_width_byte;
+    std::vector<uint8_t> saved_help = std::move(synthesized_help_source);
+    require(!gag::synthesize_resource(&discovery_archive, "FGSL0000.BMP", test_source_api, &rejected));
+    synthesized_help_source = std::move(saved_help);
+    std::vector<uint8_t> saved_help_page = std::move(synthesized_help_page_source);
+    require(!gag::synthesize_resource(&discovery_archive, "FGSL0000.BMP", test_source_api, &rejected));
+    synthesized_help_page_source = std::move(saved_help_page);
+    require(!gag::synthesize_resource(nullptr, "FGSL0000.BMP", test_source_api, &rejected));
+    require(!gag::synthesize_resource(&discovery_archive, "MISSING.BMP", test_source_api, &rejected));
+
+    require(gag::close_cdf_archive(second_archive) == 1);
     require(gag::close_cdf_archive(archive) == 1);
 }
 
@@ -16942,10 +17489,20 @@ int main()
     gag::set_runtime_scene_control_state_for_testing(0x10000000, nullptr);
     runtime_resource_type_archive_flags = 0x15;
     require(gag::detect_runtime_resource_type("IMAGE.DAT") == 5);
+    runtime_resource_type_archive_flags = 0;
+    require(gag::detect_runtime_resource_type("DIR\\FGSL0000.BMP") == 1);
+    runtime_resource_type_archive_flags = 2;
+    require(gag::detect_runtime_resource_type("DIR\\FGSL0000.BMP") == 2);
     gag::set_gagboy_startup_mode_for_testing(true);
     runtime_resource_type_archive_flags = 0;
     require(gag::detect_runtime_resource_type("C:\\VIRTUAL\\gagboy.cfg") == 4);
     gag::set_gagboy_startup_mode_for_testing(false);
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    runtime_resource_type_open_count = 0;
+    runtime_resource_type_update_count = 0;
+    require(gag::detect_runtime_resource_type("C:\\VIRTUAL\\saveload.cfg") == 4);
+    require(runtime_resource_type_open_count == 0 && runtime_resource_type_update_count == 0);
+#endif
     gag::set_runtime_scene_control_state_for_testing(0, nullptr);
     runtime_resource_type_open_count = 0;
     runtime_resource_type_update_count = 0;
@@ -17039,6 +17596,21 @@ int main()
     require(runtime_resource_load_alloc_count == 1 && runtime_resource_load_read_async_count == 0 && runtime_resource_load_activate_count == 0);
     gag::set_gagboy_startup_mode_for_testing(false);
 
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    std::memset(&runtime_resource_load_created_entry, 0, sizeof(runtime_resource_load_created_entry));
+    std::memset(runtime_resource_load_memory, 0, sizeof(runtime_resource_load_memory));
+    runtime_resource_load_alloc_count = 0;
+    runtime_resource_load_read_async_count = 0;
+    runtime_resource_load_activate_count = 0;
+    gag::load_runtime_resource("SAVELOAD.CFG", &loaded_resource_data, &loaded_resource_size, &loaded_resource_storage, 0);
+    const auto *save_load_script = static_cast<const char *>(loaded_resource_data);
+    require(save_load_script == reinterpret_cast<const char *>(runtime_resource_load_memory) && loaded_resource_storage == 0x01000000 && loaded_resource_size == std::strlen(save_load_script));
+    require(std::strstr(save_load_script, "[LOAD]") != nullptr && std::strstr(save_load_script, "[SAVE]") != nullptr);
+    require(runtime_resource_load_created_entry.data == runtime_resource_load_memory && runtime_resource_load_created_entry.size == loaded_resource_size
+            && runtime_resource_load_created_entry.flags_and_references == ((4u << 16) | 1));
+    require(runtime_resource_load_alloc_count == 1 && runtime_resource_load_read_async_count == 0 && runtime_resource_load_activate_count == 0);
+#endif
+
     std::memset(&runtime_resource_load_created_entry, 0, sizeof(runtime_resource_load_created_entry));
     std::memset(runtime_resource_load_memory, 0, sizeof(runtime_resource_load_memory));
     std::memcpy(runtime_resource_load_memory, "CDF96a", 6);
@@ -17103,6 +17675,24 @@ int main()
     require(loaded_resource_data == nullptr && loaded_resource_size == 0 && loaded_resource_storage == 0);
     require(runtime_resource_load_free_count == 1 && runtime_resource_load_send_count == 1);
     runtime_resource_load_archive_result = 1;
+    runtime_resource_load_archive_flags = 1;
+    runtime_resource_load_size = 64;
+    runtime_resource_load_stream_result = reinterpret_cast<void *>(113);
+    synthesized_source_read_count = 0;
+    gag::load_runtime_resource("DIR\\FGSL0000.BMP", &loaded_resource_data, &loaded_resource_size, &loaded_resource_storage, 0);
+    require(loaded_resource_data == reinterpret_cast<void *>(113) && loaded_resource_size == 64 && loaded_resource_storage == 0x02000000);
+    require(synthesized_source_read_count == 0);
+    runtime_resource_load_archive_flags = 0;
+    runtime_resource_load_size = 0;
+    runtime_resource_load_alloc_count = 0;
+    synthesized_source_read_count = 0;
+    std::memset(&runtime_resource_load_created_entry, 0, sizeof(runtime_resource_load_created_entry));
+    gag::load_runtime_resource("DIR\\FGSL0000.BMP", &loaded_resource_data, &loaded_resource_size, &loaded_resource_storage, 0);
+    require(loaded_resource_data == runtime_resource_load_memory && loaded_resource_size == synthesized_expected_output.size() && loaded_resource_storage == 0x01000000);
+    require(std::memcmp(loaded_resource_data, synthesized_expected_output.data(), synthesized_expected_output.size()) == 0 && synthesized_source_read_count == 3);
+    require(runtime_resource_load_alloc_count == 1 && runtime_resource_load_created_entry.size == synthesized_expected_output.size()
+            && runtime_resource_load_created_entry.flags_and_references == ((1u << 16) | 1));
+
     gag::set_runtime_scene_control_state_for_testing(0, nullptr);
     runtime_resource_load_size = 0x100000;
     runtime_resource_load_open_failures = 1;
@@ -18097,6 +18687,33 @@ int main()
     require((state.flags & 0x40000) != 0);
     gag::set_script_runtime_root_for_testing(&script_root);
 
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    procedure_state = &state;
+    reset_scripted_save_persistence();
+    gag::set_scripted_save_load_persistence_api_for_testing(
+        { capture_scripted_save_bitmap, get_scripted_save_state, free_scripted_save_bitmap, write_scripted_save_state, get_scripted_save_file_attributes });
+    gag::set_archive_comment_enumeration_api_for_testing(
+        { find_first_archive_comment, find_next_archive_comment, find_close_archive_comment, GetProcessHeap, allocate_archive_comment, reallocate_archive_comment, free_archive_comment,
+            open_archive_comment, get_archive_comment_error, get_archive_comment_size, read_archive_comment, close_archive_comment, send_archive_comment, delete_archive_comment_file });
+    reset_archive_comment_test();
+    archive_comment_pattern = "D:\\*.GSF";
+    archive_comment_files[0] = "GAG001.GSF";
+    archive_comment_texts[0] = "Manual save";
+    archive_comment_file_count = 1;
+    strcpy_s(state.installation_path, "D:\\");
+    main_procedure_operation_count = 0;
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8780, 0) == 0);
+    require(std::strcmp(gag::get_first_runtime_path_for_testing(), "SAVELOAD.CFG") == 0 && std::strcmp(gag::get_second_runtime_path_for_testing(), "SAVE") == 0);
+    require(main_procedure_operation_count == 0);
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::gag_main_window_procedure(main_window, WM_COMMAND, 0x8810, 0) == 0);
+    require(archive_comment_find_first_count == 2);
+    require(gag::get_scripted_save_load_entry_count_for_testing() == 1);
+    require(std::strcmp(gag::get_first_runtime_path_for_testing(), "SAVELOAD.CFG") == 0 && std::strcmp(gag::get_second_runtime_path_for_testing(), "LOAD") == 0);
+    require(main_procedure_operation_count == 0);
+#endif
+
     gag::ApplicationStateFieldQuery main_query{};
     strcpy_s(main_query.object_name, "OBJECT");
     strcpy_s(main_query.field_name, "FIELD");
@@ -18125,8 +18742,17 @@ int main()
     require((state.flags & 0x40000) == 0);
 
     main_procedure_reply_count = 0;
+#if defined(FREEGAG_WINDOWS_FIXES) && defined(FREEGAG_IN_GAME_SAVE_LOAD)
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7d3, 0) == 0);
+    require(main_procedure_reply_count == 0 && std::strcmp(gag::get_first_runtime_path_for_testing(), "SAVELOAD.CFG") == 0 && std::strcmp(gag::get_second_runtime_path_for_testing(), "SAVE") == 0);
+    gag::set_graphics_host_flags_for_testing(0);
+    require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7d2, 0) == 0);
+    require(main_procedure_reply_count == 0 && std::strcmp(gag::get_first_runtime_path_for_testing(), "SAVELOAD.CFG") == 0 && std::strcmp(gag::get_second_runtime_path_for_testing(), "LOAD") == 0);
+#else
     require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7d3, 0) == 0);
     require(main_procedure_reply_count == 1 && main_procedure_last_window == main_window && main_procedure_last_message == WM_COMMAND && main_procedure_last_wparam == 0x8780);
+#endif
     state.flags = 0x20;
     require(gag::gag_main_window_procedure(main_window, 0x7ffd, 0x7da, 0) == 0 && main_procedure_last_wparam == 0x8910);
 #if defined(FREEGAG_WINDOWS_FIXES)
@@ -18488,6 +19114,36 @@ int main()
     require(captured_bitmap != nullptr && captured_size == 0x43a && std::memcmp(captured_bitmap + 0x436, expected_half_pixels, sizeof(expected_half_pixels)) == 0);
     HeapFree(GetProcessHeap(), 0, captured_bitmap);
 
+    PALETTEENTRY capture_palette[256]{};
+    capture_palette[1] = { 255, 0, 0, 0 };
+    capture_palette[2] = { 0, 255, 0, 0 };
+    capture_palette[3] = { 0, 0, 255, 0 };
+    capture_palette[4] = { 255, 255, 255, 0 };
+    uint8_t indexed_display_pixels[24]{ 0, 1, 2, 3, 99, 99, 4, 3, 2, 1, 99, 99, 3, 2, 1, 0, 99, 99, 1, 2, 3, 4, 99, 99 };
+    gag::DisplayBitmapCaptureSource display_source{ 4, 4, 6, 8, 0, 0, 0, indexed_display_pixels, capture_palette };
+    captured_bitmap = static_cast<uint8_t *>(gag::create_display_bitmap(&display_source, &captured_size, 1));
+    const uint8_t expected_indexed_display_pixels[8]{ 1, 3, 0, 0, 4, 2, 0, 0 };
+    require(captured_bitmap != nullptr && captured_size == 0x43e && std::memcmp(captured_bitmap + 0x436, expected_indexed_display_pixels, sizeof(expected_indexed_display_pixels)) == 0);
+    require(captured_bitmap[0x3a] == 0 && captured_bitmap[0x3b] == 0 && captured_bitmap[0x3c] == 255);
+    HeapFree(GetProcessHeap(), 0, captured_bitmap);
+
+    uint8_t rgb565_display_pixels[48]{};
+    const uint16_t rgb565_rows[4][4]{
+        { 0x0000, 0xf800, 0x07e0, 0x001f },
+        { 0xffff, 0x001f, 0x07e0, 0xf800 },
+        { 0x001f, 0x07e0, 0xf800, 0xffff },
+        { 0xf800, 0x07e0, 0x001f, 0xffff }
+    };
+    for(uint32_t y = 0; y < 4; ++y)
+    {
+        std::memcpy(rgb565_display_pixels + y * 12, rgb565_rows[y], sizeof(rgb565_rows[y]));
+    }
+    display_source = { 4, 4, 12, 16, 0xf800, 0x07e0, 0x001f, rgb565_display_pixels, capture_palette };
+    captured_bitmap = static_cast<uint8_t *>(gag::create_display_bitmap(&display_source, &captured_size, 1));
+    const uint8_t expected_rgb565_display_pixels[8]{ 1, 3, 0, 0, 4, 2, 0, 0 };
+    require(captured_bitmap != nullptr && captured_size == 0x43e && std::memcmp(captured_bitmap + 0x436, expected_rgb565_display_pixels, sizeof(expected_rgb565_display_pixels)) == 0);
+    HeapFree(GetProcessHeap(), 0, captured_bitmap);
+
     gag::set_graphics_host_flags_for_testing(0);
     captured_size = 321;
     require(gag::capture_bitmap_if_runtime_active(&bitmap_source, bitmap_palette, &captured_size, 0) == nullptr && captured_size == 321);
@@ -18498,10 +19154,40 @@ int main()
     bitmap_game_context.palette_entries = reinterpret_cast<PALETTEENTRY *>(bitmap_palette);
     void *bitmap_callbacks[35]{};
     gag::set_runtime_game_host_state_for_testing(bitmap_game_context, bitmap_callbacks);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    gag::DisplaySceneNode capture_scene{};
+    capture_scene.callback_first_position = reinterpret_cast<intptr_t>(bitmap_pixels);
+    capture_scene.sync_secondary_position = 4;
+    capture_scene.width = 4;
+    capture_scene.height = 4;
+    capture_scene.rectangle_callback_format.bits_per_pixel = 8;
+    gag::set_runtime_display_scene_for_bitmap_capture_testing(&capture_scene);
+    std::memcpy(gag::get_display_palette_entries(), capture_palette, sizeof(capture_palette));
+    captured_bitmap = static_cast<uint8_t *>(gag::capture_game_bitmap(nullptr, &captured_size, 1));
+    const uint8_t expected_captured_display_pixels[8]{ 12, 14, 0, 0, 4, 6, 0, 0 };
+    require(captured_bitmap != nullptr && captured_size == 0x43e && std::memcmp(captured_bitmap + 0x436, expected_captured_display_pixels, sizeof(expected_captured_display_pixels)) == 0);
+    HeapFree(GetProcessHeap(), 0, captured_bitmap);
+#endif
     gag::set_graphics_host_flags_for_testing(0x800);
     captured_bitmap = static_cast<uint8_t *>(gag::capture_game_bitmap(nullptr, &captured_size, 1));
+#if defined(FREEGAG_WINDOWS_FIXES)
+    require(captured_bitmap != nullptr && captured_size == 0x43e && std::memcmp(captured_bitmap + 0x436, expected_captured_display_pixels, sizeof(expected_captured_display_pixels)) == 0);
+#else
     require(captured_bitmap != nullptr && captured_size == 0x43a && std::memcmp(captured_bitmap + 0x436, expected_half_pixels, sizeof(expected_half_pixels)) == 0);
+#endif
     HeapFree(GetProcessHeap(), 0, captured_bitmap);
+#if defined(FREEGAG_WINDOWS_FIXES)
+    capture_scene.callback_first_position = reinterpret_cast<intptr_t>(rgb565_display_pixels);
+    capture_scene.sync_secondary_position = 12;
+    capture_scene.rectangle_callback_format.bits_per_pixel = 16;
+    capture_scene.rectangle_callback_format.red_mask = 0xf800;
+    capture_scene.rectangle_callback_format.green_mask = 0x07e0;
+    capture_scene.rectangle_callback_format.blue_mask = 0x001f;
+    captured_bitmap = static_cast<uint8_t *>(gag::capture_game_bitmap(nullptr, &captured_size, 1));
+    require(captured_bitmap != nullptr && captured_size == 0x43e && std::memcmp(captured_bitmap + 0x436, expected_rgb565_display_pixels, sizeof(expected_rgb565_display_pixels)) == 0);
+    HeapFree(GetProcessHeap(), 0, captured_bitmap);
+    gag::set_runtime_display_scene_for_bitmap_capture_testing(nullptr);
+#endif
 
     gag::RuntimeQueueApi runtime_queue_api{ enter_runtime_coordinate_lock, leave_runtime_coordinate_lock, enter_runtime_queue_lock, leave_runtime_queue_lock, enter_runtime_byte_lock,
         leave_runtime_byte_lock };
@@ -21176,6 +21862,14 @@ int main()
     lookup_scene_node_1.accumulated_rectangle = { 9, 8, 7, 6 };
     int scene_update_reset_count = display_acquire_reset_count;
     gag::set_display_lock_acquire_state_for_testing(reinterpret_cast<HANDLE>(71), 0, { 0, 0, 0, 0 }, 100, 80, &lookup_scene_node_1);
+    lookup_scene_node_1.owner_count = 0;
+    require(gag::activate_display_scene_node(11));
+    require((lookup_scene_node_1.flags & 0x01000000) == 0 && lookup_scene_node_1.accumulated_rectangle.left == 0 && lookup_scene_node_1.accumulated_rectangle.top == 0
+            && lookup_scene_node_1.accumulated_rectangle.right == 30 && lookup_scene_node_1.accumulated_rectangle.bottom == 20);
+    require(!gag::activate_display_scene_node(33));
+    lookup_scene_node_1.flags = 0x01000000;
+    lookup_scene_node_1.owner_count = 1;
+    lookup_scene_node_1.accumulated_rectangle = { 9, 8, 7, 6 };
     require(gag::begin_display_scene_update(11) == 0 && display_acquire_reset_count == scene_update_reset_count + 1);
     require((lookup_scene_node_1.flags & 0x01000000) == 0 && lookup_scene_node_1.accumulated_rectangle.left == 0 && lookup_scene_node_1.accumulated_rectangle.top == 0
             && lookup_scene_node_1.accumulated_rectangle.right == 30 && lookup_scene_node_1.accumulated_rectangle.bottom == 20);
@@ -21442,6 +22136,15 @@ int main()
     require(gag::configure_display_scene_palette(&palette_node, configured_palette, 3) && palette_node.rectangle_callback == gag::composite_transparent_indexed_to_8);
     require(palette_node.palette_mapping[0] == 0 && palette_node.palette_mapping[1] == 1 && palette_node.palette_mapping[2] == 2);
     require(gag::configure_display_scene_palette(&palette_node, nullptr, 0) && palette_node.rectangle_callback == gag::composite_transparent_8_to_8);
+    palette_root.rectangle_callback_format.bits_per_pixel = 16;
+    palette_root.rectangle_callback_format.red_mask = 0xf800;
+    palette_root.rectangle_callback_format.green_mask = 0x07e0;
+    palette_root.rectangle_callback_format.blue_mask = 0x001f;
+    require(gag::configure_display_scene_palette(&palette_node, configured_palette, 3) && palette_node.rectangle_callback == gag::composite_transparent_indexed_to_16);
+    const uint32_t replacement_palette[]{ 0x0000ff, 0x00ff00, 0xff0000 };
+    require(gag::configure_display_scene_palette(&palette_node, replacement_palette, 3) && palette_node.rectangle_callback == gag::composite_transparent_indexed_to_16);
+    require(std::memcmp(palette_node.palette_source, replacement_palette, sizeof(replacement_palette)) == 0);
+    require(palette_node.palette_mapping[0] == 0xf800 && palette_node.palette_mapping[1] == 0x07e0 && palette_node.palette_mapping[2] == 0x001f);
 
     gag::DisplayPixelFormatDescriptor allocation_format{};
     allocation_format.bits_per_pixel = 8;
@@ -25246,6 +25949,8 @@ int main()
     test_script_object_serialization();
     test_runtime_left_button_up();
     test_archive_comment_enumeration();
+    test_save_load_screen_selection();
+    test_save_load_virtual_script();
     test_archive_comment_dialog();
     test_archive_selection_dialog();
     test_custom_control_window_procedure();

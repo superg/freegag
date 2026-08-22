@@ -1,8 +1,205 @@
 # Active context
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
+
+## Current build target
+
+- Routine development, testing, and VS Code configuration use x64 Debug. Do not
+  select Win32; references to past Win32 verification describe historical work
+  and are not current build instructions.
+
+## HELP background reconstruction
+
+- Added `tools/convert_truecolor_to_indexed_palette.py` and converted the
+  corrected true-color reconstruction to `HELP_BACKGROUND_INDEXED_8BIT.BMP`.
+  The converter retains the complete `HELP0000.BMP` container and exact 1,024-byte
+  palette table, then maps each true-color pixel to the nearest palette RGB with
+  a deterministic lowest-index tie rule. Validation reports 640x480,
+  uncompressed 8-bit indexed pixels, 151 palette entries used, 1.2448 RGB levels
+  RMS quantization error per channel, and byte-identical palette data. The
+  Downloads copy is 308,278 bytes with SHA-256
+  `2620D1F9481BE96176DC20B8607E19061F9057C9043C9D9617C0E970EC577B66`.
+- Rejected the free-running `HELP_BACKGROUND_TRUECOLOR.BMP` delivery after the
+  user identified whole-frame alignment drift and repainting of exposed leather.
+  Added `tools/create_help_mask_locked_truecolor.py` and produced the corrected
+  `HELP_BACKGROUND_MASK_LOCKED_V2_24BIT.BMP`. The compositor starts from
+  `HELP0000.BMP`, derives a connected light-foreground plus adjacent dark-shadow
+  mask inside the user-identified content regions, uses `HELP0001.BMP` where it
+  exposes those pixels, and uses the clean generative leather only where both
+  Help screens are obstructed. All 182,334 pixels outside the 124,866-pixel edit
+  mask have zero RGB differences from `HELP0000.BMP`; the output is 640x480,
+  uncompressed 24-bit RGB, 921,654 bytes. The corrected Downloads deliverable is
+  `HELP_BACKGROUND_TRUECOLOR_FIXED.BMP`, SHA-256
+  `DA9545581085710532AF221C0120EE5973846741EE8449D2D865465B80B9230F`.
+- Produced the mask-locked reconstruction
+  `HELP_BACKGROUND_MASK_LOCKED_24BIT.BMP` from the authoritative
+  `HELP_BACKGROUND_INFERRED.BMP`. A built-in four-reference image edit supplies
+  clean leather fill, but `tools/fill_help_red_truecolor.py` composites it only
+  at the 47,775 diagnostic-red base pixels plus a 3,421-pixel connected grayscale
+  mask for the bottom `Помощь` and `Выход` glyphs. Every other base pixel is
+  converted from its indexed color to 24-bit RGB without alteration. Independent
+  validation reports zero locked-pixel RGB differences, zero pure-red output
+  pixels, 640x480 dimensions, and 24-bit depth. The workspace and Downloads copies
+  have SHA-256 `B70D8283A23F21EF61A43A69BD729C4A82D0FA169FD9EA6CB31FE677356999E1`.
+- Produced the now-rejected free-running generative reconstruction
+  `HELP_BACKGROUND_TRUECOLOR.BMP`
+  from `FSCR0000.BMP`, `HELP0000.BMP`, and `HELP0001.BMP` after the user supplied
+  explicit semantic foreground inventories. The image-generation edit removes
+  all text, cursor/icon art, paper tabs, and the full right stamp while retaining
+  the black surround, rounded wallet rim, center seam, dark pebbled leather, and
+  lower-left curved pocket. The selected 4:3 PNG was high-quality downsampled and
+  explicitly encoded as an uncompressed 640x480 24-bit RGB BMP. Header validation
+  reports pixel offset 54, one plane, depth 24, compression zero, and exact size
+  921,654 bytes. The workspace and Downloads copies have SHA-256
+  `DF0CE3F15A76166F5B3A990947F21F50642213969E2AC8626FCC0422EB412D6C`.
+  Re-copied and revalidated the Downloads deliverable on 2026-08-21: it remains
+  640x480, uncompressed 24-bit RGB, 921,654 bytes, with the same checksum.
+- Added `tools/improve_help_background_with_fscr.py` and the three-source result
+  `HELP_BACKGROUND_INFERRED_FSCR.BMP`. The pass treats the existing inferred BMP
+  as authoritative, uses `FSCR0000.BMP` only to recover existing red pixels on
+  the upper-left page and the differing caption on the lower-left dark pocket,
+  palette-maps accepted FSCR colors into the HELP palette, and hard-excludes the
+  full right page plus three paper-tab rectangles. It recovers 10,739 prior red
+  pixels, replaces 736 inferred foreground pixels, adds 1,560 red overlap pixels,
+  and leaves 38,596 red pixels total. Validation finds zero changes at `x >= 280`
+  and zero changes in the excluded tab rectangles. The copied Downloads artifact
+  has SHA-256 `98DA133F83CAB5ACE6C8C2E2CBF252255ED3C7005A4DC6F5C2E59CDB19DF8DA6`.
+- Added the corrected agreement-first inference artifact
+  `HELP_BACKGROUND_INFERRED.BMP`. Pixels whose RGB channels differ by at most 8
+  are retained regardless of semantic appearance; differing bright neutral
+  connected components seed per-image foreground masks, nearby dark accents are
+  included, one-sided foreground selects the other source, and overlapping
+  differing foreground becomes red. Small isolated uncertainty components use
+  the authoritative base instead of red. The result retains 176,338 matching or
+  near-matching pixels, selects 34,191 pixels from `HELP0001.BMP`, and marks
+  47,775 pixels red. The user-identified rectangle `[8,394)-[125,453)` retains
+  all 6,903 pixels with zero red. SHA-256 is
+  `C2F992C6C69ABB2F2668DBB9B7C5F1B3A9B6DD09EDDAAC6516D8F6BCE124D608`;
+  a copy is beside the inputs in `C:\Users\G\Downloads\test`.
+- Added a strict RGB comparison artifact and tool with no semantic masking:
+  `tools/create_help_true_diff.py` preserves a `HELP0000.BMP` pixel only when its
+  RGB matches the aligned `HELP0001.BMP` pixel and otherwise writes unused index
+  255 as red. `HELP_TRUE_DIFF.BMP` is 640x480 and contains 132,706 identical RGB
+  pixels plus 174,494 red differing pixels; SHA-256 is
+  `599332E62C7AE0D8493ED45BD9FCFF3D21EDDB45CAB6C32803F0A831D909B1F2`.
+  A copy is beside the inputs in `C:\Users\G\Downloads\test`. Matching shared
+  foreground such as bottom captions necessarily survives this objective diff.
+- The initial conservative shared-leather reconstruction is not acceptance-ready.
+  Audit of top-left rectangle `[8,394)-[125,453)` found 4,470 of 6,903 pixels
+  have identical indices and RGB values in both inputs, while a manually forced
+  `[10,395)-[125,453)` unknown rectangle painted 6,670 pixels red. The input RGB
+  palettes are identical. Five-pixel foreground-mask dilation can also mark
+  intact pixels red. Remove rectangular forcing and make unknown status depend
+  on pixel-level evidence before treating the artifact as correct.
+- The initial artifact was reconstructed from the user-supplied
+  `HELP0000.BMP` and `HELP0001.BMP`. The deterministic palette-aware tool at
+  `tools/reconstruct_help_background.py` retains `HELP0000.BMP` as the 8-bit BMP
+  container, substitutes 48,979 exact exposed pixels from `HELP0001.BMP`, and
+  writes unrecoverable/uncertain overlay regions through unused palette index 255
+  set to vivid red. The final 640x480, 308,278-byte artifact is
+  `HELP_BACKGROUND_RECONSTRUCTED.BMP`, with a convenience copy beside the user
+  inputs under `C:\Users\G\Downloads\test`; SHA-256 is
+  `3E5191BACA8D043E2AE10271313621A3FA5F9B43B5D01F5501E9DF91523813A6`.
 
 ## GAG main executable reconstruction
+
+- Implemented the scripted Save screen by sharing the established Load scene and
+  leaving the recovered `/INPSTR` editor completely unchanged. Load uses active
+  `FSCR0005.BMP` with shaded `FSCR0014.BMP`; Save uses active `FSCR0004.BMP`
+  with shaded `FSCR0015.BMP`. Both modes select the newest mtime-sorted manual
+  archive and display at most 15 name characters plus `...`, while Save retains
+  the full underlying legacy key. Save owns the pre-dialog gameplay bitmap and
+  serialized state, keeps that thumbnail fixed during navigation, and has no
+  thumbnail click zone. Clicking the static name, or entering Save with no
+  archives, starts a blank stock `/INPSTR` with capacity 16. Save, Previous,
+  Next, and Exit finish the active editor by injecting Enter; the controller
+  then either submits, discards and navigates, or discards and exits. Navigation
+  remains inert with zero or one archive. Persistence resolves names
+  case-insensitively through `COMMENT.TXT`, overwrites the newest duplicate,
+  creates collision-free `GAG%03u.GSF` paths for new names, and derives empty
+  submissions from the greatest exact case-insensitive `save` plus decimal
+  suffix. Failed writes retain the entered static name and remain on Save;
+  successful writes clear the unsaved flag and request the ordinary script-plan
+  exit. Focused callback tests cover full legacy keys, truncation, duplicate
+  selection, `Save007` to `save8`, filesystem collision advancement, injected
+  Enter, discarded navigation/Exit text, one-save navigation, write failure,
+  fixed/borrowed bitmap ownership, and zero-save state. The x64 Debug configure
+  and build, all four CTest tests, formatting, and whitespace checks pass.
+  Interactive indexed and RGB565 checks of graphics, caret behavior, controls,
+  overwrite/new-save results, Back, and Exit remain pending.
+  The first runtime check exposed a Save-entry flicker followed by an immediate
+  return to the main menu. The Save script's free-running conditional `e_CLOSE`
+  event was the only unconditional event path containing `/PEXIT`; it has been
+  removed. Save, name-editor completion, and zero-save editor completion now
+  test `SL::CLOSE` inline immediately after the action that can set it. The
+  zero-save initialization uses a label branch before entering `/INPSTR`, so it
+  does not nest switch state. The Debug production executable rebuilds, all four
+  tests pass, and formatting/whitespace checks pass; runtime confirmation of the
+  corrected entry behavior remains pending.
+  The next runtime check found that the shared Exit event no longer restored the
+  previous scene in either mode. Its condition depended on the shared
+  `SL::EDITING` object, whose value is not a safe cross-section mode gate. Exit
+  is now mode-owned: Load performs an unconditional `/PEXIT:NOFADE`, while Save
+  always sends message 2106. The Save controller sets `SL::CLOSE` immediately
+  when no editor is active, or injects Enter and records pending Exit while
+  `/INPSTR` is active; the Save event and resumed editor event then perform their
+  inline close checks. The common section no longer declares an Exit action or
+  editing condition. The Debug executable rebuilds and all four tests,
+  formatting, and whitespace checks pass; runtime confirmation remains pending.
+  The following runtime check showed that pressing Enter wrote successfully but
+  treated the typed name as empty and therefore generated the fallback `saveN`.
+  `/INPSTR` already copies its completed 32-byte record into `INPUT::NAME`; the
+  fragile step was the controller performing a separate global object lookup in
+  message 2104. Both editor paths now send
+  `/MESSAGE::2104:INPUT:NAME`, using the recovered message opcode's synchronous
+  `ScriptObjectFieldSnapshot`. The main-window bridge passes that snapshot to
+  the Save controller, which copies its `string_value` directly before
+  persistence. A focused regression passes a completed `duplicate` snapshot
+  through the real message handler and verifies the typed key reaches the
+  newest matching archive. The Debug executable rebuilds and all four tests,
+  formatting, and whitespace checks pass; runtime confirmation remains pending.
+
+- Fixed scripted Load thumbnail color loss. `COMMENT.BMP` validation now yields
+  its authoritative 256-color palette and bottom-up indexed pixels separately.
+  The `SavePreview` layer is activated without the game palette; each selected
+  save installs its own converted RGB palette and copies its original indices
+  unchanged. An 8-bit root therefore retains the recovered indexed-to-indexed
+  shared-palette behavior, while an RGB565 root uses the existing
+  indexed-to-16-bit compositor and converts all screenshot colors directly.
+  Caption rendering remains on the active game palette, malformed previews
+  remain blank, and a direct 16-bit pixel-copy path remains defensive support.
+  Tests cover raw indices, bottom-up orientation, palette conversion and
+  replacement, RGB565 channel extremes, malformed input, and both compositor
+  callback choices. The x64 Debug build, all four CTest tests, formatting, and
+  whitespace checks pass; visual comparison in indexed and RGB565 modes remains.
+
+- Restored the small all-build synthesized-resource implementation after
+  discarding the perceptual patch experiment. `FGSL0000.BMP` validates
+  `FSCR0000.BMP`, `HELP0000.BMP`, and `HELP0001.BMP`, retains the complete
+  `HELP0000.BMP` output container and palette, palette-remaps and blits
+  `[0,0)-(280,300)` from `FSCR0000.BMP`, then `[530,420)-(610,450)` from
+  `HELP0001.BMP`; all other pixels remain from `HELP0000.BMP`. The generated
+  patch include, offline generator, test-only edit-mask API, and preview were
+  removed. Two final manual indexed patches now overwrite half-open rectangles
+  `[303,87)-(605,148)` and `[12,402)-(135,430)` with pixels extracted from the
+  accepted `HELP_BACKGROUND_INDEXED_8BIT.BMP`. Their 21,866 palette indices are
+  stored as one 13,081-byte zlib stream in
+  `save_load_bg_patch.h` and applied after both source blits.
+  All four configured CTest tests pass. The production object compiles, but the
+  final `gag.exe` link remains blocked while the user's existing process holds
+  the executable open; formatting and whitespace checks pass.
+
+- Implemented the scripted Load screen milestone. `SAVELOAD.CFG::LOAD` is founded directly on the recovered Help scene: the original `TAG_NEXT`, `TAG_BACK`, `TAG_EXIT`, and `MENU_3S` hierarchy supplies both Help navigation controls plus Exit, with only the final Previous/Next events remapped to cycle saves. The recovered disabled menu images `FSCR0011.BMP` through `FSCR0014.BMP` and `FSCR0016.BMP` through `FSCR0017.BMP` are static, noninteractive script images at their original `DIALOG.CFG` positions. The original Load position instead reuses the recovered `MENU_3S` behavior: its `(7,171,266,25)` zone shows `FSCR0005.BMP` on hover and sends the same Load message as the preview; `FSCR0015.BMP` is not referenced. Because this screen combines main-menu and Help controls under one `MM::SEL` while their recovered templates use different background-clear rectangles, fast pointer motion could jump directly between priority zones without entering `z_MAIN` and leave the prior highlight visible. Save/load's private template now clears both the left-menu and Help-control rectangles on every hover/reset, and entering the thumbnail transparently performs the same reset before its click event. Ordinary blank script layers add a native `320x240` `COMMENT.BMP` preview at the finalized `(293,139)` position and centered, ellipsized `FONT2.RUS` caption at `(301,385)`. Controlled traces established two independent reasons those populated layers were invisible: ownerless scene links retained the compositor's inactive bit, and their 8-bit blank resources had no palette or rectangle callback on the high-color display path. Save/load explicitly activates both owned layers; the caption uses the active game palette, while the preview now installs the selected `COMMENT.BMP` palette as described above. The temporary trace and generated log are removed. The exact preview rectangle is also a Load zone and displays the normal CDF-backed pointer cursor on hover. Previous/Next cycle the mtime-sorted manual `*.GSF` collection, newest is selected initially, and either Load target enters the existing `START.CFG` transition without revalidation. All controller, collection, rendering, script, and private-message behavior remains in `save_load`; `startup` only forwards integration and supplies neutral engine services. Focused tests cover ownerless activation and palette-driven 8-to-16 callback selection. Runtime confirmation of remaining controls/window/fullscreen behavior remains pending.
+
+- Replaced the procedural Save/Load overlay with the scripted enter/exit prototype. Under `FREEGAG_WINDOWS_FIXES && FREEGAG_IN_GAME_SAVE_LOAD`, script messages `2002`/`2003` and Win32 Load/Save menu commands now request `SAVELOAD.CFG::LOAD`/`SAVELOAD.CFG::SAVE` asynchronously through the existing pending-root transition. The fixes-owned virtual CFG lives in `save_load.cpp`; both sections display CDF-backed `HELP0000.BMP`, declare the ordinary `K_UKAZ.BMP`/`K_NONE.BMP` cursors, and place `HELPBACK.BMP` at `(297,414)` over a `100x60` Back zone whose event uses `/PEXIT:NOFADE`. The virtual-resource path formerly special-cased for `GAGBOY.CFG` now returns bytes, size, and resource type for recognized embedded scripts and classifies/loads them before filesystem or CDF probing. Archive comment enumeration remains in the neutral save/load module for later script features. `FREEGAG_IN_GAME_SAVE_LOAD=OFF` leaves the recovered native handlers unchanged. Both original disc CDFs contain byte-identical copies of all four visual/cursor assets. The x64 Debug build succeeds, all four CTest configurations pass, and formatting and whitespace checks pass. Interactive Save/Load/Back and window-close checks remain.
+
+- Scripted Save now uses the stock `/INPSTR` completion buffer directly. Runtime testing showed that adding `INPUT:NAME` to `/MESSAGE::2104` could prevent the controller callback when the field snapshot was unavailable; the script then continued through its close check without invoking persistence. The completion message is unconditional again, and its handler copies the retained 32-byte `RuntimeInputSessionRecord` after `/INPSTR` has completed normally. The same path preserves empty input for `saveN` fallback and typed input for case-insensitive overwrite/new archive creation. Beginning or initializing input explicitly clears `SL::CLOSE` to prevent stale close state from masking a failed/non-dispatched write. The focused test seeds the real runtime input-session record and proves `duplicate` reaches the writer. The x64 Debug build, all four CTest tests, and `check-format` pass; interactive creation of a new uniquely named archive remains the immediate runtime check. The workspace is not exposed as a Git worktree, so `git diff --check` is unavailable.
+
+- Fixed new-save thumbnail generation at the capture boundary. Ghidra confirms original `GetDisplayPaletteEntries` returns the base of a `LOGPALETTE`-compatible block whose four-byte version/count header precedes entry zero; original `CreateIndexedBitmap` therefore begins color reads at `palette + 4`. The portable host instead exposes a direct `PALETTEENTRY[256]`, so routing that pointer through the original helper shifted every color and read past entry 255. The fixes-owned `capture_game_bitmap` path now reads the live root scene's actual bits per pixel, channel masks, byte stride, dimensions, and framebuffer pointer, while consuming the modern palette from entry zero. Indexed scenes copy indices directly. RGB565, 24-bit, and 32-bit scenes decode masked channels and map each sampled color to the nearest active palette entry before emitting the required bottom-up 8-bit BMP; output rows use correct DWORD padding. A valid root scene is authoritative in fixes mode, so a transient absence of original runtime flag `0x800` no longer produces a null cached thumbnail. Fixes-off continues through the recovered original helper unchanged. Regressions cover nontrivial indexed and RGB565 source pitch, bottom-up half-resolution sampling, direct palette entry zero semantics, RGB565 channel mapping, production dispatch in both formats, and capture while the transient flag is clear. The production x64 Debug executable and all test targets build, all four CTest tests pass, `check-format` and whitespace checks pass. Interactive indexed/RGB565 Save thumbnail comparison remains.
+
+- Historical, superseded by the scripted prototype above: simplified the procedural in-engine Save/Load heading to `Preview:` for both modes. A top-level `WM_CLOSE` marked the active overlay complete before continuing through the existing application shutdown path, so the overlay's nested message loop unwound immediately instead of waiting for another dialog input.
+
+- Historical, superseded by the scripted prototype above: the fixes-only procedural Save/Load panel provided archive enumeration, preview decoding, text editing, rendering, and a nested modal controller in a dedicated overlay module. That renderer, controller, preview decoder, and their UI tests have now been removed; only the presentation-neutral archive entry collection was retained.
 
 - Completed a Ghidra-guided audit of raw structure offsets and adjacent-layout casts. Confirmed original accesses in `ParseRuntimeVisualObject`, fixed-name nodes, bitmap capture, and expanded-list resources are now represented by typed fields; fixed file layouts use packed BMP/FLI/FLC/font/palette/WAV/CDF views. Live geometry now uses typed `DisplayRectangle`, `DisplayRectangleTransform`, and `DisplaySceneDescriptor` values, including the generic-child descriptor cache. The audit found and fixed one additional concrete AMD64 defect: `WM_WINDOWPOSCHANGING` cast the native `WINDOWPOS` directly to the original seven-DWORD secondary layout, so the two widened `HWND` fields shifted every coordinate and flag. The handler now copies semantic fields into and out of `SecondaryWindowLayout`, with a regression proving both HWNDs survive while the layout fields update. Remaining production raw byte movement is confined to serialized RIFF scanning, trailing allocations, Win32/registry byte APIs, COM/callback ABI adapters, numeric handles, and the compile-time-asserted `RuntimeLockRecord`/`RuntimeResourceObject` common prefix. The Debug build, all 3 tests, and `check-format` pass; `git diff --check` remains unavailable because this workspace is not exposed as a Git worktree.
 
@@ -852,12 +1049,9 @@ Last updated: 2026-08-20
 
 ## Build preference
 
-- The user's active development configuration is Win32 Debug. Use Debug for
-  routine builds and verification; do not build Release unless explicitly
+- The user's active development configuration is x64 Debug. Do not select or
+  configure Win32 for routine builds. Build Release only when explicitly
   requested or investigating release-specific behavior.
-- Do not run x64 builds during the current XTET reverse-engineering phase. Keep
-  new source architecture-neutral, but verify only Win32 Debug unless the user
-  explicitly requests another architecture or a later portability milestone.
 - The compatibility loader window uses a fixed-size overlapped style with a
   caption, system menu, and minimize button, but no sizing frame or maximize
   button. Its 640-by-480 client area is not user-resizable.

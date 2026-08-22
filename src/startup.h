@@ -5,7 +5,6 @@
 #include <mmsystem.h>
 #include <stddef.h>
 #include <stdint.h>
-
 namespace gag
 {
 
@@ -617,8 +616,13 @@ struct OpenStateApi
 
 // GAG.EXE: 0x0041D1C0
 void open_application_state_interactive(ApplicationState *state, void *dialog_context);
+void finish_application_state_load(ApplicationState *state, const char *path);
 
 void set_open_state_api_for_testing(const OpenStateApi &api);
+
+#if defined(GAG_TESTING)
+bool uses_scripted_save_load_screens_for_testing();
+#endif
 
 struct SynchronizedStateApi
 {
@@ -2575,6 +2579,7 @@ struct ArchiveCommentDialogLaunchApi
 // GAG.EXE: 0x004182A0
 uint32_t enumerate_archive_comments(ArchiveCommentDialogState *state, HWND listbox);
 void set_archive_comment_enumeration_api_for_testing(const ArchiveCommentEnumerationApi &api);
+const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api();
 
 // GAG.EXE: 0x00418560
 INT_PTR CALLBACK archive_comment_dialog_procedure(HWND dialog, UINT message, WPARAM wparam, LPARAM lparam);
@@ -2772,7 +2777,6 @@ struct ScriptRuntimeRoot
     RuntimeTreeSceneLink *global_scene_link_tail;
     ScriptTextBuffer *serialized_script;
 };
-
 
 // GAG.EXE: 0x004050B0
 RuntimeGenericResourceNode *find_runtime_generic_resource(void *identity);
@@ -4336,6 +4340,19 @@ struct BitmapCaptureSource
 };
 #pragma pack(pop)
 
+struct DisplayBitmapCaptureSource
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    uint32_t bits_per_pixel;
+    uint32_t red_mask;
+    uint32_t green_mask;
+    uint32_t blue_mask;
+    const uint8_t *pixels;
+    const PALETTEENTRY *palette_entries;
+};
+
 
 struct BitmapCaptureApi
 {
@@ -4345,6 +4362,7 @@ struct BitmapCaptureApi
 
 // GAG.EXE: 0x00417790
 void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution);
+void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution);
 
 // GAG.EXE: 0x0041F8B0
 void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution);
@@ -4353,6 +4371,9 @@ void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const 
 void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
 
 void set_bitmap_capture_api_for_testing(const BitmapCaptureApi &api);
+#if defined(GAG_TESTING)
+void set_runtime_display_scene_for_bitmap_capture_testing(DisplaySceneNode *scene);
+#endif
 
 struct RuntimeQueueApi
 {
@@ -5100,6 +5121,9 @@ uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t
 
 // GAG.EXE: 0x0041B280
 uint32_t begin_display_scene_update(intptr_t identifier);
+
+// Non-original compatibility service for ownerless script-declared layers.
+bool activate_display_scene_node(intptr_t identifier);
 
 // GAG.EXE: 0x0041B360
 uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
