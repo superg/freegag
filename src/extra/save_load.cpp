@@ -5,8 +5,17 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include "application.h"
 #include "cdf_archive.h"
-#include "startup.h"
+#include "display_host.h"
+#include "display_scene.h"
+#include "media.h"
+#include "resource.h"
+#include "runtime.h"
+#include "runtime_model.h"
+#include "runtime_tree.h"
+#include "script.h"
+#include "text.h"
 
 namespace gag
 {

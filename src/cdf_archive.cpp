@@ -2,7 +2,8 @@
 #include <cstring>
 #include <limits>
 #include <zlib.h>
-#include "startup.h"
+#include "media.h"
+#include "resource.h"
 
 namespace gag
 {
