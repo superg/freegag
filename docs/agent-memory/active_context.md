@@ -1,6 +1,6 @@
 # Active context
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 ## Current build target
 
@@ -102,6 +102,39 @@ Last updated: 2026-08-21
   `3E5191BACA8D043E2AE10271313621A3FA5F9B43B5D01F5501E9DF91523813A6`.
 
 ## GAG main executable reconstruction
+
+- Confirmed that mapping Left/Right arrows to scripted Save/Load Previous/Next
+  cannot be implemented entirely in the recovered CFG language. The event grammar
+  exposes state, probability, command, zone, source/destination, image/rectangle,
+  and mouse-button-release (`/KEYUP`) conditions, but no keyboard or virtual-key
+  condition. Ghidra-confirmed original `RuntimeGameWindowProcedure`
+  (`0x004231E0`) queues `WM_CHAR` bytes for `/INPSTR` and mouse messages for the
+  script interaction system, while ordinary `WM_KEYDOWN` falls through to
+  `DefWindowProcA`; arrow keys do not produce `WM_CHAR`. A future implementation
+  therefore needs a small fixes-owned host mapping while `SAVELOAD.CFG` is active,
+  dispatching Left/Right to existing messages 2100/2101. No source change was
+  made for this investigation.
+
+- Fixed the reported first-save/main-menu Load lock, which was non-original stale
+  menu state. The original `DIALOG.CFG` initializes and
+  resets `MM::LOAD_DIS` through message 1002, and its `e_RELOAD` path polls
+  message 3030 before preloading `MENU_RESET`. Ghidra-confirmed original
+  `GagMainWindowProcedure` (`0x0041D560`) handles native Save completion under
+  private command `0x60000000` by setting application flag `0x40000`; message
+  3030 returns that flag and clears it. `MENU_RESET` then sends message 3010,
+  whose already-in-menu branch synchronizes saved flag `0x100000` from the live
+  flags, and message 1002 consequently enables Load after the first successful
+  save. The scripted Save implementation correctly cleared live flag `0x100000`
+  in `save_current_state`, but its direct/nested return bypassed the original
+  native completion path and never set `0x40000`, leaving the existing
+  `MM::LOAD_DIS` object stale. Successful scripted persistence now clears live
+  no-save flag `0x100000` and sets reload flag `0x40000` atomically, restoring
+  the original parent-menu notification; failed writes do neither. Focused
+  coverage includes ordinary successful persistence and the exact zero-save to
+  first-save transition. Both startup test targets build, `check-format` passes,
+  and all four CTest tests pass. After the running game was closed, the complete
+  x64 Debug build, including `build/src/Debug/gag.exe`, linked successfully;
+  `git diff --check` also passes. Interactive confirmation remains pending.
 
 - Implemented the scripted Save screen by sharing the established Load scene and
   leaving the recovered `/INPSTR` editor completely unchanged. Load uses active

@@ -10778,7 +10778,7 @@ void test_save_load_screen_selection()
     require(gag::handle_scripted_save_load_message(2102, &state));
     require(scripted_save_write_count == 1 && std::strcmp(scripted_save_written_path, "D:\\GAG004.GSF") == 0);
     require(std::strcmp(scripted_save_written_name, "LegacyNameLongerThan15") == 0 && scripted_save_written_bitmap == scripted_save_bitmap);
-    require(scripted_save_written_state == 0x123456789abcdef0 && (state.flags & 0x100000) == 0);
+    require(scripted_save_written_state == 0x123456789abcdef0 && (state.flags & 0x100000) == 0 && (state.flags & 0x40000) != 0);
 
     state.flags |= 0x100000;
     require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
@@ -10853,8 +10853,14 @@ void test_save_load_screen_selection()
     reset_archive_comment_test();
     archive_comment_pattern = "D:\\*.GSF";
     archive_comment_file_count = 0;
+    scripted_save_write_result = true;
+    state.flags = 0x100000;
+    const uint32_t writes_before_first_save = scripted_save_write_count;
     require(gag::request_scripted_save_load_screen(gag::SaveLoadScreenMode::save, &state));
     require(gag::get_scripted_save_load_entry_count_for_testing() == 0 && gag::get_scripted_save_load_current_name_for_testing()[0] == '\0');
+    gag::finish_scripted_save_name_for_testing("First", &state);
+    require(scripted_save_write_count == writes_before_first_save + 1 && std::strcmp(scripted_save_written_path, "D:\\GAG000.GSF") == 0);
+    require((state.flags & 0x100000) == 0 && (state.flags & 0x40000) != 0);
 
     constexpr uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD);
     std::vector<uint8_t> bitmap(pixel_offset + 320 * 240);

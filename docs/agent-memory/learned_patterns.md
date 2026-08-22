@@ -2444,3 +2444,21 @@ do not replace prior entries without correcting a demonstrated error.
 # 2026-08-21 - Match static text to stock INPSTR at the font-renderer boundary
 
 - `/INPSTR` echo parameters four and five are direct foreground and frame palette indices, and its acquired text scene draws at local origin `(0,0)`. A static label intended to transition seamlessly into that editor should initialize the same font state with the same two indices and draw at the same origin; independent RGB remapping or centering produces a visible state change. Derive requested color indices from the authoritative active background palette rather than assuming VGA palette positions.
+# 2026-08-22 - Preserve the original main-menu reload notification boundary
+
+- Main-menu availability is a cached script-object state, not a live filesystem
+  predicate. In the original flow, successful native Save completion sets
+  application flag `0x40000`; `DIALOG.CFG` message 3030 consumes that flag and
+  preloads `MENU_RESET`, whose message 3010 synchronizes the saved availability
+  flags before messages 1001-1007 repopulate the `MM::*_DIS` fields. Any
+  replacement nested dialog that changes menu availability must preserve this
+  reload notification boundary.
+
+# 2026-08-22 - Distinguish script text input from keyboard event binding
+
+- The recovered CFG event grammar has no virtual-key condition. Its `/KEYUP`
+  token means mouse-button release, not keyboard key-up. The runtime window
+  procedure queues `WM_CHAR` bytes for `/INPSTR` and mouse messages for scripted
+  interactions, but does not turn `WM_KEYDOWN` into script events. Non-character
+  controls such as arrow keys therefore require a host/DLL input mapping even
+  when the resulting action is an existing script message.

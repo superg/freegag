@@ -730,7 +730,7 @@ bool save_current_state(ApplicationState *state, const char *requested_name)
         render_caption();
         return false;
     }
-    state->flags &= 0xffefffff;
+    state->flags = (state->flags & 0xffefffff) | 0x40000;
     set_script_boolean("CLOSE", true);
     return true;
 }
