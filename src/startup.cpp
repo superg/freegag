@@ -1,5 +1,6 @@
 #include "startup.h"
 #include <SDL3/SDL.h>
+#include <cstdio>
 #include "runtime_internal.h"
 
 namespace gag
@@ -28,7 +29,7 @@ int run_startup(int argc, char *argv[])
     if((state->flags & 0x2000) != 0)
     {
         ShowCursor(TRUE);
-        MessageBoxA(nullptr, application_message(state, 16), state->message_table, MB_ICONERROR);
+        std::fprintf(stderr, "%s: %s\n", state->message_table, application_message(state, 16));
     }
 
     return static_cast<int>(message.wParam);

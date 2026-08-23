@@ -310,8 +310,7 @@ bool copy_preview_pixels(const DecodedPreview &preview, DisplaySceneNode *scene)
         uint32_t mapping[256];
         for(uint32_t index = 0; index < 256; ++index)
         {
-            mapping[index] = (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(preview.palette[index].rgbRed) << 16 | static_cast<uint32_t>(preview.palette[index].rgbGreen) << 8
-                           | preview.palette[index].rgbBlue;
+            mapping[index] = 0xff000000u | static_cast<uint32_t>(preview.palette[index].rgbRed) << 16 | static_cast<uint32_t>(preview.palette[index].rgbGreen) << 8 | preview.palette[index].rgbBlue;
         }
         auto *destination = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position));
         for(uint32_t y = 0; y < preview_height; ++y)

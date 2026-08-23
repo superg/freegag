@@ -71,16 +71,6 @@ uint32_t enable_borderless_fullscreen(ApplicationState *state);
 
 void set_runtime_paths_once(const char *first_path, const char *second_path);
 
-void save_game_screenshot(void *snapshot_context, void *game_context);
-
-void *create_indexed_bitmap(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution);
-
-void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution);
-
-void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const uint8_t *palette, uint32_t *size, int half_resolution);
-
-void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
-
 void *capture_save_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
 
 void clear_credits_runtime_flag();

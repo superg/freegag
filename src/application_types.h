@@ -1,7 +1,6 @@
 #pragma once
 
 #include <windows.h>
-#include <commdlg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -86,7 +85,6 @@ struct ApplicationState
 struct ValidationApi
 {
     HWND(WINAPI *find_window)(LPCSTR class_name, LPCSTR window_name);
-    int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
     HANDLE(WINAPI *find_first_file)(LPCSTR path, LPWIN32_FIND_DATAA find_data);
     BOOL(WINAPI *find_close)(HANDLE find);
     uint32_t (*load_preferences)(ApplicationState *state);
@@ -101,7 +99,6 @@ struct WindowClassApi
     HICON(WINAPI *load_icon)(HINSTANCE instance, LPCSTR name);
     HCURSOR(WINAPI *load_cursor)(HINSTANCE instance, LPCSTR name);
     ATOM(WINAPI *register_class_ex)(const WNDCLASSEXA *window_class);
-    int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
     WNDPROC primary_window_procedure;
     WNDPROC capture_window_procedure;
 };
@@ -270,10 +267,6 @@ struct MainWindowProcedureApi
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     BOOL(WINAPI *destroy_window)(HWND window);
-    uintptr_t (*get_script_state)();
-    ScriptObjectState *(*resolve_state_field)(const char *object_name, const char *field_name, const void *value, int value_type);
-    void *(*capture_bitmap)(void *game_context, uint32_t *size, int half_resolution);
-    void (*free_memory)(void *memory);
     void (*set_application_lock)(ApplicationState *state);
     void (*clear_runtime_active)(ApplicationState *state);
     int (*validate_startup)(ApplicationState *state, const char *requested_archive, uint32_t stages);

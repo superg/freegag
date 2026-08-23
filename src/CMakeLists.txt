@@ -54,7 +54,7 @@ target_link_libraries(freegag PRIVATE
   xtet
   SDL3::SDL3-static
   ZLIB::ZLIBSTATIC
-  user32 gdi32 comdlg32
+  user32 gdi32
 )
 
 add_subdirectory("xtet")

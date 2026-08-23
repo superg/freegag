@@ -12,29 +12,6 @@ struct RuntimePathApi
 
 
 
-struct ScreenshotApi
-{
-    BOOL(WINAPI *get_save_file_name)(LPOPENFILENAMEA file_name);
-    void *(*capture_bitmap)(void *snapshot_context, uint32_t *size, int mode);
-    HANDLE(WINAPI *create_file)(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD creation, DWORD attributes, HANDLE template_file);
-    BOOL(WINAPI *write_file)(HANDLE file, LPCVOID buffer, DWORD size, LPDWORD written, LPOVERLAPPED overlapped);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
-};
-
-
-
-#pragma pack(push, 1)
-struct BitmapCaptureSource
-{
-    uint8_t unknown_0000[8];
-    uint32_t format_marker;
-    uint8_t unknown_000c[0x14];
-    uint16_t width;
-    uint16_t height;
-    const uint8_t *pixels;
-};
-#pragma pack(pop)
-
 struct DisplayBitmapCaptureSource
 {
     uint32_t width;

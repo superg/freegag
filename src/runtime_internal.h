@@ -615,7 +615,6 @@ inline AsyncFileLockApi async_file_lock_api{ EnterCriticalSection, LeaveCritical
 inline AsyncFileOpenApi async_file_open_api{ CreateFileA, GetProcessHeap, HeapAlloc, HeapFree, CloseHandle, VirtualAlloc, VirtualFree, GetFileSize };
 inline AsyncFileHostApi async_file_host_api{ GetProcessHeap, HeapAlloc, HeapFree, GetDiskFreeSpaceA, InitializeCriticalSection, DeleteCriticalSection, VirtualAlloc, CreateThread, WaitForSingleObject,
     ReadFile, SetFilePointer, runtime_milliseconds };
-inline ScreenshotApi screenshot_api{ GetSaveFileNameA, capture_game_bitmap, CreateFileA, WriteFile, CloseHandle };
 inline BitmapCaptureApi bitmap_capture_api{ GetProcessHeap, HeapAlloc };
 
 bool strings_equal(const char *left, const char *right);
@@ -629,18 +628,13 @@ inline uint32_t load_preferences_for_validation(ApplicationState *state)
     return load_local_preferences(state);
 }
 
-inline ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, load_preferences_for_validation, enable_borderless_fullscreen };
-inline WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, MessageBoxA, gag_main_window_procedure, gag_capture_window_procedure };
+inline ValidationApi validation_api{ FindWindowA, FindFirstFileA, FindClose, load_preferences_for_validation, enable_borderless_fullscreen };
+inline WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, gag_main_window_procedure, gag_capture_window_procedure };
 
 inline WindowProcedureApi window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem,
     SetMenu, DestroyWindow, DefWindowProcA, SendMessageA, set_game_cursor_active };
-inline uintptr_t get_serialized_script_state_value()
-{
-    return reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
-}
-inline MainWindowProcedureApi main_window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, PostQuitMessage, SendMessageA, DefWindowProcA, DestroyWindow,
-    get_serialized_script_state_value, resolve_state_field_reference, capture_game_bitmap, free_heap_memory, set_application_lock_flag, clear_runtime_active_flag, validate_startup_environment,
-    set_runtime_flag_40 };
+inline MainWindowProcedureApi main_window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, PostQuitMessage, SendMessageA, DefWindowProcA, DestroyWindow, set_application_lock_flag,
+    clear_runtime_active_flag, validate_startup_environment, set_runtime_flag_40 };
 inline LocalPreferencesApi local_preferences_api{ GetFullPathNameA, GetPrivateProfileStringA, WritePrivateProfileStringA, GetWindowRect, GetWindowPlacement, MonitorFromRect };
 
 inline void enter_runtime_byte_queue_lock()
