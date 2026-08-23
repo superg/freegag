@@ -13,7 +13,6 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
 
 void configure_runtime_resource_palette(RuntimeResourceObject *resource);
 
-void build_runtime_palette_index_remap(RuntimeMediaBackend *backend);
 
 uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend);
 

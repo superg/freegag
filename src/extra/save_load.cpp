@@ -153,7 +153,7 @@ struct ScriptedSaveLoadController
 
 void *capture_save_state(void *game_context, uint32_t *size, int mode)
 {
-    return capture_game_bitmap(game_context, size, mode);
+    return capture_save_game_bitmap(game_context, size, mode);
 }
 
 uintptr_t get_save_script_state()
@@ -245,17 +245,6 @@ void prepare_caption_layer(RuntimeTreeSceneLink *link)
     activate_scripted_layer(link);
 }
 
-uint16_t pack_16_bit_channel(uint8_t value, uint32_t mask)
-{
-    if(mask == 0)
-    {
-        return 0;
-    }
-    const uint32_t shift = std::countr_zero(mask);
-    const uint32_t maximum = mask >> shift;
-    return static_cast<uint16_t>(((static_cast<uint32_t>(value) * maximum + 127) / 255) << shift);
-}
-
 struct DecodedPreview
 {
     const RGBQUAD *palette;
@@ -316,20 +305,19 @@ bool copy_preview_pixels(const DecodedPreview &preview, DisplaySceneNode *scene)
         }
         return true;
     }
-    if(destination_bits == 16)
+    if(destination_bits == 32)
     {
-        uint16_t mapping[256];
+        uint32_t mapping[256];
         for(uint32_t index = 0; index < 256; ++index)
         {
-            mapping[index] = pack_16_bit_channel(preview.palette[index].rgbRed, scene->rectangle_callback_format.red_mask)
-                           | pack_16_bit_channel(preview.palette[index].rgbGreen, scene->rectangle_callback_format.green_mask)
-                           | pack_16_bit_channel(preview.palette[index].rgbBlue, scene->rectangle_callback_format.blue_mask);
+            mapping[index] = (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(preview.palette[index].rgbRed) << 16 | static_cast<uint32_t>(preview.palette[index].rgbGreen) << 8
+                           | preview.palette[index].rgbBlue;
         }
         auto *destination = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position));
         for(uint32_t y = 0; y < preview_height; ++y)
         {
             const uint8_t *source = preview.pixels + (preview_height - y - 1) * preview_width;
-            auto *row = reinterpret_cast<uint16_t *>(destination + y * scene->sync_secondary_position);
+            auto *row = reinterpret_cast<uint32_t *>(destination + y * scene->sync_secondary_position);
             for(uint32_t x = 0; x < preview_width; ++x)
             {
                 row[x] = mapping[source[x]];

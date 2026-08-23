@@ -81,6 +81,8 @@ void *capture_bitmap_if_runtime_active(const BitmapCaptureSource *source, const 
 
 void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
 
+void *capture_save_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
+
 void clear_credits_runtime_flag();
 
 void clear_runtime_display();

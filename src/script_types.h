@@ -4,6 +4,12 @@
 
 namespace gag
 {
+enum class RuntimeResourceSceneRole : uint32_t
+{
+    indexed_source,
+    xrgb_composition,
+};
+
 struct ScriptTextBuffer
 {
     uint32_t length;
@@ -424,7 +430,7 @@ struct RuntimeResourceObject
     uint32_t frames_remaining;
     int32_t previous_x;
     int32_t previous_y;
-    uint8_t unknown_0060[4];
+    RuntimeResourceSceneRole scene_role;
     void *fixed_resource_identity;
     void *secondary_resource_identity;
     uint8_t unknown_006c[8];

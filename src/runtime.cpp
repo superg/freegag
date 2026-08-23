@@ -507,7 +507,7 @@ void initialize_runtime_input_session(void *first, void *second, void *selector,
             DisplaySceneDescriptor descriptor;
             runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(runtime_input_session_api.acquire_scene(runtime_display_context.input_scene_index,
                 static_cast<int32_t>(reinterpret_cast<uintptr_t>(first)), static_cast<int32_t>(reinterpret_cast<uintptr_t>(second)), runtime_display_context.input_text_state.bounds[2],
-                runtime_display_context.input_text_state.bounds[3], 0x20000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, &locked_scene->rectangle_callback_format));
+                runtime_display_context.input_text_state.bounds[3], 0x20000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, &default_display_pixel_format));
             if(runtime_input_session_api.begin_update(runtime_display_context.input_scene_identifier) == 0)
             {
                 runtime_input_session_api.draw_text(&runtime_display_context.input_text_state, &descriptor);
@@ -1382,7 +1382,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                     {
                         rectangle.right += rectangle.left;
                         rectangle.bottom += rectangle.top;
-                        blit_bitmap_with_optional_palette_remap(destination, destination_x, destination_y, source, &rectangle, 0x06000000);
+                        blit_display_scene(destination, destination_x, destination_y, source, &rectangle, 0x06000000);
                     }
                 }
             }

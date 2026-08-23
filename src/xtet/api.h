@@ -17,7 +17,7 @@ constexpr size_t kCallbackCount = 35;
 struct GameHostContext
 {
     HWND window;
-    uint32_t bits_per_pixel{ 8 };
+    uint32_t bits_per_pixel{ 32 };
     uint32_t unknown10{};
     uint16_t width{ 640 };
     uint16_t height{ 480 };

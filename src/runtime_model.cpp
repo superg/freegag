@@ -1099,7 +1099,7 @@ RuntimeGenericBackendChild *attach_runtime_generic_backend_child(void *resource_
             {
                 DisplaySceneDescriptor descriptor;
                 DisplaySceneNode *scene = runtime_generic_child_attachment_api.acquire_scene(static_cast<uint32_t>(context[1]), 10000, 10000, 0x10, 0x10, 0, reinterpret_cast<intptr_t>(owner_identity),
-                    &descriptor, &locked_scene->rectangle_callback_format);
+                    &descriptor, &default_display_pixel_format);
                 if(scene == nullptr)
                 {
                     runtime_generic_child_attachment_api.destroy_child(child);

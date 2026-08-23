@@ -504,7 +504,7 @@ inline RuntimeMediaBackendShutdownApi runtime_media_backend_shutdown_api{ acquir
 inline RuntimeBitmapBackendCreateApi runtime_bitmap_backend_create_api{ HeapAlloc, WaitForSingleObject, ReleaseMutex };
 inline RuntimeAnimationBackendCreateApi runtime_animation_backend_create_api{ get_async_file_position, read_async_file_record, HeapAlloc, set_async_file_position, WaitForSingleObject, ReleaseMutex };
 inline RuntimeMediaBackendConfigureApi runtime_media_backend_configure_api{ WaitForSingleObject, ReleaseMutex };
-inline RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ WaitForSingleObject, ReleaseMutex, CreateThread, CloseHandle };
+inline RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ WaitForSingleObject, ReleaseMutex, HeapAlloc, CreateThread, CloseHandle };
 inline RuntimeResourcePaletteConfigureApi runtime_resource_palette_configure_api{ set_display_scene_primary_owner, configure_display_scene_palette };
 inline RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface };
 inline RuntimeAnimationFailureApi runtime_animation_failure_api{ PostMessageA };
@@ -591,9 +591,8 @@ inline uint32_t &runtime_state_1000_count = runtime_display_context.nested_runti
 inline uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
 inline FramebufferInvalidateApi framebuffer_invalidate_api{ acquire_display_lock, dispatch_display_scene_update, release_display_lock };
 inline ClearRuntimeDisplayApi clear_runtime_display_api{ acquire_display_lock, set_display_clip_rectangle, operate_display_surface, release_display_lock, update_display_root_region };
-inline GraphicsHostApi graphics_host_api{ initialize_runtime_media_backend, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate, LoadCursorA, RegisterClassA,
-    CreateWindowExA, GetCursorPos, ScreenToClient, initialize_sdl_presenter, set_script_runtime_root_if_valid, get_or_create_runtime_named_node, set_runtime_named_node_enabled,
-    InitializeCriticalSection, ShowWindow };
+inline GraphicsHostApi graphics_host_api{ initialize_runtime_media_backend, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate, RegisterClassA, CreateWindowExA,
+    GetCursorPos, ScreenToClient, initialize_sdl_presenter, set_script_runtime_root_if_valid, get_or_create_runtime_named_node, set_runtime_named_node_enabled, InitializeCriticalSection, ShowWindow };
 inline GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
     shutdown_sdl_presenter, DeleteCriticalSection, HeapDestroy, DestroyWindow };
 inline void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name)
@@ -765,7 +764,8 @@ inline DisplaySceneMemoryApi display_scene_memory_api{ GetProcessHeap, HeapAlloc
 inline DisplaySceneHostApi display_scene_host_api{ InitializeCriticalSection, DeleteCriticalSection, CreateEventA, CloseHandle, CreateThread, WaitForSingleObject };
 inline DisplaySceneWorkerApi display_scene_worker_api{ runtime_milliseconds, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
     release_display_lock };
-inline const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
+inline const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0, nullptr, nullptr };
+inline const DisplayPixelFormatDescriptor indexed_source_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
 inline WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA, GetWindowRect, MonitorFromWindow, GetMonitorInfoA,
     InvalidateRect };
 

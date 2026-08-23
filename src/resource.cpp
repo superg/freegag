@@ -6,7 +6,7 @@ namespace gag
 {
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags)
 {
-    RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y };
+    RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y, RuntimeResourceSceneRole::xrgb_composition };
     if((flags & 0x40) == 0)
     {
         if((flags & 1) != 0)
@@ -47,7 +47,16 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t s
         plan.x = 10000;
         plan.y = 10000;
     }
+    if((plan.flags & 1) == 0 && ((plan.scene_flags & 0x40) != 0 || (plan.flags & 0x606) != 0))
+    {
+        plan.scene_role = RuntimeResourceSceneRole::indexed_source;
+    }
     return plan;
+}
+
+const DisplayPixelFormatDescriptor *select_runtime_resource_scene_format(RuntimeResourceSceneRole role)
+{
+    return role == RuntimeResourceSceneRole::xrgb_composition ? &default_display_pixel_format : &indexed_source_pixel_format;
 }
 
 void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t scale_or_loop, uint32_t flags)
@@ -108,8 +117,10 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     resource->requested_height = height;
                     resource->output_width = source_width;
                     resource->output_height = source_height;
+                    resource->scene_role = plan.scene_role;
+                    const DisplayPixelFormatDescriptor *scene_format = select_runtime_resource_scene_format(plan.scene_role);
                     resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, source_width, source_height, scene_flags,
-                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, nullptr));
+                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, scene_format));
                     if(resource->scene_identifier != 0)
                     {
                         resource->callback_position = resource->scene_descriptor.pixels;
@@ -275,8 +286,10 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     resource->requested_height = height;
                     resource->output_width = output_width;
                     resource->output_height = output_height;
+                    resource->scene_role = plan.scene_role;
+                    const DisplayPixelFormatDescriptor *scene_format = select_runtime_resource_scene_format(plan.scene_role);
                     resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
-                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, nullptr));
+                        reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, scene_format));
                     if(resource->scene_identifier != 0)
                     {
                         resource->callback_position = resource->scene_descriptor.pixels;
@@ -840,6 +853,26 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
     auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
     int32_t bitmap_width = format->biWidth;
     int32_t source_stride = (bitmap_width + 3) & ~3;
+    if(backend->destination_bits_per_pixel == 32)
+    {
+        const auto *file_header = static_cast<const BITMAPFILEHEADER *>(backend->source_data);
+        const uint8_t *source_pixels = static_cast<const uint8_t *>(backend->source_data) + file_header->bfOffBits;
+        auto *destination_pixels = reinterpret_cast<uint32_t *>(backend->destination_pixels);
+        const int32_t bitmap_height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
+        for(int32_t y = rectangle->top; y < rectangle->bottom; ++y)
+        {
+            const int32_t source_y = format->biHeight < 0 ? y : bitmap_height - y - 1;
+            const uint8_t *source_row = source_pixels + static_cast<size_t>(source_y) * source_stride;
+            uint32_t *destination_row = destination_pixels + static_cast<size_t>(backend->destination_y + y) * backend->destination_stride + backend->destination_x;
+            for(int32_t x = rectangle->left; x < rectangle->right; ++x)
+            {
+                const uint8_t index = source_row[x];
+                const PALETTEENTRY color = backend->palette_entries[index];
+                destination_row[x] = (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
+            }
+        }
+        return;
+    }
     int32_t copy_width = rectangle->right - rectangle->left;
     int32_t copy_height = rectangle->bottom - rectangle->top;
     int32_t source_skip = bitmap_width - source_stride + bitmap_width - copy_width;
@@ -854,31 +887,13 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
         destination += destination_stride * (copy_height - 1);
         destination_skip = -(destination_stride + copy_width);
     }
-    if((backend->media_flags & 0x04000000) == 0)
+    do
     {
-        do
-        {
-            int32_t remaining = copy_width;
-            do
-            {
-                *destination++ = backend->palette_remap[*source++];
-                --remaining;
-            } while(remaining != 0);
-            source += source_skip;
-            destination += destination_skip;
-            --copy_height;
-        } while(copy_height != 0);
-    }
-    else
-    {
-        do
-        {
-            std::memcpy(destination, source, copy_width);
-            source += copy_width + source_skip;
-            destination += copy_width + destination_skip;
-            --copy_height;
-        } while(copy_height != 0);
-    }
+        std::memcpy(destination, source, copy_width);
+        source += copy_width + source_skip;
+        destination += copy_width + destination_skip;
+        --copy_height;
+    } while(copy_height != 0);
 }
 
 uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)

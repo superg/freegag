@@ -25,9 +25,9 @@ struct PresenterState
     DWORD main_thread_id{};
     int32_t width{};
     int32_t height{};
-    std::vector<uint16_t> root_pixels;
-    std::vector<uint16_t> front_pixels;
-    std::array<std::vector<uint16_t>, presentation_queue_capacity> snapshot_buffers;
+    std::vector<uint32_t> root_pixels;
+    std::vector<uint32_t> front_pixels;
+    std::array<std::vector<uint32_t>, presentation_queue_capacity> snapshot_buffers;
     std::deque<size_t> available_snapshots;
     std::deque<size_t> queued_snapshots;
     std::mutex mutex;
@@ -61,7 +61,7 @@ void update_front_buffer(const DisplayRectangle &requested, uint32_t mode)
         }
         else if(mode == 2)
         {
-            std::fill_n(presenter.front_pixels.data() + offset, count, uint16_t{});
+            std::fill_n(presenter.front_pixels.data() + offset, count, uint32_t{});
         }
     }
 }
@@ -81,7 +81,7 @@ bool create_presenter_texture()
     return presenter.texture != nullptr;
 }
 
-bool upload_and_present(const std::vector<uint16_t> &snapshot)
+bool upload_and_present(const std::vector<uint32_t> &snapshot)
 {
     const auto attempt = [&]()
     {
@@ -93,16 +93,8 @@ bool upload_and_present(const std::vector<uint16_t> &snapshot)
         }
         for(int32_t y = 0; y < presenter.height; ++y)
         {
-            auto *destination = reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(texture_pixels) + static_cast<size_t>(y) * pitch);
-            const uint16_t *source = snapshot.data() + static_cast<size_t>(y) * presenter.width;
-            for(int32_t x = 0; x < presenter.width; ++x)
-            {
-                const uint16_t pixel = source[x];
-                const uint32_t red = (pixel >> 11) & 0x1f;
-                const uint32_t green = (pixel >> 5) & 0x3f;
-                const uint32_t blue = pixel & 0x1f;
-                destination[x] = 0xff000000u | ((red << 3 | red >> 2) << 16) | ((green << 2 | green >> 4) << 8) | (blue << 3 | blue >> 2);
-            }
+            std::memcpy(static_cast<uint8_t *>(texture_pixels) + static_cast<size_t>(y) * pitch, snapshot.data() + static_cast<size_t>(y) * presenter.width,
+                static_cast<size_t>(presenter.width) * sizeof(uint32_t));
         }
         SDL_UnlockTexture(presenter.texture);
         return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
@@ -128,7 +120,7 @@ void fail_runtime_presentation()
     PostMessageA(root != nullptr ? root : presenter.native_window, WM_CLOSE, 0, 0);
 }
 
-void present_snapshot(const std::vector<uint16_t> &snapshot)
+void present_snapshot(const std::vector<uint32_t> &snapshot)
 {
     if(!snapshot.empty() && !upload_and_present(snapshot))
     {
@@ -164,7 +156,7 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
         while(present_next_queued_snapshot())
         {
         }
-        std::vector<uint16_t> snapshot;
+        std::vector<uint32_t> snapshot;
         {
             std::lock_guard lock(presenter.mutex);
             if(presenter.shutting_down)
@@ -216,9 +208,9 @@ GraphicsHostInitializationResult *initialize_runtime_graphics()
     runtime_game_host_context.window = graphics_host_state.capture_window;
 
     auto *descriptor = &runtime_display_context.display_pixel_format;
-    *descriptor = { 0, 16, 0xf800, 0x07e0, 0x001f, 0x10000, nullptr, nullptr };
-    runtime_game_host_context.bits_per_pixel = 16;
-    graphics_host_state.bits_per_pixel = 16;
+    *descriptor = { 0, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0, nullptr, nullptr };
+    runtime_game_host_context.bits_per_pixel = 32;
+    graphics_host_state.bits_per_pixel = 32;
 
     runtime_display_host = runtime_bootstrap_api.initialize_scene_host(reinterpret_cast<intptr_t>(surface), descriptor, runtime_game_host_context.width, runtime_game_host_context.height,
         reinterpret_cast<int (*)(void *, void *, uint32_t)>(&update_runtime_target), &runtime_game_host_context, 0x0f);
@@ -287,6 +279,7 @@ uint32_t initialize_sdl_presenter(HWND window, uint32_t)
         display_palette_flags = 0;
         return 1;
     }
+    SDL_HideCursor();
 
     SDL_PropertiesID properties = SDL_CreateProperties();
     if(properties != 0)
@@ -378,7 +371,7 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
     } while(busy != 0);
 
     *pixels = presenter.root_pixels.data();
-    *pitch = static_cast<uint32_t>(presenter.width * sizeof(uint16_t));
+    *pitch = static_cast<uint32_t>(presenter.width * sizeof(uint32_t));
     *rectangle = { 0, 0, presenter.width, presenter.height };
     if(!presenter.root_pixels.empty())
     {
@@ -414,7 +407,7 @@ void *create_display_surface(int32_t width, int32_t height)
     }
     display_palette_width = width;
     display_palette_height = height;
-    display_palette_bits_per_pixel = 16;
+    display_palette_bits_per_pixel = 32;
     display_palette_pixels = presenter.root_pixels.data();
     if(!create_presenter_texture())
     {
@@ -479,7 +472,7 @@ void repaint_sdl_presenter()
     while(present_next_queued_snapshot())
     {
     }
-    std::vector<uint16_t> snapshot;
+    std::vector<uint32_t> snapshot;
     {
         std::lock_guard lock(presenter.mutex);
         snapshot = presenter.front_pixels;

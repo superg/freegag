@@ -9,9 +9,22 @@ namespace xtet
 namespace
 {
 
-bool framebuffer_valid(IndexedFramebuffer framebuffer)
+bool framebuffer_valid(XrgbFramebuffer framebuffer)
 {
     return framebuffer.pixels && framebuffer.width != 0 && framebuffer.height != 0 && framebuffer.stride >= framebuffer.width;
+}
+
+uint32_t xrgb_pixel(uint8_t index, const std::array<PaletteColor, 256> &palette)
+{
+    const PaletteColor color = palette[index];
+    return (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.red) << 16 | static_cast<uint32_t>(color.green) << 8 | color.blue;
+}
+
+uint32_t rli_pixel(uint8_t index, const RliFrameRecord &frame, XrgbFramebuffer destination)
+{
+    if(frame.palette_defined[index] != 0)
+        return xrgb_pixel(index, frame.palette);
+    return destination.palette != nullptr ? xrgb_pixel(index, *destination.palette) : 0;
 }
 
 bool find_gameplay_origin(const SceneDescription &scene, int32_t &x, int32_t &y)
@@ -35,7 +48,7 @@ bool find_gameplay_viewport(const SceneDescription &scene, const std::map<std::s
     return viewport.width != 0 && viewport.height != 0;
 }
 
-bool blit_transparent_clipped(const IndexedBitmap &source, IndexedFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y, const FigurineRenderRegion &clip)
+bool blit_transparent_clipped(const IndexedBitmap &source, XrgbFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y, const FigurineRenderRegion &clip)
 {
     if(!framebuffer_valid(destination) || source.width == 0 || source.height == 0 || source.pixels.size() != (size_t)source.width * source.height)
         return false;
@@ -57,13 +70,13 @@ bool blit_transparent_clipped(const IndexedBitmap &source, IndexedFramebuffer de
                 source_x = source.width - source_x - 1;
             const uint8_t pixel = source.pixels[source_y * source.width + source_x];
             if(pixel != 0)
-                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = pixel;
+                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = xrgb_pixel(pixel, source.palette);
         }
     }
     return true;
 }
 
-bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer, int32_t parent_x, int32_t parent_y)
+bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer, int32_t parent_x, int32_t parent_y)
 {
     if(node.type == SceneNodeType::empty || node.type == SceneNodeType::bitmap || node.type == SceneNodeType::wave)
         return true;
@@ -95,7 +108,7 @@ bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitma
 
 } // namespace
 
-bool blit_opaque(const IndexedBitmap &source, IndexedFramebuffer destination, int32_t x, int32_t y)
+bool blit_opaque(const IndexedBitmap &source, XrgbFramebuffer destination, int32_t x, int32_t y)
 {
     if(!framebuffer_valid(destination) || source.width == 0 || source.height == 0 || source.pixels.size() != (size_t)source.width * source.height)
         return false;
@@ -107,19 +120,22 @@ bool blit_opaque(const IndexedBitmap &source, IndexedFramebuffer destination, in
     const int64_t clipped_bottom = std::min<int64_t>(destination.height, bottom);
     if(clipped_left >= clipped_right || clipped_top >= clipped_bottom)
         return true;
-    const size_t copy_width = (size_t)(clipped_right - clipped_left);
     const size_t source_x = (size_t)(clipped_left - x);
     for(int64_t destination_y = clipped_top; destination_y < clipped_bottom; ++destination_y)
     {
         const size_t source_y = (size_t)(destination_y - y);
         const uint8_t *source_row = source.pixels.data() + source_y * source.width + source_x;
-        uint8_t *destination_row = destination.pixels + (size_t)destination_y * destination.stride + (size_t)clipped_left;
-        std::copy_n(source_row, copy_width, destination_row);
+        uint32_t *destination_row = destination.pixels + (size_t)destination_y * destination.stride + (size_t)clipped_left;
+        for(int64_t destination_x = clipped_left; destination_x < clipped_right; ++destination_x)
+        {
+            const uint8_t index = source_row[destination_x - clipped_left];
+            destination_row[destination_x - clipped_left] = xrgb_pixel(index, source.palette);
+        }
     }
     return true;
 }
 
-bool blit_transparent(const IndexedBitmap &source, IndexedFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y)
+bool blit_transparent(const IndexedBitmap &source, XrgbFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y)
 {
     if(!framebuffer_valid(destination) || source.width == 0 || source.height == 0 || source.pixels.size() != (size_t)source.width * source.height)
         return false;
@@ -143,13 +159,13 @@ bool blit_transparent(const IndexedBitmap &source, IndexedFramebuffer destinatio
                 source_x = source.width - source_x - 1;
             const uint8_t pixel = source.pixels[source_y * source.width + source_x];
             if(pixel != 0)
-                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = pixel;
+                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = xrgb_pixel(pixel, source.palette);
         }
     }
     return true;
 }
 
-bool blit_rli_frame(const RliFrameRecord &frame, IndexedFramebuffer destination, int32_t x, int32_t y)
+bool blit_rli_frame(const RliFrameRecord &frame, XrgbFramebuffer destination, int32_t x, int32_t y)
 {
     if(!framebuffer_valid(destination) || frame.right < frame.left || frame.bottom < frame.top)
         return false;
@@ -169,13 +185,13 @@ bool blit_rli_frame(const RliFrameRecord &frame, IndexedFramebuffer destination,
             const int64_t destination_x = origin_x + source_x;
             const size_t source_index = (size_t)source_y * width + source_x;
             if(destination_x >= 0 && destination_x < destination.width && frame.coverage[source_index] != 0)
-                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = frame.pixels[source_index];
+                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = rli_pixel(frame.pixels[source_index], frame, destination);
         }
     }
     return true;
 }
 
-bool blit_rli_frame_canvas(const RliFrameRecord &frame, uint32_t canvas_width, uint32_t canvas_height, IndexedFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y)
+bool blit_rli_frame_canvas(const RliFrameRecord &frame, uint32_t canvas_width, uint32_t canvas_height, XrgbFramebuffer destination, int32_t x, int32_t y, bool flip_x, bool flip_y)
 {
     const int32_t frame_width = frame.right - frame.left + 1;
     const int32_t frame_height = frame.bottom - frame.top + 1;
@@ -197,12 +213,12 @@ bool blit_rli_frame_canvas(const RliFrameRecord &frame, uint32_t canvas_width, u
             const int32_t destination_x = x + canvas_x;
             const int32_t destination_y = y + canvas_y;
             if(destination_x >= 0 && destination_y >= 0 && destination_x < (int32_t)destination.width && destination_y < (int32_t)destination.height)
-                destination.pixels[(size_t)destination_y * destination.stride + destination_x] = frame.pixels[source_index];
+                destination.pixels[(size_t)destination_y * destination.stride + destination_x] = rli_pixel(frame.pixels[source_index], frame, destination);
         }
     return true;
 }
 
-bool render_score(uint32_t score, const IndexedBitmap &digit_atlas, IndexedFramebuffer destination)
+bool render_score(uint32_t score, const IndexedBitmap &digit_atlas, XrgbFramebuffer destination)
 {
     if(!framebuffer_valid(destination) || digit_atlas.width < 4 || digit_atlas.height < 10 || digit_atlas.pixels.size() != (size_t)digit_atlas.width * digit_atlas.height)
         return false;
@@ -226,7 +242,10 @@ bool render_score(uint32_t score, const IndexedBitmap &digit_atlas, IndexedFrame
             {
                 const int64_t x = (int64_t)destination_x + column;
                 if(x >= 0 && x < destination.width)
-                    destination.pixels[(size_t)y * destination.stride + (size_t)x] = digit_atlas.pixels[(size_t)(digit * glyph_height + row) * digit_atlas.width + column];
+                {
+                    const uint8_t pixel = digit_atlas.pixels[(size_t)(digit * glyph_height + row) * digit_atlas.width + column];
+                    destination.pixels[(size_t)y * destination.stride + (size_t)x] = xrgb_pixel(pixel, digit_atlas.palette);
+                }
             }
         }
         divisor /= 10;
@@ -234,9 +253,9 @@ bool render_score(uint32_t score, const IndexedBitmap &digit_atlas, IndexedFrame
     return true;
 }
 
-bool render_initial_scene(const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer)
+bool render_initial_scene(const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer)
 {
-    if(!framebuffer_valid(framebuffer))
+    if(!framebuffer_valid(framebuffer) || framebuffer.palette == nullptr)
         return false;
     const std::vector<const SceneNode *> homes = find_scene_links(scene, "home_scr");
     return homes.size() == 1 && render_node(*homes[0], bitmaps, framebuffer, 0, 0);
@@ -271,7 +290,7 @@ int hit_test_sprite_collection(const SceneNode &collection, const std::map<std::
     return -1;
 }
 
-bool render_figurine_sprite(const FigurineSpriteSelection &selection, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer,
+bool render_figurine_sprite(const FigurineSpriteSelection &selection, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer,
     FigurineRenderRegion &region)
 {
     if(!framebuffer_valid(framebuffer))
@@ -333,16 +352,16 @@ bool collect_figurine_board_regions(const FallingFigurine &figurine, uint32_t fr
     return true;
 }
 
-bool fill_figurine_board_regions(const FallingFigurine &figurine, IndexedFramebuffer framebuffer, uint8_t fill_index, int32_t origin_x, int32_t origin_y)
+bool fill_figurine_board_regions(const FallingFigurine &figurine, XrgbFramebuffer framebuffer, uint8_t fill_index, int32_t origin_x, int32_t origin_y)
 {
-    if(!framebuffer_valid(framebuffer))
+    if(!framebuffer_valid(framebuffer) || framebuffer.palette == nullptr)
         return false;
     std::vector<FigurineRenderRegion> regions;
     if(!collect_figurine_board_regions(figurine, framebuffer.width, framebuffer.height, regions, origin_x, origin_y))
         return false;
     for(const FigurineRenderRegion &region : regions)
         for(uint32_t row = 0; row < region.height; ++row)
-            std::fill_n(framebuffer.pixels + (size_t)(region.y + row) * framebuffer.stride + region.x, region.width, fill_index);
+            std::fill_n(framebuffer.pixels + (size_t)(region.y + row) * framebuffer.stride + region.x, region.width, xrgb_pixel(fill_index, *framebuffer.palette));
     return true;
 }
 
@@ -360,7 +379,7 @@ FigurineBoardChangeCallback make_figurine_board_change_callback(uint32_t framebu
     };
 }
 
-FigurineBoardChangeCallback make_figurine_framebuffer_change_callback(IndexedFramebuffer framebuffer, const std::function<void(const FigurineRenderRegion &, bool)> &region_callback)
+FigurineBoardChangeCallback make_figurine_framebuffer_change_callback(XrgbFramebuffer framebuffer, const std::function<void(const FigurineRenderRegion &, bool)> &region_callback)
 {
     if(!framebuffer_valid(framebuffer) || !region_callback)
         return {};
@@ -374,7 +393,7 @@ FigurineBoardChangeCallback make_figurine_framebuffer_change_callback(IndexedFra
     };
 }
 
-bool render_figurine_board_change(const FallingFigurine &figurine, bool adding, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer,
+bool render_figurine_board_change(const FallingFigurine &figurine, bool adding, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer,
     const std::function<void(const FigurineRenderRegion &, bool)> &board_region_callback, const std::function<void(const FigurineRenderRegion &)> &sprite_region_callback)
 {
     int32_t origin_x = 0;
@@ -397,7 +416,7 @@ bool render_figurine_board_change(const FallingFigurine &figurine, bool adding, 
     return true;
 }
 
-FigurineBoardChangeCallback make_figurine_presentation_callback(const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, IndexedFramebuffer framebuffer,
+FigurineBoardChangeCallback make_figurine_presentation_callback(const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer,
     const std::function<void(const FigurineRenderRegion &, bool)> &board_region_callback, const std::function<void(const FigurineRenderRegion &)> &sprite_region_callback)
 {
     if(!framebuffer_valid(framebuffer) || !board_region_callback || !sprite_region_callback)
@@ -406,7 +425,7 @@ FigurineBoardChangeCallback make_figurine_presentation_callback(const SceneDescr
     { render_figurine_board_change(figurine, adding, scene, bitmaps, framebuffer, board_region_callback, sprite_region_callback); };
 }
 
-bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vector<RliAnimation> &animations, IndexedFramebuffer framebuffer,
+bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vector<RliAnimation> &animations, XrgbFramebuffer framebuffer,
     const std::function<void(const FigurineRenderRegion &)> &dirty_callback, int32_t origin_x, int32_t origin_y)
 {
     if(!framebuffer_valid(framebuffer) || framebuffer.stride < framebuffer.width || !dirty_callback)
@@ -429,9 +448,9 @@ bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vect
                 return &animation;
         return nullptr;
     };
-    std::vector<uint8_t> background((size_t)framebuffer.width * framebuffer.height);
+    std::vector<uint32_t> background((size_t)framebuffer.width * framebuffer.height);
     for(uint32_t row = 0; row < framebuffer.height; ++row)
-        std::memcpy(background.data() + (size_t)row * framebuffer.width, framebuffer.pixels + (size_t)row * framebuffer.stride, framebuffer.width);
+        std::memcpy(background.data() + (size_t)row * framebuffer.width, framebuffer.pixels + (size_t)row * framebuffer.stride, static_cast<size_t>(framebuffer.width) * sizeof(uint32_t));
     std::vector<Layer> layers;
     const int64_t plan_left = std::max<int64_t>(0, std::min<int64_t>((int64_t)plan.man.x + origin_x, (int64_t)plan.woman.x + origin_x));
     const int64_t plan_top = std::max<int64_t>(0, std::min<int64_t>((int64_t)plan.man.y + origin_y, (int64_t)plan.woman.y + origin_y));
@@ -447,7 +466,7 @@ bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vect
             layers.push_back({ participant.temporary_slots[index], animation, &animation->frame_records[participant.first_frame + index], &participant });
             std::sort(layers.begin(), layers.end(), [](const Layer &first, const Layer &second) { return first.slot < second.slot; });
             for(uint32_t row = 0; row < framebuffer.height; ++row)
-                std::memcpy(framebuffer.pixels + (size_t)row * framebuffer.stride, background.data() + (size_t)row * framebuffer.width, framebuffer.width);
+                std::memcpy(framebuffer.pixels + (size_t)row * framebuffer.stride, background.data() + (size_t)row * framebuffer.width, static_cast<size_t>(framebuffer.width) * sizeof(uint32_t));
             for(const Layer &layer : layers)
                 if(!blit_rli_frame_canvas(*layer.frame, (uint32_t)layer.animation->width, (uint32_t)layer.animation->height, framebuffer, layer.participant->x + origin_x,
                        layer.participant->y + origin_y, layer.participant->mirror_horizontal, layer.participant->mirror_vertical))
@@ -459,8 +478,8 @@ bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vect
     return reveal_participant(plan.man) && reveal_participant(plan.woman);
 }
 
-bool render_match_blink_sequence(const FallingFigurine &first, const FallingFigurine &second, const ActionDefinition &action, const std::vector<RliAnimation> &animations,
-    IndexedFramebuffer framebuffer, const std::function<void(const FigurineRenderRegion &)> &dirty_callback, const std::function<void(uint32_t)> &delay_callback, int32_t origin_x, int32_t origin_y)
+bool render_match_blink_sequence(const FallingFigurine &first, const FallingFigurine &second, const ActionDefinition &action, const std::vector<RliAnimation> &animations, XrgbFramebuffer framebuffer,
+    const std::function<void(const FigurineRenderRegion &)> &dirty_callback, const std::function<void(uint32_t)> &delay_callback, int32_t origin_x, int32_t origin_y)
 {
     if(!framebuffer_valid(framebuffer) || !dirty_callback || !delay_callback)
         return false;
@@ -468,13 +487,13 @@ bool render_match_blink_sequence(const FallingFigurine &first, const FallingFigu
     MatchAnimationPlan expanded_plan;
     if(!build_match_animation_plan(first, second, action, false, normal_plan) || !build_match_animation_plan(first, second, action, true, expanded_plan))
         return false;
-    std::vector<uint8_t> background((size_t)framebuffer.width * framebuffer.height);
+    std::vector<uint32_t> background((size_t)framebuffer.width * framebuffer.height);
     for(uint32_t row = 0; row < framebuffer.height; ++row)
-        std::memcpy(background.data() + (size_t)row * framebuffer.width, framebuffer.pixels + (size_t)row * framebuffer.stride, framebuffer.width);
+        std::memcpy(background.data() + (size_t)row * framebuffer.width, framebuffer.pixels + (size_t)row * framebuffer.stride, static_cast<size_t>(framebuffer.width) * sizeof(uint32_t));
     const auto restore_background = [&]()
     {
         for(uint32_t row = 0; row < framebuffer.height; ++row)
-            std::memcpy(framebuffer.pixels + (size_t)row * framebuffer.stride, background.data() + (size_t)row * framebuffer.width, framebuffer.width);
+            std::memcpy(framebuffer.pixels + (size_t)row * framebuffer.stride, background.data() + (size_t)row * framebuffer.width, static_cast<size_t>(framebuffer.width) * sizeof(uint32_t));
     };
     const auto render_plan = [&](const MatchAnimationPlan &plan)
     {

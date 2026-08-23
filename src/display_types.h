@@ -331,6 +331,12 @@ struct DisplayTraversalState;
 struct DisplaySyncRequest;
 struct DisplaySceneNode;
 
+enum class DisplaySceneStorage : uint32_t
+{
+    xrgb_composition,
+    indexed_source,
+};
+
 using DisplayRootRectangleCallback = void (*)(DisplaySceneNode *root, DisplayRectangle *rectangle, int value);
 using DisplayNodeRectangleCallback = void (*)(DisplaySceneNode *root, int unused_register, int zero, DisplaySceneNode *node, DisplayRectangle *rectangle, void *node_state, uint32_t mode);
 
@@ -390,6 +396,7 @@ struct DisplaySceneNode
     DisplayPixelFormatDescriptor rectangle_callback_format;
     uint32_t palette_source[256];
     uint32_t palette_mapping[256];
+    DisplaySceneStorage storage;
 };
 
 

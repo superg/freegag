@@ -46,6 +46,8 @@ struct DisplaySceneDescriptor
     uint16_t present;
     uint16_t reserved;
     intptr_t pixels;
+    uint32_t bits_per_pixel;
+    uint32_t stride;
 };
 
 struct ApplicationState
@@ -122,7 +124,6 @@ struct GraphicsHostApi
     uint32_t (*initialize_async)();
     uint32_t (*initialize_generic)();
     HANDLE(WINAPI *heap_create)(DWORD options, SIZE_T initial_size, SIZE_T maximum_size);
-    HCURSOR(WINAPI *load_cursor)(HINSTANCE instance, LPCSTR name);
     ATOM(WINAPI *register_class)(const WNDCLASSA *window_class);
     HWND(WINAPI *create_window_ex)
     (DWORD extended_style, LPCSTR class_name, LPCSTR window_name, DWORD style, int x, int y, int width, int height, HWND parent, HMENU menu, HINSTANCE instance, LPVOID parameter);

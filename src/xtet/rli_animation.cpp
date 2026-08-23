@@ -109,6 +109,8 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
     }
     animation.resident_bytes.assign(bytes.begin(), bytes.begin() + declared_size);
     animation.frame_records.resize(record_count);
+    std::array<PaletteColor, 256> current_palette{};
+    std::array<uint8_t, 256> current_palette_defined{};
     for(size_t index = 0; index < record_count; ++index)
     {
         const size_t record_offset = rli_frame_records_offset + index * rli_frame_record_size;
@@ -143,8 +145,17 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
             const size_t palette_size = (size_t)record.palette_count * 4;
             if(palette_size > data_end - data_offset)
                 return false;
+            for(int32_t palette_index = 0; palette_index < record.palette_count; ++palette_index)
+            {
+                const size_t source_offset = data_offset + static_cast<size_t>(palette_index) * 4;
+                const size_t destination_index = static_cast<size_t>(record.palette_start + palette_index);
+                current_palette[destination_index] = { bytes[source_offset], bytes[source_offset + 1], bytes[source_offset + 2], bytes[source_offset + 3] };
+                current_palette_defined[destination_index] = 1;
+            }
             data_offset += palette_size;
         }
+        record.palette = current_palette;
+        record.palette_defined = current_palette_defined;
         const uint32_t width = (uint32_t)(record.right - record.left + 1);
         const uint32_t height = (uint32_t)(record.bottom - record.top + 1);
         if((record.flags & 1) != 0)

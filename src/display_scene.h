@@ -49,7 +49,7 @@ bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool r
 
 intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *descriptor, DisplayPixelFormatDescriptor *callback_format);
 
-uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags);
+uint32_t blit_display_scene(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags);
 
 uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t y_delta);
 
@@ -66,6 +66,8 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
 void fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value);
 
 void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value);
+
+void fill_display_scene_rectangle_32(DisplaySceneNode *node, DisplayRectangle *rectangle, int value);
 
 void composite_transparent_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode);
@@ -84,9 +86,22 @@ void composite_transparent_indexed_to_16(DisplaySceneNode *destination, int32_t 
 void composite_opaque_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode);
 
+void composite_transparent_indexed_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode);
+
+void composite_opaque_indexed_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode);
+
+void composite_transparent_32_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode);
+
+void composite_opaque_32_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode);
+
 uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner);
 
 void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state);
+
+void build_indexed_to_32_palette(DisplayPixelFormatDescriptor *source_state);
 
 void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state);
 

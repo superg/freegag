@@ -7,7 +7,6 @@ namespace gag
 {
 struct DisplayTraversalState;
 
-
 struct RuntimeResourceConstructionPlan
 {
     uint32_t flags;
@@ -15,6 +14,7 @@ struct RuntimeResourceConstructionPlan
     uint32_t scene_flags;
     int32_t x;
     int32_t y;
+    RuntimeResourceSceneRole scene_role;
 };
 
 struct RuntimeResourceConstructionPlanApi

@@ -94,7 +94,7 @@ void stop_gameplay()
     g_game.initialized = false;
 }
 
-xtet::FigurineBoardChangeCallback make_presentation_callback(xtet::IndexedFramebuffer framebuffer);
+xtet::FigurineBoardChangeCallback make_presentation_callback(xtet::XrgbFramebuffer framebuffer);
 
 void post_game_result(uint32_t score)
 {
@@ -107,11 +107,13 @@ void post_game_termination()
     PostMessageA(g_game.window, xtet::kGameMessage, 0, 0);
 }
 
-bool get_framebuffer(xtet::IndexedFramebuffer &framebuffer)
+bool get_framebuffer(xtet::XrgbFramebuffer &framebuffer)
 {
     if(!g_game.host_context || !g_game.host_context->framebuffer || g_game.host_context->width == 0 || g_game.host_context->height == 0)
         return false;
-    framebuffer = { (uint8_t *)g_game.host_context->framebuffer, g_game.host_context->width, g_game.host_context->height, g_game.host_context->width };
+    const auto palette_source = g_game.bitmaps.find("f01.bmp");
+    const auto *palette = palette_source != g_game.bitmaps.end() ? &palette_source->second.palette : g_game.bitmaps.empty() ? nullptr : &g_game.bitmaps.begin()->second.palette;
+    framebuffer = { static_cast<uint32_t *>(g_game.host_context->framebuffer), g_game.host_context->width, g_game.host_context->height, g_game.host_context->width, palette };
     return true;
 }
 
@@ -125,7 +127,7 @@ void present_dirty_region(const xtet::FigurineRenderRegion &region)
 
 bool present_result_screen(const char *path)
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     const auto bitmap = g_game.bitmaps.find(path);
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(!get_framebuffer(framebuffer) || bitmap == g_game.bitmaps.end() || homes.size() != 1 || homes[0]->children.size() < 2 || !homes[0]->children[1].position
@@ -154,7 +156,7 @@ bool present_level_face(uint32_t level, bool excited)
 
 bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first, const xtet::FallingFigurine *excluded_second)
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer) || !xtet::render_initial_scene(g_game.scene, g_game.bitmaps, framebuffer))
         return false;
     const xtet::GameProgress &progress = g_game.gameplay_runtime.progress();
@@ -183,7 +185,7 @@ bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first, const xt
     return true;
 }
 
-xtet::FigurineBoardChangeCallback make_presentation_callback(xtet::IndexedFramebuffer framebuffer)
+xtet::FigurineBoardChangeCallback make_presentation_callback(xtet::XrgbFramebuffer framebuffer)
 {
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(homes.size() != 1 || homes[0]->children.size() < 2 || !homes[0]->children[1].position)
@@ -244,7 +246,7 @@ void present_score(const xtet::GameProgress &progress, const xtet::ProgressUpdat
         if(g_game.audio_enabled)
             g_game.audio.queueRandom("win", (uint32_t)std::rand());
     }
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     const auto digits = g_game.bitmaps.find("digit.bmp");
     if(!get_framebuffer(framebuffer) || digits == g_game.bitmaps.end() || !xtet::render_score(progress.score, digits->second, framebuffer))
         return;
@@ -259,7 +261,7 @@ void present_score(const xtet::GameProgress &progress, const xtet::ProgressUpdat
 
 bool present_match_effect(const xtet::FallingFigurine &first, const xtet::FallingFigurine &second, const xtet::ActionDefinition &action)
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer) || !g_game.callbacks[0] || (g_game.audio_enabled && !g_game.audio.queueRandom("act", (uint32_t)std::rand())))
         return false;
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
@@ -337,7 +339,7 @@ bool initialize_audio()
 
 void handle_gameplay_key(uint32_t key)
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer))
         return;
     const xtet::FigurineBoardChangeCallback presentation_callback = make_presentation_callback(framebuffer);
@@ -352,7 +354,7 @@ void run_game_tick()
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     if(!g_game.initialized)
         return;
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer))
         throw std::runtime_error("XTET framebuffer unavailable");
     const uint32_t current_time = current_time_milliseconds();
@@ -435,7 +437,7 @@ bool load_declared_assets()
 
 bool render_initial_frame()
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     if(!get_framebuffer(framebuffer) || !g_game.callbacks[0])
         return false;
     if(!xtet::render_initial_scene(g_game.scene, g_game.bitmaps, framebuffer))
@@ -472,7 +474,7 @@ int find_pressed_button()
 
 bool present_control_overlay(size_t index, bool shown)
 {
-    xtet::IndexedFramebuffer framebuffer;
+    xtet::XrgbFramebuffer framebuffer;
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(!get_framebuffer(framebuffer) || homes.size() != 1 || homes[0]->children.size() != 3)
         return false;

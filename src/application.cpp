@@ -167,7 +167,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
         window_class.style = CS_OWNDC;
         window_class.lpfnWndProc = runtime_game_window_procedure;
         window_class.hInstance = instance;
-        window_class.hCursor = graphics_host_api.load_cursor(nullptr, IDC_ARROW);
         window_class.lpszClassName = "Graphical System Child";
         if(graphics_host_api.register_class(&window_class) != 0)
         {
@@ -1933,6 +1932,87 @@ uint8_t expand_masked_channel(uint32_t pixel, uint32_t mask)
     return static_cast<uint8_t>((value * 255 + mask / 2) / mask);
 }
 
+void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution)
+{
+    if(size != nullptr)
+    {
+        *size = 0;
+    }
+    if(source == nullptr || source->pixels == nullptr || source->width == 0 || source->height == 0)
+    {
+        return nullptr;
+    }
+    const uint32_t bytes_per_pixel = source->bits_per_pixel >> 3;
+    if((source->bits_per_pixel != 8 && source->bits_per_pixel != 16 && source->bits_per_pixel != 24 && source->bits_per_pixel != 32) || source->width > UINT32_MAX / bytes_per_pixel
+        || source->stride < source->width * bytes_per_pixel || (source->bits_per_pixel == 8 && source->palette_entries == nullptr)
+        || (source->bits_per_pixel != 8 && (source->red_mask == 0 || source->green_mask == 0 || source->blue_mask == 0)))
+    {
+        return nullptr;
+    }
+
+    const uint32_t sample_step = half_resolution == 0 ? 1 : 2;
+    const uint32_t width = source->width / sample_step;
+    const uint32_t height = source->height / sample_step;
+    if(width == 0 || height == 0 || width > UINT32_MAX / sizeof(uint32_t))
+    {
+        return nullptr;
+    }
+    const uint32_t destination_stride = width * sizeof(uint32_t);
+    constexpr uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+    if(height > (UINT32_MAX - pixel_offset) / destination_stride)
+    {
+        return nullptr;
+    }
+    const uint32_t bitmap_size = pixel_offset + destination_stride * height;
+    auto *bitmap = static_cast<uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
+    if(bitmap == nullptr)
+    {
+        return nullptr;
+    }
+
+    auto *file_header = reinterpret_cast<BITMAPFILEHEADER *>(bitmap);
+    file_header->bfType = 0x4d42;
+    file_header->bfSize = bitmap_size;
+    file_header->bfOffBits = pixel_offset;
+    auto *header = reinterpret_cast<BITMAPINFOHEADER *>(bitmap + sizeof(BITMAPFILEHEADER));
+    header->biSize = sizeof(BITMAPINFOHEADER);
+    header->biWidth = static_cast<LONG>(width);
+    header->biHeight = static_cast<LONG>(height);
+    header->biPlanes = 1;
+    header->biBitCount = 32;
+    header->biCompression = BI_RGB;
+    header->biSizeImage = destination_stride * height;
+    auto *pixels = reinterpret_cast<uint32_t *>(bitmap + pixel_offset);
+
+    for(uint32_t destination_y = 0; destination_y < height; ++destination_y)
+    {
+        const uint32_t source_y = source->height - 1 - destination_y * sample_step;
+        const uint8_t *source_row = source->pixels + static_cast<size_t>(source_y) * source->stride;
+        uint32_t *destination_row = pixels + static_cast<size_t>(destination_y) * width;
+        for(uint32_t destination_x = 0; destination_x < width; ++destination_x)
+        {
+            const uint8_t *source_pixel = source_row + static_cast<size_t>(destination_x * sample_step) * bytes_per_pixel;
+            if(source->bits_per_pixel == 8)
+            {
+                const PALETTEENTRY color = source->palette_entries[*source_pixel];
+                destination_row[destination_x] = static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
+                continue;
+            }
+            uint32_t pixel = 0;
+            std::memcpy(&pixel, source_pixel, bytes_per_pixel);
+            const uint8_t red = expand_masked_channel(pixel, source->red_mask);
+            const uint8_t green = expand_masked_channel(pixel, source->green_mask);
+            const uint8_t blue = expand_masked_channel(pixel, source->blue_mask);
+            destination_row[destination_x] = static_cast<uint32_t>(red) << 16 | static_cast<uint32_t>(green) << 8 | blue;
+        }
+    }
+    if(size != nullptr)
+    {
+        *size = bitmap_size;
+    }
+    return bitmap;
+}
+
 uint8_t find_nearest_palette_entry(uint8_t red, uint8_t green, uint8_t blue, const PALETTEENTRY *palette)
 {
     uint32_t best_distance = UINT32_MAX;
@@ -1956,7 +2036,7 @@ uint8_t find_nearest_palette_entry(uint8_t red, uint8_t green, uint8_t blue, con
     return best_index;
 }
 
-void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution)
+void *create_indexed_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *size, int half_resolution)
 {
     if(size != nullptr)
     {
@@ -1972,7 +2052,6 @@ void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *
     {
         return nullptr;
     }
-
     const uint32_t sample_step = half_resolution == 0 ? 1 : 2;
     const uint32_t width = source->width / sample_step;
     const uint32_t height = source->height / sample_step;
@@ -1992,7 +2071,6 @@ void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *
     {
         return nullptr;
     }
-
     auto *file_header = reinterpret_cast<BITMAPFILEHEADER *>(bitmap);
     file_header->bfType = 0x4d42;
     file_header->bfSize = bitmap_size;
@@ -2011,7 +2089,6 @@ void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *
     {
         indexed_bitmap->colors[index] = { source->palette_entries[index].peBlue, source->palette_entries[index].peGreen, source->palette_entries[index].peRed, 0 };
     }
-
     for(uint32_t destination_y = 0; destination_y < height; ++destination_y)
     {
         const uint32_t source_y = source->height - 1 - destination_y * sample_step;
@@ -2027,10 +2104,8 @@ void *create_display_bitmap(const DisplayBitmapCaptureSource *source, uint32_t *
             }
             uint32_t pixel = 0;
             std::memcpy(&pixel, source_pixel, bytes_per_pixel);
-            const uint8_t red = expand_masked_channel(pixel, source->red_mask);
-            const uint8_t green = expand_masked_channel(pixel, source->green_mask);
-            const uint8_t blue = expand_masked_channel(pixel, source->blue_mask);
-            destination_row[destination_x] = find_nearest_palette_entry(red, green, blue, source->palette_entries);
+            destination_row[destination_x] = find_nearest_palette_entry(expand_masked_channel(pixel, source->red_mask), expand_masked_channel(pixel, source->green_mask),
+                expand_masked_channel(pixel, source->blue_mask), source->palette_entries);
         }
     }
     if(size != nullptr)
@@ -2072,6 +2147,24 @@ void *capture_game_bitmap(void *game_context, uint32_t *size, int half_resolutio
     source.pixels = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position));
     source.palette_entries = display_palette_entries;
     return create_display_bitmap(&source, size, half_resolution);
+}
+
+void *capture_save_game_bitmap(void *game_context, uint32_t *size, int half_resolution)
+{
+    (void)game_context;
+    if(runtime_display_scene_identifier == 0)
+    {
+        return nullptr;
+    }
+    const auto *scene = reinterpret_cast<const DisplaySceneNode *>(static_cast<uintptr_t>(runtime_display_scene_identifier));
+    if(scene->width <= 0 || scene->height <= 0 || scene->sync_secondary_position <= 0)
+    {
+        return nullptr;
+    }
+    const DisplayBitmapCaptureSource source{ static_cast<uint32_t>(scene->width), static_cast<uint32_t>(scene->height), static_cast<uint32_t>(scene->sync_secondary_position),
+        scene->rectangle_callback_format.bits_per_pixel, scene->rectangle_callback_format.red_mask, scene->rectangle_callback_format.green_mask, scene->rectangle_callback_format.blue_mask,
+        reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(scene->callback_first_position)), display_palette_entries };
+    return create_indexed_display_bitmap(&source, size, half_resolution);
 }
 
 

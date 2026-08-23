@@ -22,13 +22,16 @@ struct RuntimeMediaBackend
     uint16_t palette_version;
     uint16_t palette_entry_count;
     PALETTEENTRY palette_entries[0x100];
-    uint8_t palette_remap[0x100];
     uint16_t destination_x;
     uint16_t destination_y;
     uint16_t destination_stride;
     uint16_t destination_reserved;
+    uint32_t destination_bits_per_pixel;
     uint32_t descriptor_2;
     uint8_t *destination_pixels;
+    uint8_t *indexed_pixels;
+    uint32_t indexed_stride;
+    uint32_t indexed_height;
     HWND window;
     uint32_t media_flags;
     uint32_t error_state;
@@ -177,6 +180,7 @@ struct RuntimeAnimationBackendConfigureApi
 {
     DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
     BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
     HANDLE(WINAPI *create_thread)(LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, LPTHREAD_START_ROUTINE start_address, LPVOID parameter, DWORD creation_flags, LPDWORD thread_id);
     BOOL(WINAPI *close_handle)(HANDLE handle);
 };

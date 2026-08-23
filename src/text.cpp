@@ -689,8 +689,13 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
     }
 
     const uint8_t *source = font->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
-    auto *destination_pixels = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->pixels));
-    uint8_t *output = destination_pixels + destination_width * y + x;
+    auto *destination_pixels = reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(destination->pixels));
+    uint32_t *output = destination_pixels + destination_width * y + x;
+    const auto palette_color = [](uint8_t index)
+    {
+        const PALETTEENTRY color = runtime_game_host_context.palette_entries[index];
+        return (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
+    };
     uint32_t maximum_width = 0;
     do
     {
@@ -703,7 +708,8 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
             const uint8_t pixel = *source;
             if(pixel != 0)
             {
-                *output = pixel < 0x10 ? static_cast<uint8_t>((pixel & high_mask) | high_value) : static_cast<uint8_t>((pixel & low_mask) | low_value);
+                const uint8_t output_index = pixel < 0x10 ? static_cast<uint8_t>((pixel & high_mask) | high_value) : static_cast<uint8_t>((pixel & low_mask) | low_value);
+                *output = palette_color(output_index);
                 row_width += transparent_run;
                 transparent_run = 0;
             }
@@ -1149,7 +1155,7 @@ void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             {
                 source_identifier = query_display_scene_by_index(static_cast<int32_t>(context[1]), nullptr, nullptr);
             }
-            blit_bitmap_with_optional_palette_remap(reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), static_cast<int32_t>(state.words[6]) - resource->x,
+            blit_display_scene(reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), static_cast<int32_t>(state.words[6]) - resource->x,
                 static_cast<int32_t>(state.words[7]) - resource->y, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(source_identifier)), &state.fields.rectangle, 0);
         }
     }
@@ -1228,7 +1234,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             destination_rectangle.top = static_cast<int32_t>(state.words[6]) - resource->y;
             destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
             destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
-            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            blit_display_scene(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
             descriptor.width = resource->scene_descriptor.width;
             descriptor.height = resource->scene_descriptor.height;
             descriptor.present = resource->scene_descriptor.present;
@@ -1261,7 +1267,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             destination_rectangle.top = static_cast<int32_t>(state.words[6]) - resource->y;
             destination_rectangle.right = destination_rectangle.left + state_rectangle->right;
             destination_rectangle.bottom = destination_rectangle.top + state_rectangle->bottom;
-            blit_bitmap_with_optional_palette_remap(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
+            blit_display_scene(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
             descriptor.width = resource->scene_descriptor.width;
             descriptor.height = resource->scene_descriptor.height;
             descriptor.present = resource->scene_descriptor.present;

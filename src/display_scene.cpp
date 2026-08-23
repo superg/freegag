@@ -612,26 +612,39 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
     }
     intptr_t result = 0;
     display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    DisplaySceneNode *selected = nullptr;
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(static_cast<int32_t>(node->scene_index) == index)
         {
-            result = node->identifier;
-            if(descriptor != nullptr)
+            if(selected == nullptr || node->storage == DisplaySceneStorage::xrgb_composition)
             {
-                descriptor->x = 0;
-                descriptor->y = 0;
-                descriptor->width = static_cast<int16_t>(node->width);
-                descriptor->height = static_cast<int16_t>(node->height);
-                descriptor->present = 1;
-                descriptor->reserved = 0;
-                descriptor->pixels = node->callback_first_position;
+                selected = node;
             }
-            if(callback_format != nullptr)
+            if(node->storage == DisplaySceneStorage::xrgb_composition)
             {
-                *callback_format = node->rectangle_callback_format;
+                break;
             }
-            break;
+        }
+    }
+    if(selected != nullptr)
+    {
+        result = selected->identifier;
+        if(descriptor != nullptr)
+        {
+            descriptor->x = 0;
+            descriptor->y = 0;
+            descriptor->width = static_cast<int16_t>(selected->width);
+            descriptor->height = static_cast<int16_t>(selected->height);
+            descriptor->present = 1;
+            descriptor->reserved = 0;
+            descriptor->pixels = selected->callback_first_position;
+            descriptor->bits_per_pixel = selected->rectangle_callback_format.bits_per_pixel;
+            descriptor->stride = static_cast<uint32_t>(selected->sync_secondary_position) / (selected->rectangle_callback_format.bits_per_pixel >> 3);
+        }
+        if(callback_format != nullptr)
+        {
+            *callback_format = selected->rectangle_callback_format;
         }
     }
     display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
@@ -649,8 +662,12 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
     return result;
 }
 
-uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags)
+uint32_t blit_display_scene(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags)
 {
+    if(destination == nullptr || source == nullptr || destination->storage != DisplaySceneStorage::xrgb_composition)
+    {
+        return 0x80000000;
+    }
     uint32_t result = begin_display_scene_update(reinterpret_cast<intptr_t>(source));
     if(result == 0)
     {
@@ -658,68 +675,34 @@ uint32_t blit_bitmap_with_optional_palette_remap(DisplaySceneNode *destination, 
         if(result == 0)
         {
             DisplayRectangleTransform transform{};
-            uint32_t temporary_palette[256];
             transform.width = static_cast<uint16_t>(destination->width);
             transform.height = static_cast<uint16_t>(destination->height);
 
-            if(destination->rectangle_callback_format.bits_per_pixel == 8 && source->rectangle_callback_format.bits_per_pixel == 8)
+            if(source->storage == DisplaySceneStorage::indexed_source && source->rectangle_callback_format.palette_source != nullptr)
             {
-                if((flags & 0x04000000) == 0 && destination->rectangle_callback_format.palette_source != nullptr && source->rectangle_callback_format.palette_source != nullptr)
+                if(source->rectangle_callback_format.palette_entries == nullptr)
                 {
-                    DisplayPixelFormatDescriptor temporary_source_state;
-                    DisplayPixelFormatDescriptor *source_state;
-                    if(destination == display_scene_root)
-                    {
-                        source_state = &source->rectangle_callback_format;
-                    }
-                    else
-                    {
-                        temporary_source_state = source->rectangle_callback_format;
-                        temporary_source_state.palette_entries = temporary_palette;
-                        build_indexed_to_indexed_palette(&temporary_source_state, &destination->rectangle_callback_format);
-                        source_state = &temporary_source_state;
-                    }
-                    if((flags & 0x02000000) == 0)
-                    {
-                        composite_opaque_indexed_to_8(destination, destination_x, destination_y, source, rectangle, source_state, 0);
-                    }
-                    else
-                    {
-                        composite_transparent_indexed_to_8(destination, destination_x, destination_y, source, rectangle, source_state, 0);
-                    }
-                }
-                else if((flags & 0x02000000) == 0)
-                {
-                    composite_opaque_8_to_8(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
-                }
-                else
-                {
-                    composite_transparent_8_to_8(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
-                }
-            }
-            else if(destination->rectangle_callback_format.bits_per_pixel == 0x10 && source->rectangle_callback_format.bits_per_pixel == 8 && (flags & 0x04000000) == 0
-                    && source->rectangle_callback_format.palette_source != nullptr)
-            {
-                DisplayPixelFormatDescriptor temporary_source_state;
-                DisplayPixelFormatDescriptor *source_state;
-                if(destination == display_scene_root)
-                {
-                    source_state = &source->rectangle_callback_format;
-                }
-                else
-                {
-                    temporary_source_state = source->rectangle_callback_format;
-                    temporary_source_state.palette_entries = temporary_palette;
-                    build_indexed_to_16_palette(&temporary_source_state, &destination->rectangle_callback_format);
-                    source_state = &temporary_source_state;
+                    source->rectangle_callback_format.palette_entries = source->palette_mapping;
+                    build_indexed_to_32_palette(&source->rectangle_callback_format);
                 }
                 if((flags & 0x02000000) == 0)
                 {
-                    composite_opaque_indexed_to_16(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                    composite_opaque_indexed_to_32(destination, destination_x, destination_y, source, rectangle, &source->rectangle_callback_format, 0);
                 }
                 else
                 {
-                    composite_transparent_indexed_to_16(destination, destination_x, destination_y, source, rectangle, source_state, 0);
+                    composite_transparent_indexed_to_32(destination, destination_x, destination_y, source, rectangle, &source->rectangle_callback_format, 0);
+                }
+            }
+            else if(source->storage == DisplaySceneStorage::xrgb_composition)
+            {
+                if((flags & 0x02000000) == 0)
+                {
+                    composite_opaque_32_to_32(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
+                }
+                else
+                {
+                    composite_transparent_32_to_32(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
                 }
             }
             end_display_scene_update(reinterpret_cast<intptr_t>(destination), &transform, rectangle);
@@ -933,7 +916,8 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
                         }
                         if(buffer_position != nullptr)
                         {
-                            LPVOID buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<SIZE_T>(node->width) * static_cast<SIZE_T>(node->height));
+                            const SIZE_T pixel_bytes = static_cast<SIZE_T>(node->rectangle_callback_format.bits_per_pixel >> 3);
+                            LPVOID buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<SIZE_T>(node->width) * static_cast<SIZE_T>(node->height) * pixel_bytes);
                             *buffer_position = reinterpret_cast<intptr_t>(buffer);
                             if(buffer == nullptr)
                             {
@@ -1131,11 +1115,11 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
 
 // Pixel conversion selected by each compositor entry point.
 void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *source, void *source_state, const CompositeRegion &region, bool transparent, bool convert_palette,
-    bool destination_is_16_bit)
+    uint32_t destination_bits)
 {
     auto *source_row = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position + region.source_x;
     auto *destination_row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
-                          + region.destination_x * (destination_is_16_bit ? 2 : 1);
+                          + region.destination_x * (destination_bits >> 3);
     const uint32_t *palette = nullptr;
     if(convert_palette)
     {
@@ -1143,7 +1127,19 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
     }
     for(int32_t row_index = 0; row_index < region.height; ++row_index)
     {
-        if(destination_is_16_bit)
+        if(destination_bits == 32)
+        {
+            auto *destination_pixels = reinterpret_cast<uint32_t *>(destination_row);
+            for(int32_t column = 0; column < region.width; ++column)
+            {
+                const uint8_t source_pixel = source_row[column];
+                if(!transparent || source_pixel != 0)
+                {
+                    destination_pixels[column] = palette[source_pixel];
+                }
+            }
+        }
+        else if(destination_bits == 16)
         {
             auto *destination_pixels = reinterpret_cast<uint16_t *>(destination_row);
             for(int32_t column = 0; column < region.width; ++column)
@@ -1172,12 +1168,46 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
 }
 
 void composite_scene_pixels(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode,
-    bool transparent, bool convert_palette, bool destination_is_16_bit)
+    bool transparent, bool convert_palette, uint32_t destination_bits)
 {
     CompositeRegion region{};
     if(prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
     {
-        composite_indexed_pixels(destination, source, source_state, region, transparent, convert_palette, destination_is_16_bit);
+        composite_indexed_pixels(destination, source, source_state, region, transparent, convert_palette, destination_bits);
+    }
+}
+
+void composite_xrgb_pixels(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t mode, bool transparent)
+{
+    CompositeRegion region{};
+    if(!prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
+    {
+        return;
+    }
+    auto *source_row = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position
+                     + region.source_x * static_cast<int32_t>(sizeof(uint32_t));
+    auto *destination_row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
+                          + region.destination_x * static_cast<int32_t>(sizeof(uint32_t));
+    for(int32_t row_index = 0; row_index < region.height; ++row_index)
+    {
+        const auto *source_pixels = reinterpret_cast<const uint32_t *>(source_row);
+        auto *destination_pixels = reinterpret_cast<uint32_t *>(destination_row);
+        if(transparent)
+        {
+            for(int32_t column = 0; column < region.width; ++column)
+            {
+                if((source_pixels[column] & 0xff000000) != 0)
+                {
+                    destination_pixels[column] = source_pixels[column];
+                }
+            }
+        }
+        else
+        {
+            std::memcpy(destination_pixels, source_pixels, static_cast<size_t>(region.width) * sizeof(uint32_t));
+        }
+        source_row += source->sync_secondary_position;
+        destination_row += destination->sync_secondary_position;
     }
 }
 
@@ -1185,36 +1215,58 @@ void composite_scene_pixels(DisplaySceneNode *destination, int32_t destination_x
 
 void composite_transparent_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, false, false);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, false, 8);
 }
 
 void composite_opaque_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, false, false);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, false, 8);
 }
 
 void composite_transparent_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, false);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, 8);
 }
 
 void composite_opaque_indexed_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, false);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, 8);
 }
 
 void composite_transparent_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, true);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, 16);
 }
 
 void composite_opaque_indexed_to_16(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
     uint32_t mode)
 {
-    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, true);
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, 16);
+}
+
+void composite_transparent_indexed_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, true, true, 32);
+}
+
+void composite_opaque_indexed_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state,
+    uint32_t mode)
+{
+    composite_scene_pixels(destination, destination_x, destination_y, source, rectangle, source_state, mode, false, true, 32);
+}
+
+void composite_transparent_32_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *, uint32_t mode)
+{
+    composite_xrgb_pixels(destination, destination_x, destination_y, source, rectangle, mode, true);
+}
+
+void composite_opaque_32_to_32(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *, uint32_t mode)
+{
+    composite_xrgb_pixels(destination, destination_x, destination_y, source, rectangle, mode, false);
 }
 
 void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
@@ -1265,6 +1317,24 @@ void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, con
         uint8_t blue = rounded_component(static_cast<uint8_t>(color >> 16), blue_bits);
         destination_palette[index] = (static_cast<uint32_t>(red >> ((8u - red_bits) & 31)) << (red_shift & 31)) | (static_cast<uint32_t>(green >> ((8u - green_bits) & 31)) << (green_shift & 31))
                                    | (static_cast<uint32_t>(blue >> ((8u - blue_bits) & 31)) << (blue_shift & 31));
+    }
+}
+
+void build_indexed_to_32_palette(DisplayPixelFormatDescriptor *source_state)
+{
+    if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || source_state->palette_entries == nullptr)
+    {
+        return;
+    }
+    const uint32_t *source_palette = source_state->palette_source;
+    auto *destination_palette = const_cast<uint32_t *>(source_state->palette_entries);
+    for(uint32_t index = 0; index < source_state->palette_count; ++index)
+    {
+        const uint32_t color = source_palette[index];
+        const uint32_t red = color & 0xff;
+        const uint32_t green = color >> 8 & 0xff;
+        const uint32_t blue = color >> 16 & 0xff;
+        destination_palette[index] = (index == 0 ? 0 : 0xff000000) | red << 16 | green << 8 | blue;
     }
 }
 
@@ -1391,6 +1461,11 @@ bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *pal
                     build_indexed_to_16_palette(node_state, &display_scene_root->rectangle_callback_format);
                     node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
                 }
+                else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 32)
+                {
+                    build_indexed_to_32_palette(node_state);
+                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
+                }
             }
         }
         end_display_scene_update(reinterpret_cast<intptr_t>(node), nullptr, nullptr);
@@ -1425,6 +1500,10 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
         else if(source_bits == 0x10)
         {
             node->root_rectangle_callback = fill_display_scene_rectangle_16;
+        }
+        else if(source_bits == 32)
+        {
+            node->root_rectangle_callback = fill_display_scene_rectangle_32;
         }
         return;
     }
@@ -1485,6 +1564,28 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
             node->root_rectangle_callback = fill_display_scene_rectangle_16;
         }
     }
+    else if(destination_bits == 32)
+    {
+        if(source_bits == 8)
+        {
+            if(format->palette_source != nullptr)
+            {
+                configure_display_scene_palette(node, format->palette_source, format->palette_count);
+            }
+            else if(format->palette_entries != nullptr)
+            {
+                std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
+                node->rectangle_callback_format.palette_entries = node->palette_mapping;
+                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
+            }
+            node->root_rectangle_callback = fill_display_scene_rectangle_8;
+        }
+        else if(source_bits == 32)
+        {
+            node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_32_to_32 : composite_opaque_32_to_32;
+            node->root_rectangle_callback = fill_display_scene_rectangle_32;
+        }
+    }
 }
 
 DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
@@ -1508,6 +1609,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
     bool locked_node = false;
     int32_t requested_x = x;
     uint32_t requested_index = index;
+    const DisplaySceneStorage requested_storage = format->bits_per_pixel == 8 ? DisplaySceneStorage::indexed_source : DisplaySceneStorage::xrgb_composition;
     if((flags & 1) != 0)
     {
         requested_index = 0x7fffffff;
@@ -1535,12 +1637,47 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
             previous_mode = 0x80000000;
             DisplaySceneNode *existing = display_scene_head;
             previous = nullptr;
-            while(existing != nullptr && existing->scene_index < requested_index)
+            bool matching_scene = false;
+            while(existing != nullptr)
             {
+                if(existing->scene_index < requested_index)
+                {
+                    previous = existing;
+                    existing = existing->next;
+                    continue;
+                }
+                if(existing->scene_index > requested_index)
+                {
+                    break;
+                }
+                if(existing->storage == requested_storage)
+                {
+                    if(requested_storage == DisplaySceneStorage::xrgb_composition)
+                    {
+                        matching_scene = true;
+                        break;
+                    }
+                    for(uint32_t owner_index = 0; owner_index < existing->owner_count; ++owner_index)
+                    {
+                        if(existing->owners[owner_index] == owner)
+                        {
+                            matching_scene = true;
+                            break;
+                        }
+                    }
+                    if(matching_scene)
+                    {
+                        break;
+                    }
+                }
+                if(requested_storage == DisplaySceneStorage::xrgb_composition)
+                {
+                    break;
+                }
                 previous = existing;
                 existing = existing->next;
             }
-            if(existing == nullptr || existing->scene_index != requested_index)
+            if(!matching_scene)
             {
                 HANDLE heap = display_scene_memory_api.get_process_heap();
                 auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
@@ -1591,6 +1728,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             }
                         }
                         node->callback_position = node->callback_first_position;
+                        node->storage = requested_storage;
                         node->identifier = reinterpret_cast<intptr_t>(node);
                         node->surface = &display_scene_surface_state;
                         node->flags = (flags & 0xf7fcffbf) | 0x01000000;
@@ -1613,6 +1751,8 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             descriptor->present = 1;
                             descriptor->reserved = 0;
                             descriptor->pixels = node->callback_first_position;
+                            descriptor->bits_per_pixel = format->bits_per_pixel;
+                            descriptor->stride = width;
                         }
                         ++display_scene_count;
                         if(previous == nullptr)
@@ -1773,6 +1913,8 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     descriptor->present = 1;
                                     descriptor->reserved = 0;
                                     descriptor->pixels = reinterpret_cast<intptr_t>(primary);
+                                    descriptor->bits_per_pixel = format->bits_per_pixel;
+                                    descriptor->stride = width;
                                     result = existing;
                                 }
                                 else
@@ -1819,8 +1961,9 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         }
                         if((flags & 0x20000) != 0 && existing->owner_count == 0)
                         {
+                            const uint32_t pixel_bytes = existing->rectangle_callback_format.bits_per_pixel >> 3;
                             std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)), 0,
-                                static_cast<uint32_t>(existing->width) * static_cast<uint32_t>(existing->height));
+                                static_cast<uint32_t>(existing->width) * static_cast<uint32_t>(existing->height) * pixel_bytes);
                         }
                         existing->owners[existing->owner_count] = owner;
                         descriptor->x = static_cast<int16_t>(offset_x);
@@ -1830,6 +1973,8 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         descriptor->present = 1;
                         descriptor->reserved = 0;
                         descriptor->pixels = existing->callback_first_position;
+                        descriptor->bits_per_pixel = existing->rectangle_callback_format.bits_per_pixel;
+                        descriptor->stride = static_cast<uint32_t>(existing->sync_secondary_position) / (existing->rectangle_callback_format.bits_per_pixel >> 3);
                         ++existing->owner_count;
                     }
                 }
@@ -2240,6 +2385,28 @@ void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *r
             row = reinterpret_cast<uint16_t *>(reinterpret_cast<uint8_t *>(row) + node->sync_secondary_position);
             --row_count;
         } while(row_count != 0);
+    }
+}
+
+void fill_display_scene_rectangle_32(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
+{
+    if(rectangle == nullptr || node == nullptr)
+    {
+        return;
+    }
+    const int32_t left = std::clamp(rectangle->left, 0, node->width);
+    const int32_t top = std::clamp(rectangle->top, 0, node->height);
+    const int32_t right = std::clamp(rectangle->right, 0, node->width);
+    const int32_t bottom = std::clamp(rectangle->bottom, 0, node->height);
+    if(left >= right || top >= bottom)
+    {
+        return;
+    }
+    auto *row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left * static_cast<int32_t>(sizeof(uint32_t));
+    for(int32_t y = top; y < bottom; ++y)
+    {
+        std::fill_n(reinterpret_cast<uint32_t *>(row), right - left, static_cast<uint32_t>(value));
+        row += node->sync_secondary_position;
     }
 }
 

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "asset_decoders.h"
 #include "sfs_archive.h"
 
 namespace xtet
@@ -20,6 +21,8 @@ struct RliFrameRecord
     int16_t top{};
     int16_t right{};
     int16_t bottom{};
+    std::array<PaletteColor, 256> palette{};
+    std::array<uint8_t, 256> palette_defined{};
     std::vector<uint8_t> pixels;
     std::vector<uint8_t> coverage;
 };
