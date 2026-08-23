@@ -26,6 +26,15 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         query = std::get_if<HostStateFieldQuery>(&event.payload);
     }
 
+    // Script identifiers are compared as complete zero-padded 32-byte fields, not as C strings.
+    char query_object_name[0x20]{};
+    char query_field_name[0x20]{};
+    if(query != nullptr)
+    {
+        copy_string(query_object_name, query->object_name.c_str());
+        copy_string(query_field_name, query->field_name.c_str());
+    }
+
     uint32_t value;
     if(handle_scripted_save_load_message(event.command, state))
     {
@@ -40,7 +49,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         if(query != nullptr)
         {
             value = (state->saved_flags & 0x100000) != 0 ? 0x3000000 : 0x7000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
         }
         break;
     case 0x3eb:
@@ -50,14 +59,14 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         {
             const uint32_t mask = event.command == 0x3eb ? 0x800000 : (event.command == 0x3ec ? 0x200000 : 0x400000);
             value = (state->saved_flags & mask) != 0 ? 0x3000000 : 0x7000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
         }
         break;
     case 0x3f2:
         if((state->flags & 0x4000) != 0 && query != nullptr)
         {
             value = (state->flags & 0x20) != 0 ? 0x3000000 : 0x7000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
         }
         break;
     case 0x3fc:
@@ -66,14 +75,14 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         {
             const uint32_t mask = event.command == 0x3fc ? 0x1000 : 0x02000000;
             value = (state->flags & mask) != 0 ? 0x3000000 : 0x7000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
         }
         break;
     case 0x456:
         if(query != nullptr)
         {
             value = (state->flags & 0x4000) != 0 ? 0x7000000 : 0x3000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
         }
         break;
     case 0x7d2:
@@ -104,7 +113,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         {
             if((state->flags & 0x800000) == 0)
             {
-                state->saved_memory = capture_game_bitmap(state->game_context, nullptr, 1);
+                state->saved_memory = capture_save_game_bitmap(state->game_context, nullptr, 1);
                 state->script_state = reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
             }
             state->saved_flags = state->flags;
@@ -132,7 +141,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         if(query != nullptr)
         {
             value = (state->flags & 0x40000) != 0 ? 0x3000000 : 0x7000000;
-            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            resolve_state_field_reference(query_object_name, query_field_name, &value, 1);
             state->flags &= 0xfffbffff;
         }
         break;
