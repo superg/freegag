@@ -1624,7 +1624,6 @@ bool should_send_runtime_script_message(int32_t command)
 DWORD WINAPI execute_script_commands(LPVOID parameter)
 {
     auto *state = static_cast<RuntimeCommandLoopState *>(parameter);
-    runtime_script_executor_api.set_batch_limit(1);
     uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
     // Initialize before the first outer pass so SWRAND always has a defined prior value.
     int32_t random_value = 0;
@@ -1750,7 +1749,7 @@ void process_runtime_message(RuntimeCommandLoopState *state)
     if(handled && runtime_message_processor_api.query_state(nullptr, nullptr, nullptr) == 0)
     {
         RuntimeCommandBounds bounds{ 0, 0, state->width, state->height };
-        runtime_message_processor_api.update_target(&state->command_target, &bounds, 1);
+        runtime_message_processor_api.update_target(nullptr, &bounds, 1);
         runtime_message_processor_api.present();
     }
 }

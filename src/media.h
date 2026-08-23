@@ -7,10 +7,9 @@ namespace gag
 
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t unused, uint32_t extension_bytes, void *bitmap_data);
 
-uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags);
+uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags);
 
-uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags,
-    RuntimeAnimationCallback callback);
+uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags, RuntimeAnimationCallback callback);
 
 void configure_runtime_resource_palette(RuntimeResourceObject *resource);
 
@@ -39,8 +38,6 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *backend);
 void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *backend);
 
 DWORD WINAPI run_runtime_animation_thread(void *backend);
-
-int32_t present_runtime_animation_frame(RuntimeMediaBackend *backend);
 
 void decode_runtime_animation_palette(RuntimeMediaBackend *backend);
 
@@ -75,8 +72,6 @@ void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t 
 uint32_t stop_runtime_animation_backend(void *identity);
 
 void *get_locked_runtime_media_extension(void *identity);
-
-UINT apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, uint32_t *flags, uint32_t force);
 
 uint32_t destroy_runtime_media_backend(void *identity);
 

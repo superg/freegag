@@ -168,6 +168,11 @@ void update_runtime_pointer_position(int32_t x, int32_t y)
 
 LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
+    if(message == sdl_presenter_message)
+    {
+        handle_sdl_presenter_message();
+        return 0;
+    }
     bool modern_windows_cursor_reentry = false;
     if(message == WM_LBUTTONDOWN)
     {
@@ -219,7 +224,17 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
         return static_cast<LPARAM>(MAKELONG(x, y));
     };
 
-    if((runtime_scene_control_flags & 0x10) != 0 && runtime_game_dll_window_procedure(window, message, wparam, input_lparam()) == 0x10000)
+    uint32_t game_dispatch_result = 0;
+    if((runtime_scene_control_flags & 0x10) != 0)
+    {
+        game_dispatch_result = runtime_game_dll_window_procedure(window, message, wparam, input_lparam());
+        if(game_dispatch_result == xtet::kDispatchBusy && message != WM_DESTROY)
+        {
+            PostMessageA(window, message, wparam, lparam);
+            return 0;
+        }
+    }
+    if(game_dispatch_result == 0x10000)
     {
         if(message == 0x30f)
         {
@@ -242,20 +257,11 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
     }
     if(message == WM_PAINT)
     {
-        RECT rectangle;
-        if(runtime_game_window_api.get_update_rect(window, &rectangle, FALSE) != FALSE)
-        {
-            PAINTSTRUCT paint;
-            runtime_game_window_api.begin_paint(window, &paint);
-            if(modern_windows_presentation_is_scaled())
-            {
-                rectangle = { 0, 0, runtime_game_host_context.width, runtime_game_host_context.height };
-            }
-            DisplayRectangle display_rectangle{ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
-            runtime_game_window_api.queue_display_rectangle(&display_rectangle);
-            runtime_game_window_api.end_paint(window, &paint);
-            return 0;
-        }
+        PAINTSTRUCT paint;
+        runtime_game_window_api.begin_paint(window, &paint);
+        runtime_game_window_api.end_paint(window, &paint);
+        repaint_sdl_presenter();
+        return 0;
     }
     else if(message == WM_CHAR)
     {

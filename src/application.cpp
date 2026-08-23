@@ -128,7 +128,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
         return &graphics_host_state;
     }
 
-    graphics_host_api.gdi_set_batch_limit(1);
     runtime_display_context = {};
     runtime_graphics_instance = nullptr;
     std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
@@ -251,7 +250,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     runtime_game_host_callbacks[10] = reinterpret_cast<void *>(&configure_runtime_bitmap_backend);
     runtime_game_host_callbacks[11] = reinterpret_cast<void *>(&finalize_runtime_media_backend);
     runtime_game_host_callbacks[12] = reinterpret_cast<void *>(&set_runtime_media_backend_scale);
-    runtime_game_host_callbacks[13] = reinterpret_cast<void *>(&apply_runtime_palette_entries);
     runtime_game_host_callbacks[14] = reinterpret_cast<void *>(&stop_runtime_animation_backend);
     runtime_game_host_callbacks[15] = reinterpret_cast<void *>(&destroy_runtime_media_backend);
     runtime_game_host_callbacks[16] = reinterpret_cast<void *>(&acquire_runtime_media_backend);
@@ -288,7 +286,7 @@ uint32_t shutdown_graphics_host()
         const uint32_t async_result = graphics_host_shutdown_api.shutdown_async_files();
         const uint32_t media_result = graphics_host_shutdown_api.shutdown_media_backend();
         const uint32_t subsystem_result = display_result & generic_result & async_result & media_result;
-        graphics_host_shutdown_api.shutdown_display_modes();
+        graphics_host_shutdown_api.shutdown_presenter();
         if(subsystem_result != 0)
         {
             CRITICAL_SECTION *critical_sections[]{ &runtime_display_context.byte_queue_critical_section, &runtime_display_context.pair_queue_critical_section,
@@ -333,10 +331,8 @@ void clear_runtime_display()
 
 
 
-uint32_t detect_alternate_display_mode(ApplicationState *state)
+uint32_t enable_borderless_fullscreen(ApplicationState *state)
 {
-    // Expose borderless scaled fullscreen without selecting a physical 640x480 display mode.
-    state->display_mode_iterator = nullptr;
     state->flags |= 0x4000;
     return state->flags & 0x4000;
 }
@@ -410,28 +406,9 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
         copy_string(state->installed_version, requested_archive);
     }
 
-    if((stages & 0x10) != 0)
-    {
-        DEVMODEA mode{};
-        HDC context = validation_api.create_information_context("DISPLAY", nullptr, nullptr, &mode);
-        state->display_bits_per_pixel = validation_api.get_device_caps(context, BITSPIXEL);
-        state->display_width = validation_api.get_device_caps(context, HORZRES);
-        state->display_height = validation_api.get_device_caps(context, VERTRES);
-        validation_api.delete_context(context);
-        if(state->display_bits_per_pixel < 8)
-        {
-            validation_api.message_box(state->window, application_message(state, 21), state->message_table, MB_ICONERROR);
-            return 0;
-        }
-        if(state->display_bits_per_pixel > 16)
-        {
-            // The renderer uses a virtual compatible DIB selected by find_current_display_mode().
-        }
-    }
-
     if((stages & 0x200) != 0)
     {
-        validation_api.detect_alternate_mode(state);
+        validation_api.enable_borderless_fullscreen(state);
         if((stages & 0x400) != 0)
         {
             state->flags |= 0x20;
@@ -623,15 +600,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     state->capture_window = graphics->capture_window;
     state->game_context = graphics;
     application_initialization_api.validate_environment(state, state->executable_directory, 0x200);
-    LegacyDisplayPixelFormat mode_format{};
-    const LegacyDisplayPixelFormat *format = nullptr;
-    if(state->display_mode_iterator != nullptr)
-    {
-        const DisplayMode *mode = state->display_mode_iterator;
-        mode_format = { mode->pixel_format_flags, mode->pixel_format_reserved, static_cast<uint32_t>(mode->bits_per_pixel), mode->red_mask, mode->green_mask, mode->blue_mask };
-        format = &mode_format;
-    }
-    if(application_initialization_api.initialize_runtime(format) == nullptr)
+    if(application_initialization_api.initialize_runtime() == nullptr)
     {
         return nullptr;
     }

@@ -120,7 +120,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                         }
                         if((flags & 1) != 0)
                         {
-                            runtime_resource_construction_api.configure_bitmap(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000100);
+                            runtime_resource_construction_api.configure_bitmap(backend, &resource->scene_descriptor, nullptr, high_flags | 0x4000100);
                             runtime_resource_construction_api.begin_scene(resource->scene_identifier);
                             runtime_resource_construction_api.finalize_media(backend);
                             runtime_resource_construction_api.configure_palette(resource);
@@ -129,8 +129,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                         }
                         else
                         {
-                            runtime_resource_construction_api.configure_bitmap(backend, &runtime_display_context.command_target, &resource->scene_descriptor, runtime_game_host_context.palette_entries,
-                                high_flags | 0x4000100);
+                            runtime_resource_construction_api.configure_bitmap(backend, &resource->scene_descriptor, runtime_game_host_context.palette_entries, high_flags | 0x4000100);
                             if((flags & 0x10) == 0)
                             {
                                 runtime_resource_construction_api.begin_scene(resource->scene_identifier);
@@ -283,8 +282,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                         resource->callback_position = resource->scene_descriptor.pixels;
                         if((flags & 1) != 0)
                         {
-                            runtime_resource_construction_api.configure_animation(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000200,
-                                update_runtime_resource_animation_backend);
+                            runtime_resource_construction_api.configure_animation(backend, &resource->scene_descriptor, nullptr, high_flags | 0x4000200, update_runtime_resource_animation_backend);
                             const uint32_t count = runtime_resource_count + 1;
                             runtime_resource_construction_api.finalize_media(backend);
                             runtime_resource_construction_api.wait_for_count(count);
@@ -292,8 +290,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                         }
                         else
                         {
-                            runtime_resource_construction_api.configure_animation(backend, &runtime_display_context.command_target, &resource->scene_descriptor, nullptr, high_flags | 0x4000000,
-                                update_runtime_resource_animation_backend);
+                            runtime_resource_construction_api.configure_animation(backend, &resource->scene_descriptor, nullptr, high_flags | 0x4000000, update_runtime_resource_animation_backend);
                             if((flags & 0x10) == 0)
                             {
                                 runtime_resource_construction_api.finalize_media(backend);
@@ -1638,6 +1635,7 @@ uint32_t shutdown_runtime_display()
     uint32_t result = 0;
     if((graphics_host_flags & 0x600) == 0x600)
     {
+        begin_sdl_presenter_shutdown();
         auto *media_objects = static_cast<RuntimeNamedNode *>(runtime_display_shutdown_api.get_named_node("MMediaObjectsList"));
         auto *open_memory_files = static_cast<RuntimeNamedNode *>(runtime_display_shutdown_api.get_named_node("OpenMemoryFilesList"));
         if(open_memory_files->status == 0 && media_objects->status == 0)
@@ -1656,7 +1654,6 @@ uint32_t shutdown_runtime_display()
         result = 0;
         if(cleaned != 0)
         {
-            runtime_display_context.command_target = {};
             runtime_display_context.display_pixel_format = {};
             runtime_display_scene_identifier = 0;
             runtime_display_host = nullptr;

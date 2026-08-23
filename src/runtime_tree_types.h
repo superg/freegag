@@ -723,34 +723,6 @@ struct RuntimeRectangleSceneTransitionApi
 
 
 
-struct DisplayRegionSynchronizationApi
-{
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    HRESULT(WINAPI *blt_fast)(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags);
-    HRESULT(WINAPI *blt)(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects);
-    BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
-    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
-    BOOL(WINAPI *pat_blt)(HDC destination, int x, int y, int width, int height, DWORD operation);
-};
-
-
-
-struct LegacyDirectDrawSurfaceDescriptor;
-
-struct DisplayTargetBeginApi
-{
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    HRESULT(WINAPI *is_surface_lost)(void *surface);
-    HRESULT(WINAPI *restore_surface)(void *surface);
-    HRESULT(WINAPI *lock_surface)(void *surface, RECT *rectangle, LegacyDirectDrawSurfaceDescriptor *descriptor, DWORD flags, HANDLE event);
-};
-
-
-
 struct RuntimePointerResourceRebuildApi
 {
     RuntimeTreeNode *(*resolve_tree)(void *identity);

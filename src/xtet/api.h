@@ -11,18 +11,14 @@ namespace xtet
 struct PcmFormat;
 
 constexpr UINT kGameMessage = 0x7ffc;
+constexpr uint32_t kDispatchBusy = 0x20000;
 constexpr size_t kCallbackCount = 35;
 
 struct GameHostContext
 {
     HWND window;
-    HDC palette_dc{};
     uint32_t bits_per_pixel{ 8 };
-    HPALETTE palette{};
     uint32_t unknown10{};
-    HDC palette_dib_dc{};
-    HBITMAP bitmap{};
-    HBITMAP selected_bitmap{};
     uint16_t width{ 640 };
     uint16_t height{ 480 };
     void *display_surface{};

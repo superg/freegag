@@ -277,47 +277,7 @@ void *get_locked_runtime_media_extension(void *identity)
     return backend == nullptr ? nullptr : backend->extension_data;
 }
 
-UINT apply_runtime_palette_entries(RuntimePaletteTarget *target, void *palette_data, uint32_t *flags, uint32_t force)
-{
-    auto *entries = static_cast<RuntimePaletteData *>(palette_data)->entries;
-    if((*flags & 0x40000) == 0)
-    {
-        if((*flags & 0x80000) != 0)
-        {
-            for(uint32_t index = 0; index < 236; ++index)
-            {
-                entries[index].peFlags = PC_EXPLICIT;
-            }
-            runtime_palette_update_api.select_palette(target->device_context, target->palette, FALSE);
-            force = 1;
-            *flags &= ~0x80000u;
-        }
-    }
-    else
-    {
-        for(uint32_t index = 0; index < 236; ++index)
-        {
-            entries[index].peFlags = 0;
-        }
-        runtime_palette_update_api.select_palette(target->device_context, target->palette, TRUE);
-        force = 1;
-        *flags |= 0x80000;
-    }
-
-    if(force == 0)
-    {
-        return runtime_palette_update_api.animate_palette(target->palette, 0, 236, entries) != FALSE ? 236 : 0;
-    }
-    runtime_palette_update_api.unrealize_object(target->palette);
-    const UINT result = runtime_palette_update_api.set_palette_entries(target->palette, 0, 236, entries);
-    if(result != 0)
-    {
-        runtime_palette_update_api.realize_palette(target->device_context);
-    }
-    return result;
-}
-
-uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
+uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
 {
     runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
@@ -336,13 +296,7 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentat
         callback = &backend->palette_version;
     }
     backend->comparison_palette = callback;
-    backend->window = target->window;
-    backend->destination_context = target->destination_context;
-    backend->destination_bits_per_pixel = target->bits_per_pixel;
-    backend->destination_palette = target->palette;
-    backend->presentation_field_0944 = target->field_0944;
-    backend->source_context = target->source_context;
-    std::memcpy(backend->presentation_tail, target->tail, sizeof(backend->presentation_tail));
+    backend->window = runtime_display_context.window;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
     backend->destination_y = static_cast<uint16_t>(descriptor->y);
     backend->destination_stride = static_cast<uint16_t>(descriptor->width);
@@ -353,8 +307,7 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const RuntimePresentat
     return 1;
 }
 
-uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags,
-    RuntimeAnimationCallback callback)
+uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags, RuntimeAnimationCallback callback)
 {
     runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
@@ -372,14 +325,8 @@ uint32_t configure_runtime_animation_backend(void *identity, const RuntimePresen
         comparison_palette = &backend->palette_version;
     }
     backend->comparison_palette = comparison_palette;
-    backend->animation_callback = callback == nullptr ? present_runtime_animation_frame : callback;
-    backend->window = target->window;
-    backend->destination_context = target->destination_context;
-    backend->destination_bits_per_pixel = target->bits_per_pixel;
-    backend->destination_palette = target->palette;
-    backend->presentation_field_0944 = target->field_0944;
-    backend->source_context = target->source_context;
-    std::memcpy(backend->presentation_tail, target->tail, sizeof(backend->presentation_tail));
+    backend->animation_callback = callback;
+    backend->window = runtime_display_context.window;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
     backend->destination_y = static_cast<uint16_t>(descriptor->y);
     backend->destination_stride = static_cast<uint16_t>(descriptor->width);
@@ -431,8 +378,7 @@ void build_runtime_palette_index_remap(RuntimeMediaBackend *backend)
     const auto *comparison_palette = static_cast<const uint8_t *>(backend->comparison_palette);
     const auto *source_color = reinterpret_cast<const uint8_t *>(backend->palette_entries);
     uint8_t *remap = backend->palette_remap;
-    const uint32_t bits_per_pixel = backend->destination_bits_per_pixel;
-    const uint16_t comparison_count = bits_per_pixel == 8 ? 0xec : 0x100;
+    constexpr uint16_t comparison_count = 0x100;
     for(uint16_t source_index = 0; source_index < 0x100; ++source_index)
     {
         uint8_t tolerance = 0;
@@ -482,7 +428,6 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
         const uint8_t green = source_palette[index * 4 + 1];
         const uint8_t red = source_palette[index * 4 + 2];
         backend->palette_entries[index] = { red, green, blue, 1 };
-        std::memcpy(&backend->dib_colors[index], source_palette + index * 4, sizeof(uint32_t));
     }
     build_runtime_palette_index_remap(backend);
     auto *bitmap_file = static_cast<BITMAPFILEHEADER *>(backend->source_data);
@@ -557,24 +502,6 @@ void finalize_runtime_media_backend(void *identity)
                 {
                     backend->media_flags &= ~0x20u;
                     runtime_media_backend_finalize_api.convert_bitmap(backend);
-                    const uint32_t flags = backend->media_flags;
-                    if((flags & 0x100) == 0)
-                    {
-                        if(backend->destination_bits_per_pixel == 8 && (flags & 0x10) == 0 && (flags & 0x20) != 0)
-                        {
-                            runtime_media_backend_finalize_api.set_palette_entries(backend->destination_palette, 0, 0xec, backend->palette_entries);
-                            runtime_media_backend_finalize_api.realize_palette(backend->destination_context);
-                            backend->media_flags &= ~0x20u;
-                        }
-                        runtime_media_backend_finalize_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
-                        int32_t width = 0;
-                        int32_t height = 0;
-                        auto *format = static_cast<const uint8_t *>(backend->format_data);
-                        std::memcpy(&width, format + 4, sizeof(width));
-                        std::memcpy(&height, format + 8, sizeof(height));
-                        runtime_media_backend_finalize_api.bit_blt(backend->destination_context, backend->destination_x, backend->destination_y, width, height, backend->source_context,
-                            backend->destination_x, backend->destination_y, SRCCOPY);
-                    }
                 }
                 break;
             }
@@ -1065,7 +992,6 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
 DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
 {
     auto *animation = static_cast<RuntimeAnimationBackend *>(backend_pointer);
-    runtime_animation_worker_api.gdi_set_batch_limit(1);
     uint32_t wait_milliseconds = 0;
     for(;;)
     {
@@ -1096,63 +1022,6 @@ DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
     }
 }
 
-int32_t present_runtime_animation_frame(RuntimeMediaBackend *backend)
-{
-    uint32_t flags = backend->media_flags;
-    if((flags & 0x10000000) != 0)
-    {
-        backend->media_flags = flags & ~0x10000000u;
-        return 1;
-    }
-    if((flags & 0x20000000) != 0)
-    {
-        backend->media_flags = flags & ~0x20000000u;
-        return 1;
-    }
-    if((flags & 0x4000) != 0)
-    {
-        if(backend->destination_bits_per_pixel == 8)
-        {
-            if((flags & 0x10) == 0)
-            {
-                if((flags & 0x20) == 0)
-                {
-                    runtime_animation_present_api.animate_palette(backend->destination_palette, 0, 0xec, backend->palette_entries);
-                }
-                else
-                {
-                    runtime_animation_present_api.set_palette_entries(backend->destination_palette, 0, 0xec, backend->palette_entries);
-                    runtime_animation_present_api.realize_palette(backend->destination_context);
-                    backend->media_flags &= ~0x20u;
-                }
-                runtime_animation_present_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
-            }
-        }
-        else if((flags & 0x10) == 0)
-        {
-            runtime_animation_present_api.set_dib_color_table(backend->source_context, 0, 0x100, backend->dib_colors);
-        }
-    }
-    if((backend->media_flags & 0x8000) != 0)
-    {
-        const int x = backend->destination_x + backend->dirty_left;
-        const int y = backend->destination_y + backend->dirty_top;
-        const int width = backend->dirty_right - backend->dirty_left;
-        const int height = backend->dirty_bottom - backend->dirty_top;
-        if((backend->media_flags & 0x200000) == 0)
-        {
-            runtime_animation_present_api.bit_blt(backend->destination_context, x, y, width, height, backend->source_context, x, y, SRCCOPY);
-        }
-        else if((backend->media_flags & 0x200000) == 0x200000)
-        {
-            runtime_animation_present_api.stretch_blt(backend->destination_context, backend->destination_x + backend->dirty_left * 2, backend->destination_y + backend->dirty_top * 2, width * 2,
-                height * 2, backend->source_context, x, y, width, height, SRCCOPY);
-        }
-    }
-    backend->media_flags &= 0xffff3fffu;
-    return 1;
-}
-
 void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
 {
     auto *source = static_cast<const uint8_t *>(reinterpret_cast<RuntimeAnimationBackend *>(backend)->source_cursor);
@@ -1160,7 +1029,6 @@ void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
     std::memcpy(&packet_count, source, sizeof(packet_count));
     source += 2;
     auto *palette_entries = reinterpret_cast<uint8_t *>(backend->palette_entries);
-    auto *dib_colors = reinterpret_cast<uint8_t *>(backend->dib_colors);
     do
     {
         const uint8_t skip = *source++;
@@ -1172,7 +1040,6 @@ void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
         else
         {
             palette_entries += skip * 4;
-            dib_colors += skip * 4;
         }
         do
         {
@@ -1183,12 +1050,7 @@ void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
             palette_entries[1] = green;
             palette_entries[2] = blue;
             palette_entries[3] = 1;
-            dib_colors[0] = blue;
-            dib_colors[1] = green;
-            dib_colors[2] = red;
-            dib_colors[3] = 0;
             palette_entries += 4;
-            dib_colors += 4;
             --color_count;
         } while(color_count != 0);
         --packet_count;

@@ -67,7 +67,7 @@ uint32_t shutdown_runtime_media_backend();
 
 int append_string(char *destination, const char *source);
 
-uint32_t detect_alternate_display_mode(ApplicationState *state);
+uint32_t enable_borderless_fullscreen(ApplicationState *state);
 
 void set_runtime_paths_once(const char *first_path, const char *second_path);
 

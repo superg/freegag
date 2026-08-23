@@ -22,8 +22,6 @@ struct RuntimeMediaBackend
     uint16_t palette_version;
     uint16_t palette_entry_count;
     PALETTEENTRY palette_entries[0x100];
-    RGBQUAD dib_colors[0x100];
-    uint32_t palette_padding;
     uint8_t palette_remap[0x100];
     uint16_t destination_x;
     uint16_t destination_y;
@@ -32,12 +30,6 @@ struct RuntimeMediaBackend
     uint32_t descriptor_2;
     uint8_t *destination_pixels;
     HWND window;
-    HDC destination_context;
-    uint32_t destination_bits_per_pixel;
-    HPALETTE destination_palette;
-    uint32_t presentation_field_0944;
-    HDC source_context;
-    uint8_t presentation_tail[0x10];
     uint32_t media_flags;
     uint32_t error_state;
     uint32_t scale_x;
@@ -130,12 +122,6 @@ struct RuntimeFontFormat
     int32_t fixed_cell_height;
 };
 
-struct RuntimePaletteData
-{
-    uint32_t unknown_0000;
-    PALETTEENTRY entries[0x100];
-};
-
 struct RuntimePcmWaveFile
 {
     uint8_t riff_and_format_headers[0x14];
@@ -210,10 +196,6 @@ struct RuntimeMediaBackendFinalizeApi
     DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
     BOOL(WINAPI *release_mutex)(HANDLE mutex);
     uint8_t (*convert_bitmap)(RuntimeMediaBackend *backend);
-    UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *realize_palette)(HDC context);
-    UINT(WINAPI *set_dib_color_table)(HDC context, UINT start, UINT count, const RGBQUAD *colors);
-    BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
 };
 
 
@@ -292,42 +274,10 @@ struct RuntimeAnimationAudioApi
 
 struct RuntimeAnimationWorkerApi
 {
-    DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
     void(WINAPI *sleep)(DWORD milliseconds);
     uint32_t (*time_get_time)();
     void(WINAPI *exit_thread)(DWORD exit_code);
 };
-
-
-struct RuntimeAnimationPresentApi
-{
-    BOOL(WINAPI *animate_palette)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *realize_palette)(HDC context);
-    UINT(WINAPI *set_dib_color_table)(HDC context, UINT start, UINT count, const RGBQUAD *colors);
-    BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
-    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
-};
-
-
-
-struct RuntimePaletteTarget
-{
-    uint32_t unknown_0000;
-    HDC device_context;
-    uint32_t unknown_0008;
-    HPALETTE palette;
-};
-
-struct RuntimePaletteUpdateApi
-{
-    HPALETTE(WINAPI *select_palette)(HDC, HPALETTE, BOOL);
-    BOOL(WINAPI *animate_palette)(HPALETTE, UINT, UINT, const PALETTEENTRY *);
-    BOOL(WINAPI *unrealize_object)(HGDIOBJ);
-    UINT(WINAPI *set_palette_entries)(HPALETTE, UINT, UINT, const PALETTEENTRY *);
-    UINT(WINAPI *realize_palette)(HDC);
-};
-
 
 
 } // namespace gag

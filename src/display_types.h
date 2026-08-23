@@ -4,71 +4,6 @@
 
 namespace gag
 {
-struct DisplayMode
-{
-    uint32_t flags;
-    uint32_t unknown_0004;
-    uint32_t device_mode_fields;
-    uint32_t surface_caps;
-    uint32_t refresh_rate;
-    uint32_t pixel_value_count;
-    int32_t width;
-    int32_t height;
-    uint32_t pixel_format_flags;
-    uint32_t pixel_format_reserved;
-    int32_t bits_per_pixel;
-    uint32_t red_mask;
-    uint32_t green_mask;
-    uint32_t blue_mask;
-    uint32_t alpha_mask;
-    DisplayMode *next;
-};
-
-
-using DirectDrawCreateProcedure = HRESULT(WINAPI *)(GUID *driver, void **display, void *outer);
-using DirectDrawModeCallback = HRESULT(WINAPI *)(LegacyDirectDrawSurfaceDescriptor *descriptor, void *context);
-
-struct DisplayBootstrapApi
-{
-    BOOL(WINAPI *get_version)(LPOSVERSIONINFOA information);
-    HMODULE(WINAPI *load_library)(LPCSTR name);
-    FARPROC(WINAPI *get_proc_address)(HMODULE module, LPCSTR name);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    uint32_t (*set_cooperative_mode)(uint32_t mode);
-    HRESULT(WINAPI *enumerate_modes)(void *display, DirectDrawModeCallback callback);
-};
-
-
-
-struct DisplayHostInitializationApi
-{
-    void(WINAPI *initialize_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION section);
-    uint32_t (*enumerate_windows_modes)();
-    uint32_t (*initialize_direct_draw)();
-    uint32_t (*enumerate_direct_draw_modes)();
-    DisplayMode *(*find_current_mode)();
-};
-
-
-
-struct WindowsDisplayEnumerationApi
-{
-    HDC(WINAPI *get_dc)(HWND window);
-    BOOL(WINAPI *enum_display_settings)(LPCSTR device, DWORD mode, LPDEVMODEA settings);
-    LONG(WINAPI *change_display_settings)(LPDEVMODEA settings, DWORD flags);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    HBITMAP(WINAPI *create_dib_section)(HDC dc, const BITMAPINFO *info, UINT usage, VOID **bits, HANDLE section, DWORD offset);
-    BOOL(WINAPI *delete_object)(HGDIOBJ object);
-    int(WINAPI *release_dc)(HWND window, HDC dc);
-};
-
-
-
 struct RuntimePathApi
 {
     void (*enter_lock)();
@@ -231,7 +166,6 @@ struct RuntimeCommandLoopState
     char first_runtime_path[0x104];
     char second_runtime_path[0x104];
     void *command_context;
-    RuntimePresentationTarget command_target;
     uint16_t width;
     uint16_t height;
     void *display_surface;
@@ -345,138 +279,6 @@ struct RuntimeMessageProcessorApi
     uint32_t (*query_state)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags);
     bool (*update_target)(void *target, RuntimeCommandBounds *bounds, int enabled);
     void (*present)();
-};
-
-
-
-struct DisplayPaletteApi
-{
-    void (*enter_lock)();
-    void (*leave_lock)();
-    HWND (*get_host_window)();
-    HWND(WINAPI *get_foreground_window)();
-    DWORD(WINAPI *get_window_thread_process_id)(HWND window, LPDWORD process_id);
-    BOOL(WINAPI *unrealize_object)(HGDIOBJ object);
-    HPALETTE(WINAPI *select_palette)(HDC dc, HPALETTE palette, BOOL force_background);
-    BOOL(WINAPI *animate_palette)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *realize_palette)(HDC dc);
-    UINT(WINAPI *set_dib_color_table)(HDC dc, UINT start, UINT count, const RGBQUAD *colors);
-    void (*present)(int32_t width, int32_t height, int enabled);
-};
-
-struct DisplayPaletteTeardownApi
-{
-    void(WINAPI *sleep)(DWORD milliseconds);
-    HPALETTE(WINAPI *select_palette)(HDC dc, HPALETTE palette, BOOL force_background);
-    HGDIOBJ(WINAPI *select_object)(HDC dc, HGDIOBJ object);
-    BOOL(WINAPI *delete_object)(HGDIOBJ object);
-    BOOL(WINAPI *delete_dc)(HDC dc);
-    int(WINAPI *release_dc)(HWND window, HDC dc);
-};
-
-struct DisplayCooperativeLevelApi
-{
-    LONG(WINAPI *get_window_long)(HWND window, int index);
-    HWND(WINAPI *get_parent)(HWND window);
-    HRESULT(WINAPI *set_cooperative_level)(void *display, HWND window, DWORD flags);
-};
-
-struct DisplayModeHostShutdownApi
-{
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    void (*teardown_palette_surface)();
-    HANDLE(WINAPI *get_process_heap)();
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION section);
-};
-
-
-
-struct DisplaySurfaceOperationApi
-{
-    void(WINAPI *sleep)(DWORD milliseconds);
-    HRESULT(WINAPI *blt_fast)(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags);
-    HRESULT(WINAPI *blt)(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects);
-    BOOL(WINAPI *bit_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, DWORD operation);
-    BOOL(WINAPI *stretch_blt)(HDC destination, int x, int y, int width, int height, HDC source, int source_x, int source_y, int source_width, int source_height, DWORD operation);
-    BOOL(WINAPI *pat_blt)(HDC destination, int x, int y, int width, int height, DWORD operation);
-};
-
-struct LegacyDisplayPixelFormat
-{
-    uint32_t flags;
-    uint32_t reserved;
-    uint32_t bits_per_pixel;
-    uint32_t red_mask;
-    uint32_t green_mask;
-    uint32_t blue_mask;
-};
-
-
-struct LegacyDirectDrawPixelFormat
-{
-    uint32_t size;
-    uint32_t flags;
-    uint32_t four_cc;
-    uint32_t bits_per_pixel;
-    uint32_t red_mask;
-    uint32_t green_mask;
-    uint32_t blue_mask;
-    uint32_t alpha_mask;
-};
-
-struct LegacyDirectDrawSurfaceDescriptor
-{
-    uint32_t size;
-    uint32_t flags;
-    uint32_t height;
-    uint32_t width;
-    uint32_t pitch;
-    uint32_t back_buffer_count;
-    uint32_t mip_map_count;
-    uint32_t alpha_bit_depth;
-    uint32_t reserved;
-    void *surface;
-    uint32_t color_keys[8];
-    LegacyDirectDrawPixelFormat pixel_format;
-    uint32_t caps;
-};
-
-
-struct DisplaySurfaceCreationApi
-{
-    void(WINAPI *sleep)(DWORD milliseconds);
-    void (*teardown)();
-    uint32_t (*set_cooperative_mode)(uint32_t mode);
-    HRESULT(WINAPI *create_direct_draw_surface)(void *display, LegacyDirectDrawSurfaceDescriptor *descriptor, void **surface, void *outer);
-    HRESULT(WINAPI *get_attached_surface)(void *surface, uint32_t *caps, void **attached_surface);
-    ULONG(WINAPI *release_surface)(void *surface);
-    HDC(WINAPI *get_dc)(HWND window);
-    HDC(WINAPI *create_compatible_dc)(HDC dc);
-    int(WINAPI *release_dc)(HWND window, HDC dc);
-    BOOL(WINAPI *delete_dc)(HDC dc);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    HPALETTE(WINAPI *create_palette)(const LOGPALETTE *palette);
-    HPALETTE(WINAPI *select_palette)(HDC dc, HPALETTE palette, BOOL force_background);
-    BOOL(WINAPI *delete_object)(HGDIOBJ object);
-    HBITMAP(WINAPI *create_dib_section)(HDC dc, const BITMAPINFO *info, UINT usage, VOID **pixels, HANDLE section, DWORD offset);
-    HGDIOBJ(WINAPI *select_object)(HDC dc, HGDIOBJ object);
-    UINT(WINAPI *set_palette_entries)(HPALETTE palette, UINT start, UINT count, const PALETTEENTRY *entries);
-    UINT(WINAPI *realize_palette)(HDC dc);
-    UINT(WINAPI *set_dib_color_table)(HDC dc, UINT start, UINT count, const RGBQUAD *colors);
-    int(WINAPI *set_stretch_blt_mode)(HDC dc, int mode);
-};
-
-
-
-struct DisplayTargetApi
-{
-    void (*release_backend_target)(void *backend, void *target);
 };
 
 
@@ -735,7 +537,6 @@ enum class RuntimeScriptOpcodeDisposition : uint32_t
 
 struct RuntimeScriptExecutorApi
 {
-    DWORD(WINAPI *set_batch_limit)(DWORD limit);
     uint32_t (*get_tick_count)();
     uint32_t (*time_get_time)();
     void(WINAPI *sleep)(DWORD milliseconds);

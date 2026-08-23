@@ -635,11 +635,13 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
 
 uint32_t xtet::dispatch_game_window_message(HWND, UINT message, WPARAM wparam, LPARAM)
 {
-    // Check inactive gameplay state before entering the recursive Win32 critical section. This lets synchronous result or failure reporting re-enter through the host without blocking on state
-    // synchronization owned by the reporting thread.
     if(!g_game.initialized.load())
         return 1;
-    std::lock_guard<std::recursive_mutex> lock(g_mutex);
+    if(message != WM_DESTROY && message != WM_KEYDOWN && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP)
+        return 0;
+    std::unique_lock<std::recursive_mutex> lock(g_mutex, std::try_to_lock);
+    if(!lock.owns_lock())
+        return kDispatchBusy;
     if(!g_game.initialized.load())
         return 1;
     xtet::GameWindowMessageCallbacks callbacks;

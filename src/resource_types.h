@@ -58,9 +58,8 @@ struct RuntimeResourceConstructionApi
     void (*rebuild_tree)(void *identity);
     DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
         const DisplayPixelFormatDescriptor *format);
-    uint32_t (*configure_bitmap)(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags);
-    uint32_t (*configure_animation)(void *identity, const RuntimePresentationTarget *target, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags,
-        int32_t (*callback)(RuntimeMediaBackend *backend));
+    uint32_t (*configure_bitmap)(void *identity, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags);
+    uint32_t (*configure_animation)(void *identity, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags, int32_t (*callback)(RuntimeMediaBackend *backend));
     uint32_t (*begin_scene)(intptr_t identifier);
     void (*finalize_media)(void *identity);
     void (*configure_palette)(RuntimeResourceObject *resource);
@@ -132,13 +131,8 @@ struct RuntimeResourceSelectionApi
 struct RuntimeGameHostContext
 {
     HWND window;
-    HDC palette_dc;
     uint32_t bits_per_pixel;
-    HPALETTE palette;
     uint32_t unknown_0010;
-    HDC palette_dib_dc;
-    HBITMAP bitmap;
-    HBITMAP selected_bitmap;
     uint16_t width;
     uint16_t height;
     void *display_surface;
@@ -197,9 +191,7 @@ struct DisplayRectangle;
 struct RuntimeGameWindowApi
 {
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    BOOL(WINAPI *get_update_rect)(HWND window, LPRECT rectangle, BOOL erase);
     HDC(WINAPI *begin_paint)(HWND window, LPPAINTSTRUCT paint);
-    uint32_t (*queue_display_rectangle)(DisplayRectangle *rectangle);
     BOOL(WINAPI *end_paint)(HWND window, const PAINTSTRUCT *paint);
     void (*update_pointer_position)(int32_t x, int32_t y);
     void (*enqueue_byte)(uint8_t value);

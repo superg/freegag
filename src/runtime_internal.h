@@ -36,36 +36,15 @@ bool has_xtet_argument(int argc, char *argv[]);
 extern bool gagboy_startup_mode;
 extern RuntimePathApi runtime_path_api;
 
-struct DisplayModeHostState
+struct DisplayPresenterHostState
 {
-    uint32_t flags;
-    uint32_t bootstrap_error;
-    DisplayMode *current_mode;
-    uint32_t unknown_000c;
-    uint32_t platform_id;
-    HMODULE direct_draw_module;
-    void *direct_draw;
-    void *direct_draw_primary_surface;
-    void *direct_draw_secondary_surface;
-    HWND window;
-    HDC dc;
-    uint8_t unknown_002c[0x10];
-    uint32_t mode_count;
-    DisplayMode *mode_tail;
-    DisplayMode *mode_head;
-    HDC dib_dc;
+    uint32_t flags{};
     int32_t width;
     int32_t height;
     int32_t bits_per_pixel;
     void *pixels;
-    HBITMAP bitmap;
-    HBITMAP previous_bitmap;
-    HPALETTE palette;
-    HPALETTE previous_palette;
     CRITICAL_SECTION critical_section;
-    WORD palette_version;
-    WORD palette_count;
-    PALETTEENTRY palette_entries[0x100];
+    PALETTEENTRY palette_entries[0x100]{};
 };
 
 struct RuntimeIndexedBitmapInfo
@@ -89,7 +68,7 @@ union RuntimeGenericChildState
 
 
 
-inline DisplayModeHostState display_mode_host_state;
+inline DisplayPresenterHostState display_presenter_host_state;
 
 inline const char *application_message(const ApplicationState *state, size_t index)
 {
@@ -101,39 +80,15 @@ inline DisplayRectangleTransform display_rectangle_transform(const DisplaySceneD
 {
     return { descriptor.x, descriptor.y, static_cast<uint16_t>(descriptor.width), static_cast<uint16_t>(descriptor.height) };
 }
-inline uint32_t &display_palette_flags = display_mode_host_state.flags;
-inline uint32_t &display_bootstrap_error = display_mode_host_state.bootstrap_error;
-inline DisplayMode *&current_display_mode = display_mode_host_state.current_mode;
-inline uint32_t &display_platform_id = display_mode_host_state.platform_id;
-inline HMODULE &direct_draw_module = display_mode_host_state.direct_draw_module;
-inline void *&display_direct_draw = display_mode_host_state.direct_draw;
-inline void *&display_direct_draw_primary_surface = display_mode_host_state.direct_draw_primary_surface;
-inline void *&display_direct_draw_secondary_surface = display_mode_host_state.direct_draw_secondary_surface;
-inline HWND &display_palette_window = display_mode_host_state.window;
-inline HDC &display_palette_dc = display_mode_host_state.dc;
-inline uint32_t &display_mode_count = display_mode_host_state.mode_count;
-inline DisplayMode *&display_mode_tail = display_mode_host_state.mode_tail;
-inline DisplayMode *&display_mode_head = display_mode_host_state.mode_head;
-inline DisplayMode *&display_mode_iterator = display_mode_host_state.mode_tail;
-inline HDC &display_palette_dib_dc = display_mode_host_state.dib_dc;
-inline int32_t &display_palette_width = display_mode_host_state.width;
-inline int32_t &display_palette_height = display_mode_host_state.height;
-inline int32_t &display_palette_bits_per_pixel = display_mode_host_state.bits_per_pixel;
-inline void *&display_palette_pixels = display_mode_host_state.pixels;
-inline HBITMAP &display_palette_bitmap = display_mode_host_state.bitmap;
-inline HBITMAP &display_palette_previous_bitmap = display_mode_host_state.previous_bitmap;
-inline HPALETTE &display_palette = display_mode_host_state.palette;
-inline HPALETTE &display_palette_previous_palette = display_mode_host_state.previous_palette;
-inline CRITICAL_SECTION &display_host_critical_section = display_mode_host_state.critical_section;
-inline PALETTEENTRY (&display_palette_entries)[0x100] = display_mode_host_state.palette_entries;
+inline uint32_t &display_palette_flags = display_presenter_host_state.flags;
+inline int32_t &display_palette_width = display_presenter_host_state.width;
+inline int32_t &display_palette_height = display_presenter_host_state.height;
+inline int32_t &display_palette_bits_per_pixel = display_presenter_host_state.bits_per_pixel;
+inline void *&display_palette_pixels = display_presenter_host_state.pixels;
+inline CRITICAL_SECTION &display_host_critical_section = display_presenter_host_state.critical_section;
+inline PALETTEENTRY (&display_palette_entries)[0x100] = display_presenter_host_state.palette_entries;
 
 // Selects the framebuffer color depth used for modern desktop presentation.
-enum class ModernWindowsColorMode
-{
-    indexed_8,
-    rgb565_16,
-};
-
 enum class ModernWindowsFullscreenScaling
 {
     preserve_aspect,
@@ -147,11 +102,9 @@ enum class ModernWindowsWindowedScaling
     integer,
 };
 
-constexpr ModernWindowsColorMode modern_windows_color_mode = ModernWindowsColorMode::rgb565_16;
 constexpr ModernWindowsFullscreenScaling modern_windows_fullscreen_scaling = ModernWindowsFullscreenScaling::integer;
 constexpr ModernWindowsWindowedScaling modern_windows_windowed_scaling = ModernWindowsWindowedScaling::integer;
 constexpr DWORD modern_windows_windowed_style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME | WS_CLIPCHILDREN;
-inline DisplayMode modern_windows_virtual_display_mode;
 
 struct ModernWindowsPresentationState
 {
@@ -249,28 +202,6 @@ inline RECT map_modern_windows_presentation_rectangle(int32_t left, int32_t top,
     return rectangle;
 }
 
-// Builds an 8-bit or 16-bit framebuffer mode for presentation on a true-color desktop through GDI.
-inline void build_modern_windows_virtual_display_mode(DisplayMode *mode, int32_t width, int32_t height, ModernWindowsColorMode color_mode)
-{
-    *mode = {};
-    mode->flags = 0x10000;
-    mode->width = width;
-    mode->height = height;
-    if(color_mode == ModernWindowsColorMode::indexed_8)
-    {
-        mode->pixel_value_count = 0x100;
-        mode->bits_per_pixel = 8;
-    }
-    else
-    {
-        mode->pixel_value_count = 0x10000;
-        mode->bits_per_pixel = 16;
-        mode->red_mask = 0xf800;
-        mode->green_mask = 0x07e0;
-        mode->blue_mask = 0x001f;
-    }
-}
-
 inline RuntimePlanModeSyncApi runtime_plan_mode_sync_api{ set_runtime_plans_inactive, clear_runtime_plans_inactive, rebuild_runtime_pointer_resources };
 
 inline RuntimeTreeActivationApi runtime_tree_activation_api{ SendMessageA, find_or_load_runtime_generic_resource, create_runtime_tree_node, set_script_runtime_flags,
@@ -347,8 +278,6 @@ inline DisplaySceneNode *&display_scene_head = display_scene_host_state.head;
 inline DisplaySceneSurface display_scene_surface_state{};
 inline DisplaySceneCallbackApi display_scene_callback_api{ runtime_milliseconds };
 inline DisplayRootRegionApi display_root_region_api{ begin_display_scene_update, end_display_scene_update };
-inline void *display_backend;
-inline void *display_backend_target;
 inline void switch_runtime_scene_value(uintptr_t value)
 {
     switch_runtime_scene(reinterpret_cast<void *>(value));
@@ -493,7 +422,7 @@ inline void release_runtime_text_input_scene_guard()
 inline RuntimeTextInputApi runtime_text_input_api{ dequeue_runtime_byte, runtime_milliseconds, initialize_runtime_standalone_text, acquire_runtime_text_input_scene,
     begin_runtime_text_input_scene_update, draw_runtime_standalone_text, end_runtime_text_input_scene_update, release_display_scene_node };
 inline RuntimeExternalCommandApi runtime_external_command_api{ SendMessageA, process_runtime_message, run_runtime_command_loop, Sleep };
-inline RuntimeScriptExecutorApi runtime_script_executor_api{ GdiSetBatchLimit, runtime_milliseconds, runtime_milliseconds, Sleep, process_available_runtime_generic_children, process_runtime_message,
+inline RuntimeScriptExecutorApi runtime_script_executor_api{ runtime_milliseconds, runtime_milliseconds, Sleep, process_available_runtime_generic_children, process_runtime_message,
     process_runtime_text_input, process_runtime_pair_message, run_runtime_command_loop, find_runtime_tree_node_by_identity, synchronize_runtime_plan_mode, process_pending_runtime_tree_switch,
     acknowledge_current_runtime_event_record, run_pending_runtime_external_command, activate_runtime_tree_link_007c, parse_script_opcode, execute_simple_runtime_script_opcode,
     select_bounded_random_value };
@@ -503,9 +432,8 @@ inline RuntimeDisplayResetApi runtime_display_reset_api{ switch_runtime_scene, s
 inline HANDLE &runtime_display_thread = runtime_display_context.script_thread;
 inline intptr_t &runtime_display_scene_identifier = runtime_display_context.input_alternate_scene_identifier;
 inline void *&runtime_display_host = runtime_display_context.display_scene_host;
-inline RuntimeBootstrapApi runtime_bootstrap_api{ find_current_display_mode, create_display_surface, get_display_palette_dc, get_display_palette_dib_dc, get_display_palette_handle,
-    get_display_palette_bitmap, get_display_palette_entries, initialize_display_scene_host, acquire_display_scene_node, lock_display_scene_node, unlock_display_scene_node, acquire_display_lock,
-    set_display_clip_rectangle, release_display_lock, operate_display_surface, reset_runtime_display_state, CreateThread, execute_script_commands };
+inline RuntimeBootstrapApi runtime_bootstrap_api{ create_display_surface, get_display_palette_entries, initialize_display_scene_host, acquire_display_scene_node, lock_display_scene_node,
+    unlock_display_scene_node, acquire_display_lock, set_display_clip_rectangle, release_display_lock, operate_display_surface, reset_runtime_display_state, CreateThread, execute_script_commands };
 inline RuntimeDisplayShutdownApi runtime_display_shutdown_api{ get_or_create_runtime_named_node, WaitForSingleObject, CloseHandle, release_display_scene_node, shutdown_display_scene_host,
     teardown_display_palette_surface };
 inline uint32_t &runtime_resource_count = runtime_display_context.resource_wait_count;
@@ -573,14 +501,12 @@ inline bool runtime_media_backend_initialized;
 inline RuntimeMediaBackend *runtime_media_backend_head;
 inline RuntimeMediaBackend *runtime_media_backend_tail;
 inline RuntimeMediaBackendShutdownApi runtime_media_backend_shutdown_api{ acquire_first_runtime_media_backend, release_runtime_media_backend_lock, HeapDestroy, CloseHandle, shutdown_runtime_sound };
-inline RuntimePaletteUpdateApi runtime_palette_update_api{ SelectPalette, AnimatePalette, UnrealizeObject, SetPaletteEntries, RealizePalette };
 inline RuntimeBitmapBackendCreateApi runtime_bitmap_backend_create_api{ HeapAlloc, WaitForSingleObject, ReleaseMutex };
 inline RuntimeAnimationBackendCreateApi runtime_animation_backend_create_api{ get_async_file_position, read_async_file_record, HeapAlloc, set_async_file_position, WaitForSingleObject, ReleaseMutex };
 inline RuntimeMediaBackendConfigureApi runtime_media_backend_configure_api{ WaitForSingleObject, ReleaseMutex };
 inline RuntimeAnimationBackendConfigureApi runtime_animation_backend_configure_api{ WaitForSingleObject, ReleaseMutex, CreateThread, CloseHandle };
 inline RuntimeResourcePaletteConfigureApi runtime_resource_palette_configure_api{ set_display_scene_primary_owner, configure_display_scene_palette };
-inline RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface, SetPaletteEntries, RealizePalette, SetDIBColorTable,
-    BitBlt };
+inline RuntimeMediaBackendFinalizeApi runtime_media_backend_finalize_api{ WaitForSingleObject, ReleaseMutex, convert_runtime_bitmap_to_surface };
 inline RuntimeAnimationFailureApi runtime_animation_failure_api{ PostMessageA };
 inline uint32_t runtime_animation_control_flags;
 inline RuntimeAnimationControlApi runtime_animation_control_api{ destroy_runtime_sound_handle, start_runtime_sound, stop_runtime_sound, set_async_file_position, PostMessageA };
@@ -590,7 +516,7 @@ inline RuntimeAnimationDecodeApi runtime_animation_decode_api{ decode_runtime_an
 inline RuntimeAnimationCompletionApi runtime_animation_completion_api{ Sleep, PostMessageA, set_async_file_position };
 inline RuntimeAnimationAudioApi runtime_animation_audio_api{ runtime_milliseconds, Sleep, HeapAlloc, HeapReAlloc, destroy_runtime_sound_handle, queue_runtime_sound_data, stop_runtime_sound,
     start_runtime_sound, create_runtime_sound_handle, query_runtime_sound_status, set_runtime_sound_playback_marker, set_runtime_sound_schedule_marker };
-inline RuntimeAnimationWorkerApi runtime_animation_worker_api{ GdiSetBatchLimit, Sleep, runtime_milliseconds, ExitThread };
+inline RuntimeAnimationWorkerApi runtime_animation_worker_api{ Sleep, runtime_milliseconds, ExitThread };
 inline RuntimeResourceConstructionPlanApi runtime_resource_construction_plan_api{ find_available_display_scene_index };
 inline RuntimeResourceConstructionApi runtime_resource_construction_api{
     GetProcessHeap,
@@ -631,7 +557,6 @@ inline RuntimeResourceConstructionApi runtime_resource_construction_api{
     get_or_create_runtime_child_by_data,
     add_display_scene_callback,
 };
-inline RuntimeAnimationPresentApi runtime_animation_present_api{ AnimatePalette, SetPaletteEntries, RealizePalette, SetDIBColorTable, BitBlt, StretchBlt };
 inline RuntimeGenericBackendApi runtime_generic_backend_api{ WaitForSingleObject, ReleaseMutex, Sleep, GetProcessHeap, HeapFree };
 inline RuntimeGenericBackendCreateApi runtime_generic_backend_create_api{ GetProcessHeap, HeapAlloc, HeapFree, WaitForSingleObject, ReleaseMutex };
 inline RuntimeGenericChildCreateApi runtime_generic_child_create_api{ acquire_runtime_generic_backend, find_runtime_generic_text_entry, parse_runtime_generic_integer, GetProcessHeap, HeapAlloc,
@@ -666,11 +591,11 @@ inline uint32_t &runtime_state_1000_count = runtime_display_context.nested_runti
 inline uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
 inline FramebufferInvalidateApi framebuffer_invalidate_api{ acquire_display_lock, dispatch_display_scene_update, release_display_lock };
 inline ClearRuntimeDisplayApi clear_runtime_display_api{ acquire_display_lock, set_display_clip_rectangle, operate_display_surface, release_display_lock, update_display_root_region };
-inline GraphicsHostApi graphics_host_api{ GdiSetBatchLimit, initialize_runtime_media_backend, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate, LoadCursorA,
-    RegisterClassA, CreateWindowExA, GetCursorPos, ScreenToClient, initialize_display_mode_host, set_script_runtime_root_if_valid, get_or_create_runtime_named_node, set_runtime_named_node_enabled,
+inline GraphicsHostApi graphics_host_api{ initialize_runtime_media_backend, initialize_async_file_subsystem, initialize_runtime_generic_backend, HeapCreate, LoadCursorA, RegisterClassA,
+    CreateWindowExA, GetCursorPos, ScreenToClient, initialize_sdl_presenter, set_script_runtime_root_if_valid, get_or_create_runtime_named_node, set_runtime_named_node_enabled,
     InitializeCriticalSection, ShowWindow };
 inline GraphicsHostShutdownApi graphics_host_shutdown_api{ shutdown_runtime_display, shutdown_runtime_generic_backend, shutdown_async_file_subsystem, shutdown_runtime_media_backend,
-    shutdown_display_mode_host, DeleteCriticalSection, HeapDestroy, DestroyWindow };
+    shutdown_sdl_presenter, DeleteCriticalSection, HeapDestroy, DestroyWindow };
 inline void initialize_linked_xtet(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name)
 {
     xtet::initialize_game(reinterpret_cast<xtet::GameHostContext *>(context), callbacks, sfs_name);
@@ -681,9 +606,8 @@ inline RuntimeGameLifecycleApi runtime_game_lifecycle_api{ EnterCriticalSection,
 inline RuntimeGameIntegrationApi runtime_game_integration_api{ initialize_linked_xtet, xtet::dispatch_game_window_message, xtet::execute_game_command, xtet::shutdown_game };
 inline RuntimeGameDllDispatchApi runtime_game_dll_dispatch_api{ runtime_milliseconds, Sleep };
 inline HWND &runtime_game_main_window = runtime_display_context.window;
-inline RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, GetUpdateRect, BeginPaint, queue_display_rectangle, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte,
-    enqueue_runtime_pair, enqueue_runtime_message, clear_runtime_flag_01000000, unload_runtime_game_dll, enter_runtime_state_1000, leave_runtime_state_1000, set_runtime_flag_01000000, TrackMouseEvent,
-    SetCursor, DefWindowProcA };
+inline RuntimeGameWindowApi runtime_game_window_api{ SendMessageA, BeginPaint, EndPaint, update_runtime_pointer_position, enqueue_runtime_byte, enqueue_runtime_pair, enqueue_runtime_message,
+    clear_runtime_flag_01000000, unload_runtime_game_dll, enter_runtime_state_1000, leave_runtime_state_1000, set_runtime_flag_01000000, TrackMouseEvent, SetCursor, DefWindowProcA };
 inline RuntimePointerPositionApi runtime_pointer_position_api{ GetCurrentThreadId, EnterCriticalSection, find_runtime_named_child, LeaveCriticalSection, Sleep, offset_display_scene_node };
 inline int32_t &runtime_pointer_x = runtime_display_context.scene_x;
 inline int32_t &runtime_pointer_y = runtime_display_context.scene_y;
@@ -710,7 +634,7 @@ inline uint32_t load_preferences_for_validation(ApplicationState *state)
     return load_local_preferences(state);
 }
 
-inline ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, CreateICA, GetDeviceCaps, DeleteDC, load_preferences_for_validation, detect_alternate_display_mode };
+inline ValidationApi validation_api{ FindWindowA, MessageBoxA, FindFirstFileA, FindClose, load_preferences_for_validation, enable_borderless_fullscreen };
 inline WindowClassApi window_class_api{ CreateSolidBrush, LoadIconA, LoadCursorA, RegisterClassExA, MessageBoxA, gag_main_window_procedure, gag_capture_window_procedure };
 
 inline WindowProcedureApi window_procedure_api{ GetWindowLongPtrA, SetWindowLongPtrA, PostMessageA, GetSystemMenu, DeleteMenu, CreateMenu, CreatePopupMenu, AppendMenuA, CheckMenuItem, EnableMenuItem,
@@ -812,37 +736,9 @@ inline void draw_runtime_bounds(RuntimeCommandBounds *bounds, int mode)
     synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), static_cast<uint32_t>(mode));
 }
 
-// Calls IDirectDrawSurface::Unlock through the legacy DirectDraw interface.
-inline void release_display_backend_target(void *surface, void *pixels)
-{
-    using Unlock = HRESULT(WINAPI *)(void *, void *);
-    auto **vtable = *static_cast<void ***>(surface);
-    reinterpret_cast<Unlock>(vtable[0x80 / sizeof(uint32_t)])(surface, pixels);
-}
-
-inline void enter_display_host_lock()
-{
-    EnterCriticalSection(&display_host_critical_section);
-}
-
-inline void leave_display_host_lock()
-{
-    LeaveCriticalSection(&display_host_critical_section);
-}
-
 inline void present_runtime_message_target()
 {
     release_display_lock();
-}
-
-inline HWND get_display_palette_window()
-{
-    return display_palette_window;
-}
-
-inline void present_display_palette(int32_t width, int32_t height, int mode)
-{
-    operate_display_surface(0, 0, width, height, mode);
 }
 
 inline CursorVisibilityApi cursor_visibility_api{ ShowCursor, leave_runtime_state_1000, enter_runtime_state_1000 };
@@ -865,106 +761,11 @@ inline RuntimeMessageProcessorApi runtime_message_processor_api{ dequeue_runtime
 inline RuntimeTargetUpdateApi runtime_target_update_api{ draw_runtime_bounds, begin_runtime_target_from_bounds_fields, end_display_target };
 inline DisplayLockReleaseApi display_lock_release_api{ GetCurrentThreadId, SetEvent };
 inline DisplayLockAcquireApi display_lock_acquire_api{ GetCurrentThreadId, WaitForSingleObject, Sleep, EnterCriticalSection, LeaveCriticalSection, ResetEvent };
-inline DisplayTargetApi display_target_api{ release_display_backend_target };
 inline DisplaySceneMemoryApi display_scene_memory_api{ GetProcessHeap, HeapAlloc, HeapFree };
 inline DisplaySceneHostApi display_scene_host_api{ InitializeCriticalSection, DeleteCriticalSection, CreateEventA, CloseHandle, CreateThread, WaitForSingleObject };
 inline DisplaySceneWorkerApi display_scene_worker_api{ runtime_milliseconds, Sleep, acquire_display_lock, synchronize_display_scene_node, publish_display_scene_node, release_display_lock_mode_1000,
     release_display_lock };
 inline const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
-inline DisplayPaletteApi display_palette_api{ enter_display_host_lock, leave_display_host_lock, get_display_palette_window, GetForegroundWindow, GetWindowThreadProcessId, UnrealizeObject,
-    SelectPalette, AnimatePalette, SetPaletteEntries, RealizePalette, SetDIBColorTable, present_display_palette };
-inline DisplayPaletteTeardownApi display_palette_teardown_api{ Sleep, SelectPalette, SelectObject, DeleteObject, DeleteDC, ReleaseDC };
-
-// Calls IDirectDraw::SetCooperativeLevel through the legacy DirectDraw interface.
-inline HRESULT WINAPI set_direct_draw_cooperative_level(void *display, HWND window, DWORD flags)
-{
-    using SetCooperativeLevel = HRESULT(WINAPI *)(void *, HWND, DWORD);
-    auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<SetCooperativeLevel>(vtable[0x50 / sizeof(uint32_t)])(display, window, flags);
-}
-
-inline DisplayCooperativeLevelApi display_cooperative_level_api{ GetWindowLongA, GetParent, set_direct_draw_cooperative_level };
-
-// Calls IDirectDraw::EnumDisplayModes through the legacy DirectDraw interface.
-inline HRESULT WINAPI enumerate_direct_draw_modes(void *display, DirectDrawModeCallback callback)
-{
-    using EnumerateModes = HRESULT(WINAPI *)(void *, DWORD, void *, void *, DirectDrawModeCallback);
-    auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<EnumerateModes>(vtable[0x20 / sizeof(uint32_t)])(display, 0, nullptr, nullptr, callback);
-}
-
-inline DisplayBootstrapApi display_bootstrap_api{ GetVersionExA, LoadLibraryA, GetProcAddress, GetProcessHeap, HeapAlloc, HeapFree, set_display_cooperative_mode, enumerate_direct_draw_modes };
-
-inline DisplayHostInitializationApi display_host_initialization_api{ InitializeCriticalSection, DeleteCriticalSection, enumerate_windows_display_modes, initialize_direct_draw_runtime,
-    enumerate_direct_draw_display_modes, find_current_display_mode };
-inline WindowsDisplayEnumerationApi windows_display_enumeration_api{ GetDC, EnumDisplaySettingsA, ChangeDisplaySettingsA, GetProcessHeap, HeapAlloc, HeapFree, CreateDIBSection, DeleteObject,
-    ReleaseDC };
-
-inline HRESULT WINAPI direct_draw_blt_fast(void *surface, DWORD x, DWORD y, void *source, RECT *source_rectangle, DWORD flags)
-{
-    using BltFast = HRESULT(WINAPI *)(void *, DWORD, DWORD, void *, RECT *, DWORD);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<BltFast>(vtable[0x1c / sizeof(uint32_t)])(surface, x, y, source, source_rectangle, flags);
-}
-
-inline HRESULT WINAPI direct_draw_blt(void *surface, RECT *destination_rectangle, void *source, RECT *source_rectangle, DWORD flags, void *effects)
-{
-    using Blt = HRESULT(WINAPI *)(void *, RECT *, void *, RECT *, DWORD, void *);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Blt>(vtable[0x14 / sizeof(uint32_t)])(surface, destination_rectangle, source, source_rectangle, flags, effects);
-}
-
-inline HRESULT WINAPI is_direct_draw_surface_lost(void *surface)
-{
-    using IsLost = HRESULT(WINAPI *)(void *);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<IsLost>(vtable[0x60 / sizeof(uint32_t)])(surface);
-}
-
-inline HRESULT WINAPI restore_direct_draw_surface(void *surface)
-{
-    using Restore = HRESULT(WINAPI *)(void *);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Restore>(vtable[0x6c / sizeof(uint32_t)])(surface);
-}
-
-inline HRESULT WINAPI lock_direct_draw_surface(void *surface, RECT *rectangle, LegacyDirectDrawSurfaceDescriptor *descriptor, DWORD flags, HANDLE event)
-{
-    using Lock = HRESULT(WINAPI *)(void *, RECT *, LegacyDirectDrawSurfaceDescriptor *, DWORD, HANDLE);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Lock>(vtable[0x64 / sizeof(uint32_t)])(surface, rectangle, descriptor, flags, event);
-}
-
-inline DisplaySurfaceOperationApi display_surface_operation_api{ Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
-inline DisplayRegionSynchronizationApi display_region_synchronization_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, direct_draw_blt_fast, direct_draw_blt, BitBlt, StretchBlt, PatBlt };
-inline DisplayTargetBeginApi display_target_begin_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, is_direct_draw_surface_lost, restore_direct_draw_surface, lock_direct_draw_surface };
-inline DisplayModeHostShutdownApi display_mode_host_shutdown_api{ EnterCriticalSection, LeaveCriticalSection, Sleep, teardown_display_palette_surface, GetProcessHeap, HeapFree,
-    DeleteCriticalSection };
-
-inline HRESULT WINAPI create_direct_draw_surface(void *display, LegacyDirectDrawSurfaceDescriptor *descriptor, void **surface, void *outer)
-{
-    using CreateSurface = HRESULT(WINAPI *)(void *, LegacyDirectDrawSurfaceDescriptor *, void **, void *);
-    auto **vtable = *static_cast<void ***>(display);
-    return reinterpret_cast<CreateSurface>(vtable[0x18 / sizeof(uint32_t)])(display, descriptor, surface, outer);
-}
-
-inline HRESULT WINAPI get_direct_draw_attached_surface(void *surface, uint32_t *caps, void **attached_surface)
-{
-    using GetAttachedSurface = HRESULT(WINAPI *)(void *, uint32_t *, void **);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<GetAttachedSurface>(vtable[0x30 / sizeof(uint32_t)])(surface, caps, attached_surface);
-}
-
-inline ULONG WINAPI release_direct_draw_surface(void *surface)
-{
-    using Release = ULONG(WINAPI *)(void *);
-    auto **vtable = *static_cast<void ***>(surface);
-    return reinterpret_cast<Release>(vtable[0x08 / sizeof(uint32_t)])(surface);
-}
-
-inline DisplaySurfaceCreationApi display_surface_creation_api{ Sleep, teardown_display_palette_surface, set_display_cooperative_mode, create_direct_draw_surface, get_direct_draw_attached_surface,
-    release_direct_draw_surface, GetDC, CreateCompatibleDC, ReleaseDC, DeleteDC, GetProcessHeap, HeapAlloc, HeapFree, CreatePalette, SelectPalette, DeleteObject, CreateDIBSection, SelectObject,
-    SetPaletteEntries, RealizePalette, SetDIBColorTable, SetStretchBltMode };
 inline WindowLayoutApi window_layout_api{ GetSystemMetrics, AdjustWindowRect, SetWindowLongA, SetWindowPos, GetClientRect, SetFocus, SendMessageA, GetWindowRect, MonitorFromWindow, GetMonitorInfoA,
     InvalidateRect };
 

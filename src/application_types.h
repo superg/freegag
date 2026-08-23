@@ -8,12 +8,9 @@
 namespace gag
 {
 
-struct DisplayMode;
 struct CdfArchive;
 struct AsyncFileHost;
 struct AsyncFileRecord;
-struct LegacyDisplayPixelFormat;
-struct LegacyDirectDrawSurfaceDescriptor;
 struct SecondaryWindowLayout;
 struct ScriptRuntimeRoot;
 struct RuntimeGameHostContext;
@@ -51,17 +48,6 @@ struct DisplaySceneDescriptor
     intptr_t pixels;
 };
 
-struct RuntimePresentationTarget
-{
-    HWND window;
-    HDC destination_context;
-    uint32_t bits_per_pixel;
-    HPALETTE palette;
-    uint32_t field_0944;
-    HDC source_context;
-    uint32_t tail[4];
-};
-
 struct ApplicationState
 {
     HINSTANCE instance;
@@ -92,10 +78,6 @@ struct ApplicationState
     int32_t window_top_adjustment;
     RECT desktop_window_rect;
     uint32_t flags;
-    int32_t display_bits_per_pixel;
-    int32_t display_width;
-    int32_t display_height;
-    DisplayMode *display_mode_iterator;
 };
 
 
@@ -105,11 +87,8 @@ struct ValidationApi
     int(WINAPI *message_box)(HWND window, LPCSTR text, LPCSTR caption, UINT type);
     HANDLE(WINAPI *find_first_file)(LPCSTR path, LPWIN32_FIND_DATAA find_data);
     BOOL(WINAPI *find_close)(HANDLE find);
-    HDC(WINAPI *create_information_context)(LPCSTR driver, LPCSTR device, LPCSTR output, const DEVMODEA *mode);
-    int(WINAPI *get_device_caps)(HDC context, int index);
-    BOOL(WINAPI *delete_context)(HDC context);
     uint32_t (*load_preferences)(ApplicationState *state);
-    uint32_t (*detect_alternate_mode)(ApplicationState *state);
+    uint32_t (*enable_borderless_fullscreen)(ApplicationState *state);
 };
 
 
@@ -139,7 +118,6 @@ struct RuntimeNamedNode;
 
 struct GraphicsHostApi
 {
-    DWORD(WINAPI *gdi_set_batch_limit)(DWORD limit);
     uint32_t (*initialize_media)();
     uint32_t (*initialize_async)();
     uint32_t (*initialize_generic)();
@@ -165,7 +143,7 @@ struct GraphicsHostShutdownApi
     uint32_t (*shutdown_generic_backend)();
     uint32_t (*shutdown_async_files)();
     uint32_t (*shutdown_media_backend)();
-    void (*shutdown_display_modes)();
+    void (*shutdown_presenter)();
     void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION section);
     BOOL(WINAPI *heap_destroy)(HANDLE heap);
     BOOL(WINAPI *destroy_window)(HWND window);
@@ -175,12 +153,7 @@ struct GraphicsHostShutdownApi
 
 struct RuntimeBootstrapApi
 {
-    DisplayMode *(*find_current_mode)();
-    void *(*create_surface)(int32_t width, int32_t height, const LegacyDisplayPixelFormat *format, uint32_t options);
-    HDC (*get_palette_dc)();
-    HDC (*get_palette_dib_dc)();
-    HPALETTE (*get_palette_handle)();
-    HBITMAP (*get_palette_bitmap)();
+    void *(*create_surface)(int32_t width, int32_t height);
     PALETTEENTRY *(*get_palette_entries)();
     uint32_t *(*initialize_scene_host)(intptr_t primary_position, const DisplayPixelFormatDescriptor *format, int32_t width, int32_t height,
         int (*synchronize)(void *context, void *payload, uint32_t mode), void *context, uint32_t worker_interval);
@@ -239,7 +212,7 @@ struct ApplicationInitializationApi
     BOOL(WINAPI *set_window_position)(HWND window, HWND insert_after, int x, int y, int width, int height, UINT flags);
     BOOL(WINAPI *get_client_rect)(HWND window, LPRECT rectangle);
     GraphicsHostInitializationResult *(*initialize_graphics_host)(HINSTANCE instance, HWND window, int x, int y, int16_t width, uint16_t height, uint32_t flags);
-    GraphicsHostInitializationResult *(*initialize_runtime)(const LegacyDisplayPixelFormat *format);
+    GraphicsHostInitializationResult *(*initialize_runtime)();
     void (*update_window_layout)(ApplicationState *state, SecondaryWindowLayout *secondary_layout);
     void (*enable_runtime)();
     void (*set_active_object_field)(uint32_t value);

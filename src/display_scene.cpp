@@ -2399,22 +2399,4 @@ bool contains_display_scene_node(intptr_t identifier)
     return found;
 }
 
-uint32_t end_display_target()
-{
-    uint32_t result = 0x200000;
-    if((display_palette_flags & 0x40000000) != 0)
-    {
-        if((display_palette_flags & 0x100002) != 0)
-        {
-            display_palette_flags &= 0xbfffffff;
-            return 0;
-        }
-        result = 0;
-        display_target_api.release_backend_target(display_backend, display_backend_target);
-        display_palette_flags &= 0xbfffffff;
-    }
-    return result;
-}
-
-
 } // namespace gag

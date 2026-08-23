@@ -1,4 +1,5 @@
 #include "startup.h"
+#include <SDL3/SDL.h>
 #include "runtime_internal.h"
 
 namespace gag
@@ -9,7 +10,7 @@ int run_startup(int argc, char *argv[])
     ApplicationState *state = initialize_gag_application(640, 480, GetModuleHandleA(nullptr), has_xtet_argument(argc, argv), SW_SHOWDEFAULT);
     if(state == nullptr)
     {
-        return 0;
+        return 1;
     }
 
     set_runtime_flag_40();
@@ -21,6 +22,7 @@ int run_startup(int argc, char *argv[])
         GetMessageA(&message, nullptr, 0, 0);
         TranslateMessage(&message);
         DispatchMessageA(&message);
+        SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
     } while(message.message != WM_QUIT);
 
     if((state->flags & 0x2000) != 0)
