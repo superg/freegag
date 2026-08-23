@@ -28,6 +28,7 @@ struct RuntimeSoundSegment
     const uint8_t *data;
     uint32_t size;
     uint32_t offset;
+    uint32_t schedule_offset;
 };
 
 struct RuntimeSoundSlot
@@ -120,6 +121,11 @@ bool runtime_sound_slot_should_advance(const RuntimeSoundSlot &slot)
     return slot.control_state == 0 || ((slot.transition_flags & 2) != 0 && slot.gain > 0.0f);
 }
 
+uint32_t runtime_sound_schedule_block_size(const RuntimeSoundSlot &slot)
+{
+    return slot.format.block_alignment * (slot.format.samples_per_second / 11000) * 0x800;
+}
+
 void complete_runtime_sound_segment(RuntimeSoundSlot &slot, uint32_t marker)
 {
     RuntimeSoundSegment &segment = slot.segments.front();
@@ -151,11 +157,24 @@ void consume_runtime_sound_bytes(RuntimeSoundSlot &slot, size_t requested_bytes,
     while(slot.transfer_buffer.size() < requested_bytes && !slot.segments.empty() && runtime_sound_slot_should_advance(slot))
     {
         RuntimeSoundSegment &segment = slot.segments.front();
+        const uint32_t schedule_block_size = runtime_sound_schedule_block_size(slot);
+        if(slot.schedule_marker == 0 && (segment.offset == schedule_block_size || segment.schedule_offset == schedule_block_size))
+        {
+            slot.schedule_marker = marker;
+        }
         const size_t remaining = segment.size - segment.offset;
         const size_t wanted = requested_bytes - slot.transfer_buffer.size();
-        const size_t copied = (std::min)(remaining, wanted);
+        size_t copied = (std::min)(remaining, wanted);
+        if(slot.schedule_marker == 0 && segment.schedule_offset < schedule_block_size)
+        {
+            copied = (std::min)(copied, static_cast<size_t>(schedule_block_size - segment.schedule_offset));
+        }
         slot.transfer_buffer.insert(slot.transfer_buffer.end(), segment.data + segment.offset, segment.data + segment.offset + copied);
         segment.offset += static_cast<uint32_t>(copied);
+        if(segment.schedule_offset <= schedule_block_size)
+        {
+            segment.schedule_offset += static_cast<uint32_t>(copied);
+        }
         if(segment.offset == segment.size)
         {
             complete_runtime_sound_segment(slot, marker);
@@ -166,10 +185,6 @@ void consume_runtime_sound_bytes(RuntimeSoundSlot &slot, size_t requested_bytes,
     {
         slot.partial_frame.assign(slot.transfer_buffer.begin() + complete_bytes, slot.transfer_buffer.end());
         slot.transfer_buffer.resize(complete_bytes);
-    }
-    if(!slot.transfer_buffer.empty() && slot.schedule_marker == 0)
-    {
-        slot.schedule_marker = marker;
     }
 }
 
@@ -564,7 +579,7 @@ void replace_runtime_sound_segments(const std::shared_ptr<RuntimeSoundSlot> &slo
         std::lock_guard lock(slot->mutex);
         slot->segments.clear();
         slot->partial_frame.clear();
-        slot->segments.push_back({ data, size, 0 });
+        slot->segments.push_back({ data, size, 0, 0 });
         slot->playback_marker = 0;
         slot->schedule_marker = 0;
     }
@@ -676,7 +691,7 @@ uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, in
         {
             return 0;
         }
-        slot->segments.push_back({ static_cast<const uint8_t *>(data), size, 0 });
+        slot->segments.push_back({ static_cast<const uint8_t *>(data), size, 0, 0 });
         slot->playback_marker = 0;
     }
     runtime_sound_worker_condition.notify_all();
@@ -704,6 +719,10 @@ uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing)
                 slot->schedule_marker = 0;
             }
             slot->control_state = 1;
+            if(!slot->segments.empty())
+            {
+                slot->segments.front().schedule_offset = 0;
+            }
             if((slot->transition_flags & 2) == 0 && slot->playback_marker == 0)
             {
                 slot->playback_marker = runtime_milliseconds();
@@ -823,7 +842,7 @@ uint32_t restart_runtime_sound_data(uint32_t handle)
     }
     {
         std::lock_guard lock(slot->mutex);
-        const RuntimeSoundSegment segment{ slot->segments.front().data, slot->segments.front().size, 0 };
+        const RuntimeSoundSegment segment{ slot->segments.front().data, slot->segments.front().size, 0, 0 };
         slot->segments.clear();
         slot->segments.push_back(segment);
         slot->partial_frame.clear();

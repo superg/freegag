@@ -928,6 +928,8 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
             {
                 runtime_animation_audio_api.set_schedule_marker(backend.sound_handle, 0);
                 runtime_animation_audio_api.set_playback_marker(backend.sound_handle, 0);
+                sound_status.schedule_marker = 0;
+                sound_status.playback_marker = 0;
                 backend.media_flags |= 0x400000;
                 const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
                 bool available = true;
