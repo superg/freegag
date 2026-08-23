@@ -62,14 +62,15 @@ struct GameState
 // Declared before g_game so it remains alive while GameWorker is stopped during process shutdown.
 std::recursive_mutex g_mutex;
 GameState g_game;
+xtet::HostEventCallback g_host_event_callback{};
 
 void present_dirty_region(const xtet::FigurineRenderRegion &region);
 bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first = nullptr, const xtet::FallingFigurine *excluded_second = nullptr);
 
 void send_result()
 {
-    const xtet::GameResultDescriptor descriptor{ 2, 0, sizeof(g_game.result), &g_game.result };
-    SendMessageA(g_game.window, xtet::kGameMessage, (WPARAM)&descriptor, 0x40);
+    if(g_host_event_callback != nullptr)
+        g_host_event_callback(xtet::HostEventType::result, 2, &g_game.result, sizeof(g_game.result));
 }
 
 [[noreturn]] void throw_initialization_error(const std::string &message)
@@ -104,7 +105,8 @@ void post_game_result(uint32_t score)
 
 void post_game_termination()
 {
-    PostMessageA(g_game.window, xtet::kGameMessage, 0, 0);
+    if(g_host_event_callback != nullptr)
+        g_host_event_callback(xtet::HostEventType::terminate, 0, nullptr, 0);
 }
 
 bool get_framebuffer(xtet::XrgbFramebuffer &framebuffer)
@@ -397,7 +399,7 @@ void report_worker_failure()
     g_game.initialized = false;
     g_game.audio.setLoopPlaying(false);
     send_result();
-    PostMessageA(g_game.window, xtet::kGameMessage, 0, 1);
+    post_game_termination();
 }
 
 bool initialize_worker()
@@ -536,7 +538,8 @@ void handle_mouse_button(bool pressed)
             if(!present_control_overlay(3, false))
                 throw std::runtime_error("XTET pause button release failed");
             g_game.worker.setEnabled(true);
-            PostMessageA(g_game.window, xtet::kGameMessage, 0, 0x20);
+            if(g_host_event_callback != nullptr)
+                g_host_event_callback(xtet::HostEventType::resume, 0, nullptr, 0);
         }
         else if(button == 7)
             dispatch_key_down(0x1b);
@@ -562,7 +565,8 @@ void handle_mouse_button(bool pressed)
             g_game.worker.setEnabled(false);
             if(!present_control_overlay(3, true))
                 throw std::runtime_error("XTET pause button press failed");
-            PostMessageA(g_game.window, xtet::kGameMessage, 0, 0x10);
+            if(g_host_event_callback != nullptr)
+                g_host_event_callback(xtet::HostEventType::pause, 0, nullptr, 0);
         }
         break;
     case 4:
@@ -653,6 +657,11 @@ uint32_t xtet::dispatch_game_window_message(HWND, UINT message, WPARAM wparam, L
     return xtet::dispatch_game_window_message(g_game.gameplay_runtime.progress().gameplay_state, message, (uint32_t)wparam, callbacks);
 }
 
+void xtet::set_host_event_callback(HostEventCallback callback)
+{
+    g_host_event_callback = callback;
+}
+
 void xtet::execute_game_command(uint32_t command)
 {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
@@ -716,4 +725,5 @@ void xtet::shutdown_game()
     g_game.window = nullptr;
     g_game.result = 0;
     g_game.level_effect_active = false;
+    g_host_event_callback = nullptr;
 }

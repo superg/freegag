@@ -61,7 +61,6 @@ struct RuntimeResourceTypeApi
     HANDLE (*open_file)(const char *path);
     BOOL(WINAPI *read_file)(HANDLE file, LPVOID buffer, DWORD bytes, LPDWORD bytes_read, LPOVERLAPPED overlapped);
     BOOL(WINAPI *close_handle)(HANDLE handle);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     uint8_t (*get_archive_flags)(CdfArchive *archive, const char *name);
 };
 
@@ -87,7 +86,6 @@ struct ArchiveCommentEnumerationApi
     uint32_t (*get_entry_size)(CdfArchive *archive, uint8_t selector, const char *name);
     int (*read_entry)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
     uint32_t (*close_archive)(CdfArchive *archive);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     BOOL(WINAPI *delete_file)(LPCSTR path);
 };
 
@@ -108,7 +106,6 @@ struct RuntimeResourceLoadApi
     void (*reset_byte_queue)();
     void (*reset_pair_queue)();
     RuntimeResourceCacheEntry *(*get_or_create_cache_entry)(void *parent_identity, const char *name);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     uint8_t (*get_archive_flags)(CdfArchive *archive, const char *name);
     uint32_t (*get_archive_size)(CdfArchive *archive, uint8_t selector, const char *name);
     void *(*open_archive_stream)(CdfArchive *archive, const char *name);
@@ -594,7 +591,6 @@ struct RuntimeTreeDestructionApi
 {
     RuntimeTreeNode *(*resolve_tree)(void *identity);
     void (*set_resource_state)(void *identity, uint32_t state);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     uint32_t (*stop_game_dll)();
     void (*reset_display_state)();
     void *(*find_primary_tail)(void *identity);
@@ -733,7 +729,6 @@ struct RuntimePointerResourceRebuildApi
     RuntimeResourceConstructor construct_resource;
     void (*update_position)(void *identity, int32_t x, int32_t y);
     void (*set_comment_mode)(RuntimeTreeNode *root, int enabled);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     void (*wait_for_count)(uint32_t count);
 };
 
@@ -753,7 +748,6 @@ struct RuntimeTreeResourceRebuildApi
     void (*reset_pair_queue)();
     void (*reset_transient_indices)();
     void (*set_resource_state)(void *identity, uint32_t state);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 };
 
 struct RuntimeGenericChildAttachmentApi
@@ -792,7 +786,6 @@ struct RuntimeCommentTreeCleanupApi
 struct RuntimeTreeDeactivateApi
 {
     RuntimeTreeNode *(*resolve_identity)(void *identity);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     void (*request_resource_destruction)(void *identity);
     BOOL (*remove_visual_object)(void *identity);
     void (*set_script_flags)(uint32_t flags, int enabled);

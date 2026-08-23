@@ -10,9 +10,18 @@ namespace xtet
 
 struct PcmFormat;
 
-constexpr UINT kGameMessage = 0x7ffc;
 constexpr uint32_t kDispatchBusy = 0x20000;
 constexpr size_t kCallbackCount = 35;
+
+enum class HostEventType
+{
+    terminate,
+    pause,
+    resume,
+    result
+};
+
+using HostEventCallback = void (*)(HostEventType type, uint32_t result_type, const void *data, uint32_t size);
 
 struct GameHostContext
 {
@@ -30,13 +39,6 @@ struct GameHostContext
     uint32_t y_offset{};
 };
 
-struct GameResultDescriptor
-{
-    uint32_t type;
-    uint32_t reserved;
-    uint32_t size;
-    const void *data;
-};
 using DirtyRegionCallback = void (*)(int32_t, int32_t, int32_t, int32_t);
 using SoundCreateCallback = uint32_t (*)(const PcmFormat *);
 using SoundDestroyCallback = void (*)(uint32_t);
@@ -44,6 +46,7 @@ using SoundQueueCallback = uint32_t (*)(uint32_t, const void *, uint32_t, int32_
 using SoundControlCallback = uint32_t (*)(uint32_t, int32_t);
 
 void initialize_game(GameHostContext *host_context, void **callback_table, const char *sfs_name);
+void set_host_event_callback(HostEventCallback callback);
 uint32_t dispatch_game_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 void execute_game_command(uint32_t command);
 void shutdown_game();

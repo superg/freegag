@@ -1,5 +1,6 @@
 #include "resource.h"
 #include <cstring>
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
@@ -542,7 +543,11 @@ void select_runtime_resource(char *path)
     runtime_resource_selection_api.leave_critical_section(&runtime_resource_critical_section);
     if(path != nullptr)
     {
-        runtime_resource_selection_api.send_message(reinterpret_cast<HWND>(graphics_host_state.message_window), 0x7ffd, 0xa0000000, reinterpret_cast<LPARAM>(path));
+        HostEventResult event_result = send_application_event(HostApplicationCommand::validate_resource_path, std::string(path));
+        if(const auto *validated_path = std::get_if<std::string>(&event_result))
+        {
+            copy_string(path, validated_path->c_str());
+        }
         runtime_resource_selection_api.construct_resource(path, 0, 0, 0, 0, 0, 0, 0x200);
     }
 }
@@ -665,13 +670,8 @@ void destroy_runtime_tree_resources(void *identity)
     if(root->identity == runtime_pointer_root_identity)
     {
         runtime_tree_destruction_api.set_resource_state(current_runtime_resource, 1);
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
         runtime_tree_destruction_api.stop_game_dll();
         runtime_tree_destruction_api.reset_display_state();
-    }
-    else
-    {
-        runtime_tree_destruction_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x50000000, reinterpret_cast<LPARAM>(root));
     }
 
     auto *primary_tail = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_tree_destruction_api.find_primary_tail(identity));
@@ -1829,7 +1829,7 @@ uint32_t detect_runtime_resource_type(const char *path)
             HANDLE file = runtime_resource_type_api.open_file(full_path);
             if(file == nullptr)
             {
-                retry = runtime_resource_type_api.send_message(runtime_resource_notification_window, 0x7ffd, 0x03000000, reinterpret_cast<LPARAM>(full_path));
+                retry = 0;
             }
             else
             {
@@ -1950,7 +1950,7 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
             AsyncFileRecord *record = runtime_resource_load_api.open_async_record(runtime_resource_host, full_path, 0, 0, 0);
             if(record == nullptr)
             {
-                retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0x03000000, reinterpret_cast<LPARAM>(full_path));
+                retry = 0;
             }
             else
             {
@@ -1968,7 +1968,8 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
                             void *failed_data = resource_data;
                             resource_data = nullptr;
                             runtime_resource_load_api.heap_free(runtime_resource_heap, 0, failed_data);
-                            retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0xc0000000, reinterpret_cast<LPARAM>(full_path));
+                            send_application_event(HostApplicationCommand::storage_failure, std::string(full_path));
+                            retry = 0;
                         }
                         else
                         {
@@ -2054,7 +2055,8 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
                     {
                         resource_size = 0;
                         runtime_resource_load_api.heap_free(runtime_resource_heap, 0, resource_data);
-                        retry = runtime_resource_load_api.send_message(runtime_resource_notification_window, 0x7ffd, 0xc0000000, reinterpret_cast<LPARAM>(path));
+                        send_application_event(HostApplicationCommand::storage_failure, std::string(path));
+                        retry = 0;
                         resource_data = nullptr;
                     }
                     else

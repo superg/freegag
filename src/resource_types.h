@@ -122,7 +122,6 @@ struct RuntimeResourceSelectionApi
     void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
     uint32_t (*close_archive)(CdfArchive *archive);
     void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     RuntimeResourceConstructor construct_resource;
 };
 
@@ -147,15 +146,6 @@ struct RuntimeGameHostContext
 using RuntimeGameDllInitialize = void (*)(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name);
 using RuntimeGameDllExecute = void (*)(uint32_t command);
 using RuntimeGameDllWindowProcedure = uint32_t (*)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-
-struct RuntimeGameResultDescriptor
-{
-    uint32_t type;
-    uint32_t reserved;
-    uint32_t size;
-    const void *data;
-};
-
 
 struct RuntimeGameLifecycleApi
 {

@@ -1,8 +1,243 @@
 #include "application.h"
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
 {
+namespace
+{
+constexpr UINT host_event_wake_message = WM_APP + 0x41;
+
+bool wake_host_event_loop(void *context)
+{
+    return PostMessageA(static_cast<HWND>(context), host_event_wake_message, 0, 0) != FALSE;
+}
+
+HostEventResult handle_application_host_event(const HostApplicationEvent &event, HostEventCompletion *completion, ApplicationState *state)
+{
+    RuntimeTreeNode *tree = nullptr;
+    const HostStateFieldQuery *query = nullptr;
+    if(const auto *value = std::get_if<RuntimeTreeNode *>(&event.payload))
+    {
+        tree = *value;
+    }
+    else
+    {
+        query = std::get_if<HostStateFieldQuery>(&event.payload);
+    }
+
+    uint32_t value;
+    if(handle_scripted_save_load_message(event.command, state))
+    {
+        return uint32_t{};
+    }
+    switch(event.command)
+    {
+    case 1:
+        set_application_inactive_flags(state);
+        break;
+    case 0x3ea:
+        if(query != nullptr)
+        {
+            value = (state->saved_flags & 0x100000) != 0 ? 0x3000000 : 0x7000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+        }
+        break;
+    case 0x3eb:
+    case 0x3ec:
+    case 0x3ed:
+        if(query != nullptr)
+        {
+            const uint32_t mask = event.command == 0x3eb ? 0x800000 : (event.command == 0x3ec ? 0x200000 : 0x400000);
+            value = (state->saved_flags & mask) != 0 ? 0x3000000 : 0x7000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+        }
+        break;
+    case 0x3f2:
+        if((state->flags & 0x4000) != 0 && query != nullptr)
+        {
+            value = (state->flags & 0x20) != 0 ? 0x3000000 : 0x7000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+        }
+        break;
+    case 0x3fc:
+    case 0x406:
+        if(query != nullptr)
+        {
+            const uint32_t mask = event.command == 0x3fc ? 0x1000 : 0x02000000;
+            value = (state->flags & mask) != 0 ? 0x3000000 : 0x7000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+        }
+        break;
+    case 0x456:
+        if(query != nullptr)
+        {
+            value = (state->flags & 0x4000) != 0 ? 0x7000000 : 0x3000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+        }
+        break;
+    case 0x7d2:
+    case 0x7d3:
+        request_scripted_save_load_screen(event.command == 0x7d3 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load, state);
+        break;
+    case 0x7d1:
+    case 0x7d4:
+    case 0x7da:
+        acknowledge_host_event(completion, uint32_t{ 1 });
+        if(event.command == 0x7d1)
+            SendMessageA(state->window, WM_COMMAND, 0x8860, 0);
+        else if(event.command == 0x7d4)
+            SendMessageA(state->window, WM_COMMAND, 0x8870, 0);
+        else
+        {
+            SendMessageA(state->window, WM_COMMAND, (state->flags & 0x20) == 0 ? 0x8900 : 0x8910, 0);
+        }
+        break;
+    case 0x7e4:
+        SendMessageA(state->window, WM_COMMAND, 0x8850, 0);
+        break;
+    case 0x7ee:
+        SendMessageA(state->window, WM_COMMAND, 0x8820, 0);
+        break;
+    case 0xbc2:
+        if((state->flags & 0x80000) == 0)
+        {
+            if((state->flags & 0x800000) == 0)
+            {
+                state->saved_memory = capture_game_bitmap(state->game_context, nullptr, 1);
+                state->script_state = reinterpret_cast<uintptr_t>(serialize_current_runtime_state());
+            }
+            state->saved_flags = state->flags;
+            state->flags = (state->flags & 0xfffbffff) | 0x80000;
+        }
+        else
+        {
+            state->saved_flags = (state->saved_flags & 0xffcfffff) | (state->flags & 0x300000);
+        }
+        state->saved_flags &= 0xffbfffff;
+        break;
+    case 0xbcc:
+        if((state->flags & 0x80000) != 0)
+        {
+            if(state->saved_memory != nullptr)
+            {
+                free_heap_memory(state->saved_memory);
+                state->saved_memory = nullptr;
+            }
+            state->flags &= 0xfff7ffff;
+            state->saved_flags = 0;
+        }
+        break;
+    case 0xbd6:
+        if(query != nullptr)
+        {
+            value = (state->flags & 0x40000) != 0 ? 0x3000000 : 0x7000000;
+            resolve_state_field_reference(query->object_name.c_str(), query->field_name.c_str(), &value, 1);
+            state->flags &= 0xfffbffff;
+        }
+        break;
+    case 0x10000000:
+        PostMessageA(state->window, WM_CLOSE, 0, 0);
+        break;
+    case 0x30000000:
+        finish_credits_state(state, tree);
+        break;
+    case 0x40000000:
+        process_state_activation(state, tree);
+        break;
+    case 0x60000000:
+        enter_runtime_state_1000();
+        if((state->flags & 0x10) != 0)
+        {
+            state->flags &= 0xffffffef;
+            save_game_screenshot(state->window, state->game_context);
+            clear_runtime_flag_01000000();
+            clear_application_lock_flag(state);
+        }
+        if((state->flags & 0x40) != 0)
+        {
+            state->flags &= 0xffffffbf;
+            restore_application_display(state);
+            state->flags |= 0x40000;
+        }
+        clear_runtime_command_state();
+        leave_runtime_state_1000();
+        break;
+    case 0x90000000:
+        if((state->flags & 0x200) == 0)
+        {
+            clear_runtime_display();
+            construct_runtime_resource(state->installed_version, 0, 0, 0, 0, 0, 0, 0x200);
+            construct_runtime_resource(state->startup_config, 0, 0, 0, 0, 0, 0, 0);
+            set_script_runtime_flags(1, (state->flags & 0x02000000) == 0);
+            state->flags &= 0xfff7ffff;
+            clear_runtime_command_state();
+            break;
+        }
+        if((state->validation_flags & 0x100) != 0 && state->script_state != 0)
+        {
+            append_string(state->installation_path, auto_save_file_name);
+            const bool saved = write_synchronized_cdf_package(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
+            (void)saved;
+        }
+        save_runtime_settings(state);
+        shutdown_graphics_host();
+        close_host_events();
+        DestroyWindow(state->window);
+        clear_runtime_command_state();
+        break;
+    case 0xa0000000:
+        if(const auto *path = std::get_if<std::string>(&event.payload))
+        {
+            char validated_path[0x104]{};
+            copy_string(validated_path, path->c_str());
+            validate_startup_environment(state, validated_path, 4);
+            return std::string(state->installed_version);
+        }
+        break;
+    case 0xb0000000:
+        if(const auto *path = std::get_if<std::string>(&event.payload))
+        {
+            char file_name[0x104]{};
+            copy_string(file_name, path->c_str());
+            copy_file_name_from_path(file_name, file_name);
+            return std::string(file_name);
+        }
+        break;
+    case 0xc0000000:
+    case 0xd0000000:
+    case 0x04000000:
+        if((state->flags & 0x2000) == 0)
+        {
+            state->flags |= 0x2000;
+            PostMessageA(state->window, WM_CLOSE, 0, 0);
+        }
+        break;
+    default:
+        break;
+    }
+    return uint32_t{};
+}
+
+HostEventResult handle_host_event(const HostEvent &event, HostEventCompletion *completion, void *context)
+{
+    auto *state = static_cast<ApplicationState *>(context);
+    if(const auto *application_event = std::get_if<HostApplicationEvent>(&event))
+    {
+        return handle_application_host_event(*application_event, completion, state);
+    }
+    if(std::holds_alternative<HostPresentPendingFramesEvent>(event))
+    {
+        drain_sdl_presenter_frames();
+    }
+    else if(const auto *xtet_event = std::get_if<HostXtEtEvent>(&event))
+    {
+        handle_runtime_xtet_host_event(*xtet_event);
+    }
+    return {};
+}
+} // namespace
+
 void set_runtime_script_property(uint32_t property, void *, void *value)
 {
     switch(property)
@@ -69,7 +304,7 @@ void set_runtime_script_property(uint32_t property, void *, void *value)
         break;
     case 80:
     case 96:
-        runtime_script_property_set_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0x04000000, 0);
+        send_application_event(HostApplicationCommand::runtime_failure);
         break;
     }
 }
@@ -91,7 +326,11 @@ void get_runtime_script_property(uint32_t property, void **value, void *result)
     {
         char path[260];
         runtime_script_property_get_api.copy_string(path, runtime_graphics_resource_directory);
-        runtime_script_property_get_api.send_message(reinterpret_cast<HWND>(static_cast<uintptr_t>(graphics_host_state.message_window)), 0x7ffd, 0xb0000000, reinterpret_cast<LPARAM>(path));
+        HostEventResult event_result = send_application_event(HostApplicationCommand::extract_file_name, std::string(path));
+        if(const auto *file_name = std::get_if<std::string>(&event_result))
+        {
+            runtime_script_property_get_api.copy_string(path, file_name->c_str());
+        }
         runtime_script_property_get_api.copy_string(static_cast<char *>(result), path);
         break;
     }
@@ -569,6 +808,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     {
         return nullptr;
     }
+    initialize_host_events(wake_host_event_loop, state->window, handle_host_event, state);
     application_initialization_api.show_window(state->window, show_command);
     if((state->flags & 0x80) == 0)
     {
@@ -594,6 +834,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
         application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top, static_cast<int16_t>(width), static_cast<uint16_t>(height), 0x300000);
     if(graphics == nullptr)
     {
+        close_host_events();
         return nullptr;
     }
     state->capture_window = graphics->capture_window;
@@ -601,6 +842,8 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
     application_initialization_api.validate_environment(state, state->executable_directory, 0x200);
     if(application_initialization_api.initialize_runtime() == nullptr)
     {
+        shutdown_graphics_host();
+        close_host_events();
         return nullptr;
     }
 
@@ -786,6 +1029,11 @@ bool register_gag_window_classes(ApplicationState *state)
 LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     auto *state = reinterpret_cast<ApplicationState *>(main_window_procedure_api.get_window_long(window, 0));
+    if(message == host_event_wake_message)
+    {
+        drain_host_events();
+        return 0;
+    }
     if(message == WM_LBUTTONDOWN)
     {
         modern_windows_fullscreen_toggle_latched = false;
@@ -802,6 +1050,7 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
     }
     if(message == WM_DESTROY)
     {
+        close_host_events();
         main_window_procedure_api.post_quit_message(0);
         return 0;
     }
@@ -1045,193 +1294,6 @@ LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wpa
         }
         return 0;
     }
-    else if(message == 0x7ffd)
-    {
-        auto *tree = reinterpret_cast<RuntimeTreeNode *>(lparam);
-        auto *query = reinterpret_cast<ApplicationStateFieldQuery *>(lparam);
-        uint32_t value;
-        if(handle_scripted_save_load_message(wparam, state))
-        {
-            return 0;
-        }
-        switch(static_cast<uint32_t>(wparam))
-        {
-        case 1:
-            set_application_inactive_flags(state);
-            return 0;
-        case 0x3ea:
-            if(query != nullptr)
-            {
-                value = (state->saved_flags & 0x100000) != 0 ? 0x3000000 : 0x7000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-            }
-            return 0;
-        case 0x3eb:
-        case 0x3ec:
-        case 0x3ed:
-            if(query != nullptr)
-            {
-                const uint32_t mask = static_cast<uint32_t>(wparam) == 0x3eb ? 0x800000 : (static_cast<uint32_t>(wparam) == 0x3ec ? 0x200000 : 0x400000);
-                value = (state->saved_flags & mask) != 0 ? 0x3000000 : 0x7000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-            }
-            return 0;
-        case 0x3f2:
-            if((state->flags & 0x4000) != 0 && query != nullptr)
-            {
-                value = (state->flags & 0x20) != 0 ? 0x3000000 : 0x7000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-            }
-            return 0;
-        case 0x3fc:
-        case 0x406:
-            if(query != nullptr)
-            {
-                const uint32_t mask = static_cast<uint32_t>(wparam) == 0x3fc ? 0x1000 : 0x02000000;
-                value = (state->flags & mask) != 0 ? 0x3000000 : 0x7000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-            }
-            return 0;
-        case 0x456:
-            if(query != nullptr)
-            {
-                value = (state->flags & 0x4000) != 0 ? 0x7000000 : 0x3000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-            }
-            return 0;
-        case 0x7d2:
-        case 0x7d3:
-        {
-            const SaveLoadScreenMode mode = wparam == 0x7d3 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load;
-            request_scripted_save_load_screen(mode, state);
-            return 0;
-        }
-        case 0x7d1:
-        case 0x7d4:
-        case 0x7da:
-            main_window_procedure_api.reply_message(1);
-            if(wparam == 0x7d1)
-                main_window_procedure_api.send_message(window, WM_COMMAND, 0x8860, 0);
-            else if(wparam == 0x7d4)
-                main_window_procedure_api.send_message(window, WM_COMMAND, 0x8870, 0);
-            else
-            {
-                main_window_procedure_api.send_message(window, WM_COMMAND, (state->flags & 0x20) == 0 ? 0x8900 : 0x8910, 0);
-            }
-            return 0;
-        case 0x7e4:
-            main_window_procedure_api.send_message(window, WM_COMMAND, 0x8850, 0);
-            return 0;
-        case 0x7ee:
-            main_window_procedure_api.send_message(window, WM_COMMAND, 0x8820, 0);
-            return 0;
-        case 0xbc2:
-            if((state->flags & 0x80000) == 0)
-            {
-                if((state->flags & 0x800000) == 0)
-                {
-                    state->saved_memory = main_window_procedure_api.capture_bitmap(state->game_context, nullptr, 1);
-                    state->script_state = main_window_procedure_api.get_script_state();
-                }
-                state->saved_flags = state->flags;
-                state->flags = (state->flags & 0xfffbffff) | 0x80000;
-            }
-            else
-            {
-                state->saved_flags = (state->saved_flags & 0xffcfffff) | (state->flags & 0x300000);
-            }
-            state->saved_flags &= 0xffbfffff;
-            return 0;
-        case 0xbcc:
-            if((state->flags & 0x80000) != 0)
-            {
-                if(state->saved_memory != nullptr)
-                {
-                    main_window_procedure_api.free_memory(state->saved_memory);
-                    state->saved_memory = nullptr;
-                }
-                state->flags &= 0xfff7ffff;
-                state->saved_flags = 0;
-            }
-            return 0;
-        case 0xbd6:
-            if(query != nullptr)
-            {
-                value = (state->flags & 0x40000) != 0 ? 0x3000000 : 0x7000000;
-                main_window_procedure_api.resolve_state_field(query->object_name, query->field_name, &value, 1);
-                state->flags &= 0xfffbffff;
-            }
-            return 0;
-        case 0x10000000:
-            main_window_procedure_api.post_message(window, WM_CLOSE, 0, 0);
-            return 0;
-        case 0x30000000:
-            finish_credits_state(state, tree);
-            return 0;
-        case 0x40000000:
-            process_state_activation(state, tree);
-            return 0;
-        case 0x60000000:
-            enter_runtime_state_1000();
-            if((state->flags & 0x10) != 0)
-            {
-                state->flags &= 0xffffffef;
-                save_game_screenshot(window, state->game_context);
-                clear_runtime_flag_01000000();
-                clear_application_lock_flag(state);
-            }
-            if((state->flags & 0x40) != 0)
-            {
-                state->flags &= 0xffffffbf;
-                restore_application_display(state);
-                state->flags |= 0x40000;
-            }
-            clear_runtime_command_state();
-            leave_runtime_state_1000();
-            return 0;
-        case 0x90000000:
-            if((state->flags & 0x200) == 0)
-            {
-                clear_runtime_display();
-                construct_runtime_resource(state->installed_version, 0, 0, 0, 0, 0, 0, 0x200);
-                construct_runtime_resource(state->startup_config, 0, 0, 0, 0, 0, 0, 0);
-                set_script_runtime_flags(1, (state->flags & 0x02000000) == 0);
-                state->flags &= 0xfff7ffff;
-                clear_runtime_command_state();
-                return 0;
-            }
-            if((state->validation_flags & 0x100) != 0 && state->script_state != 0)
-            {
-                append_string(state->installation_path, auto_save_file_name);
-                const bool saved = write_synchronized_cdf_package(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(static_cast<uintptr_t>(state->script_state)));
-                (void)saved;
-            }
-            save_runtime_settings(state);
-            shutdown_graphics_host();
-            main_window_procedure_api.destroy_window(window);
-            clear_runtime_command_state();
-            return 0;
-        case 0xa0000000:
-            main_window_procedure_api.validate_startup(state, reinterpret_cast<char *>(lparam), 4);
-            copy_string(reinterpret_cast<char *>(lparam), state->installed_version);
-            return 0;
-        case 0xb0000000:
-            copy_file_name_from_path(reinterpret_cast<char *>(lparam), reinterpret_cast<char *>(lparam));
-            return 0;
-        case 0xc0000000:
-        case 0xd0000000:
-        case 0x4000000:
-            if((state->flags & 0x2000) == 0)
-            {
-                state->flags |= 0x2000;
-                main_window_procedure_api.post_message(window, WM_CLOSE, 0, 0);
-            }
-            return 0;
-        default:
-            return 0;
-        }
-    }
-
     return main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
 }
 
@@ -1780,7 +1842,7 @@ bool finish_synchronized_state_operation(int result)
     synchronized_state_api.leave_lock();
     if(result == 0x10000)
     {
-        synchronized_state_api.send_message(synchronized_state_api.get_message_window(), 0x7ffd, 0xc0000000, 0);
+        send_application_event(HostApplicationCommand::storage_failure);
     }
     return result == 0;
 }

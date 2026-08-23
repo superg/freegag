@@ -98,7 +98,6 @@ struct RuntimePendingTreeSwitchApi
 
 struct RuntimeTreeActivationApi
 {
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     RuntimeGenericResourceNode *(*find_or_load_resource)(const char *name);
     RuntimeTreeNode *(*create_tree_node)(RuntimeGenericResourceNode *resource, void *parent_selector, const char *name, void *creation_context);
     void (*set_script_flags)(uint32_t flags, int enabled);
@@ -486,9 +485,7 @@ struct RuntimeCommandLoopApi
     void (*begin_first)();
     void (*begin_second)();
     void (*begin_third)(int value);
-    BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     void (*process)(RuntimeCommandLoopState *state);
-    LPARAM (*get_script_state)();
     void(WINAPI *sleep)(DWORD milliseconds);
     void (*cancel_first)();
     void (*cancel_second)();
@@ -515,16 +512,6 @@ struct RuntimeSessionResetApi
     void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
     RuntimeNamedNode *(*get_named_node)(const char *name);
     uint32_t (*get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
-};
-
-
-
-struct RuntimeExternalCommandApi
-{
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    void (*process_message)(RuntimeCommandLoopState *state);
-    int (*run_command_loop)(RuntimeCommandLoopState *state);
     void(WINAPI *sleep)(DWORD milliseconds);
 };
 

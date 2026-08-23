@@ -1,9 +1,70 @@
 #include "game_host.h"
+#include "host_events.h"
 #include "runtime_internal.h"
 #include "xtet/asset_decoders.h"
 
 namespace gag
 {
+namespace
+{
+void forward_xtet_host_event(xtet::HostEventType type, uint32_t result_type, const void *data, uint32_t size)
+{
+    HostXtEtEvent event;
+    switch(type)
+    {
+    case xtet::HostEventType::terminate:
+        event.type = HostXtEtEventType::terminate;
+        break;
+    case xtet::HostEventType::pause:
+        event.type = HostXtEtEventType::pause;
+        break;
+    case xtet::HostEventType::resume:
+        event.type = HostXtEtEventType::resume;
+        break;
+    case xtet::HostEventType::result:
+        event.type = HostXtEtEventType::result;
+        event.result_type = result_type;
+        if(data != nullptr && size != 0)
+        {
+            const auto *bytes = static_cast<const uint8_t *>(data);
+            event.result_data.assign(bytes, bytes + size);
+        }
+        send_host_event(std::move(event));
+        return;
+    }
+    post_host_event(std::move(event));
+}
+} // namespace
+
+void handle_runtime_xtet_host_event(const HostXtEtEvent &event)
+{
+    switch(event.type)
+    {
+    case HostXtEtEventType::terminate:
+        clear_runtime_flag_01000000();
+        unload_runtime_game_dll();
+        break;
+    case HostXtEtEventType::pause:
+        if(!gagboy_startup_mode)
+        {
+            set_runtime_flag_01000000();
+        }
+        break;
+    case HostXtEtEventType::resume:
+        if(!gagboy_startup_mode)
+        {
+            clear_runtime_flag_01000000();
+        }
+        break;
+    case HostXtEtEventType::result:
+        if(event.result_data.size() < sizeof(runtime_display_context.game_result_data))
+        {
+            runtime_display_context.game_result_type = event.result_type;
+            std::memcpy(runtime_display_context.game_result_data, event.result_data.data(), event.result_data.size());
+        }
+        break;
+    }
+}
 
 uint32_t create_runtime_game_sound(const xtet::PcmFormat *format)
 {
@@ -60,6 +121,7 @@ bool load_and_initialize_runtime_game_dll(const char *path)
         runtime_scene_control_flags = (runtime_scene_control_flags | 0x10) & ~0x20u;
         try
         {
+            xtet::set_host_event_callback(forward_xtet_host_event);
             runtime_game_integration_api.initialize(&runtime_game_host_context, runtime_game_host_callbacks, sfs_name.c_str());
         }
         catch(...)
@@ -168,11 +230,6 @@ void update_runtime_pointer_position(int32_t x, int32_t y)
 
 LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
-    if(message == sdl_presenter_message)
-    {
-        handle_sdl_presenter_message();
-        return 0;
-    }
     bool modern_windows_cursor_reentry = false;
     if(message == WM_LBUTTONDOWN)
     {
@@ -296,60 +353,6 @@ LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM
         if(reinterpret_cast<HWND>(wparam) != window)
         {
             runtime_game_window_api.enqueue_message(0x311);
-        }
-        return 0;
-    }
-    else if(message == 0x7ffc)
-    {
-        switch(static_cast<uint32_t>(lparam))
-        {
-        case 0:
-        case 1:
-            runtime_game_window_api.clear_runtime_flag();
-            runtime_game_window_api.unload_game_dll();
-            break;
-        case 2:
-            runtime_game_window_api.enter_runtime_state();
-            break;
-        case 3:
-            runtime_game_window_api.leave_runtime_state();
-            break;
-        case 0x10:
-            if(!gagboy_startup_mode)
-            {
-                runtime_game_window_api.set_runtime_flag();
-            }
-            break;
-        case 0x20:
-            if(!gagboy_startup_mode)
-            {
-                runtime_game_window_api.clear_runtime_flag();
-            }
-            break;
-        case 0x40:
-        {
-            const auto *result = reinterpret_cast<const RuntimeGameResultDescriptor *>(wparam);
-            if(result->size < sizeof(runtime_display_context.game_result_data))
-            {
-                runtime_display_context.game_result_type = result->type;
-                std::memcpy(runtime_display_context.game_result_data, result->data, result->size);
-            }
-            break;
-        }
-        default:
-            break;
-        }
-        return 0;
-    }
-    else if(message == 0x7ffe)
-    {
-        if(static_cast<uint32_t>(lparam) == 0x80000000)
-        {
-            runtime_game_window_api.send_message(runtime_game_main_window, 0x7ffd, 0xd0000000, 0);
-        }
-        else
-        {
-            runtime_game_window_api.send_message(runtime_game_main_window, 0x7ffe, wparam, lparam);
         }
         return 0;
     }

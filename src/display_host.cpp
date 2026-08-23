@@ -8,6 +8,7 @@
 #include <deque>
 #include <mutex>
 #include <vector>
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
@@ -182,7 +183,7 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
     presenter.snapshot_buffers[snapshot_index] = presenter.front_pixels;
     presenter.queued_snapshots.push_back(snapshot_index);
     lock.unlock();
-    PostMessageA(presenter.native_window, sdl_presenter_message, 0, 0);
+    post_host_event(HostPresentPendingFramesEvent{});
 }
 }
 
@@ -462,7 +463,7 @@ void enable_display_palette_mode() {}
 
 void disable_display_palette_mode() {}
 
-void handle_sdl_presenter_message()
+void drain_sdl_presenter_frames()
 {
     present_next_queued_snapshot();
 }

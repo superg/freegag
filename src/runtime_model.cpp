@@ -1,4 +1,5 @@
 #include "runtime_model.h"
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
@@ -1268,7 +1269,7 @@ void rebuild_runtime_tree_resources(void *identity)
         runtime_tree_resource_rebuild_api.set_resource_state(current_runtime_resource, 0);
         runtime_display_context.flags |= 0x100000;
     }
-    runtime_tree_resource_rebuild_api.send_message(runtime_display_context.window, 0x7ffd, 0x40000000, reinterpret_cast<LPARAM>(root));
+    send_application_event(HostApplicationCommand::state_activated, root);
     on_scripted_save_load_tree_rebuilt(root);
 }
 
@@ -1373,7 +1374,6 @@ void rebuild_runtime_pointer_resources()
         }
     }
     runtime_pointer_resource_rebuild_api.set_comment_mode(root, 1);
-    runtime_pointer_resource_rebuild_api.send_message(runtime_display_context.window, 0x7ffd, 0x01000000, 0);
     runtime_pointer_resource_rebuild_api.wait_for_count(count);
 }
 
@@ -1970,7 +1970,7 @@ intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
     RuntimeTreeNode *node = runtime_tree_deactivate_api.resolve_identity(identity);
     if(node != nullptr)
     {
-        runtime_tree_deactivate_api.send_message(runtime_display_context.window, 0x7ffd, 0x30000000, reinterpret_cast<LPARAM>(node));
+        send_application_event(HostApplicationCommand::credits_finished, node);
         ScriptObjectState *object = script_runtime_root->objects;
         if(node->parent == nullptr)
         {
@@ -1995,7 +1995,6 @@ intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
             runtime_tree_deactivate_api.deactivate_comment(node);
         }
         result = runtime_tree_deactivate_api.destroy_tree(identity, second);
-        runtime_tree_deactivate_api.send_message(runtime_display_context.window, 0x7ffd, 0xe0000000, 0);
     }
     return result;
 }

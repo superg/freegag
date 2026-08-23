@@ -203,13 +203,6 @@ struct RuntimeMediaBackendFinalizeApi
 };
 
 
-struct RuntimeAnimationFailureApi
-{
-    BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-};
-
-
-
 enum class RuntimeAnimationControlResult
 {
     DecodeFrame,
@@ -223,7 +216,6 @@ struct RuntimeAnimationControlApi
     uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
     uint32_t (*set_stream_position)(AsyncFileRecord *record, uint32_t position);
-    BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
 };
 
 
@@ -254,7 +246,6 @@ struct RuntimeAnimationDecodeApi
 struct RuntimeAnimationCompletionApi
 {
     void(WINAPI *sleep)(DWORD milliseconds);
-    BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     uint32_t (*set_stream_position)(AsyncFileRecord *record, uint32_t position);
 };
 

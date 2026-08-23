@@ -18,6 +18,8 @@ add_executable(freegag
   "extra/synthesized_resource.h"
   "game_host.cpp"
   "game_host.h"
+  "host_events.cpp"
+  "host_events.h"
   "main.cpp"
   "media.cpp"
   "media.h"

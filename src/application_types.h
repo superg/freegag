@@ -180,7 +180,6 @@ struct RuntimeScriptPropertySetApi
     void (*set_property_value)(uint32_t value);
     void (*enter_state_1000)();
     void (*leave_state_1000)();
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     void (*destroy_resource_tree)(void *root);
 };
 
@@ -188,7 +187,6 @@ struct RuntimeScriptPropertySetApi
 
 struct RuntimeScriptPropertyGetApi
 {
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     int (*copy_string)(char *destination, const char *source);
     void (*load_resource)(const char *path, void **data, uint32_t *size, int32_t *storage, uint32_t flags);
     uint32_t (*get_property_value)();
@@ -269,7 +267,6 @@ struct MainWindowProcedureApi
     LONG_PTR(WINAPI *set_window_long)(HWND window, int index, LONG_PTR value);
     BOOL(WINAPI *post_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     void(WINAPI *post_quit_message)(int exit_code);
-    BOOL(WINAPI *reply_message)(LRESULT result);
     LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
     BOOL(WINAPI *destroy_window)(HWND window);
@@ -306,14 +303,6 @@ struct CursorVisibilityApi
 
 
 struct RuntimeTreeNode;
-
-
-struct ApplicationStateFieldQuery
-{
-    char object_name[0x20];
-    char field_name[0x20];
-};
-
 
 
 struct SecondaryWindowLayout
@@ -359,8 +348,6 @@ struct SynchronizedStateApi
     void (*enter_lock)();
     void (*leave_lock)();
     int (*write_cdf_package)(void *path, void *comment, void *unused, void *script_state);
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    HWND (*get_message_window)();
 };
 
 

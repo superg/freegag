@@ -1,4 +1,5 @@
 #include "media.h"
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
@@ -485,7 +486,7 @@ void fail_runtime_animation(RuntimeMediaBackend *backend, uint32_t error)
     backend->media_flags |= 0x80000000;
     if(backend->animation_callback(backend) == 0)
     {
-        runtime_animation_failure_api.post_message(backend->window, 0x7ffe, reinterpret_cast<WPARAM>(backend->identity), static_cast<LPARAM>(0x80000000u));
+        post_application_event(HostApplicationCommand::animation_failure);
     }
     backend->media_flags |= 1;
 }
@@ -508,10 +509,7 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
     {
         backend.media_flags |= 0x1000;
         runtime_animation_control_api.destroy_sound(backend.sound_handle);
-        if(backend.animation_callback(&backend) == 0)
-        {
-            runtime_animation_control_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x1000);
-        }
+        backend.animation_callback(&backend);
         return RuntimeAnimationControlResult::Exit;
     }
     if((backend.media_flags & 0x80000000) != 0)
@@ -572,7 +570,6 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
             }
             backend.media_flags |= 0x2000;
             backend.animation_callback(&backend);
-            runtime_animation_control_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x2000);
         }
         return RuntimeAnimationControlResult::Wait;
     }
@@ -840,7 +837,6 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
         backend.timing_adjustment = 0;
         backend.media_flags |= 0x40000000;
         backend.animation_callback(&backend);
-        runtime_animation_completion_api.post_message(backend.window, 0x7ffe, reinterpret_cast<WPARAM>(backend.identity), 0x40000000);
         const uint32_t storage = backend.media_flags & 0x3000000;
         if(storage == 0x1000000)
         {

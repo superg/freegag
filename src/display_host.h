@@ -5,8 +5,6 @@
 namespace gag
 {
 
-constexpr UINT sdl_presenter_message = 0x7ffb;
-
 GraphicsHostInitializationResult *initialize_runtime_graphics();
 
 uint32_t initialize_sdl_presenter(HWND window, uint32_t options);
@@ -37,7 +35,7 @@ PALETTEENTRY *get_display_palette_entries();
 
 void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32_t height);
 
-void handle_sdl_presenter_message();
+void drain_sdl_presenter_frames();
 
 void repaint_sdl_presenter();
 

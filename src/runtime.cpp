@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
@@ -411,7 +412,6 @@ bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
 
 RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
 {
-    runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0xf0000000, 0);
     RuntimeGenericResourceNode *resource = runtime_tree_activation_api.find_or_load_resource(resource_name);
     RuntimeTreeNode *node = runtime_tree_activation_api.create_tree_node(resource, parent_selector, tree_name, creation_context);
     if(node != nullptr)
@@ -425,7 +425,6 @@ RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_n
         {
             runtime_tree_activation_api.activate_comment(node);
         }
-        runtime_tree_activation_api.send_message(runtime_display_context.window, 0x7ffd, 0x20000000, reinterpret_cast<LPARAM>(node));
     }
     return node;
 }
@@ -536,15 +535,13 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
     runtime_command_loop_api.begin_first();
     runtime_command_loop_api.begin_second();
     runtime_command_loop_api.begin_third(0);
-    runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x60000000, 0);
+    post_application_event(HostApplicationCommand::command_completed);
     while(true)
     {
         runtime_command_loop_api.process(state);
         if((state->flags & 0x02000000) != 0)
         {
-            LPARAM script_state = runtime_command_loop_api.get_script_state();
             graphics_host_flags &= 0xfdffffff;
-            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x70000000, script_state);
         }
         if((state->flags & 0x40) != 0)
         {
@@ -552,7 +549,7 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
             runtime_command_loop_api.cancel_first();
             runtime_command_loop_api.cancel_second();
             state->flags &= 0xfeffffbf;
-            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x90000000, 0);
+            post_application_event(HostApplicationCommand::runtime_shutdown);
             return 1;
         }
         runtime_command_loop_api.sleep(100);
@@ -562,7 +559,6 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
             runtime_command_loop_api.cancel_first();
             runtime_command_loop_api.cancel_second();
             runtime_command_loop_api.cancel_third();
-            runtime_command_loop_api.post_message(state->window, 0x7ffd, 0x80000000, 0);
             return 1;
         }
     }
@@ -570,24 +566,12 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
 
 uint32_t run_pending_runtime_external_command()
 {
-    uint32_t result = 0;
     if((runtime_scene_control_flags & 0x200000) != 0)
     {
-        runtime_display_context.external_command_pending = 1;
-        if(runtime_external_command_api.send_message(runtime_display_context.window, 0x7ffd, 0x02000000, reinterpret_cast<LPARAM>(runtime_display_context.command_context)) != 0)
-        {
-            result = 0;
-            while(runtime_display_context.external_command_pending != 0)
-            {
-                runtime_external_command_api.process_message(&runtime_display_context);
-                result |= runtime_external_command_api.run_command_loop(&runtime_display_context);
-                runtime_external_command_api.sleep(10);
-            }
-        }
         runtime_display_context.external_command_pending = 0;
         runtime_scene_control_flags &= 0xffdfffff;
     }
-    return result;
+    return 0;
 }
 
 RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value,
@@ -937,7 +921,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         if(command != 0x7fffffff)
         {
             ScriptObjectFieldSnapshot snapshot;
-            LPARAM parameter = 0;
+            HostApplicationPayload payload;
             if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
             {
                 if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff || get_script_object_field_snapshot(first, second, &snapshot) == 0)
@@ -945,11 +929,15 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                     state->external_command_pending = 0;
                     return RuntimeScriptOpcodeDisposition::complete;
                 }
-                parameter = reinterpret_cast<LPARAM>(&snapshot);
+                payload = HostStateFieldQuery{ snapshot.object_name, snapshot.field_name };
             }
             if(should_send_runtime_script_message(command))
             {
-                result = static_cast<uint32_t>(SendMessageA(runtime_display_context.window, 0x7ffd, static_cast<WPARAM>(command), parameter));
+                HostEventResult event_result = send_application_event(static_cast<uint32_t>(command), std::move(payload));
+                if(const auto *value = std::get_if<uint32_t>(&event_result))
+                {
+                    result = *value;
+                }
             }
         }
         if(result != 0)
@@ -1438,7 +1426,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
 
     case 0xd0000:
         reset_runtime_session();
-        SendMessageA(runtime_display_context.window, 0x7ffd, 0x10000000, 0);
+        send_application_event(HostApplicationCommand::close_requested);
         state->flags &= 0xffefffff;
         // A session reset invalidates the old parser cursor, so do not restore it.
         return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
@@ -1566,22 +1554,19 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
                 rebuild = find_and_create_runtime_tree_jump(parser, first, saved_cursor);
             }
-            if(rebuild != nullptr || SendMessageA(state->window, 0x7ffd, 0x04000000, reinterpret_cast<LPARAM>(first)) == 0)
+            if(rebuild == nullptr)
             {
-                if(rebuild == nullptr)
-                {
-                    rebuild = tree;
-                }
-                rebuild_runtime_tree_resources(rebuild);
-                published_identity = state->runtime_tree_identity;
+                send_application_event(HostApplicationCommand::runtime_failure);
+                rebuild = tree;
             }
+            rebuild_runtime_tree_resources(rebuild);
+            published_identity = state->runtime_tree_identity;
         }
         else
         {
             if(tree->identity == activated)
             {
                 reset_runtime_tree_parser_contexts(activated);
-                SendMessageA(state->window, 0x7ffd, 0x01000000, 0);
             }
             else if((opcode & 0xffffff00) == 0x50000000)
             {
@@ -1608,8 +1593,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
 
 bool should_send_runtime_script_message(int32_t command)
 {
-    // The transition can release ReplyMessage's script caller before the UI thread finishes the callback. Suppress another synchronous 2010 send from that same physical press at
-    // the sending boundary, where it cannot block waiting for the still-busy UI thread.
+    // The transition can acknowledge its host-event caller before the UI thread finishes the callback. Suppress another synchronous 2010 send from that same physical press at the sending
+    // boundary, where it cannot block waiting for the still-busy UI thread.
     if(command == 0x7da)
     {
         if(modern_windows_fullscreen_toggle_latched)
