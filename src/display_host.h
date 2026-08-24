@@ -10,6 +10,8 @@ GraphicsHostInitializationResult *initialize_runtime_graphics();
 
 uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t options);
 
+void set_sdl_presenter_integer_scaling(bool enabled);
+
 bool show_sdl_presenter();
 
 void shutdown_sdl_presenter();
@@ -53,6 +55,8 @@ void complete_sdl_presenter_fullscreen_transition(bool fullscreen);
 bool get_sdl_presenter_window_rectangle(DisplayRectangle *rectangle);
 
 bool set_sdl_presenter_window_rectangle(const DisplayRectangle &rectangle);
+
+bool center_sdl_presenter_window();
 
 bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle);
 

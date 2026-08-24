@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include "host_events.h"
 #include "portable_string.h"
@@ -731,6 +732,10 @@ ApplicationState *initialize_gag_application(int width, int height, bool start_x
         {
             set_sdl_presenter_window_rectangle({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
         }
+        else
+        {
+            center_sdl_presenter_window();
+        }
     }
     else
     {
@@ -965,16 +970,16 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
     }
     if(action == ApplicationAction::toggle_comments)
     {
-        const bool comments_enabled = (state->flags & 0x02000000) == 0;
-        if(comments_enabled)
-        {
-            state->flags |= 0x02000000;
-        }
-        else
+        const bool subtitles_enabled = (state->flags & 0x02000000) != 0;
+        if(subtitles_enabled)
         {
             state->flags &= 0xfdffffff;
         }
-        set_script_runtime_flags(1, !comments_enabled);
+        else
+        {
+            state->flags |= 0x02000000;
+        }
+        set_script_runtime_flags(1, subtitles_enabled);
         state->flags |= 0x40000;
         return;
     }
@@ -1012,6 +1017,15 @@ constexpr char window_preferences_section[] = "Window";
 using PreferenceKey = std::pair<std::string, std::string>;
 using Preferences = std::map<PreferenceKey, std::string>;
 
+struct ApplicationPreferences
+{
+    bool fullscreen{};
+    bool integer_scaling{ true };
+    bool sound{ true };
+    bool subtitles{};
+    std::optional<PortableRectangle> window_rectangle;
+};
+
 std::string trim_preference_text(std::string value)
 {
     const size_t first = value.find_first_not_of(" \t\r\n");
@@ -1023,7 +1037,7 @@ std::string trim_preference_text(std::string value)
     return value.substr(first, last - first + 1);
 }
 
-Preferences read_preferences()
+Preferences parse_preferences()
 {
     Preferences preferences;
     std::ifstream stream(preferences_file_name);
@@ -1050,32 +1064,26 @@ Preferences read_preferences()
     return preferences;
 }
 
-void write_preferences(const Preferences &preferences)
+bool read_preference_bool(const Preferences &preferences, const char *key, bool default_value = false)
 {
-    std::ofstream stream(preferences_file_name, std::ios::trunc);
-    if(!stream)
+    const auto found = preferences.find({ game_preferences_section, key });
+    if(found == preferences.end())
     {
-        return;
+        return default_value;
     }
-    std::string section;
-    for(const auto &[key, value] : preferences)
+    if(compare_ascii_case_insensitive(found->second.c_str(), "true") == 0)
     {
-        if(key.first != section)
-        {
-            if(!section.empty())
-            {
-                stream << '\n';
-            }
-            section = key.first;
-            stream << '[' << section << "]\n";
-        }
-        stream << key.second << '=' << value << '\n';
+        return true;
     }
+    if(compare_ascii_case_insensitive(found->second.c_str(), "false") == 0)
+    {
+        return false;
+    }
+    return default_value;
 }
 
-bool read_preference_number(const char *section, const char *key, int64_t minimum, int64_t maximum, int64_t *result)
+bool read_preference_number(const Preferences &preferences, const char *section, const char *key, int64_t minimum, int64_t maximum, int64_t *result)
 {
-    const Preferences preferences = read_preferences();
     const auto found = preferences.find({ section, key });
     if(found == preferences.end() || found->second.empty())
     {
@@ -1098,40 +1106,96 @@ bool read_preference_number(const char *section, const char *key, int64_t minimu
     return true;
 }
 
-bool read_saved_window_rectangle(PortableRectangle *rectangle)
+ApplicationPreferences read_preferences()
 {
+    const Preferences parsed = parse_preferences();
+    ApplicationPreferences preferences;
+    preferences.fullscreen = read_preference_bool(parsed, "Fullscreen");
+    preferences.integer_scaling = read_preference_bool(parsed, "IntegerScaling", true);
+    preferences.sound = read_preference_bool(parsed, "Sound", true);
+    preferences.subtitles = read_preference_bool(parsed, "Subtitles");
+
     int64_t left;
     int64_t top;
     int64_t right;
     int64_t bottom;
-    if(!read_preference_number(window_preferences_section, "Left", INT32_MIN, INT32_MAX, &left) || !read_preference_number(window_preferences_section, "Top", INT32_MIN, INT32_MAX, &top)
-        || !read_preference_number(window_preferences_section, "Right", INT32_MIN, INT32_MAX, &right) || !read_preference_number(window_preferences_section, "Bottom", INT32_MIN, INT32_MAX, &bottom))
+    if(read_preference_number(parsed, window_preferences_section, "Left", INT32_MIN, INT32_MAX, &left) && read_preference_number(parsed, window_preferences_section, "Top", INT32_MIN, INT32_MAX, &top)
+        && read_preference_number(parsed, window_preferences_section, "Right", INT32_MIN, INT32_MAX, &right)
+        && read_preference_number(parsed, window_preferences_section, "Bottom", INT32_MIN, INT32_MAX, &bottom))
+    {
+        preferences.window_rectangle = PortableRectangle{ static_cast<int32_t>(left), static_cast<int32_t>(top), static_cast<int32_t>(right), static_cast<int32_t>(bottom) };
+    }
+    return preferences;
+}
+
+void write_preferences(const ApplicationPreferences &preferences)
+{
+    std::ofstream stream(preferences_file_name, std::ios::trunc);
+    if(!stream)
+    {
+        return;
+    }
+    stream << "[Game]\n";
+    stream << "Fullscreen=" << (preferences.fullscreen ? "true" : "false") << '\n';
+    stream << "IntegerScaling=" << (preferences.integer_scaling ? "true" : "false") << '\n';
+    stream << "Sound=" << (preferences.sound ? "true" : "false") << '\n';
+    stream << "Subtitles=" << (preferences.subtitles ? "true" : "false") << '\n';
+    if(preferences.window_rectangle.has_value())
+    {
+        const PortableRectangle &rectangle = *preferences.window_rectangle;
+        stream << "\n[Window]\n";
+        stream << "Bottom=" << rectangle.bottom << '\n';
+        stream << "Left=" << rectangle.left << '\n';
+        stream << "Right=" << rectangle.right << '\n';
+        stream << "Top=" << rectangle.top << '\n';
+    }
+}
+
+bool read_saved_window_rectangle(PortableRectangle *rectangle)
+{
+    const ApplicationPreferences preferences = read_preferences();
+    if(!preferences.window_rectangle.has_value())
     {
         return false;
     }
-    *rectangle = { static_cast<int32_t>(left), static_cast<int32_t>(top), static_cast<int32_t>(right), static_cast<int32_t>(bottom) };
+    *rectangle = *preferences.window_rectangle;
     return true;
 }
 
-void write_preference_number(const char *section, const char *key, int64_t value)
+void update_preferences_from_state(ApplicationPreferences *preferences, const ApplicationState *state)
 {
-    Preferences preferences = read_preferences();
-    preferences[{ section, key }] = std::to_string(value);
-    write_preferences(preferences);
+    preferences->fullscreen = (state->flags & 0x20) != 0;
+    preferences->sound = (state->flags & 0x1000) == 0;
+    preferences->subtitles = (state->flags & 0x02000000) != 0;
+}
+
+bool window_rectangle_is_valid(const PortableRectangle &rectangle, int32_t minimum_width, int32_t minimum_height)
+{
+    const int64_t width = static_cast<int64_t>(rectangle.right) - rectangle.left;
+    const int64_t height = static_cast<int64_t>(rectangle.bottom) - rectangle.top;
+    return width >= minimum_width && height >= minimum_height && is_sdl_presenter_rectangle_visible({ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom });
 }
 
 void save_runtime_settings(ApplicationState *state)
 {
+    ApplicationPreferences preferences = read_preferences();
+    update_preferences_from_state(&preferences, state);
     if((state->flags & 0x80) != 0)
     {
-        save_window_position(state);
+        DisplayRectangle rectangle{};
+        if(get_sdl_presenter_window_rectangle(&rectangle))
+        {
+            preferences.window_rectangle = PortableRectangle{ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
+            desktop_presentation_state.windowed_rectangle = { rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
+            desktop_presentation_state.windowed_rectangle_valid = true;
+        }
+    }
+    else if(preferences.window_rectangle.has_value() && !window_rectangle_is_valid(*preferences.window_rectangle, state->width, state->height))
+    {
+        preferences.window_rectangle.reset();
     }
     if(state->archive_context == nullptr)
     {
-        char settings[16];
-        std::snprintf(settings, sizeof(settings), "0x%08X", state->flags & 0x02001020);
-        Preferences preferences = read_preferences();
-        preferences[{ game_preferences_section, "Settings" }] = settings;
         write_preferences(preferences);
     }
 }
@@ -1145,10 +1209,7 @@ bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, 
 
     PortableRectangle saved_rectangle{};
     const bool loaded = read_saved_window_rectangle(&saved_rectangle);
-    const int64_t width = static_cast<int64_t>(saved_rectangle.right) - saved_rectangle.left;
-    const int64_t height = static_cast<int64_t>(saved_rectangle.bottom) - saved_rectangle.top;
-    bool valid = loaded && width >= minimum_width && height >= minimum_height
-              && is_sdl_presenter_rectangle_visible({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
+    const bool valid = loaded && window_rectangle_is_valid(saved_rectangle, minimum_width, minimum_height);
     if(valid)
     {
         *rectangle = saved_rectangle;
@@ -1168,10 +1229,10 @@ void save_window_position(ApplicationState *state)
         return;
     }
 
-    write_preference_number(window_preferences_section, "Left", rectangle.left);
-    write_preference_number(window_preferences_section, "Top", rectangle.top);
-    write_preference_number(window_preferences_section, "Right", rectangle.right);
-    write_preference_number(window_preferences_section, "Bottom", rectangle.bottom);
+    ApplicationPreferences preferences = read_preferences();
+    update_preferences_from_state(&preferences, state);
+    preferences.window_rectangle = PortableRectangle{ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
+    write_preferences(preferences);
     desktop_presentation_state.windowed_rectangle = { rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
     desktop_presentation_state.windowed_rectangle_valid = true;
 }
@@ -1594,10 +1655,25 @@ void copy_directory_from_path(char *destination, const char *source)
 uint32_t load_local_preferences(ApplicationState *state)
 {
     state->installation_path[0] = '\0';
-    int64_t settings = 0;
-    if(read_preference_number(game_preferences_section, "Settings", 0, UINT32_MAX, &settings))
+    std::error_code error;
+    const bool preferences_missing = !std::filesystem::exists(preferences_file_name, error) && !error;
+    const ApplicationPreferences preferences = read_preferences();
+    set_sdl_presenter_integer_scaling(preferences.integer_scaling);
+    if(preferences.fullscreen)
     {
-        state->flags |= static_cast<uint32_t>(settings) & 0x02001020;
+        state->flags |= 0x20;
+    }
+    if(!preferences.sound)
+    {
+        state->flags |= 0x1000;
+    }
+    if(preferences.subtitles)
+    {
+        state->flags |= 0x02000000;
+    }
+    if(preferences_missing)
+    {
+        write_preferences(preferences);
     }
 
     state->flags |= (~state->flags & 0x20) << 2;

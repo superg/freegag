@@ -44,6 +44,7 @@ struct PresenterState
     bool fullscreen_transition_pending{};
     bool pending_fullscreen{};
     bool pending_mouse_warp{};
+    bool integer_scaling{ true };
     float pending_mouse_x{};
     float pending_mouse_y{};
 };
@@ -326,8 +327,13 @@ uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t)
     }
     SDL_StartTextInput(presenter.window);
     SDL_SetRenderVSync(presenter.renderer, SDL_RENDERER_VSYNC_DISABLED);
-    SDL_SetRenderLogicalPresentation(presenter.renderer, width, height, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderLogicalPresentation(presenter.renderer, width, height, presenter.integer_scaling ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE : SDL_LOGICAL_PRESENTATION_LETTERBOX);
     return 0;
+}
+
+void set_sdl_presenter_integer_scaling(bool enabled)
+{
+    presenter.integer_scaling = enabled;
 }
 
 bool show_sdl_presenter()
@@ -456,6 +462,11 @@ bool set_sdl_presenter_window_rectangle(const DisplayRectangle &rectangle)
         return false;
     }
     return SDL_SetWindowPosition(presenter.window, rectangle.left, rectangle.top) && SDL_SetWindowSize(presenter.window, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top);
+}
+
+bool center_sdl_presenter_window()
+{
+    return presenter.window != nullptr && SDL_SetWindowPosition(presenter.window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 }
 
 bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle)
