@@ -762,7 +762,7 @@ ApplicationState *initialize_gag_application(int width, int height, bool start_x
     {
         application_initialization_api.enable_runtime();
     }
-    if(graphics->bits_per_pixel > 8)
+    if(!state->low_color_resources)
     {
         application_initialization_api.set_active_object_field(1);
     }
@@ -1021,6 +1021,7 @@ struct ApplicationPreferences
 {
     bool fullscreen{};
     bool integer_scaling{ true };
+    bool low_color_resources{};
     bool sound{ true };
     bool subtitles{};
     std::optional<PortableRectangle> window_rectangle;
@@ -1112,6 +1113,7 @@ ApplicationPreferences read_preferences()
     ApplicationPreferences preferences;
     preferences.fullscreen = read_preference_bool(parsed, "Fullscreen");
     preferences.integer_scaling = read_preference_bool(parsed, "IntegerScaling", true);
+    preferences.low_color_resources = read_preference_bool(parsed, "LowColorResources");
     preferences.sound = read_preference_bool(parsed, "Sound", true);
     preferences.subtitles = read_preference_bool(parsed, "Subtitles");
 
@@ -1138,6 +1140,7 @@ void write_preferences(const ApplicationPreferences &preferences)
     stream << "[Game]\n";
     stream << "Fullscreen=" << (preferences.fullscreen ? "true" : "false") << '\n';
     stream << "IntegerScaling=" << (preferences.integer_scaling ? "true" : "false") << '\n';
+    stream << "LowColorResources=" << (preferences.low_color_resources ? "true" : "false") << '\n';
     stream << "Sound=" << (preferences.sound ? "true" : "false") << '\n';
     stream << "Subtitles=" << (preferences.subtitles ? "true" : "false") << '\n';
     if(preferences.window_rectangle.has_value())
@@ -1165,6 +1168,7 @@ bool read_saved_window_rectangle(PortableRectangle *rectangle)
 void update_preferences_from_state(ApplicationPreferences *preferences, const ApplicationState *state)
 {
     preferences->fullscreen = (state->flags & 0x20) != 0;
+    preferences->low_color_resources = state->low_color_resources;
     preferences->sound = (state->flags & 0x1000) == 0;
     preferences->subtitles = (state->flags & 0x02000000) != 0;
 }
@@ -1659,6 +1663,7 @@ uint32_t load_local_preferences(ApplicationState *state)
     const bool preferences_missing = !std::filesystem::exists(preferences_file_name, error) && !error;
     const ApplicationPreferences preferences = read_preferences();
     set_sdl_presenter_integer_scaling(preferences.integer_scaling);
+    state->low_color_resources = preferences.low_color_resources;
     if(preferences.fullscreen)
     {
         state->flags |= 0x20;

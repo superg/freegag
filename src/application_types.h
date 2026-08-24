@@ -74,6 +74,7 @@ struct ApplicationState
     int32_t height;
     uint32_t validation_flags;
     bool shutdown_complete;
+    bool low_color_resources;
     void *archive_context;
     const char *message_table;
     uint32_t saved_flags;
