@@ -217,7 +217,7 @@ RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *re
     {
         return nullptr;
     }
-    auto *node = static_cast<RuntimeGenericResourceNode *>(runtime_generic_resource_load_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeGenericResourceNode)));
+    auto *node = static_cast<RuntimeGenericResourceNode *>(runtime_generic_resource_load_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeGenericResourceNode)));
     if(node == nullptr)
     {
         return nullptr;
@@ -249,7 +249,7 @@ RuntimeTreeParserContext *find_or_create_runtime_tree_parser_context(RuntimeTree
             return context;
         }
     }
-    auto *context = static_cast<RuntimeTreeParserContext *>(runtime_tree_parser_context_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeParserContext)));
+    auto *context = static_cast<RuntimeTreeParserContext *>(runtime_tree_parser_context_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeParserContext)));
     if(context != nullptr)
     {
         copy_string(context->name, name);
@@ -634,7 +634,7 @@ RuntimeTreeNode *create_runtime_tree_node(RuntimeGenericResourceNode *resource, 
         }
     }
 
-    auto *node = static_cast<RuntimeTreeNode *>(runtime_tree_creation_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeNode)));
+    auto *node = static_cast<RuntimeTreeNode *>(runtime_tree_creation_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeNode)));
     if(node == nullptr)
     {
         return nullptr;
@@ -806,7 +806,7 @@ void add_runtime_tree_auxiliary_name(RuntimeTreeNode *owner, const char *name)
             return;
         }
     }
-    auto *node = static_cast<RuntimeTreeAuxiliaryNode *>(runtime_tree_auxiliary_create_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeAuxiliaryNode)));
+    auto *node = static_cast<RuntimeTreeAuxiliaryNode *>(runtime_tree_auxiliary_create_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeAuxiliaryNode)));
     if(node == nullptr)
     {
         return;
@@ -1596,7 +1596,7 @@ uint32_t parse_runtime_tree_scene_link(ScriptParserState *parser)
     {
         return 0;
     }
-    auto *link = static_cast<RuntimeTreeSceneLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeSceneLink)));
+    auto *link = static_cast<RuntimeTreeSceneLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeSceneLink)));
     if(link == nullptr)
     {
         return 0;
@@ -1697,7 +1697,8 @@ uint32_t parse_runtime_tree_secondary_resource_link(ScriptParserState *parser)
     {
         return 0;
     }
-    auto *link = static_cast<RuntimeTreeSecondaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeSecondaryResourceLink)));
+    auto *link =
+        static_cast<RuntimeTreeSecondaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeSecondaryResourceLink)));
     if(link == nullptr)
     {
         return 0;
@@ -1743,7 +1744,7 @@ uint32_t parse_runtime_tree_primary_resource_link(ScriptParserState *parser)
     bool expand_list = false;
     bool invert_no_palette = false;
     char list_name[0x80];
-    auto *link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreePrimaryResourceLink)));
+    auto *link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreePrimaryResourceLink)));
     if(link == nullptr)
     {
         return 0;
@@ -2481,7 +2482,7 @@ uint32_t parse_runtime_tree_link_0084(ScriptParserState *parser)
     {
         return 0;
     }
-    auto *link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink84)));
+    auto *link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeLink84)));
     if(link == nullptr)
     {
         return 0;
@@ -2617,7 +2618,7 @@ void *create_or_update_runtime_tree_primary_resource_link(void *tree_identity, c
     }
     if(link == nullptr)
     {
-        link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreePrimaryResourceLink)));
+        link = static_cast<RuntimeTreePrimaryResourceLink *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreePrimaryResourceLink)));
         if(link == nullptr)
         {
             return nullptr;
@@ -2680,7 +2681,7 @@ void *create_or_update_runtime_tree_link_0084(void *tree_identity, const void *n
     }
     if(link == nullptr)
     {
-        link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink84)));
+        link = static_cast<RuntimeTreeLink84 *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeLink84)));
         if(link == nullptr)
         {
             return nullptr;
@@ -3001,7 +3002,7 @@ uint32_t parse_runtime_tree_link_008c(ScriptParserState *parser)
     {
         return 0;
     }
-    auto *link = static_cast<RuntimeTreeLink8C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink8C)));
+    auto *link = static_cast<RuntimeTreeLink8C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeLink8C)));
     if(link == nullptr)
     {
         return 0;
@@ -3089,7 +3090,7 @@ uint32_t parse_runtime_tree_link_007c(ScriptParserState *parser)
     {
         return 0;
     }
-    auto *link = static_cast<RuntimeTreeLink7C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeTreeLink7C)));
+    auto *link = static_cast<RuntimeTreeLink7C *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeTreeLink7C)));
     if(link == nullptr)
     {
         return 0;
@@ -3710,7 +3711,7 @@ uint32_t parse_script_object_container(ScriptParserState *parser)
         return 0;
     }
 
-    auto *container = static_cast<ScriptObjectContainer *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectContainer)));
+    auto *container = static_cast<ScriptObjectContainer *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(ScriptObjectContainer)));
     if(container == nullptr)
     {
         return 0;
@@ -3939,9 +3940,9 @@ void remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNo
     }
 }
 
-BOOL destroy_script_object_container(ScriptObjectContainer *container)
+bool destroy_script_object_container(ScriptObjectContainer *container)
 {
-    BOOL result = TRUE;
+    bool result = true;
     for(uint32_t index = 0; index < container->slot_count; ++index)
     {
         if(container->slots[index].object != nullptr)

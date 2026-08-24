@@ -2,11 +2,14 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <new>
+#include <thread>
 #include <vector>
 #include "host_events.h"
 #include "runtime_internal.h"
@@ -22,8 +25,7 @@ struct PresenterState
     SDL_Window *window{};
     SDL_Renderer *renderer{};
     SDL_Texture *texture{};
-    HWND native_window{};
-    DWORD main_thread_id{};
+    std::thread::id main_thread_id;
     int32_t width{};
     int32_t height{};
     std::vector<uint32_t> root_pixels;
@@ -35,6 +37,15 @@ struct PresenterState
     std::condition_variable queue_changed;
     bool shutting_down{};
     bool runtime_failure_reported{};
+    bool presentation_wake_pending{};
+    bool presenter_service_pending{};
+    bool repaint_pending{};
+    bool texture_has_frame{};
+    bool fullscreen_transition_pending{};
+    bool pending_fullscreen{};
+    bool pending_mouse_warp{};
+    float pending_mouse_x{};
+    float pending_mouse_y{};
 };
 
 PresenterState presenter;
@@ -75,6 +86,7 @@ bool create_presenter_texture()
         presenter.texture = nullptr;
     }
     presenter.texture = SDL_CreateTexture(presenter.renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, presenter.width, presenter.height);
+    presenter.texture_has_frame = false;
     if(presenter.texture != nullptr)
     {
         SDL_SetTextureScaleMode(presenter.texture, SDL_SCALEMODE_NEAREST);
@@ -98,6 +110,7 @@ bool upload_and_present(const std::vector<uint32_t> &snapshot)
                 static_cast<size_t>(presenter.width) * sizeof(uint32_t));
         }
         SDL_UnlockTexture(presenter.texture);
+        presenter.texture_has_frame = true;
         return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
             && SDL_RenderPresent(presenter.renderer);
     };
@@ -109,6 +122,16 @@ bool upload_and_present(const std::vector<uint32_t> &snapshot)
     return create_presenter_texture() && attempt();
 }
 
+bool present_cached_texture()
+{
+    if(presenter.renderer == nullptr || presenter.texture == nullptr || !presenter.texture_has_frame)
+    {
+        return true;
+    }
+    return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
+        && SDL_RenderPresent(presenter.renderer);
+}
+
 void fail_runtime_presentation()
 {
     if(presenter.runtime_failure_reported)
@@ -117,8 +140,7 @@ void fail_runtime_presentation()
     }
     presenter.runtime_failure_reported = true;
     std::fprintf(stderr, "SDL presenter failed: %s\n", SDL_GetError());
-    HWND root = GetAncestor(presenter.native_window, GA_ROOT);
-    PostMessageA(root != nullptr ? root : presenter.native_window, WM_CLOSE, 0, 0);
+    post_application_event(HostApplicationCommand::close_requested);
 }
 
 void present_snapshot(const std::vector<uint32_t> &snapshot)
@@ -152,7 +174,7 @@ bool present_next_queued_snapshot()
 
 void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
 {
-    if(presenter.main_thread_id == GetCurrentThreadId())
+    if(presenter.main_thread_id == std::this_thread::get_id())
     {
         while(present_next_queued_snapshot())
         {
@@ -171,6 +193,7 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
         return;
     }
 
+    bool wake_presenter = false;
     std::unique_lock lock(presenter.mutex);
     presenter.queue_changed.wait(lock, [] { return presenter.shutting_down || !presenter.available_snapshots.empty(); });
     if(presenter.shutting_down)
@@ -182,8 +205,16 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
     presenter.available_snapshots.pop_front();
     presenter.snapshot_buffers[snapshot_index] = presenter.front_pixels;
     presenter.queued_snapshots.push_back(snapshot_index);
+    if(!presenter.presentation_wake_pending)
+    {
+        presenter.presentation_wake_pending = true;
+        wake_presenter = true;
+    }
     lock.unlock();
-    post_host_event(HostPresentPendingFramesEvent{});
+    if(wake_presenter)
+    {
+        post_host_event(HostPresentPendingFramesEvent{});
+    }
 }
 }
 
@@ -205,8 +236,7 @@ GraphicsHostInitializationResult *initialize_runtime_graphics()
     }
 
     runtime_game_host_context.display_surface = surface;
-    runtime_game_host_context.palette_entries = get_display_palette_entries();
-    runtime_game_host_context.window = graphics_host_state.capture_window;
+    runtime_game_host_context.palette_entries = reinterpret_cast<PaletteEntry *>(get_display_palette_entries());
 
     auto *descriptor = &runtime_display_context.display_pixel_format;
     *descriptor = { 0, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0, nullptr, nullptr };
@@ -244,8 +274,7 @@ GraphicsHostInitializationResult *initialize_runtime_graphics()
     }
     operate_display_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
     runtime_bootstrap_api.reset_display_state();
-    DWORD thread_id;
-    runtime_display_thread = runtime_bootstrap_api.create_thread(nullptr, 0, runtime_bootstrap_api.script_thread_entry, &runtime_display_context, 0, &thread_id);
+    runtime_display_thread = new (std::nothrow) std::jthread([] { execute_script_commands(&runtime_display_context); });
     if(runtime_display_thread == nullptr)
     {
         return nullptr;
@@ -264,33 +293,29 @@ void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32
     }
 }
 
-uint32_t initialize_sdl_presenter(HWND window, uint32_t)
+uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t)
 {
-    presenter.native_window = window;
-    presenter.main_thread_id = GetCurrentThreadId();
+    presenter.main_thread_id = std::this_thread::get_id();
     presenter.shutting_down = false;
     presenter.runtime_failure_reported = false;
-    InitializeCriticalSection(&display_host_critical_section);
+    presenter.presentation_wake_pending = false;
+    presenter.presenter_service_pending = false;
+    presenter.repaint_pending = false;
+    presenter.texture_has_frame = false;
     display_palette_flags = 0x80000000;
 
     if(!SDL_InitSubSystem(SDL_INIT_VIDEO))
     {
         std::fprintf(stderr, "Unable to initialize SDL video: %s\n", SDL_GetError());
-        DeleteCriticalSection(&display_host_critical_section);
         display_palette_flags = 0;
         return 1;
     }
     SDL_HideCursor();
 
-    SDL_PropertiesID properties = SDL_CreateProperties();
-    if(properties != 0)
-    {
-        SDL_SetPointerProperty(properties, SDL_PROP_WINDOW_CREATE_WIN32_HWND_POINTER, window);
-        presenter.window = SDL_CreateWindowWithProperties(properties);
-        SDL_DestroyProperties(properties);
-    }
+    presenter.window = SDL_CreateWindow("GAG", width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
     if(presenter.window != nullptr)
     {
+        SDL_SetWindowMinimumSize(presenter.window, width, height);
         presenter.renderer = SDL_CreateRenderer(presenter.window, nullptr);
     }
     if(presenter.renderer == nullptr)
@@ -299,8 +324,15 @@ uint32_t initialize_sdl_presenter(HWND window, uint32_t)
         shutdown_sdl_presenter();
         return 1;
     }
+    SDL_StartTextInput(presenter.window);
     SDL_SetRenderVSync(presenter.renderer, SDL_RENDERER_VSYNC_DISABLED);
+    SDL_SetRenderLogicalPresentation(presenter.renderer, width, height, SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
     return 0;
+}
+
+bool show_sdl_presenter()
+{
+    return presenter.window != nullptr && SDL_ShowWindow(presenter.window);
 }
 
 void shutdown_sdl_presenter()
@@ -314,15 +346,11 @@ void shutdown_sdl_presenter()
     }
     if(presenter.window != nullptr)
     {
+        SDL_StopTextInput(presenter.window);
         SDL_DestroyWindow(presenter.window);
         presenter.window = nullptr;
     }
-    if((display_palette_flags & 0x80000000) != 0)
-    {
-        DeleteCriticalSection(&display_host_critical_section);
-    }
     display_palette_flags = 0;
-    presenter.native_window = nullptr;
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
 
@@ -332,8 +360,132 @@ void begin_sdl_presenter_shutdown()
         std::lock_guard lock(presenter.mutex);
         presenter.shutting_down = true;
         presenter.queued_snapshots.clear();
+        presenter.presentation_wake_pending = false;
+        presenter.presenter_service_pending = false;
+        presenter.repaint_pending = false;
     }
     presenter.queue_changed.notify_all();
+}
+
+bool convert_sdl_presenter_event(SDL_Event *event)
+{
+    return presenter.renderer != nullptr && event != nullptr && SDL_ConvertEventToRenderCoordinates(presenter.renderer, event);
+}
+
+bool set_sdl_presenter_fullscreen(bool fullscreen)
+{
+    if(presenter.window == nullptr || presenter.renderer == nullptr)
+    {
+        return false;
+    }
+    if(presenter.fullscreen_transition_pending && presenter.pending_fullscreen == fullscreen)
+    {
+        return true;
+    }
+    if(!presenter.fullscreen_transition_pending && ((SDL_GetWindowFlags(presenter.window) & SDL_WINDOW_FULLSCREEN) != 0) == fullscreen)
+    {
+        return true;
+    }
+
+    float window_x;
+    float window_y;
+    SDL_GetMouseState(&window_x, &window_y);
+    float logical_x;
+    float logical_y;
+    presenter.pending_mouse_warp = SDL_RenderCoordinatesFromWindow(presenter.renderer, window_x, window_y, &logical_x, &logical_y) && logical_x >= 0.0f && logical_y >= 0.0f
+                                && logical_x < static_cast<float>(presenter.width) && logical_y < static_cast<float>(presenter.height);
+    if(presenter.pending_mouse_warp)
+    {
+        presenter.pending_mouse_x = logical_x;
+        presenter.pending_mouse_y = logical_y;
+    }
+    if(!SDL_SetWindowFullscreen(presenter.window, fullscreen))
+    {
+        presenter.pending_mouse_warp = false;
+        return false;
+    }
+    presenter.fullscreen_transition_pending = true;
+    presenter.pending_fullscreen = fullscreen;
+    return true;
+}
+
+void complete_sdl_presenter_fullscreen_transition(bool fullscreen)
+{
+    if(!presenter.fullscreen_transition_pending || presenter.pending_fullscreen != fullscreen)
+    {
+        return;
+    }
+    presenter.fullscreen_transition_pending = false;
+    if(!presenter.pending_mouse_warp || presenter.window == nullptr || presenter.renderer == nullptr)
+    {
+        presenter.pending_mouse_warp = false;
+        return;
+    }
+
+    float window_x;
+    float window_y;
+    if(SDL_RenderCoordinatesToWindow(presenter.renderer, presenter.pending_mouse_x, presenter.pending_mouse_y, &window_x, &window_y))
+    {
+        SDL_WarpMouseInWindow(presenter.window, window_x, window_y);
+    }
+    presenter.pending_mouse_warp = false;
+}
+
+bool get_sdl_presenter_window_rectangle(DisplayRectangle *rectangle)
+{
+    if(presenter.window == nullptr || rectangle == nullptr)
+    {
+        return false;
+    }
+    int x;
+    int y;
+    int width;
+    int height;
+    if(!SDL_GetWindowPosition(presenter.window, &x, &y) || !SDL_GetWindowSize(presenter.window, &width, &height))
+    {
+        return false;
+    }
+    *rectangle = { x, y, x + width, y + height };
+    return true;
+}
+
+bool set_sdl_presenter_window_rectangle(const DisplayRectangle &rectangle)
+{
+    if(presenter.window == nullptr || rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
+    {
+        return false;
+    }
+    return SDL_SetWindowPosition(presenter.window, rectangle.left, rectangle.top) && SDL_SetWindowSize(presenter.window, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top);
+}
+
+bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle)
+{
+    if(rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
+    {
+        return false;
+    }
+    const SDL_Rect candidate{ rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top };
+    return SDL_GetDisplayForRect(&candidate) != 0;
+}
+
+bool get_sdl_presenter_mouse_position(int32_t *x, int32_t *y)
+{
+    if(presenter.renderer == nullptr || x == nullptr || y == nullptr)
+    {
+        return false;
+    }
+    float window_x;
+    float window_y;
+    SDL_GetMouseState(&window_x, &window_y);
+    float logical_x;
+    float logical_y;
+    if(!SDL_RenderCoordinatesFromWindow(presenter.renderer, window_x, window_y, &logical_x, &logical_y))
+    {
+        return false;
+    }
+    *x = static_cast<int32_t>(logical_x);
+    *y = static_cast<int32_t>(logical_y);
+    return true;
 }
 
 void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode)
@@ -357,17 +509,16 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
         busy = (display_palette_flags & 0x40000000) >> 30;
         if(busy != 0)
         {
-            Sleep(5);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         else
         {
-            EnterCriticalSection(&display_host_critical_section);
+            std::lock_guard lock(display_host_mutex);
             busy = (display_palette_flags & 0x40000000) >> 30;
             if(busy == 0)
             {
                 display_palette_flags |= 0x40000000;
             }
-            LeaveCriticalSection(&display_host_critical_section);
         }
     } while(busy != 0);
 
@@ -378,7 +529,10 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
     {
         return 0;
     }
-    display_palette_flags &= 0xbfffffff;
+    {
+        std::lock_guard lock(display_host_mutex);
+        display_palette_flags &= 0xbfffffff;
+    }
     return 0x200000;
 }
 
@@ -388,7 +542,10 @@ uint32_t end_display_target()
     {
         return 0x200000;
     }
-    display_palette_flags &= 0xbfffffff;
+    {
+        std::lock_guard lock(display_host_mutex);
+        display_palette_flags &= 0xbfffffff;
+    }
     return 0;
 }
 
@@ -436,6 +593,10 @@ void teardown_display_palette_surface()
         }
         presenter.available_snapshots.clear();
         presenter.queued_snapshots.clear();
+        presenter.presentation_wake_pending = false;
+        presenter.presenter_service_pending = false;
+        presenter.repaint_pending = false;
+        presenter.texture_has_frame = false;
     }
     display_palette_width = 0;
     display_palette_height = 0;
@@ -443,19 +604,18 @@ void teardown_display_palette_surface()
     display_palette_pixels = nullptr;
 }
 
-PALETTEENTRY *get_display_palette_entries()
+PaletteEntry *get_display_palette_entries()
 {
     return display_palette_entries;
 }
 
-UINT apply_display_palette(const PALETTEENTRY *palette_entries, uint32_t)
+uint32_t apply_display_palette(const PaletteEntry *palette_entries, uint32_t)
 {
-    EnterCriticalSection(&display_host_critical_section);
+    std::lock_guard lock(display_host_mutex);
     if(palette_entries != nullptr)
     {
         std::memcpy(display_palette_entries, palette_entries, sizeof(display_palette_entries));
     }
-    LeaveCriticalSection(&display_host_critical_section);
     return palette_entries != nullptr ? 0xec : 0;
 }
 
@@ -465,20 +625,41 @@ void disable_display_palette_mode() {}
 
 void drain_sdl_presenter_frames()
 {
-    present_next_queued_snapshot();
+    std::lock_guard lock(presenter.mutex);
+    presenter.presentation_wake_pending = false;
+    presenter.presenter_service_pending = true;
 }
 
-void repaint_sdl_presenter()
+void request_sdl_presenter_repaint()
 {
-    while(present_next_queued_snapshot())
-    {
-    }
-    std::vector<uint32_t> snapshot;
+    std::lock_guard lock(presenter.mutex);
+    presenter.repaint_pending = true;
+}
+
+void service_sdl_presenter()
+{
+    bool service_pending;
+    bool repaint_pending;
     {
         std::lock_guard lock(presenter.mutex);
-        snapshot = presenter.front_pixels;
+        service_pending = presenter.presenter_service_pending;
+        repaint_pending = presenter.repaint_pending;
+        presenter.presenter_service_pending = false;
+        presenter.repaint_pending = false;
     }
-    present_snapshot(std::move(snapshot));
+
+    bool presented_frame = false;
+    if(service_pending)
+    {
+        while(present_next_queued_snapshot())
+        {
+            presented_frame = true;
+        }
+    }
+    if(repaint_pending && !presented_frame && !present_cached_texture())
+    {
+        fail_runtime_presentation();
+    }
 }
 
 } // namespace gag

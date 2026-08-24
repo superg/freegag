@@ -36,5 +36,4 @@ add_library(xtet STATIC
   sfs_archive.cpp
   sfs_archive.h
 )
-target_compile_definitions(xtet PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(xtet PUBLIC ZLIB::ZLIBSTATIC)

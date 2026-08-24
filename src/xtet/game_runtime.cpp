@@ -4,27 +4,29 @@
 namespace xtet
 {
 
-uint32_t dispatch_game_window_message(uint32_t gameplay_state, uint32_t message, uint32_t wparam, const GameWindowMessageCallbacks &callbacks)
+uint32_t dispatch_game_input(uint32_t gameplay_state, const gag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks)
 {
     if(gameplay_state < 1 || gameplay_state > 4)
         return 1;
-    switch(message)
+    switch(event.type)
     {
-    case 0x0002:
+    case gag::RuntimeInputType::close:
         if(callbacks.destroy)
             callbacks.destroy();
         break;
-    case 0x0100:
+    case gag::RuntimeInputType::key_down:
         if(callbacks.key_down)
-            callbacks.key_down(wparam);
+            callbacks.key_down(event.key);
         break;
-    case 0x0201:
-        if(callbacks.mouse_button)
+    case gag::RuntimeInputType::button_down:
+        if(event.button == gag::RuntimeMouseButton::left && callbacks.mouse_button)
             callbacks.mouse_button(true);
         break;
-    case 0x0202:
-        if(callbacks.mouse_button)
+    case gag::RuntimeInputType::button_up:
+        if(event.button == gag::RuntimeMouseButton::left && callbacks.mouse_button)
             callbacks.mouse_button(false);
+        break;
+    default:
         break;
     }
     return 0;

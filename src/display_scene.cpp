@@ -1,4 +1,5 @@
 #include "display_scene.h"
+#include <new>
 #include "runtime_internal.h"
 
 namespace gag
@@ -12,24 +13,24 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
     }
     uint32_t busy = 0;
     uint32_t mode = 0;
-    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
     do
     {
         do
         {
             if(busy != 0)
             {
-                display_lock_acquire_api.wait_for_single_object(display_lock_gate_event, INFINITE);
+                display_lock_acquire_api.wait_for_event(display_lock_gate_event);
             }
             if(mode == 0x3000)
             {
-                display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+                display_lock_acquire_api.wait_for_event(display_lock_release_event);
             }
             if(mode == 0x2000)
             {
                 display_lock_acquire_api.sleep(5);
             }
-            display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+            display_lock_acquire_api.enter_mutex(display_lock_mutex);
             busy = display_lock_busy;
             mode = display_lock_flags & 0x3000;
             if((mode == 0 || display_lock_owner_thread == thread_id) && busy == 0)
@@ -84,7 +85,7 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
                     *rectangle_flags = dirty_flags;
                 }
             }
-            display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+            display_lock_acquire_api.leave_mutex(display_lock_mutex);
         } while(busy != 0);
     } while((mode & 0xff00) != 0);
     return mode;
@@ -95,7 +96,7 @@ uint32_t release_display_lock()
     uint32_t result = 0x80000000;
     if((display_lock_flags & 1) != 0)
     {
-        DWORD thread_id = display_lock_release_api.get_current_thread_id();
+        RuntimeThreadId thread_id = display_lock_release_api.get_current_thread_id();
         if(thread_id == display_lock_owner_thread && (display_lock_flags & 0x3000) != 0)
         {
             result = 0;
@@ -106,7 +107,7 @@ uint32_t release_display_lock()
                 {
                     display_lock_release_api.set_event(display_lock_release_event);
                 }
-                display_lock_owner_thread = 0;
+                display_lock_owner_thread = {};
                 display_lock_flags &= 0xffffcfff;
             }
         }
@@ -406,9 +407,9 @@ uint32_t queue_display_rectangle(DisplayRectangle *rectangle)
     {
         return 0;
     }
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     merge_display_rectangle(&display_pending_rectangle, nullptr, rectangle);
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return 0;
 }
 
@@ -418,7 +419,7 @@ uint32_t find_available_display_scene_index(uint32_t candidate)
     {
         return candidate;
     }
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     DisplaySceneNode *current = display_scene_head;
     DisplaySceneNode *previous = display_scene_head;
     while(current != nullptr && ((candidate <= previous->scene_index && previous != current) || current->scene_index <= candidate))
@@ -433,7 +434,7 @@ uint32_t find_available_display_scene_index(uint32_t candidate)
         previous = current;
         current = current->next;
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return candidate;
 }
 
@@ -462,7 +463,7 @@ uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
         return 0x80000000;
     }
     uint32_t result = 0x20000000;
-    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
     if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
     {
         if(rectangle == nullptr)
@@ -486,7 +487,7 @@ uint32_t release_display_lock_mode_1000()
     uint32_t result = 0x80000000;
     if((display_lock_flags & 1) != 0)
     {
-        DWORD thread_id = display_lock_release_api.get_current_thread_id();
+        RuntimeThreadId thread_id = display_lock_release_api.get_current_thread_id();
         if(display_lock_owner_thread == thread_id && (display_lock_flags & 0x1000) != 0)
         {
             result = 0x1000;
@@ -507,12 +508,12 @@ DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
     {
         return nullptr;
     }
-    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
     while(true)
     {
         bool busy = false;
         DisplaySceneNode *result = nullptr;
-        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.enter_mutex(display_lock_mutex);
         for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
         {
             if(node->identifier == identifier)
@@ -530,7 +531,7 @@ DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
                 break;
             }
         }
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         if(!busy)
         {
             return result;
@@ -545,8 +546,8 @@ void unlock_display_scene_node(intptr_t identifier)
     {
         return;
     }
-    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -556,13 +557,13 @@ void unlock_display_scene_node(intptr_t identifier)
                 --node->lock_count;
                 if(node->lock_count == 0)
                 {
-                    node->lock_owner_thread = 0;
+                    node->lock_owner_thread = {};
                 }
             }
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
 }
 
 bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool replace_existing)
@@ -572,7 +573,7 @@ bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool r
         return false;
     }
     bool result = false;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -600,7 +601,7 @@ bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool r
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return result;
 }
 
@@ -611,7 +612,7 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
         return 0;
     }
     intptr_t result = 0;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     DisplaySceneNode *selected = nullptr;
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
@@ -647,7 +648,7 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
             *callback_format = selected->rectangle_callback_format;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     if(result == 0)
     {
         if(descriptor != nullptr)
@@ -719,7 +720,7 @@ uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t
         return 0x80000000;
     }
     uint32_t result = 0x80000000;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -733,7 +734,7 @@ uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return result;
 }
 
@@ -745,7 +746,7 @@ uint32_t begin_display_scene_update(intptr_t identifier)
     }
     while(true)
     {
-        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.enter_mutex(display_lock_mutex);
         uint32_t result = display_lock_flags & 0x1000;
         if(result == 0)
         {
@@ -772,12 +773,12 @@ uint32_t begin_display_scene_update(intptr_t identifier)
                 }
             }
         }
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         if(result != 0x1000)
         {
             return result;
         }
-        display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+        display_lock_acquire_api.wait_for_event(display_lock_release_event);
     }
 }
 
@@ -788,7 +789,7 @@ bool activate_display_scene_node(intptr_t identifier)
         return false;
     }
     bool activated = false;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -799,7 +800,7 @@ bool activate_display_scene_node(intptr_t identifier)
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return activated;
 }
 
@@ -810,7 +811,7 @@ uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTra
         return 0x80000000;
     }
     uint32_t result = 0x80000000;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -828,7 +829,7 @@ uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTra
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return result;
 }
 
@@ -863,7 +864,7 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
     }
     while(true)
     {
-        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.enter_mutex(display_lock_mutex);
         uint32_t result = display_lock_flags & 0x1000;
         if(result == 0)
         {
@@ -880,7 +881,7 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
                 {
                     previous = entry;
                 }
-                HANDLE heap = display_scene_memory_api.get_process_heap();
+                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
                 auto *entry = static_cast<DisplaySceneCallbackNode *>(display_scene_memory_api.heap_alloc(heap, 0, context_size + sizeof(DisplaySceneCallbackNode)));
                 if(entry != nullptr)
                 {
@@ -916,8 +917,8 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
                         }
                         if(buffer_position != nullptr)
                         {
-                            const SIZE_T pixel_bytes = static_cast<SIZE_T>(node->rectangle_callback_format.bits_per_pixel >> 3);
-                            LPVOID buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<SIZE_T>(node->width) * static_cast<SIZE_T>(node->height) * pixel_bytes);
+                            const size_t pixel_bytes = static_cast<size_t>(node->rectangle_callback_format.bits_per_pixel >> 3);
+                            void *buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<size_t>(node->width) * static_cast<size_t>(node->height) * pixel_bytes);
                             *buffer_position = reinterpret_cast<intptr_t>(buffer);
                             if(buffer == nullptr)
                             {
@@ -941,12 +942,12 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
                 }
             }
         }
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         if(result != 0x1000)
         {
             return result;
         }
-        display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+        display_lock_acquire_api.wait_for_event(display_lock_release_event);
     }
 }
 
@@ -1624,13 +1625,13 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
         }
         if(previous_mode == 0x3000)
         {
-            display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+            display_lock_acquire_api.wait_for_event(display_lock_release_event);
         }
         if(previous_mode == 0x2000)
         {
             display_lock_acquire_api.sleep(5);
         }
-        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.enter_mutex(display_lock_mutex);
         previous_mode = display_lock_flags & 0x3000;
         if(previous_mode == 0)
         {
@@ -1679,7 +1680,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
             }
             if(!matching_scene)
             {
-                HANDLE heap = display_scene_memory_api.get_process_heap();
+                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
                 auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
                 if(node != nullptr)
                 {
@@ -1697,7 +1698,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     else
                     {
                         pixel_bytes = bytes_per_pixel * height * width;
-                        LPVOID pixels = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                        void *pixels = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
                         node->callback_first_position = reinterpret_cast<intptr_t>(pixels);
                         if(pixels != nullptr)
                         {
@@ -1710,8 +1711,17 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             node->previous_y = y;
                         }
                     }
-                    if(node->callback_first_position == 0 && requested_index != 0x7fffffff)
+                    if(node->callback_first_position != 0 && requested_storage == DisplaySceneStorage::xrgb_composition)
                     {
+                        const size_t indexed_bytes = static_cast<size_t>(node->width) * static_cast<size_t>(node->height);
+                        node->indexed_backing = reinterpret_cast<intptr_t>(display_scene_memory_api.heap_alloc(heap, runtime_heap_zero_memory, indexed_bytes));
+                    }
+                    if((node->callback_first_position == 0 && requested_index != 0x7fffffff) || (requested_storage == DisplaySceneStorage::xrgb_composition && node->indexed_backing == 0))
+                    {
+                        if(node->callback_first_position != 0 && requested_index != 0x7fffffff)
+                        {
+                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
+                        }
                         display_scene_memory_api.heap_free(heap, 0, node);
                     }
                     else
@@ -1753,6 +1763,8 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             descriptor->pixels = node->callback_first_position;
                             descriptor->bits_per_pixel = format->bits_per_pixel;
                             descriptor->stride = width;
+                            descriptor->indexed_pixels = node->indexed_backing;
+                            descriptor->indexed_stride = static_cast<uint32_t>(node->width);
                         }
                         ++display_scene_count;
                         if(previous == nullptr)
@@ -1835,32 +1847,27 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                 && ((existing_flags & 0x04000000) == 0 || (requested_x == existing->x && y == existing->y)))
                             {
                                 DisplayRectangle old_rectangle{ existing->x, existing->y, existing->x + existing->width, existing->y + existing->height };
-                                LPVOID primary;
-                                LPVOID current;
-                                LPVOID alternate;
+                                void *primary;
+                                void *current;
+                                void *alternate;
+                                void *indexed_backing;
                                 bool allocation_success = true;
-                                HANDLE heap = display_scene_memory_api.get_process_heap();
-                                if(existing->width == static_cast<int32_t>(width) && existing->height == static_cast<int32_t>(height))
+                                const bool dimensions_changed = existing->width != static_cast<int32_t>(width) || existing->height != static_cast<int32_t>(height);
+                                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
+                                if(!dimensions_changed)
                                 {
                                     primary = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position));
                                     current = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position));
                                     alternate = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position));
+                                    indexed_backing = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->indexed_backing));
                                 }
                                 else
                                 {
-                                    if(existing->callback_alternate_position != 0)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position)));
-                                    }
-                                    if(existing->callback_current_position != 0)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position)));
-                                    }
                                     bool had_current = existing->callback_current_position != 0;
                                     bool had_alternate = existing->callback_alternate_position != 0;
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)));
                                     current = nullptr;
                                     alternate = nullptr;
+                                    indexed_backing = nullptr;
                                     primary = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
                                     allocation_success = primary != nullptr;
                                     if(had_current && allocation_success)
@@ -1879,12 +1886,38 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                             allocation_success = false;
                                         }
                                     }
+                                    if(existing->storage == DisplaySceneStorage::xrgb_composition && allocation_success)
+                                    {
+                                        const size_t indexed_bytes = static_cast<size_t>(width) * static_cast<size_t>(height);
+                                        indexed_backing = display_scene_memory_api.heap_alloc(heap, runtime_heap_zero_memory, indexed_bytes);
+                                        if(indexed_backing == nullptr)
+                                        {
+                                            allocation_success = false;
+                                        }
+                                    }
                                 }
                                 if(allocation_success)
                                 {
+                                    if(dimensions_changed)
+                                    {
+                                        if(existing->callback_alternate_position != 0)
+                                        {
+                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position)));
+                                        }
+                                        if(existing->callback_current_position != 0)
+                                        {
+                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position)));
+                                        }
+                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)));
+                                        if(existing->indexed_backing != 0)
+                                        {
+                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->indexed_backing)));
+                                        }
+                                    }
                                     existing->callback_first_position = reinterpret_cast<intptr_t>(primary);
                                     existing->callback_current_position = reinterpret_cast<intptr_t>(current);
                                     existing->callback_alternate_position = reinterpret_cast<intptr_t>(alternate);
+                                    existing->indexed_backing = reinterpret_cast<intptr_t>(indexed_backing);
                                     queue_display_rectangle(&old_rectangle);
                                     if((flags & 0x10000) != 0 && existing->primary_owner == 0)
                                     {
@@ -1893,6 +1926,10 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     if((flags & 0x20000) != 0)
                                     {
                                         std::memset(primary, 0, pixel_bytes);
+                                        if(indexed_backing != nullptr)
+                                        {
+                                            std::memset(indexed_backing, 0, static_cast<size_t>(width) * height);
+                                        }
                                     }
                                     existing->owners[0] = owner;
                                     existing->owner_count = 1;
@@ -1915,19 +1952,12 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     descriptor->pixels = reinterpret_cast<intptr_t>(primary);
                                     descriptor->bits_per_pixel = format->bits_per_pixel;
                                     descriptor->stride = width;
+                                    descriptor->indexed_pixels = existing->indexed_backing;
+                                    descriptor->indexed_stride = static_cast<uint32_t>(existing->width);
                                     result = existing;
                                 }
                                 else
                                 {
-                                    --display_scene_count;
-                                    if(previous == nullptr)
-                                    {
-                                        display_scene_head = existing->next;
-                                    }
-                                    else
-                                    {
-                                        previous->next = existing->next;
-                                    }
                                     if(alternate != nullptr)
                                     {
                                         display_scene_memory_api.heap_free(heap, 0, alternate);
@@ -1940,7 +1970,10 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     {
                                         display_scene_memory_api.heap_free(heap, 0, primary);
                                     }
-                                    display_scene_memory_api.heap_free(heap, 0, existing);
+                                    if(indexed_backing != nullptr)
+                                    {
+                                        display_scene_memory_api.heap_free(heap, 0, indexed_backing);
+                                    }
                                 }
                             }
                         }
@@ -1964,6 +1997,11 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             const uint32_t pixel_bytes = existing->rectangle_callback_format.bits_per_pixel >> 3;
                             std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)), 0,
                                 static_cast<uint32_t>(existing->width) * static_cast<uint32_t>(existing->height) * pixel_bytes);
+                            if(existing->indexed_backing != 0)
+                            {
+                                std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(existing->indexed_backing)), 0,
+                                    static_cast<size_t>(existing->width) * static_cast<size_t>(existing->height));
+                            }
                         }
                         existing->owners[existing->owner_count] = owner;
                         descriptor->x = static_cast<int16_t>(offset_x);
@@ -1975,6 +2013,8 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         descriptor->pixels = existing->callback_first_position;
                         descriptor->bits_per_pixel = existing->rectangle_callback_format.bits_per_pixel;
                         descriptor->stride = static_cast<uint32_t>(existing->sync_secondary_position) / (existing->rectangle_callback_format.bits_per_pixel >> 3);
+                        descriptor->indexed_pixels = existing->indexed_backing;
+                        descriptor->indexed_stride = static_cast<uint32_t>(existing->width);
                         ++existing->owner_count;
                     }
                 }
@@ -1984,7 +2024,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                 ++result->reference_count;
             }
         }
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         if((previous_mode & 0x3000) != 0)
         {
             continue;
@@ -2009,8 +2049,8 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     }
 
     display_lock_flags = 0;
-    std::memset(&display_lock_critical_section, 0, sizeof(display_lock_critical_section));
-    display_lock_owner_thread = 0;
+    display_lock_mutex = nullptr;
+    display_lock_owner_thread = {};
     display_lock_recursion_count = 0;
     display_lock_release_event = nullptr;
     display_clip_bounds = {};
@@ -2029,18 +2069,23 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     display_scene_root = nullptr;
     display_scene_head = nullptr;
 
-    display_scene_host_api.initialize_critical_section(&display_lock_critical_section);
-    display_lock_release_event = display_scene_host_api.create_event(nullptr, TRUE, TRUE, nullptr);
-    if(display_lock_release_event == nullptr)
+    display_lock_mutex = new (std::nothrow) RuntimeMutex;
+    display_lock_release_event = new (std::nothrow) RuntimeManualResetEvent(true);
+    if(display_lock_mutex == nullptr || display_lock_release_event == nullptr)
     {
-        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+        delete display_lock_release_event;
+        delete display_lock_mutex;
+        display_lock_release_event = nullptr;
+        display_lock_mutex = nullptr;
         return nullptr;
     }
-    display_lock_gate_event = display_scene_host_api.create_event(nullptr, TRUE, TRUE, nullptr);
+    display_lock_gate_event = new (std::nothrow) RuntimeManualResetEvent(true);
     if(display_lock_gate_event == nullptr)
     {
-        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
-        display_scene_host_api.close_handle(display_lock_release_event);
+        delete display_lock_release_event;
+        delete display_lock_mutex;
+        display_lock_release_event = nullptr;
+        display_lock_mutex = nullptr;
         return nullptr;
     }
 
@@ -2053,9 +2098,12 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
     if(display_scene_root == nullptr)
     {
-        display_scene_host_api.delete_critical_section(&display_lock_critical_section);
-        display_scene_host_api.close_handle(display_lock_release_event);
-        display_scene_host_api.close_handle(display_lock_gate_event);
+        delete display_lock_release_event;
+        delete display_lock_gate_event;
+        delete display_lock_mutex;
+        display_lock_release_event = nullptr;
+        display_lock_gate_event = nullptr;
+        display_lock_mutex = nullptr;
         display_lock_flags = 0;
         return nullptr;
     }
@@ -2064,15 +2112,17 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
         display_scene_sync_api.synchronize = synchronize;
         display_scene_sync_context = context;
         display_scene_worker_interval = worker_interval;
-        DWORD thread_id = 0;
-        display_scene_worker_thread = display_scene_host_api.create_thread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(run_display_scene_worker), &display_lock_flags, 0, &thread_id);
+        display_scene_worker_thread = new (std::nothrow) std::jthread([] { run_display_scene_worker(&display_lock_flags); });
         if(display_scene_worker_thread == nullptr)
         {
             display_lock_flags |= 0x40000000;
             release_display_scene_node(reinterpret_cast<intptr_t>(display_scene_root), 0);
-            display_scene_host_api.delete_critical_section(&display_lock_critical_section);
-            display_scene_host_api.close_handle(display_lock_release_event);
-            display_scene_host_api.close_handle(display_lock_gate_event);
+            delete display_lock_release_event;
+            delete display_lock_gate_event;
+            delete display_lock_mutex;
+            display_lock_release_event = nullptr;
+            display_lock_gate_event = nullptr;
+            display_lock_mutex = nullptr;
             display_lock_flags = 0;
             return nullptr;
         }
@@ -2089,28 +2139,34 @@ uint32_t shutdown_display_scene_host()
     {
         return 0x80000000;
     }
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     if(display_scene_count != 1)
     {
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         return 0x80000000;
     }
     display_lock_flags = (display_lock_flags & ~1U) | 0x40000000;
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     if(display_scene_worker_thread != nullptr)
     {
-        display_scene_host_api.wait_for_single_object(display_scene_worker_thread, INFINITE);
+        display_scene_worker_thread->join();
+        delete display_scene_worker_thread;
+        display_scene_worker_thread = nullptr;
     }
     release_display_scene_node(reinterpret_cast<intptr_t>(display_scene_root), 0);
-    display_scene_host_api.close_handle(display_lock_release_event);
-    display_scene_host_api.close_handle(display_lock_gate_event);
-    display_scene_host_api.delete_critical_section(&display_lock_critical_section);
+    delete display_lock_release_event;
+    delete display_lock_gate_event;
+    delete display_lock_mutex;
+    display_lock_release_event = nullptr;
+    display_lock_gate_event = nullptr;
+    display_lock_mutex = nullptr;
     return 0;
 }
 
-DWORD WINAPI run_display_scene_worker(uint32_t *flags)
+void run_display_scene_worker(uint32_t *flags)
 {
-    DWORD frame_start = display_scene_worker_api.time_get_time();
-    DWORD rate_start = frame_start;
+    uint32_t frame_start = display_scene_worker_api.time_get_time();
+    uint32_t rate_start = frame_start;
     uint32_t frame_count = 0;
     while((*flags & 0x40000000) == 0)
     {
@@ -2149,11 +2205,11 @@ DWORD WINAPI run_display_scene_worker(uint32_t *flags)
             }
             display_scene_worker_api.release_lock();
         }
-        DWORD now = display_scene_worker_api.time_get_time();
-        DWORD elapsed = now - frame_start;
+        uint32_t now = display_scene_worker_api.time_get_time();
+        uint32_t elapsed = now - frame_start;
         if(elapsed < display_scene_worker_interval)
         {
-            DWORD delay = display_scene_worker_interval - elapsed;
+            uint32_t delay = display_scene_worker_interval - elapsed;
             display_scene_worker_api.sleep(delay);
             frame_start = now + delay;
         }
@@ -2173,7 +2229,6 @@ DWORD WINAPI run_display_scene_worker(uint32_t *flags)
             rate_start = now;
         }
     }
-    return 0;
 }
 
 uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
@@ -2194,17 +2249,17 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
         }
         if(previous_busy != 0)
         {
-            display_lock_acquire_api.wait_for_single_object(display_lock_gate_event, INFINITE);
+            display_lock_acquire_api.wait_for_event(display_lock_gate_event);
         }
         if(previous_mode == 0x3000)
         {
-            display_lock_acquire_api.wait_for_single_object(display_lock_release_event, INFINITE);
+            display_lock_acquire_api.wait_for_event(display_lock_release_event);
         }
         if(previous_mode == 0x2000)
         {
             display_lock_acquire_api.sleep(5);
         }
-        display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.enter_mutex(display_lock_mutex);
         uint32_t observed_busy = display_lock_busy;
         previous_mode = display_lock_flags & 0x3000;
         previous_busy = display_lock_busy;
@@ -2287,7 +2342,7 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                 {
                                     previous->next = next;
                                 }
-                                HANDLE heap = display_scene_memory_api.get_process_heap();
+                                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
                                 DisplaySceneCallbackNode *callback = node->callbacks;
                                 while(callback != nullptr)
                                 {
@@ -2311,6 +2366,10 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                 {
                                     display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
                                 }
+                                if(node->indexed_backing != 0)
+                                {
+                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->indexed_backing)));
+                                }
                                 display_scene_memory_api.heap_free(heap, 0, node);
                                 retained_node = nullptr;
                             }
@@ -2332,7 +2391,7 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                 }
             }
         }
-        display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+        display_lock_acquire_api.leave_mutex(display_lock_mutex);
         if((previous_mode & 0x3000) != 0 || observed_busy != 0)
         {
             continue;
@@ -2408,6 +2467,15 @@ void fill_display_scene_rectangle_32(DisplaySceneNode *node, DisplayRectangle *r
         std::fill_n(reinterpret_cast<uint32_t *>(row), right - left, static_cast<uint32_t>(value));
         row += node->sync_secondary_position;
     }
+    if(node->indexed_backing != 0)
+    {
+        auto *indexed_row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(node->indexed_backing)) + static_cast<size_t>(top) * node->width + left;
+        for(int32_t y = top; y < bottom; ++y)
+        {
+            std::fill_n(indexed_row, right - left, uint8_t{ 0 });
+            indexed_row += node->width;
+        }
+    }
 }
 
 int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *output_rectangle)
@@ -2472,7 +2540,7 @@ uint32_t dispatch_display_scene_update(void *target, uint32_t options)
         return 0x80000000;
     }
     uint32_t result = 0x20000000;
-    DWORD thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
     if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
     {
         result = 0x80000000;
@@ -2553,7 +2621,7 @@ bool contains_display_scene_node(intptr_t identifier)
         return false;
     }
     bool found = false;
-    display_lock_acquire_api.enter_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.enter_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -2562,7 +2630,7 @@ bool contains_display_scene_node(intptr_t identifier)
             break;
         }
     }
-    display_lock_acquire_api.leave_critical_section(&display_lock_critical_section);
+    display_lock_acquire_api.leave_mutex(display_lock_mutex);
     return found;
 }
 

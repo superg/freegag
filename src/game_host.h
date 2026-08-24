@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime_input.h"
 #include "runtime_types.h"
 
 namespace xtet
@@ -26,7 +27,9 @@ uint32_t resume_runtime_game_dll();
 
 void handle_runtime_xtet_host_event(const HostXtEtEvent &event);
 
-LRESULT CALLBACK runtime_game_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+bool handle_runtime_input_event(const RuntimeInputEvent &event);
+
+void use_portable_runtime_input(bool enabled);
 
 void update_runtime_pointer_position(int32_t x, int32_t y);
 

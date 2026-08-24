@@ -1,6 +1,8 @@
 #pragma once
 
 #include "audio_types.h"
+#include "binary_stream.h"
+#include "runtime_services.h"
 
 namespace gag
 {
@@ -24,8 +26,6 @@ struct RuntimeDisplayResetApi
 struct RuntimeDisplayShutdownApi
 {
     RuntimeNamedNode *(*get_named_node)(const char *name);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
     uint32_t (*release_scene)(intptr_t identifier, intptr_t owner);
     uint32_t (*shutdown_host)();
     void (*teardown_surface)();
@@ -33,19 +33,13 @@ struct RuntimeDisplayShutdownApi
 
 struct RuntimeResourceWaitApi
 {
-    void(WINAPI *sleep)(DWORD milliseconds);
-};
-
-struct RuntimeResourceFileOpenApi
-{
-    BOOL(WINAPI *get_version)(LPOSVERSIONINFOA version);
-    HANDLE(WINAPI *create_file)(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD creation, DWORD flags, HANDLE template_file);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 struct RuntimeResourceHostApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     uint32_t (*destroy_host)(AsyncFileHost *host);
     AsyncFileHost *(*create_host)(const char *root, uint32_t requested_bytes, int32_t mode);
     void (*set_host_mode)(AsyncFileHost *host, int32_t mode);
@@ -54,53 +48,39 @@ struct RuntimeResourceHostApi
 
 struct RuntimeResourceTypeApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     RuntimeResourceCacheEntry *(*find_cache_entry)(void *parent_identity, const char *name);
     void (*update_host)(const char *path, int32_t reset);
-    HANDLE (*open_file)(const char *path);
-    BOOL(WINAPI *read_file)(HANDLE file, LPVOID buffer, DWORD bytes, LPDWORD bytes_read, LPOVERLAPPED overlapped);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
     uint8_t (*get_archive_flags)(CdfArchive *archive, const char *name);
 };
 
 struct RuntimeCdfStreamApi
 {
-    int(WINAPI *compare_names)(LPCSTR left, LPCSTR right);
-    AsyncFileRecord *(*duplicate_record)(AsyncFileRecord *identity, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
-    HANDLE(WINAPI *create_file)(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD creation, DWORD flags, HANDLE template_file);
-    DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG high_distance, DWORD method);
+    int (*compare_names)(const char *left, const char *right);
 };
 
 struct ArchiveCommentEnumerationApi
 {
-    HANDLE(WINAPI *find_first)(LPCSTR pattern, LPWIN32_FIND_DATAA data);
-    BOOL(WINAPI *find_next)(HANDLE find, LPWIN32_FIND_DATAA data);
-    BOOL(WINAPI *find_close)(HANDLE find);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    LPVOID(WINAPI *heap_realloc)(HANDLE heap, DWORD flags, LPVOID memory, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
     CdfArchive *(*open_archive)(const char *path, intptr_t alternate_stream);
     uint32_t (*get_error)(CdfArchive *archive);
     uint32_t (*get_entry_size)(CdfArchive *archive, uint8_t selector, const char *name);
     int (*read_entry)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
     uint32_t (*close_archive)(CdfArchive *archive);
-    BOOL(WINAPI *delete_file)(LPCSTR path);
 };
 
 
 
 struct RuntimeResourceLoadApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     RuntimeResourceCacheEntry *(*find_cache_entry)(void *parent_identity, const char *name);
     AsyncFileRecord *(*open_async_record)(AsyncFileHost *host, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
     uint32_t (*get_async_size)(AsyncFileRecord *record);
     int32_t (*activate_loading_scene)(const char *name);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
     uint32_t (*read_async_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
     void (*deactivate_loading_scene)(const char *name);
     void (*reset_byte_queue)();
@@ -111,7 +91,7 @@ struct RuntimeResourceLoadApi
     void *(*open_archive_stream)(CdfArchive *archive, const char *name);
     int (*read_archive_entry)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
     void (*set_script_flags)(uint32_t flags, int enabled);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 struct AsyncFileRecord;
@@ -122,13 +102,12 @@ struct AsyncFileHost
     uint32_t flags;
     AsyncFileHost *next;
     int32_t mode;
-    CRITICAL_SECTION primary_lock;
-    CRITICAL_SECTION secondary_lock;
-    HANDLE thread;
-    DWORD bytes_per_sector;
-    DWORD sectors_per_cluster;
+    RuntimeMutex *primary_lock;
+    RuntimeMutex *secondary_lock;
+    std::jthread *thread;
+    uint32_t bytes_per_sector;
     uint32_t file_offset;
-    HANDLE file;
+    std::shared_ptr<SharedBinaryInputState> file;
     uint32_t file_size;
     uint32_t remaining_size;
     uint32_t start_offset;
@@ -151,13 +130,13 @@ struct AsyncFileRecord
     AsyncFileRecord *self;
     uint32_t flags;
     AsyncFileRecord *next;
-    HANDLE file;
+    std::shared_ptr<SharedBinaryInputState> file;
     uint32_t file_size;
     uint32_t remaining_size;
     uint32_t start_offset;
     uint32_t end_offset;
     uint32_t current_offset;
-    DWORD timestamp;
+    uint32_t timestamp;
     void *buffer;
     void *buffer_cursor;
     uint32_t buffered_bytes;
@@ -169,45 +148,22 @@ struct AsyncFileRecord
 
 struct AsyncFileLockApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
-};
-
-struct AsyncFileOpenApi
-{
-    HANDLE(WINAPI *create_file)(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security, DWORD creation, DWORD flags, HANDLE template_file);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
-    LPVOID(WINAPI *virtual_alloc)(LPVOID address, SIZE_T bytes, DWORD allocation_type, DWORD protect);
-    BOOL(WINAPI *virtual_free)(LPVOID address, SIZE_T bytes, DWORD free_type);
-    DWORD(WINAPI *get_file_size)(HANDLE file, LPDWORD high_size);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 struct AsyncFileHostApi
 {
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    BOOL(WINAPI *get_disk_free_space)(LPCSTR root, LPDWORD sectors_per_cluster, LPDWORD bytes_per_sector, LPDWORD free_clusters, LPDWORD total_clusters);
-    void(WINAPI *initialize_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION section);
-    LPVOID(WINAPI *virtual_alloc)(LPVOID address, SIZE_T bytes, DWORD allocation_type, DWORD protect);
-    HANDLE(WINAPI *create_thread)(LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, LPTHREAD_START_ROUTINE start, LPVOID parameter, DWORD flags, LPDWORD thread_id);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE object, DWORD milliseconds);
-    BOOL(WINAPI *read_file)(HANDLE file, LPVOID buffer, DWORD bytes, LPDWORD bytes_read, LPOVERLAPPED overlapped);
-    DWORD(WINAPI *set_file_pointer)(HANDLE file, LONG distance, PLONG high_distance, DWORD method);
     uint32_t (*time_get_time)();
 };
 
 struct RuntimeNamedLockApi
 {
-    DWORD(WINAPI *get_current_thread_id)();
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    RuntimeThreadId (*get_current_thread_id)();
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 
@@ -224,7 +180,7 @@ struct ScriptRuntimeRoot
     uint32_t transient_index_2;
     void (*set_property)(uint32_t operation, int32_t argument, RuntimeGenericResourceNode *node);
     void (*get_property)(uint32_t operation, void **resource_data, void *result);
-    HANDLE heap;
+    RuntimeHeap *heap;
     uint32_t parser_integer_0820;
     uint32_t state_value_0824;
     char language[0x20];
@@ -276,7 +232,7 @@ struct ScriptRuntimeRoot
 
 struct RuntimeGenericResourceLoadApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
 };
 
 
@@ -303,14 +259,14 @@ struct RuntimeTreeParserContext
 
 struct RuntimeTreeParserContextApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
 };
 
 
 
 struct RuntimeTreeParserReleaseApi
 {
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
     void (*remove_resource)(void *identity);
 };
 
@@ -327,8 +283,8 @@ struct RuntimeTreeCreationApi
     int (*find_property)(char *value, const char *property_name, const char *text, uint32_t text_length, uint32_t start_offset);
     RuntimeTreeNode *(*begin_enumeration)(void *identity);
     RuntimeTreeNode *(*next_enumeration)(RuntimeTreeNode *root);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
     RuntimeTreeParserContext *(*create_parser_context)(RuntimeTreeNode *owner, const char *name, RuntimeGenericResourceNode *resource, uint32_t start_offset, const char *creation_text);
     void (*remove_resource)(void *identity);
     RuntimeTreeNode *(*dispatch_parser)(RuntimeTreeParserContext *context);
@@ -611,7 +567,7 @@ struct RuntimeResourceSceneDestructionApi
     RuntimeLockRecord *(*acquire_record)(void *identity);
     uint32_t (*destroy_resource)(void *identity);
     void (*release_record)(RuntimeLockRecord *record);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*update_scene_region)(intptr_t scene_identifier, int32_t x, int32_t y, int32_t width, int32_t height);
 };
 
@@ -631,8 +587,8 @@ struct RuntimeResourceSceneRegionApi
 
 struct RuntimeBitmapRegionRenderApi
 {
-    DWORD(WINAPI *wait_for_single_object)(HANDLE object, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
     void (*copy_bitmap_region)(RuntimeMediaBackend *backend, DisplayRectangle *rectangle);
 };
 
@@ -674,9 +630,9 @@ struct RuntimeImmediateSceneTransitionApi
     uint32_t (*release_display_lock)();
     RuntimeLockRecord *(*acquire_record)(void *identity);
     uint32_t (*dispatch_scene_update)(void *rectangle, uint32_t flags);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*synchronize_region)(DisplayRectangle *rectangle, uint32_t mode);
-    UINT (*apply_palette)(const PALETTEENTRY *entries, uint32_t flags);
+    uint32_t (*apply_palette)(const PaletteEntry *entries, uint32_t flags);
     void (*release_record)(RuntimeLockRecord *record);
 };
 
@@ -687,14 +643,14 @@ struct RuntimePaletteSceneTransitionApi
     RuntimeLockRecord *(*acquire_record)(void *identity);
     void (*apply_immediate)(uint32_t unused, uint32_t flags);
     uint32_t (*acquire_display_lock)(DisplayRectangle *primary, DisplayRectangle *secondary, uint32_t *flags);
-    UINT (*apply_palette)(const PALETTEENTRY *entries, uint32_t flags);
+    uint32_t (*apply_palette)(const PaletteEntry *entries, uint32_t flags);
     void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
     uint32_t (*set_clip_rectangle)(DisplayRectangle *rectangle);
     uint32_t (*dispatch_scene_update)(void *rectangle, uint32_t flags);
     uint32_t (*release_display_lock)();
     void (*release_record)(RuntimeLockRecord *record);
     uint32_t (*time_get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*invalidate_framebuffer)(int32_t x, int32_t y, int32_t width, int32_t height);
 };
 
@@ -709,11 +665,11 @@ struct RuntimeRectangleSceneTransitionApi
     uint32_t (*release_display_lock)();
     void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
     void (*synchronize_region)(DisplayRectangle *rectangle, uint32_t mode);
-    UINT (*apply_palette)(const PALETTEENTRY *entries, uint32_t flags);
+    uint32_t (*apply_palette)(const PaletteEntry *entries, uint32_t flags);
     uint32_t (*dispatch_scene_update)(void *rectangle, uint32_t flags);
     uint32_t (*time_get_time)();
     uint32_t (*get_tick_count)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*release_record)(RuntimeLockRecord *record);
 };
 
@@ -787,7 +743,7 @@ struct RuntimeTreeDeactivateApi
 {
     RuntimeTreeNode *(*resolve_identity)(void *identity);
     void (*request_resource_destruction)(void *identity);
-    BOOL (*remove_visual_object)(void *identity);
+    bool (*remove_visual_object)(void *identity);
     void (*set_script_flags)(uint32_t flags, int enabled);
     void (*deactivate_comment)(RuntimeTreeNode *node);
     intptr_t (*destroy_tree)(void *first, void *second);
@@ -807,9 +763,8 @@ struct RuntimeResourceLoopApi
 struct AsyncFileShutdownApi
 {
     uint32_t (*destroy_host)(AsyncFileHost *identity);
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
 };
 
 
@@ -818,8 +773,7 @@ struct RuntimeMediaBackendShutdownApi
 {
     RuntimeMediaBackend *(*acquire_first_backend)();
     void (*release_backend_lock)(RuntimeMediaBackend *backend);
-    BOOL(WINAPI *heap_destroy)(HANDLE heap);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
+    bool (*heap_destroy)(RuntimeHeap *heap);
     uint32_t (*shutdown_sound)();
 };
 

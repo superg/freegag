@@ -1,5 +1,7 @@
 #pragma once
 
+#include <thread>
+#include "runtime_services.h"
 #include "runtime_tree_types.h"
 
 namespace gag
@@ -22,16 +24,8 @@ struct DisplayBitmapCaptureSource
     uint32_t green_mask;
     uint32_t blue_mask;
     const uint8_t *pixels;
-    const PALETTEENTRY *palette_entries;
+    const PaletteEntry *palette_entries;
 };
-
-
-struct BitmapCaptureApi
-{
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-};
-
 
 
 struct RuntimeQueueApi
@@ -130,7 +124,6 @@ struct RuntimeTextInputSceneRedrawApi
 
 struct RuntimeCommandLoopState
 {
-    HWND window;
     uint8_t unknown_004[8];
     uint8_t resource_archive_state;
     uint8_t unknown_00d[0x103];
@@ -148,9 +141,9 @@ struct RuntimeCommandLoopState
     uint32_t callback_first_position_1;
     uint32_t callback_first_position_2;
     uint32_t callback_first_position_3;
-    PALETTEENTRY *palette_entries;
+    PaletteEntry *palette_entries;
     uint8_t unknown_490[0x94];
-    RuntimeGameDllWindowProcedure game_dll_window_procedure;
+    RuntimeGameInputHandler game_input_handler;
     RuntimeGameDllExecute game_dll_execute;
     uint32_t game_result_type;
     uint8_t game_result_data[0x104];
@@ -181,13 +174,13 @@ struct RuntimeCommandLoopState
         intptr_t archive_alternate_stream;
     };
     void *resource_cache_parent_identity;
-    CRITICAL_SECTION byte_queue_critical_section;
-    CRITICAL_SECTION pair_queue_critical_section;
-    CRITICAL_SECTION message_queue_critical_section;
-    CRITICAL_SECTION resource_critical_section;
-    CRITICAL_SECTION path_critical_section;
-    HANDLE resource_heap;
-    HANDLE script_thread;
+    RuntimeMutex byte_queue_mutex;
+    RuntimeMutex pair_queue_mutex;
+    RuntimeMutex message_queue_mutex;
+    RuntimeMutex resource_mutex;
+    RuntimeMutex path_mutex;
+    RuntimeHeap *resource_heap;
+    std::jthread *script_thread;
     uint8_t unknown_900[4];
     void *media_objects_parent_identity;
     uint32_t resource_wait_count;
@@ -270,20 +263,20 @@ struct RuntimeTargetUpdateApi
 
 struct DisplayLockReleaseApi
 {
-    DWORD(WINAPI *get_current_thread_id)();
-    BOOL(WINAPI *set_event)(HANDLE event);
+    RuntimeThreadId (*get_current_thread_id)();
+    void (*set_event)(RuntimeManualResetEvent *event);
 };
 
 struct DisplayRectangle;
 
 struct DisplayLockAcquireApi
 {
-    DWORD(WINAPI *get_current_thread_id)();
-    DWORD(WINAPI *wait_for_single_object)(HANDLE object, DWORD milliseconds);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    BOOL(WINAPI *reset_event)(HANDLE event);
+    RuntimeThreadId (*get_current_thread_id)();
+    void (*wait_for_event)(RuntimeManualResetEvent *event);
+    void (*sleep)(uint32_t milliseconds);
+    void (*enter_mutex)(RuntimeMutex *mutex);
+    void (*leave_mutex)(RuntimeMutex *mutex);
+    void (*reset_event)(RuntimeManualResetEvent *event);
 };
 
 
@@ -328,7 +321,7 @@ struct DisplaySceneCallbackNode
 struct DisplayTraversalState
 {
     uint32_t flags;
-    DWORD timestamp;
+    uint32_t timestamp;
     uint32_t width;
     uint32_t height;
     intptr_t first_position;
@@ -344,7 +337,7 @@ struct DisplaySceneNode
     uint32_t flags;
     uint32_t reference_count;
     uint32_t lock_count;
-    DWORD lock_owner_thread;
+    RuntimeThreadId lock_owner_thread;
     DisplaySceneSurface *surface;
     DisplaySceneNode *next;
     intptr_t callback_first_position;
@@ -373,6 +366,7 @@ struct DisplaySceneNode
     uint32_t palette_source[256];
     uint32_t palette_mapping[256];
     DisplaySceneStorage storage;
+    intptr_t indexed_backing;
 };
 
 
@@ -396,27 +390,17 @@ struct DisplaySceneSyncApi
 
 struct DisplaySceneMemoryApi
 {
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    RuntimeHeap *(*get_process_heap)();
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 
-
-struct DisplaySceneHostApi
-{
-    void(WINAPI *initialize_critical_section)(LPCRITICAL_SECTION critical_section);
-    void(WINAPI *delete_critical_section)(LPCRITICAL_SECTION critical_section);
-    HANDLE(WINAPI *create_event)(LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial_state, LPCSTR name);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
-    HANDLE(WINAPI *create_thread)(LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, LPTHREAD_START_ROUTINE start_routine, LPVOID parameter, DWORD creation_flags, LPDWORD thread_id);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-};
 
 struct DisplaySceneWorkerApi
 {
     uint32_t (*time_get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     uint32_t (*acquire_lock)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *dirty_flags);
     int (*synchronize_node)(DisplaySceneNode *node, DisplayRectangle *rectangle);
     void (*publish_node)(DisplaySceneNode *node);
@@ -463,7 +447,7 @@ struct RuntimeCommandLoopApi
     void (*begin_second)();
     void (*begin_third)(int value);
     void (*process)(RuntimeCommandLoopState *state);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*cancel_first)();
     void (*cancel_second)();
     void (*cancel_third)();
@@ -489,7 +473,7 @@ struct RuntimeSessionResetApi
     void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
     RuntimeNamedNode *(*get_named_node)(const char *name);
     uint32_t (*get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 
@@ -510,7 +494,7 @@ struct RuntimeScriptExecutorApi
 {
     uint32_t (*get_tick_count)();
     uint32_t (*time_get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     void (*process_children)(uint32_t maximum_end_position);
     void (*process_message)(RuntimeCommandLoopState *state);
     void (*process_text_input)(RuntimeCommandLoopState *state);
@@ -525,14 +509,6 @@ struct RuntimeScriptExecutorApi
     uint32_t (*parse_opcode)(ScriptParserState *parser);
     RuntimeScriptOpcodeDisposition (*dispatch_opcode)(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value, uint32_t saved_cursor);
     int32_t (*select_random)(int32_t minimum, int32_t maximum);
-};
-
-
-
-struct CursorStateApi
-{
-    BOOL(WINAPI *get_cursor_position)(LPPOINT point);
-    int(WINAPI *get_system_metrics)(int index);
 };
 
 

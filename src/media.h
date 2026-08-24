@@ -36,7 +36,7 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *backend);
 
 void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *backend);
 
-DWORD WINAPI run_runtime_animation_thread(void *backend);
+void run_runtime_animation_thread(void *backend);
 
 void decode_runtime_animation_palette(RuntimeMediaBackend *backend);
 

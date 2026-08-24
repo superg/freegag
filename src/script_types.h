@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application_types.h"
+#include "runtime_services.h"
 
 namespace gag
 {
@@ -19,7 +20,6 @@ struct ScriptTextBuffer
 
 struct ScriptUtilityApi
 {
-    LPVOID(WINAPI *virtual_alloc)(LPVOID address, SIZE_T size, DWORD allocation_type, DWORD protection);
     uint32_t (*get_tick_count)();
     void (*seed_random)(unsigned int seed);
     int (*random)();
@@ -102,12 +102,12 @@ struct ScriptObjectState
 
 struct ScriptObjectMemoryApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
 };
 
 struct ScriptObjectReleaseApi
 {
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 struct ScriptObjectFieldSnapshot
@@ -265,17 +265,17 @@ struct RuntimeGenericResourceNode
 
 struct RuntimeNamedNodeMemoryApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 struct RuntimeResourceReleaseApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     RuntimeResourceCacheEntry *(*find_cache_entry)(void *parent_identity, const char *name);
     RuntimeNamedNode *(*find_child)(void *parent_identity, void *child_identity);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
     uint32_t (*remove_cache_entry)(void *parent_identity, void *child_identity);
     uint32_t (*close_async_record)(AsyncFileRecord *record);
     void (*set_script_flags)(uint32_t flags, int enabled);
@@ -344,15 +344,15 @@ struct RuntimeTreeAuxiliaryNode
 struct RuntimeTreeAuxiliaryReleaseApi
 {
     void (*notify)(uint32_t operation, uint32_t unused, RuntimeTreeAuxiliaryNode *node);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 
 
 struct RuntimeTreeAuxiliaryCreateApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
     void (*resolve)(uint32_t operation, void **identity, void **metadata);
 };
 
@@ -369,8 +369,8 @@ struct RuntimeTreeDestructionCoreApi
     void (*remove_links_84)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
     void (*remove_links_8c)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
     void (*remove_containers)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    BOOL (*destroy_container)(ScriptObjectContainer *container);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
+    bool (*destroy_container)(ScriptObjectContainer *container);
     void (*release_auxiliary)(RuntimeTreeNode *owner);
     void (*release_parsers)(RuntimeTreeNode *owner);
     RuntimeTreeParserContext *(*find_parser)(RuntimeTreeNode *owner, const char *name);
@@ -401,7 +401,7 @@ struct RuntimeLockRecord
     uint32_t type_flags;
     uint32_t flags;
     void *data;
-    DWORD owner_thread;
+    RuntimeThreadId owner_thread;
     uint32_t recursion_count;
     intptr_t scene_identifier;
 };
@@ -414,7 +414,7 @@ struct RuntimeResourceObject
     uint32_t type_flags;
     uint32_t backend_flags;
     void *data;
-    DWORD owner_thread;
+    RuntimeThreadId owner_thread;
     uint32_t recursion_count;
     intptr_t scene_identifier;
     DisplaySceneDescriptor scene_descriptor;

@@ -1,10 +1,11 @@
 #include "synthesized_resource.h"
-#include <windows.h>
 #include <array>
 #include <cstring>
 #include <limits>
 #include <zlib.h>
 #include "cdf_archive.h"
+#include "portable_string.h"
+#include "portable_types.h"
 #include "save_load_bg_patch.h"
 
 namespace gag
@@ -18,7 +19,7 @@ constexpr char base85_alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH
 
 struct IndexedBitmapView
 {
-    const RGBQUAD *palette;
+    const BitmapColor *palette;
     const uint8_t *pixels;
     uint32_t row_stride;
 };
@@ -71,34 +72,31 @@ bool load_source(CdfArchive *archive, const char *name, const SynthesizedResourc
 
 bool validate_source(const std::vector<uint8_t> &data, IndexedBitmapView *view)
 {
-    if(data.size() < sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER))
+    if(data.size() < sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader))
     {
         return false;
     }
-    BITMAPFILEHEADER file_header;
-    BITMAPINFOHEADER info_header;
-    std::memcpy(&file_header, data.data(), sizeof(file_header));
-    std::memcpy(&info_header, data.data() + sizeof(file_header), sizeof(info_header));
-    constexpr uint32_t palette_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-    constexpr uint32_t palette_size = palette_count * sizeof(RGBQUAD);
+    const BitmapFileHeader file_header = decode_bitmap_file_header(data.data());
+    const BitmapInfoHeader info_header = decode_bitmap_info_header(data.data() + sizeof(BitmapFileHeader));
+    constexpr uint32_t palette_offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader);
+    constexpr uint32_t palette_size = palette_count * sizeof(BitmapColor);
     constexpr uint32_t row_stride = (synthesized_width + 3u) & ~3u;
     constexpr uint32_t pixel_size = row_stride * synthesized_height;
-    if(file_header.bfType != 0x4d42 || info_header.biSize != sizeof(BITMAPINFOHEADER) || info_header.biWidth != synthesized_width || info_header.biHeight != synthesized_height
-        || info_header.biPlanes != 1 || info_header.biBitCount != 8 || info_header.biCompression != BI_RGB || file_header.bfOffBits < palette_offset + palette_size
-        || file_header.bfOffBits > data.size() || pixel_size > data.size() - file_header.bfOffBits
-        || (file_header.bfSize != 0 && (file_header.bfSize > data.size() || file_header.bfSize < file_header.bfOffBits + pixel_size)))
+    if(file_header.bfType != 0x4d42 || info_header.biSize != sizeof(BitmapInfoHeader) || info_header.biWidth != synthesized_width || info_header.biHeight != synthesized_height
+        || info_header.biPlanes != 1 || info_header.biBitCount != 8 || info_header.biCompression != 0 || file_header.bfOffBits < palette_offset + palette_size || file_header.bfOffBits > data.size()
+        || pixel_size > data.size() - file_header.bfOffBits || (file_header.bfSize != 0 && (file_header.bfSize > data.size() || file_header.bfSize < file_header.bfOffBits + pixel_size)))
     {
         return false;
     }
-    view->palette = reinterpret_cast<const RGBQUAD *>(data.data() + palette_offset);
+    view->palette = reinterpret_cast<const BitmapColor *>(data.data() + palette_offset);
     view->pixels = data.data() + file_header.bfOffBits;
     view->row_stride = row_stride;
     return true;
 }
 
-uint8_t closest_palette_index(const RGBQUAD &color, const RGBQUAD *palette)
+uint8_t closest_palette_index(const BitmapColor &color, const BitmapColor *palette)
 {
-    uint32_t best_distance = std::numeric_limits<uint32_t>::max();
+    uint32_t best_distance = UINT32_MAX;
     uint8_t best_index = 0;
     for(uint32_t index = 0; index < palette_count; ++index)
     {
@@ -115,7 +113,7 @@ uint8_t closest_palette_index(const RGBQUAD &color, const RGBQUAD *palette)
     return best_index;
 }
 
-std::array<uint8_t, palette_count> build_palette_mapping(const IndexedBitmapView &source, const RGBQUAD *destination_palette)
+std::array<uint8_t, palette_count> build_palette_mapping(const IndexedBitmapView &source, const BitmapColor *destination_palette)
 {
     std::array<uint8_t, palette_count> mapping{};
     for(uint32_t index = 0; index < palette_count; ++index)
@@ -164,7 +162,7 @@ bool decode_manual_patch(std::vector<uint8_t> *pixels)
             }
             value = value * 85 + static_cast<uint64_t>(position - base85_alphabet);
         }
-        if(value > std::numeric_limits<uint32_t>::max())
+        if(value > UINT32_MAX)
         {
             return false;
         }
@@ -219,8 +217,7 @@ bool synthesize_save_load_background(CdfArchive *archive, const SynthesizedResou
     const std::array<uint8_t, palette_count> fullscreen_mapping = build_palette_mapping(fullscreen_view, help_view.palette);
     const std::array<uint8_t, palette_count> help_page_mapping = build_palette_mapping(help_page_view, help_view.palette);
     resource->data = help;
-    BITMAPFILEHEADER output_header;
-    std::memcpy(&output_header, resource->data.data(), sizeof(output_header));
+    const BitmapFileHeader output_header = decode_bitmap_file_header(resource->data.data());
     uint8_t *output_pixels = resource->data.data() + output_header.bfOffBits;
     blit(fullscreen_view, fullscreen_mapping, output_pixels, help_view.row_stride, { 0, 0, 280, 300 });
     blit(help_page_view, help_page_mapping, output_pixels, help_view.row_stride, { 530, 420, 610, 450 });
@@ -240,7 +237,7 @@ const SynthesizedResourceDefinition *find_definition(const char *path)
     const char *name = file_name_from_path(path);
     for(const SynthesizedResourceDefinition &definition : synthesized_resources)
     {
-        if(_stricmp(name, definition.name) == 0)
+        if(compare_ascii_case_insensitive(name, definition.name) == 0)
         {
             return &definition;
         }

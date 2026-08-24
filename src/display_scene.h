@@ -117,6 +117,6 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
 
 uint32_t shutdown_display_scene_host();
 
-DWORD WINAPI run_display_scene_worker(uint32_t *flags);
+void run_display_scene_worker(uint32_t *flags);
 
 } // namespace gag

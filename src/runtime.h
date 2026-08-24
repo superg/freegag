@@ -68,7 +68,7 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state);
 
 uint32_t run_pending_runtime_external_command();
 
-DWORD WINAPI execute_script_commands(LPVOID parameter);
+void execute_script_commands(void *parameter);
 
 RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value = 0,
     uint32_t saved_cursor = 0xffffffff);

@@ -1,17 +1,31 @@
 #include "application.h"
+#include <SDL3/SDL.h>
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <new>
+#include <string>
 #include "host_events.h"
+#include "portable_string.h"
 #include "runtime_internal.h"
+#include "runtime_services.h"
 
 namespace gag
 {
 namespace
 {
-constexpr UINT host_event_wake_message = WM_APP + 0x41;
+uint32_t host_event_type{};
+RuntimeHeap save_capture_heap;
 
-bool wake_host_event_loop(void *context)
+bool wake_host_event_loop(void *)
 {
-    return PostMessageA(static_cast<HWND>(context), host_event_wake_message, 0, 0) != FALSE;
+    SDL_Event event{};
+    event.type = application_host_event_type();
+    return event.type != UINT32_MAX && SDL_PushEvent(&event);
 }
 
 HostEventResult handle_application_host_event(const HostApplicationEvent &event, HostEventCompletion *completion, ApplicationState *state)
@@ -95,19 +109,19 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
     case 0x7da:
         acknowledge_host_event(completion, uint32_t{ 1 });
         if(event.command == 0x7d1)
-            SendMessageA(state->window, WM_COMMAND, 0x8860, 0);
+            dispatch_application_action(state, ApplicationAction::new_game);
         else if(event.command == 0x7d4)
-            SendMessageA(state->window, WM_COMMAND, 0x8870, 0);
+            dispatch_application_action(state, ApplicationAction::resume_saved_game);
         else
         {
-            SendMessageA(state->window, WM_COMMAND, (state->flags & 0x20) == 0 ? 0x8900 : 0x8910, 0);
+            dispatch_application_action(state, (state->flags & 0x20) == 0 ? ApplicationAction::enter_fullscreen : ApplicationAction::leave_fullscreen);
         }
         break;
     case 0x7e4:
-        SendMessageA(state->window, WM_COMMAND, 0x8850, 0);
+        dispatch_application_action(state, ApplicationAction::toggle_mute);
         break;
     case 0x7ee:
-        SendMessageA(state->window, WM_COMMAND, 0x8820, 0);
+        dispatch_application_action(state, ApplicationAction::toggle_comments);
         break;
     case 0xbc2:
         if((state->flags & 0x80000) == 0)
@@ -147,7 +161,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         }
         break;
     case 0x10000000:
-        PostMessageA(state->window, WM_CLOSE, 0, 0);
+        dispatch_application_action(state, ApplicationAction::exit);
         break;
     case 0x30000000:
         finish_credits_state(state, tree);
@@ -171,6 +185,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         {
             clear_runtime_display();
             construct_runtime_resource(state->installed_version, 0, 0, 0, 0, 0, 0, 0x200);
+            set_script_runtime_flags(1, (state->flags & 0x02000000) == 0);
             construct_runtime_resource(state->startup_config, 0, 0, 0, 0, 0, 0, 0);
             set_script_runtime_flags(1, (state->flags & 0x02000000) == 0);
             state->flags &= 0xfff7ffff;
@@ -184,9 +199,9 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
             (void)saved;
         }
         save_runtime_settings(state);
+        state->shutdown_complete = true;
         shutdown_graphics_host();
         close_host_events();
-        DestroyWindow(state->window);
         clear_runtime_command_state();
         break;
     case 0xa0000000:
@@ -213,7 +228,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         if((state->flags & 0x2000) == 0)
         {
             state->flags |= 0x2000;
-            PostMessageA(state->window, WM_CLOSE, 0, 0);
+            dispatch_application_action(state, ApplicationAction::exit);
         }
         break;
     default:
@@ -240,6 +255,15 @@ HostEventResult handle_host_event(const HostEvent &event, HostEventCompletion *c
     return {};
 }
 } // namespace
+
+uint32_t application_host_event_type()
+{
+    if(host_event_type == 0)
+    {
+        host_event_type = SDL_RegisterEvents(1);
+    }
+    return host_event_type;
+}
 
 void set_runtime_script_property(uint32_t property, void *, void *value)
 {
@@ -363,7 +387,7 @@ void get_runtime_script_property(uint32_t property, void **value, void *result)
     }
 }
 
-GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, HWND parent, int x, int y, int16_t width, uint16_t height, uint32_t flags)
+GraphicsHostInitializationResult *initialize_graphics_host(int16_t width, uint16_t height, uint32_t flags)
 {
     if((runtime_scene_control_flags & 0x800) != 0)
     {
@@ -371,7 +395,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     }
 
     runtime_display_context = {};
-    runtime_graphics_instance = nullptr;
     std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
     std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
     std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
@@ -394,55 +417,19 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
         initialized = runtime_resource_heap != nullptr;
     }
 
-    HWND child = nullptr;
     if(initialized)
     {
-        runtime_game_host_context.x_offset = static_cast<uint32_t>(x);
-        runtime_game_host_context.y_offset = static_cast<uint32_t>(y);
+        runtime_game_host_context.x_offset = 0;
+        runtime_game_host_context.y_offset = 0;
         runtime_game_host_context.width = static_cast<uint16_t>(width + 3) & 0xfffc;
         runtime_game_host_context.height = static_cast<uint16_t>(height);
-        graphics_host_state.message_window = reinterpret_cast<uintptr_t>(parent);
-        runtime_display_context.window = parent;
-        runtime_graphics_instance = instance;
-
-        WNDCLASSA window_class{};
-        window_class.style = CS_OWNDC;
-        window_class.lpfnWndProc = runtime_game_window_procedure;
-        window_class.hInstance = instance;
-        window_class.lpszClassName = "Graphical System Child";
-        if(graphics_host_api.register_class(&window_class) != 0)
-        {
-            child = graphics_host_api.create_window_ex(0, "Graphical System Child", nullptr, WS_CHILD, x, y, runtime_game_host_context.width, runtime_game_host_context.height, parent, nullptr,
-                instance, nullptr);
-            graphics_host_state.capture_window = child;
-        }
-        initialized = child != nullptr;
     }
 
     if(initialized)
     {
-        POINT point;
-        graphics_host_api.get_cursor_position(&point);
-        graphics_host_api.screen_to_client(child, &point);
-        if(static_cast<int32_t>(runtime_game_host_context.width) < point.x)
-        {
-            point.x = runtime_game_host_context.width - 1;
-        }
-        if(static_cast<int32_t>(runtime_game_host_context.height) < point.y)
-        {
-            point.y = runtime_game_host_context.height - 1;
-        }
-        if(point.x < 0)
-        {
-            point.x = 0;
-        }
-        if(point.y < 0)
-        {
-            point.y = 0;
-        }
-        runtime_pointer_x = point.x;
-        runtime_pointer_y = point.y;
-        initialized = graphics_host_api.initialize_display(child, flags & 0x300000) == 0;
+        runtime_pointer_x = 0;
+        runtime_pointer_y = 0;
+        initialized = graphics_host_api.initialize_display(runtime_game_host_context.width, runtime_game_host_context.height, flags & 0x300000) == 0;
     }
 
     runtime_target_flags = flags;
@@ -471,13 +458,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     graphics_host_api.set_named_node_enabled(runtime_resource_cache_parent_identity, 1);
     runtime_media_objects_parent_identity = graphics_host_api.get_or_create_named_node("MMediaObjectsList");
     graphics_host_api.set_named_node_enabled(runtime_media_objects_parent_identity, 1);
-    CRITICAL_SECTION *critical_sections[]{ &runtime_display_context.byte_queue_critical_section, &runtime_display_context.pair_queue_critical_section,
-        &runtime_display_context.message_queue_critical_section, &runtime_display_context.resource_critical_section, &runtime_display_context.path_critical_section };
-    for(CRITICAL_SECTION *section : critical_sections)
-    {
-        graphics_host_api.initialize_critical_section(section);
-    }
-
     runtime_game_host_callbacks[0] = reinterpret_cast<void *>(&invalidate_game_framebuffer_rect);
     runtime_game_host_callbacks[1] = reinterpret_cast<void *>(&create_runtime_game_sound);
     runtime_game_host_callbacks[2] = reinterpret_cast<void *>(&destroy_runtime_sound_handle);
@@ -497,7 +477,7 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     runtime_game_host_callbacks[17] = reinterpret_cast<void *>(&get_locked_runtime_media_extension);
     runtime_game_host_callbacks[18] = reinterpret_cast<void *>(&release_runtime_media_backend_lock);
     runtime_game_host_callbacks[19] = &runtime_resource_host;
-    runtime_game_host_callbacks[20] = reinterpret_cast<void *>(&open_async_file_record);
+    runtime_game_host_callbacks[20] = reinterpret_cast<void *>(static_cast<AsyncFileRecord *(*)(AsyncFileHost *, const char *, uint32_t, uint32_t, uint32_t)>(&open_async_file_record));
     runtime_game_host_callbacks[21] = reinterpret_cast<void *>(&close_async_file_record);
     runtime_game_host_callbacks[22] = reinterpret_cast<void *>(&set_async_file_position);
     runtime_game_host_callbacks[23] = reinterpret_cast<void *>(&read_async_file_record);
@@ -512,7 +492,6 @@ GraphicsHostInitializationResult *initialize_graphics_host(HINSTANCE instance, H
     runtime_game_host_callbacks[32] = reinterpret_cast<void *>(&get_cdf_index_data_size);
     runtime_game_host_callbacks[33] = reinterpret_cast<void *>(&get_cdf_entry_size);
     runtime_game_host_callbacks[34] = reinterpret_cast<void *>(&open_runtime_cdf_entry_stream);
-    graphics_host_api.show_window(child, SW_SHOWNORMAL);
     runtime_scene_control_flags |= 0x800;
     return &graphics_host_state;
 }
@@ -530,18 +509,10 @@ uint32_t shutdown_graphics_host()
         graphics_host_shutdown_api.shutdown_presenter();
         if(subsystem_result != 0)
         {
-            CRITICAL_SECTION *critical_sections[]{ &runtime_display_context.byte_queue_critical_section, &runtime_display_context.pair_queue_critical_section,
-                &runtime_display_context.message_queue_critical_section, &runtime_display_context.resource_critical_section, &runtime_display_context.path_critical_section };
-            for(CRITICAL_SECTION *section : critical_sections)
-            {
-                graphics_host_shutdown_api.delete_critical_section(section);
-            }
             result = subsystem_result & static_cast<uint32_t>(graphics_host_shutdown_api.heap_destroy(runtime_resource_heap));
-            graphics_host_shutdown_api.destroy_window(graphics_host_state.capture_window);
             if(result != 0)
             {
                 runtime_display_context = {};
-                runtime_graphics_instance = nullptr;
                 std::memset(runtime_graphics_resource_directory, 0, sizeof(runtime_graphics_resource_directory));
                 std::memset(runtime_transition_palette, 0, sizeof(runtime_transition_palette));
                 std::memset(runtime_session_reset_storage, 0, sizeof(runtime_session_reset_storage));
@@ -585,48 +556,39 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
         state->validation_flags |= stages;
     }
 
-    if((stages & 1) != 0 && validation_api.find_window("FlcAppClassNT", nullptr) != nullptr)
-    {
-        return 0;
-    }
-
     if((stages & 2) != 0)
     {
         validation_api.load_preferences(state);
 
-        char path[MAX_PATH];
-        WIN32_FIND_DATAA find_data;
-        copy_string(path, state->installation_path);
-        append_string(path, auto_save_file_name);
-        HANDLE find = validation_api.find_first_file(path, &find_data);
-        if(find == INVALID_HANDLE_VALUE)
+        std::error_code error;
+        const std::filesystem::path installation_path = state->installation_path[0] == '\0' ? std::filesystem::path(".") : std::filesystem::path(state->installation_path);
+        if(!std::filesystem::exists(installation_path / auto_save_file_name, error))
         {
             state->flags |= 0x200000;
         }
-        else
-        {
-            validation_api.find_close(find);
-        }
 
-        copy_string(path, state->installation_path);
-        append_string(path, "*");
-        append_string(path, ".GSF");
-        find = validation_api.find_first_file(path, &find_data);
-        if(find == INVALID_HANDLE_VALUE)
+        bool found_save = false;
+        error.clear();
+        for(std::filesystem::directory_iterator entry(installation_path, error), end; !error && entry != end; entry.increment(error))
+        {
+            std::string extension = entry->path().extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+            if(entry->is_regular_file(error) && extension == ".gsf")
+            {
+                found_save = true;
+                break;
+            }
+        }
+        if(!found_save)
         {
             state->flags |= 0x100000;
-        }
-        else
-        {
-            validation_api.find_close(find);
         }
     }
 
     if((stages & 4) != 0 && state->archive_context == nullptr)
     {
-        WIN32_FIND_DATAA find_data{};
-        HANDLE find = validation_api.find_first_file(requested_archive, &find_data);
-        if(find == INVALID_HANDLE_VALUE)
+        std::error_code error;
+        if(!std::filesystem::exists(requested_archive, error))
         {
             if((stages & 0x20) != 0)
             {
@@ -634,7 +596,6 @@ int validate_startup_environment(ApplicationState *state, const char *requested_
             }
             return 0;
         }
-        validation_api.find_close(find);
         copy_string(state->installed_version, requested_archive);
     }
     else if((stages & 0x80) != 0 && state->archive_context == nullptr)
@@ -703,7 +664,7 @@ bool find_virtual_runtime_script(const char *path, VirtualScriptResource *resour
             name = cursor + 1;
         }
     }
-    if(gagboy_startup_mode && _stricmp(name, "GAGBOY.CFG") == 0)
+    if(gagboy_startup_mode && compare_ascii_case_insensitive(name, "GAGBOY.CFG") == 0)
     {
         resource->data = gagboy_startup_script;
         resource->size = static_cast<uint32_t>(sizeof(gagboy_startup_script) - 1);
@@ -729,25 +690,19 @@ bool has_xtet_argument(int argc, char *argv[])
     return false;
 }
 
-ApplicationState *initialize_gag_application(int width, int height, HINSTANCE instance, bool start_xtet, int show_command)
+ApplicationState *initialize_gag_application(int width, int height, bool start_xtet)
 {
     gagboy_startup_mode = start_xtet;
-    application_initialization_api.set_error_mode(0x8001);
-    ApplicationState *state = static_cast<ApplicationState *>(application_initialization_api.heap_alloc(application_initialization_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(ApplicationState)));
+    std::unique_ptr<ApplicationState> owned_state(new (std::nothrow) ApplicationState{});
+    ApplicationState *state = owned_state.get();
     if(state == nullptr)
     {
         return nullptr;
     }
-    modern_windows_presentation_state = {};
-    modern_windows_fullscreen_toggle_latched = false;
-    modern_windows_game_cursor_tracking = false;
+    desktop_presentation_state = {};
+    desktop_fullscreen_toggle_latched = false;
 
-    state->instance = instance;
     state->message_table = application_message_table[0];
-    if(!application_initialization_api.register_window_classes(state))
-    {
-        return nullptr;
-    }
     state->width = width;
     state->height = height;
     state->flags |= 2;
@@ -757,91 +712,38 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
         return nullptr;
     }
 
-    {
-        // Restore the complete framed window rectangle, using the saved point as a migration fallback.
-        RECT windowed_rectangle{ 0, 0, width, height };
-        application_initialization_api.adjust_window_rect(&windowed_rectangle, modern_windows_windowed_style, FALSE);
-        const int32_t minimum_width = windowed_rectangle.right - windowed_rectangle.left;
-        const int32_t minimum_height = windowed_rectangle.bottom - windowed_rectangle.top;
-        windowed_rectangle = { 0, 0, minimum_width, minimum_height };
-        if(!load_saved_window_rectangle(minimum_width, minimum_height, &windowed_rectangle))
-        {
-            const int32_t screen_width = application_initialization_api.get_system_metrics(SM_CXSCREEN);
-            const int32_t screen_height = application_initialization_api.get_system_metrics(SM_CYSCREEN);
-            const int32_t left = (screen_width - minimum_width) / 2;
-            const int32_t top = (screen_height - minimum_height) / 2;
-            windowed_rectangle = { left, top, left + minimum_width, top + minimum_height };
-        }
-        modern_windows_presentation_state.windowed_rectangle = windowed_rectangle;
-        modern_windows_presentation_state.windowed_rectangle_valid = true;
-    }
-
-    state->desktop_window_rect.left = 0;
-    state->desktop_window_rect.top = 0;
-    if((state->flags & 0x80) != 0)
-    {
-        state->desktop_window_rect = modern_windows_presentation_state.windowed_rectangle;
-        state->window_top_adjustment = 0;
-    }
-    else
-    {
-        state->desktop_window_rect.right = application_initialization_api.get_system_metrics(SM_CXSCREEN);
-        state->desktop_window_rect.bottom = application_initialization_api.get_system_metrics(SM_CYSCREEN);
-        application_initialization_api.adjust_window_rect(&state->desktop_window_rect, 0x80c00000, FALSE);
-        state->desktop_window_rect.top -= application_initialization_api.get_system_metrics(SM_CYCAPTION);
-        state->window_top_adjustment = 1 - state->desktop_window_rect.top;
-    }
-
-    DWORD window_style = 0x82000000;
-    if((state->flags & 0x80) != 0)
-    {
-        // Provide a freely resizable framed window around the fixed-size game framebuffer.
-        window_style = modern_windows_windowed_style;
-    }
-    int window_x = state->desktop_window_rect.left;
-    int window_y = state->desktop_window_rect.top;
-    if((state->flags & 0x80) != 0)
-    {
-        window_x = state->desktop_window_rect.left;
-        window_y = state->desktop_window_rect.top;
-    }
-    state->window = application_initialization_api.create_window_ex(0, "FlcAppClassNT", "GAG", window_style, window_x, window_y, state->desktop_window_rect.right - state->desktop_window_rect.left,
-        state->desktop_window_rect.bottom - state->desktop_window_rect.top, nullptr, nullptr, instance, state);
-    if(state->window == nullptr)
-    {
-        return nullptr;
-    }
-    initialize_host_events(wake_host_event_loop, state->window, handle_host_event, state);
-    application_initialization_api.show_window(state->window, show_command);
-    if((state->flags & 0x80) == 0)
-    {
-        application_initialization_api.set_window_position(state->window, nullptr, 0, 0, 0, 0, 0x103);
-    }
-
-    RECT client_rectangle;
-    application_initialization_api.get_client_rect(state->window, &client_rectangle);
-    state->content_left = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.right - width) >> 1);
-    if((state->flags & 0x80) != 0)
-    {
-        // Center the framebuffer within the window's client area.
-        state->content_top = static_cast<int32_t>(static_cast<uint32_t>(client_rectangle.bottom - height) >> 1);
-    }
-    else
-    {
-        state->content_top = static_cast<int32_t>(static_cast<uint32_t>((client_rectangle.bottom - state->desktop_window_rect.top) - height) >> 1) - 1;
-    }
+    state->content_left = 0;
+    state->content_top = 0;
     state->content_right = state->content_left + width;
     state->content_bottom = state->content_top + height;
 
-    GraphicsHostInitializationResult *graphics =
-        application_initialization_api.initialize_graphics_host(instance, state->window, state->content_left, state->content_top, static_cast<int16_t>(width), static_cast<uint16_t>(height), 0x300000);
+    GraphicsHostInitializationResult *graphics = application_initialization_api.initialize_graphics_host(static_cast<int16_t>(width), static_cast<uint16_t>(height), 0x300000);
     if(graphics == nullptr)
     {
         close_host_events();
         return nullptr;
     }
-    state->capture_window = graphics->capture_window;
     state->game_context = graphics;
+    if((state->flags & 0x80) != 0)
+    {
+        PortableRectangle saved_rectangle{};
+        if(load_saved_window_rectangle(width, height, &saved_rectangle))
+        {
+            set_sdl_presenter_window_rectangle({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
+        }
+    }
+    else
+    {
+        set_sdl_presenter_fullscreen(true);
+    }
+    if(!show_sdl_presenter())
+    {
+        shutdown_graphics_host();
+        close_host_events();
+        return nullptr;
+    }
+    application_host_event_type();
+    initialize_host_events(wake_host_event_loop, nullptr, handle_host_event, state);
     application_initialization_api.validate_environment(state, state->executable_directory, 0x200);
     if(application_initialization_api.initialize_runtime() == nullptr)
     {
@@ -871,7 +773,7 @@ ApplicationState *initialize_gag_application(int width, int height, HINSTANCE in
             application_initialization_api.copy_string(state->startup_config, state->installed_version);
         }
     }
-    return state;
+    return owned_state.release();
 }
 
 
@@ -887,7 +789,7 @@ uint32_t initialize_runtime_media_backend()
     {
         return 0;
     }
-    runtime_media_backend_mutex = runtime_backend_initialization_api.create_mutex(nullptr, FALSE, nullptr);
+    runtime_media_backend_mutex = new (std::nothrow) RuntimeMutex;
     if(runtime_media_backend_mutex == nullptr)
     {
         return 0;
@@ -903,12 +805,12 @@ uint32_t initialize_runtime_generic_backend()
     {
         return 1;
     }
-    runtime_generic_backend_mutex = runtime_backend_initialization_api.create_mutex(nullptr, FALSE, nullptr);
+    runtime_generic_backend_mutex = new (std::nothrow) RuntimeMutex;
     if(runtime_generic_backend_mutex == nullptr)
     {
         return 0;
     }
-    runtime_backend_initialization_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    runtime_backend_initialization_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
     runtime_generic_backend_enabled = 1;
     runtime_backend_initialization_api.release_mutex(runtime_generic_backend_mutex);
     return 1;
@@ -918,14 +820,14 @@ uint32_t shutdown_runtime_generic_backend()
 {
     if(runtime_generic_backend_enabled != 0)
     {
-        runtime_generic_backend_shutdown_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        runtime_generic_backend_shutdown_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
         runtime_generic_backend_enabled = 0;
         runtime_generic_backend_shutdown_api.release_mutex(runtime_generic_backend_mutex);
         while(runtime_generic_backend_head != nullptr)
         {
             runtime_generic_backend_shutdown_api.destroy_backend(runtime_generic_backend_head);
         }
-        runtime_generic_backend_shutdown_api.close_handle(runtime_generic_backend_mutex);
+        delete runtime_generic_backend_mutex;
         runtime_generic_backend_mutex = nullptr;
     }
     return 1;
@@ -950,7 +852,8 @@ uint32_t shutdown_runtime_media_backend()
         return 0;
     }
     runtime_media_backend_shutdown_api.heap_destroy(runtime_media_backend_heap);
-    runtime_media_backend_shutdown_api.close_handle(runtime_media_backend_mutex);
+    delete runtime_media_backend_mutex;
+    runtime_media_backend_mutex = nullptr;
     runtime_media_backend_initialized = false;
     runtime_media_backend_shutdown_api.shutdown_sound();
     return 1;
@@ -963,7 +866,6 @@ uint32_t initialize_async_file_subsystem()
     {
         return 1;
     }
-    runtime_backend_initialization_api.initialize_critical_section(&async_file_global_lock);
     async_file_enabled = true;
     return 1;
 }
@@ -997,446 +899,192 @@ void set_runtime_named_node_enabled(void *identity, int enabled)
     }
 }
 
-bool register_gag_window_classes(ApplicationState *state)
+void dispatch_application_action(ApplicationState *state, ApplicationAction action)
 {
-    HBRUSH background = window_class_api.create_solid_brush(0);
-    WNDCLASSEXA window_class{};
-    window_class.cbSize = sizeof(window_class);
-    window_class.lpfnWndProc = window_class_api.primary_window_procedure;
-    window_class.cbWndExtra = sizeof(LONG_PTR);
-    window_class.hInstance = state->instance;
-    window_class.hIcon = window_class_api.load_icon(state->instance, MAKEINTRESOURCEA(105));
-    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
-    window_class.hbrBackground = background;
-    window_class.lpszClassName = "FlcAppClassNT";
-    ATOM primary_result = window_class_api.register_class_ex(&window_class);
-
-    window_class = {};
-    window_class.cbSize = sizeof(window_class);
-    window_class.lpfnWndProc = window_class_api.capture_window_procedure;
-    window_class.cbWndExtra = sizeof(LONG_PTR);
-    window_class.hInstance = state->instance;
-    window_class.hCursor = window_class_api.load_cursor(nullptr, IDC_ARROW);
-    window_class.hbrBackground = background;
-    window_class.lpszClassName = "FlcCapClassNT";
-    window_class.hIconSm = window_class_api.load_icon(state->instance, MAKEINTRESOURCEA(105));
-    ATOM capture_result = window_class_api.register_class_ex(&window_class);
-
-    if(primary_result == 0 || capture_result == 0)
+    if(action == ApplicationAction::pause)
     {
-        std::fprintf(stderr, "%s: %s\n", state->message_table, application_message(state, 14));
+        set_runtime_flag_01000000();
+        return;
     }
-    return primary_result != 0 && capture_result != 0;
-}
-
-LRESULT CALLBACK gag_main_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    auto *state = reinterpret_cast<ApplicationState *>(main_window_procedure_api.get_window_long(window, 0));
-    if(message == host_event_wake_message)
+    if(action == ApplicationAction::resume)
     {
-        drain_host_events();
-        return 0;
+        clear_runtime_flag_01000000();
+        return;
     }
-    if(message == WM_LBUTTONDOWN)
+    if(state == nullptr)
     {
-        modern_windows_fullscreen_toggle_latched = false;
+        return;
     }
-    if(state != nullptr && (state->flags & 0x80000000) != 0 && (message < 0x30f || message > 0x311))
+    if(action == ApplicationAction::exit)
     {
-        return 0;
+        set_application_inactive_flags(state);
+        state->flags |= 0x200;
+        set_runtime_flag_40();
+        return;
     }
-
-    if(message == WM_CREATE)
+    if(action == ApplicationAction::save || action == ApplicationAction::load)
     {
-        main_window_procedure_api.set_window_long(window, 0, *reinterpret_cast<LONG_PTR *>(lparam));
-        return 0;
+        request_scripted_save_load_screen(action == ApplicationAction::save ? SaveLoadScreenMode::save : SaveLoadScreenMode::load, state);
+        return;
     }
-    if(message == WM_DESTROY)
+    if(action == ApplicationAction::new_game)
     {
-        close_host_events();
-        main_window_procedure_api.post_quit_message(0);
-        return 0;
+        state->flags |= 0x200000;
+        copy_string(state->startup_config, "NewGame.cfg");
+        set_application_lock_flag(state);
+        clear_runtime_active_flag(state);
+        while(validate_startup_environment(state, state->executable_directory, 0x24) == 0)
+        {
+        }
+        set_runtime_flag_40();
+        return;
     }
-    if(message == WM_ACTIVATE)
+    if(action == ApplicationAction::resume_saved_game)
     {
-        if(state != nullptr && LOWORD(wparam) == 0 && HIWORD(wparam) == 0)
+        state->flags |= 0x200000;
+        set_application_lock_flag(state);
+        clear_runtime_active_flag(state);
+        while(validate_startup_environment(state, state->executable_directory, 0x24) == 0)
         {
-            if((state->flags & 0x80000000) != 0)
-            {
-                return 0;
-            }
-            if((state->flags & 0x40000000) == 0)
-            {
-                // A normal window must not minimize merely because another application receives focus.
-                if((state->flags & 0x80) == 0)
-                {
-                    main_window_procedure_api.post_message(window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-                }
-            }
         }
+        copy_string(state->startup_config, "START.CFG");
+        copy_string(state->installed_version, state->installation_path);
+        append_string(state->installed_version, auto_save_file_name);
+        set_runtime_flag_40();
+        return;
     }
-    else if(message == WM_CLOSE)
+    if(action == ApplicationAction::credits)
     {
-        if(state != nullptr)
+        set_application_lock_flag(state);
+        clear_runtime_active_flag(state);
+        while(validate_startup_environment(state, state->executable_directory, 0x24) == 0)
         {
-            set_application_inactive_flags(state);
-            state->flags |= 0x200;
-            main_window_procedure_api.set_runtime_flag_40();
-            return 0;
         }
+        set_runtime_paths_once("Credits.cfg", "CREDITS");
+        return;
     }
-    else if(message == WM_ACTIVATEAPP)
+    if(action == ApplicationAction::toggle_comments)
     {
-        return 0;
-    }
-    else if(message == WM_GETMINMAXINFO)
-    {
-        if(state != nullptr && (state->flags & 0x80) != 0)
+        const bool comments_enabled = (state->flags & 0x02000000) == 0;
+        if(comments_enabled)
         {
-            RECT minimum_rectangle{ 0, 0, state->width, state->height };
-            window_layout_api.adjust_window_rect(&minimum_rectangle, modern_windows_windowed_style, FALSE);
-            auto *minimum_information = reinterpret_cast<MINMAXINFO *>(lparam);
-            minimum_information->ptMinTrackSize.x = minimum_rectangle.right - minimum_rectangle.left;
-            minimum_information->ptMinTrackSize.y = minimum_rectangle.bottom - minimum_rectangle.top;
-            return 0;
-        }
-    }
-    else if(message == WM_SIZE)
-    {
-        if(state != nullptr && (state->flags & 0x80) != 0 && wparam != SIZE_MINIMIZED)
-        {
-            update_modern_windows_windowed_viewport(state);
-            if(wparam == SIZE_RESTORED && window_layout_api.get_window_rect(state->window, &modern_windows_presentation_state.windowed_rectangle) != FALSE)
-            {
-                modern_windows_presentation_state.windowed_rectangle_valid = true;
-            }
-        }
-    }
-    else if(message == WM_WINDOWPOSCHANGING)
-    {
-        auto *position = reinterpret_cast<WINDOWPOS *>(lparam);
-        if(state != nullptr && (position->flags & SWP_NOSIZE) == 0 && (state->flags & 0xb0000000) == 0x10000000)
-        {
-            SecondaryWindowLayout layout{ 0, 0, position->x, position->y, position->cx, position->cy, position->flags };
-            update_application_window_layout(state, &layout);
-            position->x = layout.x;
-            position->y = layout.y;
-            position->cx = layout.width;
-            position->cy = layout.height;
-            position->flags = layout.flags;
-        }
-        return main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
-    }
-    else if(message == WM_MOUSEMOVE)
-    {
-        const int32_t x = static_cast<uint16_t>(LOWORD(lparam));
-        const int32_t y = static_cast<uint16_t>(HIWORD(lparam));
-        if(x < state->content_left || y < state->content_top || x >= state->content_right || y >= state->content_bottom)
-        {
-            set_game_cursor_active(state, 1);
-        }
-        else if((state->flags & 0x40000001) == 0)
-        {
-            set_game_cursor_active(state, 0);
-        }
-        return 0;
-    }
-    else if(message == WM_SYSCOMMAND)
-    {
-        const uint32_t command = static_cast<uint32_t>(wparam) & 0xfffffff0;
-        if(command == SC_MINIMIZE && state != nullptr)
-        {
-            state->flags |= 0x20000000;
-            set_runtime_flag_01000000();
-            const LRESULT result = main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
-            state->flags = (state->flags & 0xdfffffff) | 0x10000000;
-            return result;
-        }
-        if(command == SC_RESTORE && state != nullptr)
-        {
-            const LRESULT result = main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
-            clear_runtime_flag_01000000();
-            state->flags &= 0xefffffff;
-            return result;
-        }
-        if(command == SC_SCREENSAVE)
-        {
-            return 0;
-        }
-    }
-    else if(message == WM_KEYDOWN || message == WM_CHAR || (message >= 0x30f && message <= 0x311))
-    {
-        if(state->capture_window != nullptr)
-        {
-            return main_window_procedure_api.send_message(state->capture_window, message, wparam, lparam);
-        }
-        return 0;
-    }
-    else if(message == WM_COMMAND)
-    {
-        const uint32_t command = LOWORD(wparam);
-        if(command == 0x8790)
-        {
-            set_runtime_flag_01000000();
-            return 0;
-        }
-        if(command == 0x8800)
-        {
-            clear_runtime_flag_01000000();
-            return 0;
-        }
-        if(command == 0x8890)
-        {
-            main_window_procedure_api.post_message(window, WM_CLOSE, 0, 0);
-            return 0;
-        }
-        if(state == nullptr)
-        {
-            return 0;
-        }
-        if(command == 0x8780 || command == 0x8810)
-        {
-            const SaveLoadScreenMode mode = command == 0x8780 ? SaveLoadScreenMode::save : SaveLoadScreenMode::load;
-            request_scripted_save_load_screen(mode, state);
-            return 0;
-        }
-        if(command == 0x8860)
-        {
-            state->flags |= 0x200000;
-            copy_string(state->startup_config, "NewGame.cfg");
-            main_window_procedure_api.set_application_lock(state);
-            main_window_procedure_api.clear_runtime_active(state);
-            while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
-            {
-            }
-            main_window_procedure_api.set_runtime_flag_40();
-            return 0;
-        }
-        if(command == 0x8870)
-        {
-            state->flags |= 0x200000;
-            main_window_procedure_api.set_application_lock(state);
-            main_window_procedure_api.clear_runtime_active(state);
-            while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
-            {
-            }
-            copy_string(state->startup_config, "START.CFG");
-            copy_string(state->installed_version, state->installation_path);
-            append_string(state->installed_version, auto_save_file_name);
-            main_window_procedure_api.set_runtime_flag_40();
-            return 0;
-        }
-        if(command == 0x8880)
-        {
-            main_window_procedure_api.set_application_lock(state);
-            main_window_procedure_api.clear_runtime_active(state);
-            while(main_window_procedure_api.validate_startup(state, state->executable_directory, 0x24) == 0)
-            {
-            }
-            set_runtime_paths_once("Credits.cfg", "CREDITS");
-            return 0;
-        }
-        if(command == 0x8820)
-        {
-            // Intro trees update the live NOCOMMENT bit after the persisted preference is restored, while the menu graphic reads the application bit. Keep the persisted preference authoritative so
-            // the first click takes effect immediately.
-            const bool comments_enabled = (state->flags & 0x02000000) == 0;
-            if(comments_enabled)
-            {
-                state->flags |= 0x02000000;
-            }
-            else
-            {
-                state->flags &= 0xfdffffff;
-            }
-            set_script_runtime_flags(1, !comments_enabled);
-            state->flags |= 0x40000;
-            return 0;
-        }
-        if(command == 0x8850)
-        {
-            if((state->flags & 0x1000) == 0)
-            {
-                state->flags |= 0x1000;
-                enable_runtime_subsystem();
-            }
-            else
-            {
-                state->flags &= 0xffffefff;
-                disable_runtime_subsystem();
-            }
-            state->flags |= 0x40000;
-            return 0;
-        }
-        if(command == 0x8900)
-        {
-            const uint32_t flags = state->flags;
-            if((flags & 0x80) != 0)
-            {
-                state->flags = (flags & 0xffffff7f) | 0x40;
-                set_runtime_flag_01000000();
-            }
-            return 0;
-        }
-        if(command == 0x8910)
-        {
-            if((state->flags & 0x80) == 0)
-            {
-                state->flags |= 0xc0;
-                set_runtime_flag_01000000();
-            }
-            return 0;
-        }
-        return 0;
-    }
-    return main_window_procedure_api.default_window_procedure(window, message, wparam, lparam);
-}
-
-LRESULT CALLBACK gag_capture_window_procedure(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
-{
-    auto *state = reinterpret_cast<ApplicationState *>(window_procedure_api.get_window_long(window, 0));
-    if(state != nullptr && (state->flags & 0x80000000) != 0 && (message < 0x30f || message > 0x311))
-    {
-        return 0;
-    }
-
-    if(message == WM_CREATE)
-    {
-        auto *create = reinterpret_cast<CREATESTRUCTA *>(lparam);
-        state = static_cast<ApplicationState *>(create->lpCreateParams);
-        window_procedure_api.set_window_long(window, 0, reinterpret_cast<LONG_PTR>(state));
-        HMENU menu = window_procedure_api.get_system_menu(window, FALSE);
-        window_procedure_api.delete_menu(menu, SC_RESTORE, 0);
-        window_procedure_api.delete_menu(menu, SC_MAXIMIZE, 0);
-        window_procedure_api.delete_menu(menu, SC_SIZE, 0);
-        if((state->validation_flags & 0x100) != 0)
-        {
-            HMENU menu_bar = window_procedure_api.create_menu();
-            state->game_menu = window_procedure_api.create_popup_menu();
-            state->options_menu = window_procedure_api.create_popup_menu();
-            state->system_menu = window_procedure_api.create_popup_menu();
-            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->game_menu), application_message(state, 1));
-            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->options_menu), application_message(state, 2));
-            window_procedure_api.append_menu(menu_bar, MF_POPUP, reinterpret_cast<UINT_PTR>(state->system_menu), application_message(state, 3));
-            window_procedure_api.append_menu(state->options_menu, 0, 0x8820, application_message(state, 10));
-            window_procedure_api.check_menu_item(state->options_menu, 0x8820, (state->flags & 0x2000000) != 0 ? MF_CHECKED : 0);
-            window_procedure_api.append_menu(state->options_menu, 0, 0x8850, application_message(state, 11));
-            window_procedure_api.check_menu_item(state->options_menu, 0x8850, (state->flags & 0x1000) != 0 ? MF_CHECKED : 0);
-            window_procedure_api.append_menu(state->system_menu, 0, 0x8900, application_message(state, 12));
-            window_procedure_api.append_menu(state->system_menu, 0, 0x8910, application_message(state, 13));
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8790, "Pause Game");
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8800, "Resume Game");
-            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8810, application_message(state, 4));
-            if((state->flags & 0x100000) != 0)
-            {
-                window_procedure_api.enable_menu_item(state->game_menu, 0x8810, MF_GRAYED);
-            }
-            window_procedure_api.append_menu(state->game_menu, MF_GRAYED, 0x8780, application_message(state, 5));
-            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8860, application_message(state, 6));
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8870, application_message(state, 7));
-            if((state->flags & 0x200000) != 0)
-            {
-                window_procedure_api.enable_menu_item(state->game_menu, 0x8870, MF_GRAYED);
-            }
-            window_procedure_api.append_menu(state->game_menu, MF_CHECKED, 0x8880, application_message(state, 8));
-            window_procedure_api.append_menu(state->game_menu, MF_SEPARATOR, 0, nullptr);
-            window_procedure_api.append_menu(state->game_menu, 0, 0x8890, application_message(state, 9));
-            window_procedure_api.set_menu(window, menu_bar);
-        }
-        return 0;
-    }
-
-    if(message == WM_ACTIVATE && state != nullptr && LOWORD(wparam) == 0 && HIWORD(wparam) == 0 && reinterpret_cast<HWND>(lparam) != state->window)
-    {
-        if((state->flags & 0x80000000) != 0)
-        {
-            return 0;
-        }
-        if((state->flags & 0x40000000) == 0)
-        {
-            // Preserve an inactive windowed top-level window without minimizing it.
-            if((state->flags & 0x80) == 0)
-            {
-                window_procedure_api.post_message(state->window, WM_SYSCOMMAND, SC_MINIMIZE, 0);
-            }
-        }
-    }
-    else if(message == WM_CLOSE)
-    {
-        window_procedure_api.destroy_window(state->window);
-        return 0;
-    }
-    else if(message == WM_ACTIVATEAPP)
-    {
-        return 0;
-    }
-    else if(message == WM_NCHITTEST)
-    {
-        LRESULT result = window_procedure_api.default_window_procedure(window, message, wparam, lparam);
-        if(result == HTCAPTION || result == HTMENU || result == HTSYSMENU || result == HTMINBUTTON)
-        {
-            window_procedure_api.update_cursor_state(state, 1);
-        }
-        return result;
-    }
-    else if(message == WM_NCACTIVATE)
-    {
-        return 1;
-    }
-    else if(message == WM_KEYDOWN || message == WM_CHAR)
-    {
-        if(state->capture_window != nullptr)
-        {
-            return window_procedure_api.send_message(state->capture_window, message, wparam, lparam);
-        }
-    }
-    else if(message == WM_COMMAND || message == WM_SYSCOMMAND)
-    {
-        return window_procedure_api.send_message(state->window, message, wparam, lparam);
-    }
-    else if(message == WM_MENUSELECT)
-    {
-        if(HIWORD(wparam) == 0xffff && lparam == 0)
-        {
-            state->flags &= 0xfbffffff;
+            state->flags |= 0x02000000;
         }
         else
         {
-            state->flags |= 0x4000000;
+            state->flags &= 0xfdffffff;
         }
+        set_script_runtime_flags(1, !comments_enabled);
+        state->flags |= 0x40000;
+        return;
     }
-
-    return window_procedure_api.default_window_procedure(window, message, wparam, lparam);
+    if(action == ApplicationAction::toggle_mute)
+    {
+        if((state->flags & 0x1000) == 0)
+        {
+            state->flags |= 0x1000;
+            enable_runtime_subsystem();
+        }
+        else
+        {
+            state->flags &= 0xffffefff;
+            disable_runtime_subsystem();
+        }
+        state->flags |= 0x40000;
+        return;
+    }
+    if(action == ApplicationAction::enter_fullscreen && (state->flags & 0x80) != 0)
+    {
+        state->flags = (state->flags & 0xffffff7f) | 0x40;
+        set_runtime_flag_01000000();
+    }
+    else if(action == ApplicationAction::leave_fullscreen && (state->flags & 0x80) == 0)
+    {
+        state->flags |= 0xc0;
+        set_runtime_flag_01000000();
+    }
 }
 
-constexpr char preferences_file_name[] = ".\\freegag.ini";
+constexpr char preferences_file_name[] = "freegag.ini";
 constexpr char game_preferences_section[] = "Game";
 constexpr char window_preferences_section[] = "Window";
 
-bool get_preferences_path(char *path, DWORD size)
+using PreferenceKey = std::pair<std::string, std::string>;
+using Preferences = std::map<PreferenceKey, std::string>;
+
+std::string trim_preference_text(std::string value)
 {
-    const DWORD length = local_preferences_api.get_full_path_name(preferences_file_name, size, path, nullptr);
-    return length != 0 && length < size;
+    const size_t first = value.find_first_not_of(" \t\r\n");
+    if(first == std::string::npos)
+    {
+        return {};
+    }
+    const size_t last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+Preferences read_preferences()
+{
+    Preferences preferences;
+    std::ifstream stream(preferences_file_name);
+    std::string section;
+    std::string line;
+    while(std::getline(stream, line))
+    {
+        line = trim_preference_text(std::move(line));
+        if(line.empty() || line.front() == ';' || line.front() == '#')
+        {
+            continue;
+        }
+        if(line.front() == '[' && line.back() == ']')
+        {
+            section = trim_preference_text(line.substr(1, line.size() - 2));
+            continue;
+        }
+        const size_t separator = line.find('=');
+        if(separator != std::string::npos && !section.empty())
+        {
+            preferences[{ section, trim_preference_text(line.substr(0, separator)) }] = trim_preference_text(line.substr(separator + 1));
+        }
+    }
+    return preferences;
+}
+
+void write_preferences(const Preferences &preferences)
+{
+    std::ofstream stream(preferences_file_name, std::ios::trunc);
+    if(!stream)
+    {
+        return;
+    }
+    std::string section;
+    for(const auto &[key, value] : preferences)
+    {
+        if(key.first != section)
+        {
+            if(!section.empty())
+            {
+                stream << '\n';
+            }
+            section = key.first;
+            stream << '[' << section << "]\n";
+        }
+        stream << key.second << '=' << value << '\n';
+    }
 }
 
 bool read_preference_number(const char *section, const char *key, int64_t minimum, int64_t maximum, int64_t *result)
 {
-    char path[MAX_PATH];
-    if(!get_preferences_path(path, static_cast<DWORD>(std::size(path))))
-    {
-        return false;
-    }
-    char value[64]{};
-    const DWORD length = local_preferences_api.read_value(section, key, "", value, static_cast<DWORD>(std::size(value)), path);
-    if(length == 0 || length >= std::size(value) - 1)
+    const Preferences preferences = read_preferences();
+    const auto found = preferences.find({ section, key });
+    if(found == preferences.end() || found->second.empty())
     {
         return false;
     }
 
     errno = 0;
     char *end = nullptr;
+    const char *value = found->second.c_str();
     const long long parsed = std::strtoll(value, &end, 0);
     while(end != nullptr && std::isspace(static_cast<unsigned char>(*end)))
     {
@@ -1450,7 +1098,7 @@ bool read_preference_number(const char *section, const char *key, int64_t minimu
     return true;
 }
 
-bool read_saved_window_rectangle(RECT *rectangle)
+bool read_saved_window_rectangle(PortableRectangle *rectangle)
 {
     int64_t left;
     int64_t top;
@@ -1461,20 +1109,15 @@ bool read_saved_window_rectangle(RECT *rectangle)
     {
         return false;
     }
-    *rectangle = { static_cast<LONG>(left), static_cast<LONG>(top), static_cast<LONG>(right), static_cast<LONG>(bottom) };
+    *rectangle = { static_cast<int32_t>(left), static_cast<int32_t>(top), static_cast<int32_t>(right), static_cast<int32_t>(bottom) };
     return true;
 }
 
 void write_preference_number(const char *section, const char *key, int64_t value)
 {
-    char path[MAX_PATH];
-    if(!get_preferences_path(path, static_cast<DWORD>(std::size(path))))
-    {
-        return;
-    }
-    char text[32];
-    std::snprintf(text, sizeof(text), "%lld", static_cast<long long>(value));
-    local_preferences_api.write_value(section, key, text, path);
+    Preferences preferences = read_preferences();
+    preferences[{ section, key }] = std::to_string(value);
+    write_preferences(preferences);
 }
 
 void save_runtime_settings(ApplicationState *state)
@@ -1485,55 +1128,27 @@ void save_runtime_settings(ApplicationState *state)
     }
     if(state->archive_context == nullptr)
     {
-        char path[MAX_PATH];
-        if(get_preferences_path(path, static_cast<DWORD>(std::size(path))))
-        {
-            char settings[16];
-            std::snprintf(settings, sizeof(settings), "0x%08X", state->flags & 0x02001020);
-            local_preferences_api.write_value(game_preferences_section, "Settings", settings, path);
-        }
+        char settings[16];
+        std::snprintf(settings, sizeof(settings), "0x%08X", state->flags & 0x02001020);
+        Preferences preferences = read_preferences();
+        preferences[{ game_preferences_section, "Settings" }] = settings;
+        write_preferences(preferences);
     }
 }
 
-bool load_saved_window_position(int32_t width, int32_t height, POINT *position)
-{
-    if(position == nullptr)
-    {
-        return false;
-    }
-    RECT saved_rectangle{};
-    if(!read_saved_window_rectangle(&saved_rectangle))
-    {
-        return false;
-    }
-    const int64_t right = static_cast<int64_t>(saved_rectangle.left) + width;
-    const int64_t bottom = static_cast<int64_t>(saved_rectangle.top) + height;
-    if(right < INT32_MIN || right > INT32_MAX || bottom < INT32_MIN || bottom > INT32_MAX)
-    {
-        return false;
-    }
-    saved_rectangle.right = static_cast<LONG>(right);
-    saved_rectangle.bottom = static_cast<LONG>(bottom);
-    if(local_preferences_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) == nullptr)
-    {
-        return false;
-    }
-    *position = { saved_rectangle.left, saved_rectangle.top };
-    return true;
-}
-
-bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, RECT *rectangle)
+bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, PortableRectangle *rectangle)
 {
     if(rectangle == nullptr)
     {
         return false;
     }
 
-    RECT saved_rectangle{};
+    PortableRectangle saved_rectangle{};
     const bool loaded = read_saved_window_rectangle(&saved_rectangle);
     const int64_t width = static_cast<int64_t>(saved_rectangle.right) - saved_rectangle.left;
     const int64_t height = static_cast<int64_t>(saved_rectangle.bottom) - saved_rectangle.top;
-    bool valid = loaded && width >= minimum_width && height >= minimum_height && local_preferences_api.monitor_from_rect(&saved_rectangle, MONITOR_DEFAULTTONULL) != nullptr;
+    bool valid = loaded && width >= minimum_width && height >= minimum_height
+              && is_sdl_presenter_rectangle_visible({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
     if(valid)
     {
         *rectangle = saved_rectangle;
@@ -1543,18 +1158,12 @@ bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, 
 
 void save_window_position(ApplicationState *state)
 {
-    if(state == nullptr || state->window == nullptr)
+    if(state == nullptr)
     {
         return;
     }
-    RECT rectangle{};
-    WINDOWPLACEMENT placement{};
-    placement.length = sizeof(placement);
-    if(local_preferences_api.get_window_placement(state->window, &placement) != FALSE)
-    {
-        rectangle = placement.rcNormalPosition;
-    }
-    else if(local_preferences_api.get_window_rect(state->window, &rectangle) == FALSE)
+    DisplayRectangle rectangle{};
+    if(!get_sdl_presenter_window_rectangle(&rectangle))
     {
         return;
     }
@@ -1563,8 +1172,8 @@ void save_window_position(ApplicationState *state)
     write_preference_number(window_preferences_section, "Top", rectangle.top);
     write_preference_number(window_preferences_section, "Right", rectangle.right);
     write_preference_number(window_preferences_section, "Bottom", rectangle.bottom);
-    modern_windows_presentation_state.windowed_rectangle = rectangle;
-    modern_windows_presentation_state.windowed_rectangle_valid = true;
+    desktop_presentation_state.windowed_rectangle = { rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
+    desktop_presentation_state.windowed_rectangle_valid = true;
 }
 
 void set_game_cursor_active(ApplicationState *state, int active)
@@ -1573,15 +1182,15 @@ void set_game_cursor_active(ApplicationState *state, int active)
     {
         if((state->flags & 1) == 0)
         {
-            cursor_visibility_api.show_cursor(FALSE);
-            cursor_visibility_api.on_cursor_hidden();
+            SDL_HideCursor();
+            leave_runtime_state_1000();
             state->flags |= 1;
         }
     }
     else if((state->flags & 1) != 0)
     {
-        cursor_visibility_api.show_cursor(TRUE);
-        cursor_visibility_api.on_cursor_shown();
+        SDL_ShowCursor();
+        enter_runtime_state_1000();
         state->flags &= 0xfffffffe;
     }
 }
@@ -1595,34 +1204,18 @@ void finish_credits_state(ApplicationState *state, RuntimeTreeNode *tree)
     }
 }
 
-void update_modern_windows_windowed_viewport(ApplicationState *state)
+void update_desktop_windowed_viewport(ApplicationState *state)
 {
-    if(state == nullptr || state->window == nullptr || (state->flags & 0x80) == 0)
+    if(state == nullptr || (state->flags & 0x80) == 0)
     {
         return;
     }
-    RECT client_rectangle{};
-    if(window_layout_api.get_client_rect(state->window, &client_rectangle) == FALSE)
-    {
-        return;
-    }
-    const RECT viewport = calculate_modern_windows_windowed_viewport(client_rectangle.right - client_rectangle.left, client_rectangle.bottom - client_rectangle.top, state->width, state->height,
-        modern_windows_windowed_scaling);
-    state->content_left = viewport.left;
-    state->content_top = viewport.top;
-    state->content_right = viewport.right;
-    state->content_bottom = viewport.bottom;
-    modern_windows_presentation_state.viewport_width = viewport.right - viewport.left;
-    modern_windows_presentation_state.viewport_height = viewport.bottom - viewport.top;
-    if(state->capture_window != nullptr)
-    {
-        window_layout_api.set_window_position(state->capture_window, nullptr, viewport.left, viewport.top, modern_windows_presentation_state.viewport_width,
-            modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
-        window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
-    }
-    window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
-    runtime_game_host_context.x_offset = static_cast<uint32_t>(state->content_left);
-    runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
+    state->content_left = 0;
+    state->content_top = 0;
+    state->content_right = state->width;
+    state->content_bottom = state->height;
+    runtime_game_host_context.x_offset = 0;
+    runtime_game_host_context.y_offset = 0;
 }
 
 void update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout)
@@ -1630,103 +1223,12 @@ void update_application_window_layout(ApplicationState *state, SecondaryWindowLa
     if(secondary_layout != nullptr)
     {
         secondary_layout->state = 0;
-        if((state->flags & 0x80) != 0)
-        {
-            // Windows owns the freely resizable framed window dimensions.
-            return;
-        }
-        secondary_layout->flags &= ~(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
-        secondary_layout->x = state->desktop_window_rect.left;
-        secondary_layout->y = state->desktop_window_rect.top;
-        secondary_layout->width = state->desktop_window_rect.right - state->desktop_window_rect.left;
-        secondary_layout->height = state->desktop_window_rect.bottom - state->desktop_window_rect.top;
-        window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, modern_windows_presentation_state.viewport_width,
-            modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
         return;
     }
-
-    state->desktop_window_rect.left = 0;
-    state->desktop_window_rect.top = 0;
-    if((state->flags & 0x80) != 0)
-    {
-        if(state->window != nullptr)
-        {
-            // Replacing GWL_STYLE after ShowWindow must retain visibility so Windows keeps the frame in hit testing.
-            window_layout_api.set_window_long(state->window, GWL_STYLE, modern_windows_windowed_style | WS_VISIBLE);
-        }
-        state->window_top_adjustment = 0;
-
-        if(modern_windows_presentation_state.fullscreen && modern_windows_presentation_state.windowed_rectangle_valid && state->window != nullptr)
-        {
-            const RECT &rectangle = modern_windows_presentation_state.windowed_rectangle;
-            window_layout_api.set_window_position(state->window, nullptr, rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top,
-                SWP_FRAMECHANGED | SWP_NOCOPYBITS);
-            state->desktop_window_rect = rectangle;
-        }
-        else if(state->window != nullptr)
-        {
-            window_layout_api.get_window_rect(state->window, &state->desktop_window_rect);
-        }
-        modern_windows_presentation_state.fullscreen = false;
-    }
-    else
-    {
-        if(!modern_windows_presentation_state.fullscreen && !modern_windows_presentation_state.windowed_rectangle_valid && state->window != nullptr)
-        {
-            modern_windows_presentation_state.windowed_rectangle_valid = window_layout_api.get_window_rect(state->window, &modern_windows_presentation_state.windowed_rectangle) != FALSE;
-        }
-        if(state->window != nullptr)
-        {
-            window_layout_api.set_window_long(state->window, GWL_STYLE, 0x82000000 | WS_VISIBLE);
-        }
-
-        MONITORINFO monitor_info{};
-        monitor_info.cbSize = sizeof(monitor_info);
-        const HMONITOR monitor = state->window != nullptr ? window_layout_api.monitor_from_window(state->window, MONITOR_DEFAULTTONEAREST) : nullptr;
-        if(monitor == nullptr || window_layout_api.get_monitor_info(monitor, &monitor_info) == FALSE)
-        {
-            monitor_info.rcMonitor = { 0, 0, window_layout_api.get_system_metrics(SM_CXSCREEN), window_layout_api.get_system_metrics(SM_CYSCREEN) };
-        }
-        state->desktop_window_rect = monitor_info.rcMonitor;
-        state->window_top_adjustment = 0;
-
-        const int32_t monitor_width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-        const int32_t monitor_height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
-        const RECT viewport = calculate_modern_windows_fullscreen_viewport(monitor_width, monitor_height, state->width, state->height, modern_windows_fullscreen_scaling);
-        state->content_left = viewport.left;
-        state->content_top = viewport.top;
-        state->content_right = viewport.right;
-        state->content_bottom = viewport.bottom;
-        modern_windows_presentation_state.fullscreen = true;
-        modern_windows_presentation_state.viewport_width = viewport.right - viewport.left;
-        modern_windows_presentation_state.viewport_height = viewport.bottom - viewport.top;
-    }
-    if(state->window != nullptr && state->capture_window != nullptr)
-    {
-        if((state->flags & 0x80) == 0)
-        {
-            window_layout_api.set_window_position(state->window, nullptr, state->desktop_window_rect.left, state->desktop_window_rect.top,
-                state->desktop_window_rect.right - state->desktop_window_rect.left, state->desktop_window_rect.bottom - state->desktop_window_rect.top, SWP_FRAMECHANGED | SWP_NOCOPYBITS);
-        }
-        if((state->flags & 0x80) != 0)
-        {
-            update_modern_windows_windowed_viewport(state);
-        }
-        else
-        {
-            window_layout_api.set_window_position(state->capture_window, nullptr, state->content_left, state->content_top, modern_windows_presentation_state.viewport_width,
-                modern_windows_presentation_state.viewport_height, SWP_NOZORDER | SWP_NOCOPYBITS);
-        }
-        if((state->flags & 0x80) == 0)
-        {
-            window_layout_api.invalidate_rect(state->window, nullptr, TRUE);
-            window_layout_api.invalidate_rect(state->capture_window, nullptr, TRUE);
-        }
-        window_layout_api.set_focus(state->capture_window);
-        window_layout_api.send_message(state->window, WM_QUERYNEWPALETTE, 0, 0);
-    }
-    runtime_game_host_context.x_offset = static_cast<uint32_t>(state->content_left);
-    runtime_game_host_context.y_offset = static_cast<uint32_t>(state->content_top);
+    const bool fullscreen = (state->flags & 0x80) == 0;
+    set_sdl_presenter_fullscreen(fullscreen);
+    desktop_presentation_state.fullscreen = fullscreen;
+    update_desktop_windowed_viewport(state);
 }
 
 
@@ -1735,13 +1237,13 @@ void restore_application_display(ApplicationState *state)
     if((state->flags & 0x80) == 0)
     {
         state->flags |= 0x20;
-        if(!modern_windows_presentation_state.fullscreen)
+        if(!desktop_presentation_state.fullscreen)
         {
             // Preserve the latest framed position even when the application is later closed while fullscreen is active.
             save_window_position(state);
         }
     }
-    window_layout_api.set_window_position(state->capture_window, nullptr, -state->width, -state->height, 0, 0, 0x105);
+    set_sdl_presenter_fullscreen((state->flags & 0x80) == 0);
     update_application_window_layout(state, nullptr);
     if((state->flags & 0x80) != 0)
     {
@@ -1762,12 +1264,11 @@ void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
         clear_application_lock_flag(state);
         if((state->flags & 1) == 0)
         {
-            POINT point;
-            if(cursor_state_api.get_cursor_position(&point) != FALSE)
+            int32_t x;
+            int32_t y;
+            if(get_sdl_presenter_mouse_position(&x, &y))
             {
-                point.x -= state->desktop_window_rect.left;
-                point.y -= state->desktop_window_rect.top;
-                if(point.x < state->content_left || point.y < state->content_top || state->content_right < point.x || state->content_bottom < point.y)
+                if(x < 0 || y < 0 || x >= state->width || y >= state->height)
                 {
                     state_activation_api.on_cursor_outside();
                 }
@@ -1878,7 +1379,7 @@ uint8_t expand_masked_channel(uint32_t pixel, uint32_t mask)
     return static_cast<uint8_t>((value * 255 + mask / 2) / mask);
 }
 
-uint8_t find_nearest_palette_entry(uint8_t red, uint8_t green, uint8_t blue, const PALETTEENTRY *palette)
+uint8_t find_nearest_palette_entry(uint8_t red, uint8_t green, uint8_t blue, const PaletteEntry *palette)
 {
     uint32_t best_distance = UINT32_MAX;
     uint8_t best_index = 0;
@@ -1925,40 +1426,33 @@ void *create_indexed_display_bitmap(const DisplayBitmapCaptureSource *source, ui
         return nullptr;
     }
     const uint32_t destination_stride = (width + 3) & ~3u;
-    constexpr uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + offsetof(RuntimeIndexedBitmapInfo, pixels);
+    constexpr uint32_t palette_offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader);
+    constexpr uint32_t pixel_offset = palette_offset + 256 * sizeof(BitmapColor);
     if(height > (UINT32_MAX - pixel_offset) / destination_stride)
     {
         return nullptr;
     }
     const uint32_t bitmap_size = pixel_offset + destination_stride * height;
-    auto *bitmap = static_cast<uint8_t *>(bitmap_capture_api.heap_alloc(bitmap_capture_api.get_process_heap(), HEAP_ZERO_MEMORY, bitmap_size));
+    auto *bitmap = static_cast<uint8_t *>(save_capture_heap.allocate(bitmap_size, true));
     if(bitmap == nullptr)
     {
         return nullptr;
     }
-    auto *file_header = reinterpret_cast<BITMAPFILEHEADER *>(bitmap);
-    file_header->bfType = 0x4d42;
-    file_header->bfSize = bitmap_size;
-    file_header->bfOffBits = pixel_offset;
-    auto *indexed_bitmap = reinterpret_cast<RuntimeIndexedBitmapInfo *>(bitmap + sizeof(BITMAPFILEHEADER));
-    indexed_bitmap->header.biSize = sizeof(BITMAPINFOHEADER);
-    indexed_bitmap->header.biWidth = static_cast<LONG>(width);
-    indexed_bitmap->header.biHeight = static_cast<LONG>(height);
-    indexed_bitmap->header.biPlanes = 1;
-    indexed_bitmap->header.biBitCount = 8;
-    indexed_bitmap->header.biCompression = BI_RGB;
-    indexed_bitmap->header.biSizeImage = destination_stride * height;
-    indexed_bitmap->header.biClrUsed = 256;
-    indexed_bitmap->header.biClrImportant = 256;
+    const BitmapFileHeader file_header{ 0x4d42, bitmap_size, 0, 0, pixel_offset };
+    const BitmapInfoHeader info_header{ sizeof(BitmapInfoHeader), static_cast<int32_t>(width), static_cast<int32_t>(height), 1, 8, 0, destination_stride * height, 0, 0, 256, 256 };
+    encode_bitmap_file_header(bitmap, file_header);
+    encode_bitmap_info_header(bitmap + sizeof(BitmapFileHeader), info_header);
+    auto *colors = reinterpret_cast<BitmapColor *>(bitmap + palette_offset);
+    uint8_t *pixels = bitmap + pixel_offset;
     for(uint32_t index = 0; index < 256; ++index)
     {
-        indexed_bitmap->colors[index] = { source->palette_entries[index].peBlue, source->palette_entries[index].peGreen, source->palette_entries[index].peRed, 0 };
+        colors[index] = { source->palette_entries[index].peBlue, source->palette_entries[index].peGreen, source->palette_entries[index].peRed, 0 };
     }
     for(uint32_t destination_y = 0; destination_y < height; ++destination_y)
     {
         const uint32_t source_y = source->height - 1 - destination_y * sample_step;
         const uint8_t *source_row = source->pixels + static_cast<size_t>(source_y) * source->stride;
-        uint8_t *destination_row = indexed_bitmap->pixels + static_cast<size_t>(destination_y) * destination_stride;
+        uint8_t *destination_row = pixels + static_cast<size_t>(destination_y) * destination_stride;
         for(uint32_t destination_x = 0; destination_x < width; ++destination_x)
         {
             const uint8_t *source_pixel = source_row + static_cast<size_t>(destination_x * sample_step) * bytes_per_pixel;
@@ -2045,7 +1539,7 @@ void free_heap_memory(void *memory)
 {
     if(memory != nullptr)
     {
-        HeapFree(GetProcessHeap(), 0, memory);
+        save_capture_heap.release(memory);
     }
 }
 

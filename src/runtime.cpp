@@ -1,4 +1,6 @@
 #include "runtime.h"
+#include <chrono>
+#include <thread>
 #include "host_events.h"
 #include "runtime_internal.h"
 
@@ -252,7 +254,7 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
         return;
     }
 
-    DWORD current_tick = runtime_text_input_api.time_get_time();
+    uint32_t current_tick = runtime_text_input_api.time_get_time();
     char &caret = state->input_text[state->input_cursor];
     if(state->input_caret_tick + 250 < current_tick)
     {
@@ -297,7 +299,7 @@ void enqueue_runtime_pair(uint32_t first, uint32_t second)
     bool input_enabled = (graphics_host_flags & 0x100400) == 0x100400;
     // A borderless transition temporarily clears the queue-enable bit while the capture child remains interactive. Retain the physical release, but not resize-generated moves that would
     // change the active game region before that release is applied.
-    if(modern_windows_presentation_state.fullscreen && (graphics_host_flags & 0x400) != 0 && first == WM_LBUTTONUP)
+    if(desktop_presentation_state.fullscreen && (graphics_host_flags & 0x400) != 0 && first == static_cast<uint32_t>(RuntimeQueuedInputType::left_button_up))
     {
         input_enabled = true;
     }
@@ -437,13 +439,13 @@ uint32_t process_runtime_pair_message()
     {
         switch(pair.first)
         {
-        case 0x200:
+        case static_cast<uint32_t>(RuntimeQueuedInputType::pointer_move):
             return runtime_pair_dispatch_api.move_pointer(static_cast<int32_t>(pair.second & 0xffff), static_cast<int32_t>(pair.second >> 16));
-        case 0x201:
+        case static_cast<uint32_t>(RuntimeQueuedInputType::left_button_down):
             return runtime_pair_dispatch_api.left_button_down();
-        case 0x202:
+        case static_cast<uint32_t>(RuntimeQueuedInputType::left_button_up):
             return runtime_pair_dispatch_api.left_button_up();
-        case 0x204:
+        case static_cast<uint32_t>(RuntimeQueuedInputType::right_button_down):
             return runtime_pair_dispatch_api.right_button_down();
         }
     }
@@ -538,6 +540,7 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
     post_application_event(HostApplicationCommand::command_completed);
     while(true)
     {
+        drain_runtime_resource_destructions();
         runtime_command_loop_api.process(state);
         if((state->flags & 0x02000000) != 0)
         {
@@ -849,7 +852,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
                 RuntimeTreeSecondaryResourceLink *secondary = find_global_runtime_tree_secondary_resource_link_by_name(first);
                 RuntimeFixedNameListNode *fixed = find_runtime_fixed_name_list_node(second);
-                if(secondary != nullptr && fixed != nullptr)
+                if((script_runtime_root->flags & 1) == 0 && secondary != nullptr && fixed != nullptr)
                 {
                     link->backend_child = attach_runtime_generic_backend_child(nullptr, fixed->resource_identity, secondary->resource_identity, selection, 0);
                     if(link->backend_child != nullptr)
@@ -947,7 +950,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             {
                 process_runtime_message(state);
                 result |= static_cast<uint32_t>(run_runtime_command_loop(state));
-                Sleep(10);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
         state->external_command_pending = 0;
@@ -1597,16 +1600,16 @@ bool should_send_runtime_script_message(int32_t command)
     // boundary, where it cannot block waiting for the still-busy UI thread.
     if(command == 0x7da)
     {
-        if(modern_windows_fullscreen_toggle_latched)
+        if(desktop_fullscreen_toggle_latched)
         {
             return false;
         }
-        modern_windows_fullscreen_toggle_latched = true;
+        desktop_fullscreen_toggle_latched = true;
     }
     return true;
 }
 
-DWORD WINAPI execute_script_commands(LPVOID parameter)
+void execute_script_commands(void *parameter)
 {
     auto *state = static_cast<RuntimeCommandLoopState *>(parameter);
     uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
@@ -1614,9 +1617,10 @@ DWORD WINAPI execute_script_commands(LPVOID parameter)
     int32_t random_value = 0;
     while(true)
     {
+        drain_runtime_resource_destructions();
         if((state->flags & 1) != 0)
         {
-            return 0;
+            return;
         }
         runtime_script_executor_api.process_children(state->script_clock);
         runtime_script_executor_api.process_message(state);

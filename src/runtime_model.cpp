@@ -185,7 +185,7 @@ RuntimeResourceCacheEntry *get_or_create_runtime_resource_cache_entry(void *pare
     {
         return entry;
     }
-    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeResourceCacheEntry)));
     std::memcpy(entry->name, name, sizeof(entry->name));
     append_runtime_named_child(parent, entry);
     return entry;
@@ -216,7 +216,7 @@ RuntimeResourceCacheEntry *get_or_create_runtime_child_by_data(void *parent_iden
         }
         entry = entry->next;
     }
-    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeResourceCacheEntry)));
     entry->data = data;
     append_runtime_named_child(parent, entry);
     return entry;
@@ -259,7 +259,7 @@ void add_script_object_to_runtime_named_node(const void *node_name, const char *
         entry = entry->next;
     }
 
-    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeResourceCacheEntry)));
     entry->data = object->identity;
     std::memcpy(entry->name, object->name, sizeof(entry->name));
     append_runtime_named_child(parent, entry);
@@ -282,7 +282,7 @@ uint32_t parse_runtime_named_node(ScriptParserState *parser)
     }
     if(parent == nullptr)
     {
-        parent = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeNamedNode)));
+        parent = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeNamedNode)));
         if(parent == nullptr)
         {
             return 0;
@@ -362,7 +362,7 @@ uint32_t parse_runtime_named_node(ScriptParserState *parser)
                 }
                 if(entry == nullptr || entry->data != object->identity)
                 {
-                    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeResourceCacheEntry)));
+                    entry = static_cast<RuntimeResourceCacheEntry *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeResourceCacheEntry)));
                     entry->data = object->identity;
                     std::memcpy(entry->name, object->name, sizeof(entry->name));
                     append_runtime_named_child(parent, entry);
@@ -562,7 +562,7 @@ RuntimeNamedNode *get_or_create_runtime_named_node(const char *name)
             return static_cast<RuntimeNamedNode *>(node->identity);
         }
     }
-    auto *node = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeNamedNode)));
+    auto *node = static_cast<RuntimeNamedNode *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeNamedNode)));
     if(node == nullptr)
     {
         return nullptr;
@@ -648,7 +648,7 @@ uint32_t parse_runtime_visual_object(ScriptParserState *parser)
     }
     if(object == nullptr)
     {
-        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeVisualObject)));
+        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeVisualObject)));
         if(object == nullptr)
         {
             return 0;
@@ -770,7 +770,7 @@ void *create_or_update_runtime_visual_object(const void *name, const void *file_
     }
     else
     {
-        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeVisualObject)));
+        object = static_cast<RuntimeVisualObject *>(runtime_named_node_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeVisualObject)));
         if(object == nullptr)
         {
             return nullptr;
@@ -1244,7 +1244,7 @@ void rebuild_runtime_tree_resources(void *identity)
         {
             ++count;
         }
-        if((flags & 0x01000000) == 0 && link->fixed_name_node != nullptr && link->secondary_link != nullptr)
+        if((script_runtime_root->flags & 1) == 0 && (flags & 0x01000000) == 0 && link->fixed_name_node != nullptr && link->secondary_link != nullptr)
         {
             uint32_t configuration_flags = 0;
             if((link->image_flags & 0x10) != 0 || ((flags & 0x8000) != 0 && (link->image_flags & 0x200) != 0))

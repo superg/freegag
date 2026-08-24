@@ -1,4 +1,3 @@
-#include <windows.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -35,7 +34,6 @@ uint32_t current_time_milliseconds()
 
 struct GameState
 {
-    HWND window{};
     xtet::GameHostContext *host_context{};
     std::array<void *, xtet::kCallbackCount> callbacks{};
     std::vector<uint8_t> sfs_bytes;
@@ -56,6 +54,8 @@ struct GameState
     uint32_t level_effect_deadline{};
     bool level_effect_active{};
     bool audio_enabled{ true };
+    int32_t pointer_x{};
+    int32_t pointer_y{};
     std::atomic_bool initialized{};
 };
 
@@ -63,6 +63,7 @@ struct GameState
 std::recursive_mutex g_mutex;
 GameState g_game;
 xtet::HostEventCallback g_host_event_callback{};
+xtet::InputDrainCallback g_input_drain_callback{};
 
 void present_dirty_region(const xtet::FigurineRenderRegion &region);
 bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first = nullptr, const xtet::FallingFigurine *excluded_second = nullptr);
@@ -80,10 +81,8 @@ void send_result()
 
 void drain_keyboard_messages()
 {
-    MSG message{};
-    while(PeekMessageA(&message, g_game.window, 0x100, 0x108, PM_REMOVE | PM_NOYIELD))
-    {
-    }
+    if(g_input_drain_callback != nullptr)
+        g_input_drain_callback();
 }
 
 void stop_gameplay()
@@ -462,16 +461,10 @@ void dispatch_key_down(uint32_t key)
 
 int find_pressed_button()
 {
-    POINT point;
-    RECT client;
-    if(!GetClientRect(g_game.window, &client) || !GetCursorPos(&point) || !ScreenToClient(g_game.window, &point))
-        return -1;
-    point.x = xtet::map_scaled_cursor_coordinate(point.x - client.left, client.right - client.left, g_game.host_context ? g_game.host_context->width : 0);
-    point.y = xtet::map_scaled_cursor_coordinate(point.y - client.top, client.bottom - client.top, g_game.host_context ? g_game.host_context->height : 0);
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     if(homes.size() != 1 || homes[0]->children.size() != 3)
         return -1;
-    return xtet::hit_test_sprite_collection(homes[0]->children[2], g_game.bitmaps, point.x, point.y);
+    return xtet::hit_test_sprite_collection(homes[0]->children[2], g_game.bitmaps, g_game.pointer_x, g_game.pointer_y);
 }
 
 bool present_control_overlay(size_t index, bool shown)
@@ -600,7 +593,6 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
     shutdown_game();
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     g_game.host_context = host_context;
-    g_game.window = host_context ? host_context->window : nullptr;
     g_game.callbacks.fill(nullptr);
     if(callback_table)
     {
@@ -639,27 +631,38 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
     g_game.worker.setEnabled(true);
 }
 
-uint32_t xtet::dispatch_game_window_message(HWND, UINT message, WPARAM wparam, LPARAM)
+uint32_t xtet::dispatch_game_input(const gag::RuntimeInputEvent &event)
 {
     if(!g_game.initialized.load())
         return 1;
-    if(message != WM_DESTROY && message != WM_KEYDOWN && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP)
+    if(event.type == gag::RuntimeInputType::pointer_move || event.type == gag::RuntimeInputType::button_down || event.type == gag::RuntimeInputType::button_up)
+    {
+        g_game.pointer_x = event.x;
+        g_game.pointer_y = event.y;
+    }
+    if(event.type != gag::RuntimeInputType::close && event.type != gag::RuntimeInputType::key_down && event.type != gag::RuntimeInputType::button_down
+        && event.type != gag::RuntimeInputType::button_up)
         return 0;
     std::unique_lock<std::recursive_mutex> lock(g_mutex, std::try_to_lock);
     if(!lock.owns_lock())
         return kDispatchBusy;
     if(!g_game.initialized.load())
         return 1;
-    xtet::GameWindowMessageCallbacks callbacks;
+    xtet::GameInputCallbacks callbacks;
     callbacks.destroy = []() { stop_gameplay(); };
     callbacks.key_down = [](uint32_t key) { dispatch_key_down(key); };
     callbacks.mouse_button = [](bool pressed) { handle_mouse_button(pressed); };
-    return xtet::dispatch_game_window_message(g_game.gameplay_runtime.progress().gameplay_state, message, (uint32_t)wparam, callbacks);
+    return xtet::dispatch_game_input(g_game.gameplay_runtime.progress().gameplay_state, event, callbacks);
 }
 
 void xtet::set_host_event_callback(HostEventCallback callback)
 {
     g_host_event_callback = callback;
+}
+
+void xtet::set_input_drain_callback(InputDrainCallback callback)
+{
+    g_input_drain_callback = callback;
 }
 
 void xtet::execute_game_command(uint32_t command)
@@ -668,7 +671,7 @@ void xtet::execute_game_command(uint32_t command)
     switch(command)
     {
     case 1:
-        if(!g_game.window)
+        if(!g_game.host_context)
             return;
         stop_gameplay();
         post_game_result(g_game.gameplay_runtime.progress().score);
@@ -722,8 +725,6 @@ void xtet::shutdown_game()
     g_game.sfs_bytes.clear();
     g_game.callbacks.fill(nullptr);
     g_game.host_context = nullptr;
-    g_game.window = nullptr;
     g_game.result = 0;
     g_game.level_effect_active = false;
-    g_host_event_callback = nullptr;
 }

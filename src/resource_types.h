@@ -1,6 +1,9 @@
 #pragma once
 
 #include "pcm_format.h"
+#include "portable_types.h"
+#include "runtime_input.h"
+#include "runtime_services.h"
 #include "script_types.h"
 
 namespace gag
@@ -36,11 +39,11 @@ struct DisplayTraversalState;
 
 struct RuntimeResourceConstructionApi
 {
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    RuntimeHeap *(*get_process_heap)();
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     uint32_t (*detect_type)(const char *path);
     void (*update_host)(const char *path, int32_t mode);
     void (*load)(const char *path, void **data, uint32_t *size, int32_t *storage, uint32_t flags);
@@ -68,7 +71,7 @@ struct RuntimeResourceConstructionApi
     uint32_t (*destroy_media)(void *identity);
     void (*destroy_sound)(uint32_t handle);
     uint32_t (*destroy_generic)(void *identity);
-    BOOL (*release_memory)(const char *path);
+    bool (*release_memory)(const char *path);
     uint32_t (*release_stream)(AsyncFileRecord *record);
     void (*build_path)(char *destination, const char *source);
     CdfArchive *(*open_archive)(const char *path, intptr_t alternate_stream);
@@ -90,19 +93,19 @@ struct RuntimeResourceVisibilityCallbackContext
 struct RuntimeResourceDestroyApi
 {
     RuntimeLockRecord *(*acquire_record)(void *identity);
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     RuntimeGenericResourceNode *(*find_generic)(void *identity);
     void (*remove_generic)(void *identity);
     uint32_t (*destroy_media_backend)(void *backend);
-    BOOL (*release_memory_data)(void *data);
+    bool (*release_memory_data)(void *data);
     uint32_t (*release_stream)(AsyncFileRecord *record);
     void (*destroy_sound)(uint32_t handle);
     uint32_t (*destroy_generic_backend)(void *backend);
     uint32_t (*release_scene)(intptr_t scene_identifier, intptr_t owner);
     uint32_t (*remove_runtime_child)(void *parent_identity, void *child_identity);
-    HANDLE(WINAPI *get_process_heap)();
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    RuntimeHeap *(*get_process_heap)();
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 struct RuntimeResourceControlApi
@@ -119,9 +122,9 @@ using RuntimeResourceConstructor = void *(*)(char *path, uint32_t scene_identifi
 
 struct RuntimeResourceSelectionApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
     uint32_t (*close_archive)(CdfArchive *archive);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
     RuntimeResourceConstructor construct_resource;
 };
 
@@ -129,7 +132,6 @@ struct RuntimeResourceSelectionApi
 
 struct RuntimeGameHostContext
 {
-    HWND window;
     uint32_t bits_per_pixel;
     uint32_t unknown_0010;
     uint16_t width;
@@ -138,31 +140,31 @@ struct RuntimeGameHostContext
     intptr_t unknown_0028;
     void *framebuffer;
     intptr_t unknown_0030;
-    PALETTEENTRY *palette_entries;
+    PaletteEntry *palette_entries;
     uint32_t x_offset;
     uint32_t y_offset;
 };
 
 using RuntimeGameDllInitialize = void (*)(RuntimeGameHostContext *context, void **callbacks, const char *sfs_name);
 using RuntimeGameDllExecute = void (*)(uint32_t command);
-using RuntimeGameDllWindowProcedure = uint32_t (*)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+using RuntimeGameInputHandler = uint32_t (*)(const RuntimeInputEvent &event);
 
 struct RuntimeGameLifecycleApi
 {
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
+    void (*enter_critical_section)(RuntimeMutex *mutex);
     void (*update_resource_host)(const char *path, int32_t reset);
     int32_t (*activate_comment_scene)(const char *name);
     void (*deactivate_comment_scene)(const char *name);
     void (*reset_byte_queue)();
     void (*reset_pair_queue)();
     void (*leave_runtime_state)();
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
 };
 
 struct RuntimeGameIntegrationApi
 {
     RuntimeGameDllInitialize initialize;
-    RuntimeGameDllWindowProcedure window_procedure;
+    RuntimeGameInputHandler input_handler;
     RuntimeGameDllExecute execute;
     void (*shutdown)();
 };
@@ -171,40 +173,20 @@ struct RuntimeGameIntegrationApi
 struct RuntimeGameDllDispatchApi
 {
     uint32_t (*time_get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 
 
 struct DisplayRectangle;
 
-struct RuntimeGameWindowApi
-{
-    LRESULT(WINAPI *send_message)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-    HDC(WINAPI *begin_paint)(HWND window, LPPAINTSTRUCT paint);
-    BOOL(WINAPI *end_paint)(HWND window, const PAINTSTRUCT *paint);
-    void (*update_pointer_position)(int32_t x, int32_t y);
-    void (*enqueue_byte)(uint8_t value);
-    void (*enqueue_pair)(uint32_t first, uint32_t second);
-    void (*enqueue_message)(uint32_t message);
-    void (*clear_runtime_flag)();
-    void (*unload_game_dll)();
-    void (*enter_runtime_state)();
-    void (*leave_runtime_state)();
-    void (*set_runtime_flag)();
-    BOOL(WINAPI *track_mouse_event)(LPTRACKMOUSEEVENT event);
-    HCURSOR(WINAPI *set_cursor)(HCURSOR cursor);
-    LRESULT(WINAPI *default_window_procedure)(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
-};
-
-
 struct RuntimePointerPositionApi
 {
-    DWORD(WINAPI *get_current_thread_id)();
-    void(WINAPI *enter_critical_section)(LPCRITICAL_SECTION section);
+    RuntimeThreadId (*get_current_thread_id)();
+    void (*enter_critical_section)(RuntimeMutex *mutex);
     RuntimeNamedNode *(*find_child)(void *parent_identity, void *child_identity);
-    void(WINAPI *leave_critical_section)(LPCRITICAL_SECTION section);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*leave_critical_section)(RuntimeMutex *mutex);
+    void (*sleep)(uint32_t milliseconds);
     uint32_t (*offset_scene)(intptr_t identifier, int32_t x, int32_t y);
 };
 

@@ -10,7 +10,7 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
     {
         RuntimeGenericBackend *result = nullptr;
         uint32_t contended = 0;
-        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
         {
             if(backend->identity == identity)
@@ -35,15 +35,15 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
 
 RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size)
 {
-    auto *backend =
-        static_cast<RuntimeGenericBackend *>(runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackend)));
+    auto *backend = static_cast<RuntimeGenericBackend *>(
+        runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackend)));
     RuntimeGenericBackend *result = backend;
     if(backend != nullptr)
     {
         backend->identity = backend;
         backend->text_size = text_size;
         backend->text = reinterpret_cast<const char *>(text_address);
-        runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
         if(runtime_generic_backend_enabled == 0)
         {
             result = nullptr;
@@ -67,7 +67,7 @@ void clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
 void *find_available_runtime_generic_child(uint32_t maximum_end_position)
 {
     void *result = nullptr;
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
     for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
     {
         for(RuntimeGenericBackendChild *child = backend->children; child != nullptr; child = child->next)
@@ -225,7 +225,7 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
         if(default_selection != 0x7fffffff && parser_position != 0xffffffff && text_search_position != 0xffffffff)
         {
             child = static_cast<RuntimeGenericBackendChild *>(
-                runtime_generic_child_create_api.heap_alloc(runtime_generic_child_create_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeGenericBackendChild)));
+                runtime_generic_child_create_api.heap_alloc(runtime_generic_child_create_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackendChild)));
             if(child != nullptr)
             {
                 child->identity = child;
@@ -237,7 +237,7 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
                 child->flags |= additional_flags | flags;
                 child->context[0] = context[0];
                 child->context[1] = context[1];
-                runtime_generic_child_create_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+                runtime_generic_child_create_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
                 child->next = backend->children;
                 backend->children = child;
                 ++backend->child_count;
@@ -316,7 +316,7 @@ RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity
     {
         RuntimeGenericBackendChild *result = nullptr;
         uint32_t contended = 0;
-        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
         bool found = false;
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr && !found; backend = backend->next)
         {
@@ -693,7 +693,7 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
     uint32_t *output = destination_pixels + destination_width * y + x;
     const auto palette_color = [](uint8_t index)
     {
-        const PALETTEENTRY color = runtime_game_host_context.palette_entries[index];
+        const PaletteEntry color = runtime_game_host_context.palette_entries[index];
         return (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
     };
     uint32_t maximum_width = 0;
@@ -1292,11 +1292,7 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
     if((flags & 0x1000) != 0)
     {
         const uint32_t resource_flags = resource->type_flags;
-        destroy_runtime_resource(resource);
-        if((resource_flags & 2) == 0)
-        {
-            --runtime_resource_count;
-        }
+        queue_runtime_resource_destruction(resource, (resource_flags & 2) == 0);
         return 1;
     }
     if((flags & 0x80000000) != 0)
@@ -1488,7 +1484,7 @@ void *destroy_runtime_generic_backend_child(void *identity)
         return nullptr;
     }
     RuntimeGenericBackend *parent = child->parent;
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
     RuntimeGenericBackendChild *previous = nullptr;
     RuntimeGenericBackendChild *current = parent->children;
     while(current != nullptr && current != child)
@@ -1521,7 +1517,7 @@ uint32_t destroy_runtime_generic_backend(void *identity)
     {
         destroy_runtime_generic_backend_child(backend->children->identity);
     }
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, INFINITE);
+    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
     RuntimeGenericBackend *previous = nullptr;
     RuntimeGenericBackend *current = runtime_generic_backend_head;
     while(current != nullptr && current != backend)

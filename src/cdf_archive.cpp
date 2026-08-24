@@ -1,8 +1,12 @@
 #include "cdf_archive.h"
 #include <cstring>
 #include <limits>
+#include <new>
+#include <vector>
 #include <zlib.h>
+#include "binary_stream.h"
 #include "media.h"
+#include "portable_string.h"
 #include "resource.h"
 
 namespace gag
@@ -81,52 +85,51 @@ struct Cdf96aIndexStorage
     CdfEntry entries[0x100];
 };
 
-void seek_async_cdf_stream(HANDLE stream, uint32_t offset)
+class AsyncCdfInputStream final : public BinaryInputStream
 {
-    set_async_file_position(reinterpret_cast<AsyncFileRecord *>(stream), offset);
-}
+public:
+    AsyncCdfInputStream(intptr_t host, const char *path)
+        : record_(open_async_file_record(reinterpret_cast<AsyncFileHost *>(host), path, 0, 0, 0))
+    {
+    }
 
-void read_async_cdf_stream(HANDLE stream, void *destination, uint32_t size, DWORD *bytes_read)
-{
-    uint32_t transferred;
-    read_async_file_record(reinterpret_cast<AsyncFileRecord *>(stream), destination, size, &transferred, 0);
-    *bytes_read = transferred;
-}
+    ~AsyncCdfInputStream() override
+    {
+        close_async_file_record(record_);
+    }
 
-CdfIoApi cdf_io_api{ SetFilePointer, ReadFile, seek_async_cdf_stream, read_async_cdf_stream };
+    bool is_open() const
+    {
+        return record_ != nullptr;
+    }
+
+    AsyncFileRecord *record() const
+    {
+        return record_;
+    }
+
+    bool seek(uint32_t offset) override
+    {
+        return record_ != nullptr && set_async_file_position(record_, offset) != 0;
+    }
+
+    uint32_t size() override
+    {
+        return get_async_file_size(record_);
+    }
+
+    uint32_t read(void *destination, uint32_t size) override
+    {
+        uint32_t transferred = 0;
+        read_async_file_record(record_, destination, size, &transferred, 0);
+        return transferred;
+    }
+
+private:
+    AsyncFileRecord *record_{};
+};
 
 int (*compressed_cdf_reader)(CdfArchive *, uint16_t, void *) = read_compressed_cdf_entry;
-
-BOOL close_async_cdf_stream(HANDLE stream)
-{
-    return static_cast<BOOL>(close_async_file_record(reinterpret_cast<AsyncFileRecord *>(stream)));
-}
-
-CdfLifecycleApi cdf_lifecycle_api{ CloseHandle, close_async_cdf_stream, GetProcessHeap, HeapFree };
-
-CdfCompressionApi cdf_compression_api{ GetProcessHeap, HeapAlloc, HeapFree, zlib_cdf_decompressor };
-
-uint32_t get_async_cdf_stream_size(HANDLE stream)
-{
-    return get_async_file_size(reinterpret_cast<AsyncFileRecord *>(stream));
-}
-
-CdfIndexApi cdf_index_api{ GetFileSize, get_async_cdf_stream_size };
-
-HANDLE open_async_cdf_stream(intptr_t host, const char *path)
-{
-    return reinterpret_cast<HANDLE>(open_async_file_record(reinterpret_cast<AsyncFileHost *>(host), path, 0, 0, 0));
-}
-
-CdfOpenApi cdf_open_api{ CreateFileA, open_async_cdf_stream };
-CdfWriteApi cdf_write_api{ GetProcessHeap, SetFilePointer, WriteFile };
-
-CdfCompressedWriteApi cdf_compressed_write_api{ GetProcessHeap, HeapAlloc, HeapFree, SetFilePointer, WriteFile, zlib_cdf_compressor };
-CdfWriterFinalizeApi cdf_writer_finalize_api{ write_compressed_cdf_index, SetFilePointer, WriteFile, GetProcessHeap, CloseHandle, HeapFree };
-
-CdfEntryWriteApi cdf_entry_write_api{ classify_runtime_media_data, SetFilePointer, write_uncompressed_cdf_entry, write_compressed_cdf_entry };
-CdfWriterCreateApi cdf_writer_create_api{ CreateFileA, GetLastError, GetProcessHeap, HeapAlloc, HeapFree, CloseHandle, WriteFile };
-CdfCommentPackageApi cdf_comment_package_api{ create_cdf_writer, append_cdf_writer_entry, get_cdf_error, finalize_cdf_writer };
 uint32_t cdf_last_error;
 
 constexpr char cdf_96a_signature[] = "CDF96a";
@@ -147,39 +150,22 @@ bool signature_equals(const char *left, const char *right)
 
 void seek_archive(CdfArchive *archive, uint32_t offset)
 {
-    if(archive->alternate_stream == 0)
-    {
-        cdf_io_api.set_file_pointer(archive->handle, static_cast<LONG>(offset), nullptr, FILE_BEGIN);
-    }
-    else
-    {
-        cdf_io_api.seek_alternate_stream(archive->handle, offset);
-    }
+    archive->input->seek(offset);
 }
 
-void read_archive(CdfArchive *archive, void *destination, uint32_t size, DWORD *bytes_read)
+void read_archive(CdfArchive *archive, void *destination, uint32_t size, uint32_t *bytes_read)
 {
-    if(archive->alternate_stream == 0)
-    {
-        cdf_io_api.read_file(archive->handle, destination, size, bytes_read, nullptr);
-    }
-    else
-    {
-        cdf_io_api.read_alternate_stream(archive->handle, destination, size, bytes_read);
-    }
+    *bytes_read = archive->input->read(destination, size);
 }
 
 void close_archive_handles(CdfArchive *archive)
 {
-    if(archive->alternate_stream == 0)
-    {
-        cdf_lifecycle_api.close_handle(archive->handle);
-    }
-    else
-    {
-        cdf_lifecycle_api.close_alternate_stream(archive->handle);
-        cdf_lifecycle_api.close_alternate_stream(archive->second_handle);
-    }
+    delete archive->input;
+    delete archive->second_input;
+    delete archive->output;
+    archive->input = nullptr;
+    archive->second_input = nullptr;
+    archive->output = nullptr;
 }
 
 } // namespace
@@ -187,59 +173,58 @@ void close_archive_handles(CdfArchive *archive)
 CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
 {
     cdf_last_error = 0x1000000;
-    HANDLE handle;
+    BinaryInputStream *input = nullptr;
     if(alternate_stream == 0)
     {
-        handle = cdf_open_api.create_file(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if(handle == INVALID_HANDLE_VALUE)
+        auto *physical = new (std::nothrow) StandardBinaryInputStream(path);
+        if(physical == nullptr || !physical->is_open())
         {
+            delete physical;
             return nullptr;
         }
+        input = physical;
     }
     else
     {
-        handle = cdf_open_api.open_alternate_stream(alternate_stream, path);
-        if(handle == nullptr)
+        auto *asynchronous = new (std::nothrow) AsyncCdfInputStream(alternate_stream, path);
+        if(asynchronous == nullptr || !asynchronous->is_open())
         {
+            delete asynchronous;
             return nullptr;
         }
+        input = asynchronous;
     }
 
     cdf_last_error = 0x20000;
-    HANDLE heap = cdf_compression_api.get_process_heap();
-    auto *archive = static_cast<CdfArchive *>(cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(CdfArchive)));
+    auto *archive = new (std::nothrow) CdfArchive{};
     if(archive == nullptr)
     {
-        if(alternate_stream == 0)
-        {
-            cdf_lifecycle_api.close_handle(handle);
-        }
-        else
-        {
-            cdf_lifecycle_api.close_alternate_stream(handle);
-        }
+        delete input;
         return nullptr;
     }
 
-    archive->handle = handle;
+    archive->input = input;
+    archive->alternate_stream = alternate_stream;
     char signature[7];
-    DWORD bytes_read;
-    if(alternate_stream == 0)
+    uint32_t bytes_read = input->read(signature, 7);
+    if(alternate_stream != 0)
     {
-        cdf_io_api.read_file(handle, signature, 7, &bytes_read, nullptr);
-    }
-    else
-    {
-        archive->alternate_stream = alternate_stream;
-        archive->second_handle = cdf_open_api.open_alternate_stream(alternate_stream, path);
-        cdf_io_api.read_alternate_stream(handle, signature, 7, &bytes_read);
+        auto *second = new (std::nothrow) AsyncCdfInputStream(alternate_stream, path);
+        if(second == nullptr || !second->is_open())
+        {
+            delete second;
+            close_archive_handles(archive);
+            delete archive;
+            return nullptr;
+        }
+        archive->second_input = second;
     }
 
     cdf_last_error = 0x2000000;
-    if(!signature_equals(signature, cdf_96a_signature) && !signature_equals(signature, cdf_96b_signature) && !signature_equals(signature, cdf_97a_signature))
+    if(bytes_read != 7 || (!signature_equals(signature, cdf_96a_signature) && !signature_equals(signature, cdf_96b_signature) && !signature_equals(signature, cdf_97a_signature)))
     {
         close_archive_handles(archive);
-        cdf_compression_api.heap_free(heap, 0, archive);
+        delete archive;
         return nullptr;
     }
 
@@ -250,7 +235,7 @@ CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
     {
         cdf_last_error = archive->error;
         close_archive_handles(archive);
-        cdf_compression_api.heap_free(heap, 0, archive);
+        delete archive;
         return nullptr;
     }
     cdf_last_error = 0;
@@ -285,7 +270,7 @@ uint8_t get_cdf_entry_flags(CdfArchive *archive, const char *name)
 
     for(uint32_t index = 0; index < archive->entry_count; ++index)
     {
-        if(lstrcmpiA(archive->entries[index]->name, name) == 0)
+        if(compare_ascii_case_insensitive(archive->entries[index]->name, name) == 0)
         {
             return archive->entries[index]->flags;
         }
@@ -303,7 +288,7 @@ uint32_t get_cdf_entry_size(CdfArchive *archive, uint8_t selector, const char *n
     for(uint32_t index = 0; index < archive->entry_count; ++index)
     {
         CdfEntry *entry = archive->entries[index];
-        if((selector == 0 || entry->flags == selector) && lstrcmpiA(entry->name, name) == 0)
+        if((selector == 0 || entry->flags == selector) && compare_ascii_case_insensitive(entry->name, name) == 0)
         {
             return entry->uncompressed_size;
         }
@@ -314,17 +299,8 @@ uint32_t get_cdf_entry_size(CdfArchive *archive, uint8_t selector, const char *n
 int read_uncompressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *destination)
 {
     CdfEntry *entry = archive->entries[entry_index];
-    DWORD bytes_read;
-    if(archive->alternate_stream == 0)
-    {
-        cdf_io_api.set_file_pointer(archive->handle, static_cast<LONG>(entry->file_offset), nullptr, FILE_BEGIN);
-        cdf_io_api.read_file(archive->handle, destination, entry->uncompressed_size, &bytes_read, nullptr);
-    }
-    else
-    {
-        cdf_io_api.seek_alternate_stream(archive->handle, entry->file_offset);
-        cdf_io_api.read_alternate_stream(archive->handle, destination, entry->uncompressed_size, &bytes_read);
-    }
+    archive->input->seek(entry->file_offset);
+    const uint32_t bytes_read = archive->input->read(destination, entry->uncompressed_size);
 
     if(bytes_read != entry->uncompressed_size)
     {
@@ -346,27 +322,17 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
     }
     ++chunk_count;
 
-    HANDLE heap = cdf_compression_api.get_process_heap();
     archive->error = 0x20000;
-    void *compressed_buffer = cdf_compression_api.heap_alloc(heap, 0, 0x10000);
     uint32_t offset_table_size = chunk_count << 2;
-    auto *offsets = static_cast<uint32_t *>(cdf_compression_api.heap_alloc(heap, 0, offset_table_size));
+    std::vector<uint8_t> compressed_buffer(0x10000);
+    std::vector<uint32_t> offsets(chunk_count);
     int result = 0;
 
-    if(compressed_buffer != nullptr && destination != nullptr && offsets != nullptr)
+    if(destination != nullptr)
     {
         archive->error = 1;
-        DWORD bytes_read;
-        if(archive->alternate_stream == 0)
-        {
-            cdf_io_api.set_file_pointer(archive->handle, static_cast<LONG>(entry->file_offset), nullptr, FILE_BEGIN);
-            cdf_io_api.read_file(archive->handle, offsets, offset_table_size, &bytes_read, nullptr);
-        }
-        else
-        {
-            cdf_io_api.seek_alternate_stream(archive->handle, entry->file_offset);
-            cdf_io_api.read_alternate_stream(archive->handle, offsets, offset_table_size, &bytes_read);
-        }
+        archive->input->seek(entry->file_offset);
+        uint32_t bytes_read = archive->input->read(offsets.data(), offset_table_size);
 
         if(bytes_read == offset_table_size)
         {
@@ -376,20 +342,13 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
             while(chunk_index < data_chunk_count)
             {
                 uint32_t compressed_size = offsets[chunk_index + 1] - offsets[chunk_index];
-                if(archive->alternate_stream == 0)
-                {
-                    cdf_io_api.read_file(archive->handle, compressed_buffer, compressed_size, &bytes_read, nullptr);
-                }
-                else
-                {
-                    cdf_io_api.read_alternate_stream(archive->handle, compressed_buffer, compressed_size, &bytes_read);
-                }
+                bytes_read = archive->input->read(compressed_buffer.data(), compressed_size);
                 if(bytes_read != compressed_size)
                 {
                     break;
                 }
 
-                cdf_compression_api.decompress(compressed_buffer, compressed_size, output);
+                zlib_cdf_decompressor(compressed_buffer.data(), compressed_size, output);
                 uint32_t output_size = remaining_size > 0x8000 ? 0x8000 : remaining_size;
                 remaining_size -= output_size;
                 output += output_size;
@@ -404,14 +363,6 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
         }
     }
 
-    if(compressed_buffer != nullptr)
-    {
-        cdf_compression_api.heap_free(heap, 0, compressed_buffer);
-    }
-    if(offsets != nullptr)
-    {
-        cdf_compression_api.heap_free(heap, 0, offsets);
-    }
     return result;
 }
 
@@ -426,7 +377,7 @@ int read_cdf_entry(CdfArchive *archive, uint8_t selector, const char *name, void
     while(index < archive->entry_count)
     {
         CdfEntry *entry = archive->entries[index];
-        if((selector == 0 || entry->flags == selector) && lstrcmpiA(entry->name, name) == 0)
+        if((selector == 0 || entry->flags == selector) && compare_ascii_case_insensitive(entry->name, name) == 0)
         {
             if((entry->flags & 0x10) == 0)
             {
@@ -446,25 +397,10 @@ uint32_t close_cdf_archive(CdfArchive *archive)
         return 0;
     }
 
-    uint32_t result = 1;
-    if(archive->entry_storage != nullptr)
-    {
-        result = cdf_lifecycle_api.heap_free(cdf_lifecycle_api.get_process_heap(), 0, archive->entry_storage) & 1;
-    }
-
-    uint32_t close_result;
-    if(archive->alternate_stream == 0)
-    {
-        close_result = cdf_lifecycle_api.close_handle(archive->handle);
-    }
-    else
-    {
-        result &= cdf_lifecycle_api.close_alternate_stream(archive->handle);
-        close_result = cdf_lifecycle_api.close_alternate_stream(archive->second_handle);
-    }
-
-    uint32_t free_result = cdf_lifecycle_api.heap_free(cdf_lifecycle_api.get_process_heap(), 0, archive);
-    return result & close_result & free_result;
+    delete[] static_cast<uint8_t *>(archive->entry_storage);
+    close_archive_handles(archive);
+    delete archive;
+    return 1;
 }
 
 int initialize_cdf_index(CdfArchive *archive)
@@ -475,9 +411,8 @@ int initialize_cdf_index(CdfArchive *archive)
     }
 
     int result = 0;
-    DWORD file_size = archive->alternate_stream == 0 ? cdf_index_api.get_file_size(archive->handle, nullptr) : cdf_index_api.get_alternate_stream_size(archive->handle);
-    HANDLE heap = cdf_compression_api.get_process_heap();
-    DWORD bytes_read = 0;
+    const uint32_t file_size = archive->input->size();
+    uint32_t bytes_read = 0;
 
     if(signature_equals(archive->signature, cdf_97a_signature))
     {
@@ -487,7 +422,7 @@ int initialize_cdf_index(CdfArchive *archive)
 
         uint32_t remaining_size = archive->entry_count * sizeof(CdfEntry);
         archive->error = 0x20000;
-        archive->entry_storage = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, remaining_size);
+        archive->entry_storage = new (std::nothrow) uint8_t[remaining_size]{};
         if(archive->entry_storage == nullptr)
         {
             return 0;
@@ -502,10 +437,10 @@ int initialize_cdf_index(CdfArchive *archive)
         {
             ++chunk_count;
         }
-        void *compressed_buffer = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x10000);
-        void *output_buffer = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x8000);
+        void *compressed_buffer = new (std::nothrow) uint8_t[0x10000]{};
+        void *output_buffer = new (std::nothrow) uint8_t[0x8000]{};
         uint32_t offset_table_size = (chunk_count + 1) * sizeof(uint32_t);
-        auto *offsets = static_cast<uint32_t *>(cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, offset_table_size));
+        auto *offsets = reinterpret_cast<uint32_t *>(new (std::nothrow) uint8_t[offset_table_size]{});
         if(compressed_buffer != nullptr && output_buffer != nullptr && offsets != nullptr)
         {
             archive->error = 1;
@@ -523,7 +458,7 @@ int initialize_cdf_index(CdfArchive *archive)
                     {
                         break;
                     }
-                    cdf_compression_api.decompress(compressed_buffer, compressed_size, output_buffer);
+                    zlib_cdf_decompressor(compressed_buffer, compressed_size, output_buffer);
                     uint32_t output_size = remaining_size > 0x8000 ? 0x8000 : remaining_size;
                     std::memcpy(static_cast<uint8_t *>(archive->entry_storage) + output_offset, output_buffer, output_size);
                     output_offset += output_size;
@@ -539,15 +474,15 @@ int initialize_cdf_index(CdfArchive *archive)
         }
         if(compressed_buffer != nullptr)
         {
-            cdf_compression_api.heap_free(heap, 0, compressed_buffer);
+            delete[] static_cast<uint8_t *>(compressed_buffer);
         }
         if(output_buffer != nullptr)
         {
-            cdf_compression_api.heap_free(heap, 0, output_buffer);
+            delete[] static_cast<uint8_t *>(output_buffer);
         }
         if(offsets != nullptr)
         {
-            cdf_compression_api.heap_free(heap, 0, offsets);
+            delete[] reinterpret_cast<uint8_t *>(offsets);
         }
     }
     else
@@ -565,8 +500,8 @@ int initialize_cdf_index(CdfArchive *archive)
         {
             archive->error = 0x20000;
             archive->entry_count = 0x100;
-            compressed_index = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, archive->index_size);
-            archive->entry_storage = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x2c08);
+            compressed_index = new (std::nothrow) uint8_t[archive->index_size]{};
+            archive->entry_storage = new (std::nothrow) uint8_t[0x2c08]{};
             if(compressed_index != nullptr && archive->entry_storage != nullptr)
             {
                 auto *storage = static_cast<Cdf96aIndexStorage *>(archive->entry_storage);
@@ -581,8 +516,8 @@ int initialize_cdf_index(CdfArchive *archive)
             read_archive(archive, &archive->entry_count, 2, &bytes_read);
             read_archive(archive, &archive->index_data_size, 4, &bytes_read);
             archive->error = 0x20000;
-            compressed_index = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, archive->index_size);
-            archive->entry_storage = cdf_compression_api.heap_alloc(heap, HEAP_ZERO_MEMORY, archive->entry_count * sizeof(CdfEntry));
+            compressed_index = new (std::nothrow) uint8_t[archive->index_size]{};
+            archive->entry_storage = new (std::nothrow) uint8_t[archive->entry_count * sizeof(CdfEntry)]{};
             if(compressed_index != nullptr && archive->entry_storage != nullptr)
             {
                 for(uint32_t index = 0; index < archive->entry_count; ++index)
@@ -600,19 +535,19 @@ int initialize_cdf_index(CdfArchive *archive)
             if(bytes_read == archive->index_size)
             {
                 archive->error = 0;
-                cdf_compression_api.decompress(compressed_index, archive->index_size, archive->entry_storage);
+                zlib_cdf_decompressor(compressed_index, archive->index_size, archive->entry_storage);
                 result = 1;
             }
         }
         if(compressed_index != nullptr)
         {
-            cdf_compression_api.heap_free(heap, 0, compressed_index);
+            delete[] static_cast<uint8_t *>(compressed_index);
         }
     }
 
     if(result == 0 && archive->entry_storage != nullptr)
     {
-        cdf_compression_api.heap_free(heap, 0, archive->entry_storage);
+        delete[] static_cast<uint8_t *>(archive->entry_storage);
         archive->entry_storage = nullptr;
     }
     return result;
@@ -622,16 +557,13 @@ uint32_t write_uncompressed_cdf_entry(CdfArchive *archive, const void *data)
 {
     CdfEntry *entry = archive->entries[archive->write_entry_index];
     uint32_t remaining = entry->uncompressed_size;
-    DWORD chunk_size = remaining < 0x200000 ? remaining : 0x200000;
-    cdf_write_api.get_process_heap();
+    uint32_t chunk_size = remaining < 0x200000 ? remaining : 0x200000;
     archive->error = 0;
-    cdf_write_api.set_file_pointer(archive->handle, static_cast<LONG>(entry->file_offset), nullptr, FILE_BEGIN);
+    archive->output->seek(entry->file_offset);
     const auto *source = static_cast<const uint8_t *>(data);
     while(remaining != 0)
     {
-        DWORD bytes_written;
-        cdf_write_api.write_file(archive->handle, source, chunk_size, &bytes_written, nullptr);
-        if(bytes_written != chunk_size)
+        if(!archive->output->write(source, chunk_size))
         {
             archive->error = 2;
             return 0;
@@ -653,33 +585,29 @@ uint32_t write_compressed_cdf_index(CdfArchive *archive)
         return 0;
     }
     uint32_t result = 0;
-    HANDLE heap = cdf_compressed_write_api.get_process_heap();
     uint32_t remaining = archive->entry_count * sizeof(CdfEntry);
     const uint32_t block_count = (remaining >> 15) + ((remaining & 0x7fff) != 0 ? 1 : 0) + 1;
     archive->error = 0x20000;
     auto *source = reinterpret_cast<const uint8_t *>(archive->entries[0]);
-    auto *compressed = static_cast<uint8_t *>(cdf_compressed_write_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x10000));
-    const DWORD table_size = block_count * sizeof(uint32_t);
-    auto *offsets = static_cast<uint32_t *>(cdf_compressed_write_api.heap_alloc(heap, HEAP_ZERO_MEMORY, table_size));
-    if(source != nullptr && compressed != nullptr && offsets != nullptr)
+    std::vector<uint8_t> compressed(0x10000);
+    const uint32_t table_size = block_count * sizeof(uint32_t);
+    std::vector<uint32_t> offsets(block_count);
+    if(source != nullptr)
     {
         offsets[0] = table_size;
         archive->index_size = table_size;
-        const DWORD table_position = cdf_compressed_write_api.set_file_pointer(archive->handle, 0, nullptr, FILE_CURRENT);
+        const uint32_t table_position = archive->output->position();
         archive->error = 2;
-        DWORD bytes_written;
-        cdf_compressed_write_api.write_file(archive->handle, offsets, table_size, &bytes_written, nullptr);
-        if(bytes_written == table_size)
+        if(archive->output->write(offsets.data(), table_size))
         {
             uint32_t cumulative = table_size;
             bool complete = true;
             for(uint32_t block = 0; block < block_count - 1; ++block)
             {
                 const uint32_t block_size = remaining < 0x8000 ? remaining : 0x8000;
-                const uint32_t compressed_size = cdf_compressed_write_api.compress(source, block_size, compressed, 0x10000);
+                const uint32_t compressed_size = zlib_cdf_compressor(source, block_size, compressed.data(), 0x10000);
                 archive->index_size += compressed_size;
-                cdf_compressed_write_api.write_file(archive->handle, compressed, compressed_size, &bytes_written, nullptr);
-                if(bytes_written != compressed_size)
+                if(!archive->output->write(compressed.data(), compressed_size))
                 {
                     complete = false;
                     break;
@@ -691,22 +619,14 @@ uint32_t write_compressed_cdf_index(CdfArchive *archive)
             }
             if(complete)
             {
-                const DWORD end_position = cdf_compressed_write_api.set_file_pointer(archive->handle, 0, nullptr, FILE_CURRENT);
-                cdf_compressed_write_api.set_file_pointer(archive->handle, static_cast<LONG>(table_position), nullptr, FILE_BEGIN);
-                cdf_compressed_write_api.write_file(archive->handle, offsets, table_size, &bytes_written, nullptr);
-                cdf_compressed_write_api.set_file_pointer(archive->handle, static_cast<LONG>(end_position), nullptr, FILE_BEGIN);
-                result = 1;
-                archive->error = 0;
+                const uint32_t end_position = archive->output->position();
+                if(archive->output->seek(table_position) && archive->output->write(offsets.data(), table_size) && archive->output->seek(end_position))
+                {
+                    result = 1;
+                    archive->error = 0;
+                }
             }
         }
-    }
-    if(compressed != nullptr)
-    {
-        cdf_compressed_write_api.heap_free(heap, 0, compressed);
-    }
-    if(offsets != nullptr)
-    {
-        cdf_compressed_write_api.heap_free(heap, 0, offsets);
     }
     return result;
 }
@@ -716,30 +636,26 @@ uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data)
     CdfEntry *entry = archive->entries[archive->write_entry_index];
     uint32_t remaining = entry->uncompressed_size;
     const uint32_t block_count = (remaining >> 15) + ((remaining & 0x7fff) != 0 ? 1 : 0) + 1;
-    HANDLE heap = cdf_compressed_write_api.get_process_heap();
     archive->error = 0x20000;
     uint32_t result = 0;
-    auto *compressed = static_cast<uint8_t *>(cdf_compressed_write_api.heap_alloc(heap, HEAP_ZERO_MEMORY, 0x10000));
-    const DWORD table_size = block_count * sizeof(uint32_t);
-    auto *offsets = static_cast<uint32_t *>(cdf_compressed_write_api.heap_alloc(heap, HEAP_ZERO_MEMORY, table_size));
+    std::vector<uint8_t> compressed(0x10000);
+    const uint32_t table_size = block_count * sizeof(uint32_t);
+    std::vector<uint32_t> offsets(block_count);
     const auto *source = static_cast<const uint8_t *>(data);
-    if(source != nullptr && compressed != nullptr && offsets != nullptr)
+    if(source != nullptr)
     {
         offsets[0] = table_size;
         archive->error = 2;
-        cdf_compressed_write_api.set_file_pointer(archive->handle, static_cast<LONG>(entry->file_offset), nullptr, FILE_BEGIN);
-        DWORD bytes_written;
-        cdf_compressed_write_api.write_file(archive->handle, offsets, table_size, &bytes_written, nullptr);
-        if(bytes_written == table_size)
+        archive->output->seek(entry->file_offset);
+        if(archive->output->write(offsets.data(), table_size))
         {
             uint32_t cumulative = table_size;
             bool complete = true;
             for(uint32_t block = 0; block < block_count - 1; ++block)
             {
                 const uint32_t block_size = remaining < 0x8000 ? remaining : 0x8000;
-                const uint32_t compressed_size = cdf_compressed_write_api.compress(source, block_size, compressed, 0x10000);
-                cdf_compressed_write_api.write_file(archive->handle, compressed, compressed_size, &bytes_written, nullptr);
-                if(bytes_written != compressed_size)
+                const uint32_t compressed_size = zlib_cdf_compressor(source, block_size, compressed.data(), 0x10000);
+                if(!archive->output->write(compressed.data(), compressed_size))
                 {
                     complete = false;
                     break;
@@ -751,22 +667,14 @@ uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data)
             }
             if(complete)
             {
-                const DWORD end_position = cdf_compressed_write_api.set_file_pointer(archive->handle, 0, nullptr, FILE_CURRENT);
-                cdf_compressed_write_api.set_file_pointer(archive->handle, static_cast<LONG>(entry->file_offset), nullptr, FILE_BEGIN);
-                cdf_compressed_write_api.write_file(archive->handle, offsets, table_size, &bytes_written, nullptr);
-                cdf_compressed_write_api.set_file_pointer(archive->handle, static_cast<LONG>(end_position), nullptr, FILE_BEGIN);
-                result = 1;
-                archive->error = 0;
+                const uint32_t end_position = archive->output->position();
+                if(archive->output->seek(entry->file_offset) && archive->output->write(offsets.data(), table_size) && archive->output->seek(end_position))
+                {
+                    result = 1;
+                    archive->error = 0;
+                }
             }
         }
-    }
-    if(compressed != nullptr)
-    {
-        cdf_compressed_write_api.heap_free(heap, 1, compressed);
-    }
-    if(offsets != nullptr)
-    {
-        cdf_compressed_write_api.heap_free(heap, 1, offsets);
     }
     return result;
 }
@@ -778,16 +686,15 @@ uint32_t finalize_cdf_writer(CdfArchive *archive)
         return 0;
     }
     archive->entry_count = archive->write_entry_index;
-    cdf_writer_finalize_api.write_index(archive);
-    cdf_writer_finalize_api.set_file_pointer(archive->handle, 7, nullptr, FILE_BEGIN);
-    DWORD bytes_written;
-    cdf_writer_finalize_api.write_file(archive->handle, &archive->index_size, 4, &bytes_written, nullptr);
-    cdf_writer_finalize_api.write_file(archive->handle, &archive->write_entry_index, 4, &bytes_written, nullptr);
-    cdf_writer_finalize_api.write_file(archive->handle, &archive->index_data_size, 4, &bytes_written, nullptr);
-    HANDLE heap = cdf_writer_finalize_api.get_process_heap();
-    cdf_writer_finalize_api.close_handle(archive->handle);
-    cdf_writer_finalize_api.heap_free(heap, 0, archive->entry_storage);
-    cdf_writer_finalize_api.heap_free(heap, 0, archive);
+    write_compressed_cdf_index(archive);
+    archive->output->seek(7);
+    archive->output->write(&archive->index_size, 4);
+    archive->output->write(&archive->write_entry_index, 4);
+    archive->output->write(&archive->index_data_size, 4);
+    archive->output->flush();
+    delete archive->output;
+    delete[] static_cast<uint8_t *>(archive->entry_storage);
+    delete archive;
     return 0;
 }
 
@@ -799,18 +706,18 @@ uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const vo
     }
     CdfEntry *entry = archive->entries[archive->write_entry_index];
     std::memcpy(entry->name, name, std::strlen(name) + 1);
-    entry->flags = cdf_entry_write_api.classify_data(data);
+    entry->flags = classify_runtime_media_data(data);
     entry->uncompressed_size = size;
-    entry->file_offset = cdf_entry_write_api.set_file_pointer(archive->handle, 0, nullptr, FILE_CURRENT);
+    entry->file_offset = archive->output->position();
     uint32_t result;
     if(compressed == 0)
     {
-        result = cdf_entry_write_api.write_uncompressed(archive, data);
+        result = write_uncompressed_cdf_entry(archive, data);
     }
     else
     {
         entry->flags = static_cast<uint8_t>(entry->flags + 0x10);
-        result = cdf_entry_write_api.write_compressed(archive, data);
+        result = write_compressed_cdf_entry(archive, data);
     }
     ++archive->write_entry_index;
     archive->index_data_size += size;
@@ -820,27 +727,24 @@ uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const vo
 CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
 {
     cdf_last_error = 0x1000000;
-    HANDLE file = cdf_writer_create_api.create_file(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if(file == INVALID_HANDLE_VALUE)
+    auto *output = new (std::nothrow) StandardBinaryOutputStream(path);
+    if(output == nullptr || !output->is_open())
     {
-        cdf_writer_create_api.get_last_error();
+        delete output;
         return nullptr;
     }
     cdf_last_error = 0x20000;
-    HANDLE heap = cdf_writer_create_api.get_process_heap();
-    auto *archive = static_cast<CdfArchive *>(cdf_writer_create_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(CdfArchive)));
+    auto *archive = new (std::nothrow) CdfArchive{};
     if(archive == nullptr)
     {
-        cdf_writer_create_api.close_handle(file);
+        delete output;
         return nullptr;
     }
-    heap = cdf_writer_create_api.get_process_heap();
-    archive->entry_storage = cdf_writer_create_api.heap_alloc(heap, HEAP_ZERO_MEMORY, capacity * sizeof(CdfEntry));
+    archive->entry_storage = new (std::nothrow) uint8_t[capacity * sizeof(CdfEntry)]{};
     if(archive->entry_storage == nullptr)
     {
-        heap = cdf_writer_create_api.get_process_heap();
-        cdf_writer_create_api.heap_free(heap, 0, archive);
-        cdf_writer_create_api.close_handle(file);
+        delete archive;
+        delete output;
         return nullptr;
     }
     std::memcpy(archive->signature, "CDF97a", 7);
@@ -852,12 +756,14 @@ CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
     {
         archive->entries[index] = static_cast<CdfEntry *>(archive->entry_storage) + index;
     }
-    archive->handle = file;
-    DWORD bytes_written;
-    cdf_writer_create_api.write_file(file, archive->signature, 7, &bytes_written, nullptr);
-    cdf_writer_create_api.write_file(file, &archive->index_size, 4, &bytes_written, nullptr);
-    cdf_writer_create_api.write_file(file, &archive->entry_count, 4, &bytes_written, nullptr);
-    cdf_writer_create_api.write_file(file, &archive->index_data_size, 4, &bytes_written, nullptr);
+    archive->output = output;
+    if(!output->write(archive->signature, 7) || !output->write(&archive->index_size, 4) || !output->write(&archive->entry_count, 4) || !output->write(&archive->index_data_size, 4))
+    {
+        delete output;
+        delete[] static_cast<uint8_t *>(archive->entry_storage);
+        delete archive;
+        return nullptr;
+    }
     cdf_last_error = 0;
     return archive;
 }
@@ -867,9 +773,19 @@ uint32_t get_cdf_error(CdfArchive *archive)
     return archive == nullptr ? cdf_last_error : archive->error;
 }
 
+void *open_cdf_entry_async_record(CdfArchive *archive, AsyncFileHost *host, uint32_t start, uint32_t end)
+{
+    if(auto *input = dynamic_cast<AsyncCdfInputStream *>(archive->second_input))
+    {
+        return duplicate_async_file_record(input->record(), start, end, 0);
+    }
+    auto *input = dynamic_cast<StandardBinaryInputStream *>(archive->input);
+    return input == nullptr ? nullptr : open_async_file_record(host, input->shared_state(), start, end, 0);
+}
+
 uint32_t write_comment_cdf_package(const char *path, const void *comment, const void *bitmap, const ScriptTextBuffer *configuration)
 {
-    CdfArchive *archive = cdf_comment_package_api.create_writer(path, 3);
+    CdfArchive *archive = create_cdf_writer(path, 3);
     if(archive == nullptr)
     {
         return 0x20000;
@@ -877,39 +793,38 @@ uint32_t write_comment_cdf_package(const char *path, const void *comment, const 
     if(comment != nullptr)
     {
         const uint32_t size = static_cast<uint32_t>(std::strlen(static_cast<const char *>(comment)) + 1);
-        if(cdf_comment_package_api.append_entry(archive, "COMMENT.TXT", comment, size, 0) == 0)
+        if(append_cdf_writer_entry(archive, "COMMENT.TXT", comment, size, 0) == 0)
         {
-            const uint32_t error = cdf_comment_package_api.get_error(archive);
-            cdf_comment_package_api.finalize_writer(archive);
+            const uint32_t error = get_cdf_error(archive);
+            finalize_cdf_writer(archive);
             return error;
         }
     }
     if(bitmap != nullptr)
     {
-        BITMAPINFOHEADER info_header;
-        std::memcpy(&info_header, static_cast<const uint8_t *>(bitmap) + sizeof(BITMAPFILEHEADER), sizeof(info_header));
+        const BitmapInfoHeader info_header = decode_bitmap_info_header(static_cast<const uint8_t *>(bitmap) + sizeof(BitmapFileHeader));
         if(info_header.biBitCount == 8)
         {
-            const uint32_t pixel_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + 0x100 * sizeof(RGBQUAD);
+            const uint32_t pixel_offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader) + 0x100 * sizeof(BitmapColor);
             const uint32_t bitmap_size = static_cast<uint32_t>(info_header.biWidth * info_header.biHeight) + pixel_offset;
-            if(cdf_comment_package_api.append_entry(archive, "COMMENT.BMP", bitmap, bitmap_size, 1) == 0)
+            if(append_cdf_writer_entry(archive, "COMMENT.BMP", bitmap, bitmap_size, 1) == 0)
             {
-                const uint32_t error = cdf_comment_package_api.get_error(archive);
-                cdf_comment_package_api.finalize_writer(archive);
+                const uint32_t error = get_cdf_error(archive);
+                finalize_cdf_writer(archive);
                 return error;
             }
         }
     }
     if(configuration != nullptr)
     {
-        if(cdf_comment_package_api.append_entry(archive, "START.CFG", configuration->data, configuration->length, 1) == 0)
+        if(append_cdf_writer_entry(archive, "START.CFG", configuration->data, configuration->length, 1) == 0)
         {
-            const uint32_t error = cdf_comment_package_api.get_error(archive);
-            cdf_comment_package_api.finalize_writer(archive);
+            const uint32_t error = get_cdf_error(archive);
+            finalize_cdf_writer(archive);
             return error;
         }
     }
-    cdf_comment_package_api.finalize_writer(archive);
+    finalize_cdf_writer(archive);
     return 0;
 }
 

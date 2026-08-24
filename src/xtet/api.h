@@ -1,9 +1,10 @@
 #pragma once
 
-#include <windows.h>
 #include <array>
 #include <stddef.h>
 #include <stdint.h>
+#include "../portable_types.h"
+#include "../runtime_input.h"
 
 namespace xtet
 {
@@ -22,10 +23,10 @@ enum class HostEventType
 };
 
 using HostEventCallback = void (*)(HostEventType type, uint32_t result_type, const void *data, uint32_t size);
+using InputDrainCallback = void (*)();
 
 struct GameHostContext
 {
-    HWND window;
     uint32_t bits_per_pixel{ 32 };
     uint32_t unknown10{};
     uint16_t width{ 640 };
@@ -34,7 +35,7 @@ struct GameHostContext
     intptr_t unknown28{};
     void *framebuffer{};
     intptr_t unknown30{};
-    PALETTEENTRY *palette_entries{};
+    gag::PaletteEntry *palette_entries{};
     uint32_t x_offset{};
     uint32_t y_offset{};
 };
@@ -47,7 +48,8 @@ using SoundControlCallback = uint32_t (*)(uint32_t, int32_t);
 
 void initialize_game(GameHostContext *host_context, void **callback_table, const char *sfs_name);
 void set_host_event_callback(HostEventCallback callback);
-uint32_t dispatch_game_window_message(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
+void set_input_drain_callback(InputDrainCallback callback);
+uint32_t dispatch_game_input(const gag::RuntimeInputEvent &event);
 void execute_game_command(uint32_t command);
 void shutdown_game();
 

@@ -41,7 +41,7 @@ int copy_string(char *destination, const char *source)
 ScriptTextBuffer *create_script_text_buffer()
 {
     constexpr uint32_t allocation_size = 64000;
-    auto *buffer = static_cast<ScriptTextBuffer *>(script_utility_api.virtual_alloc(nullptr, allocation_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    auto *buffer = reinterpret_cast<ScriptTextBuffer *>(new (std::nothrow) uint8_t[allocation_size]{});
     if(buffer == nullptr)
     {
         return nullptr;
@@ -1742,7 +1742,7 @@ void copy_runtime_tree_command_name(char *destination, uint32_t command)
 
 ScriptObjectState *create_script_object_state(const void *name)
 {
-    auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(ScriptObjectState)));
+    auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(ScriptObjectState)));
     if(object != nullptr)
     {
         std::memcpy(object->name, name, sizeof(object->name));
@@ -2197,7 +2197,7 @@ uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
     const bool created = node == nullptr;
     if(created)
     {
-        node = static_cast<RuntimeFixedNameListNode *>(HeapAlloc(script_runtime_root->heap, HEAP_ZERO_MEMORY, sizeof(RuntimeFixedNameListNode)));
+        node = static_cast<RuntimeFixedNameListNode *>(allocate_runtime_heap(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeFixedNameListNode)));
         if(node == nullptr)
         {
             return 0;
@@ -2279,7 +2279,7 @@ void destroy_script_object_states()
     }
 }
 
-BOOL remove_runtime_visual_object(void *identity)
+bool remove_runtime_visual_object(void *identity)
 {
     RuntimeVisualObject *previous = nullptr;
     RuntimeVisualObject *object = script_runtime_root->visual_objects;
@@ -2290,7 +2290,7 @@ BOOL remove_runtime_visual_object(void *identity)
     }
     if(object == nullptr)
     {
-        return FALSE;
+        return false;
     }
     if(previous == nullptr)
     {

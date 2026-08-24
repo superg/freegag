@@ -97,7 +97,7 @@ uint32_t get_script_object_field_snapshot(const char *object_name, const void *f
 
 void destroy_script_object_states();
 
-BOOL remove_runtime_visual_object(void *identity);
+bool remove_runtime_visual_object(void *identity);
 
 void destroy_runtime_visual_objects();
 

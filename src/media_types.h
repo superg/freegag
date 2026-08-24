@@ -1,5 +1,6 @@
 #pragma once
 
+#include <thread>
 #include "pcm_format.h"
 #include "resource_types.h"
 
@@ -14,14 +15,14 @@ struct RuntimeMediaBackend
 {
     uint32_t type;
     void *identity;
-    DWORD owner_thread;
+    RuntimeThreadId owner_thread;
     uint32_t recursion_count;
     RuntimeMediaBackend *previous;
     RuntimeMediaBackend *next;
     const void *comparison_palette;
     uint16_t palette_version;
     uint16_t palette_entry_count;
-    PALETTEENTRY palette_entries[0x100];
+    PaletteEntry palette_entries[0x100];
     uint16_t destination_x;
     uint16_t destination_y;
     uint16_t destination_stride;
@@ -31,14 +32,19 @@ struct RuntimeMediaBackend
     uint8_t *destination_pixels;
     uint8_t *indexed_pixels;
     uint32_t indexed_stride;
+    uint32_t indexed_width;
     uint32_t indexed_height;
-    HWND window;
+    uint16_t indexed_origin_x;
+    uint16_t indexed_origin_y;
+    bool owns_indexed_pixels;
     uint32_t media_flags;
     uint32_t error_state;
     uint32_t scale_x;
     uint32_t scale_y;
     void *extension_data;
     void *source_data;
+    BitmapFileHeader bitmap_file;
+    BitmapInfoHeader bitmap_format;
     void *format_data;
     void *frame_header;
     void *chunk_header;
@@ -61,16 +67,17 @@ struct RuntimeMediaBackend
     uint32_t allocation_1_active;
     AsyncFileRecord *stream_record;
     uint32_t allocation_2_active;
+    std::jthread *worker_thread;
 };
 
 
 struct RuntimeMediaBackendApi
 {
-    DWORD(WINAPI *get_current_thread_id)();
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    void(WINAPI *sleep)(DWORD milliseconds);
+    RuntimeThreadId (*get_current_thread_id)();
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
+    void (*sleep)(uint32_t milliseconds);
 };
 
 #pragma pack(push, 1)
@@ -141,9 +148,9 @@ struct RuntimeRiffChunk
 
 struct RuntimeBitmapBackendCreateApi
 {
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
 };
 
 
@@ -164,25 +171,23 @@ struct RuntimeAnimationBackendCreateApi
 {
     uint32_t (*get_position)(AsyncFileRecord *record);
     uint32_t (*read_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
     uint32_t (*set_position)(AsyncFileRecord *record, uint32_t position);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
 };
 
 struct RuntimeMediaBackendConfigureApi
 {
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
 };
 
 struct RuntimeAnimationBackendConfigureApi
 {
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    HANDLE(WINAPI *create_thread)(LPSECURITY_ATTRIBUTES attributes, SIZE_T stack_size, LPTHREAD_START_ROUTINE start_address, LPVOID parameter, DWORD creation_flags, LPDWORD thread_id);
-    BOOL(WINAPI *close_handle)(HANDLE handle);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
 };
 
 
@@ -197,8 +202,8 @@ struct RuntimeResourcePaletteConfigureApi
 
 struct RuntimeMediaBackendFinalizeApi
 {
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
     uint8_t (*convert_bitmap)(RuntimeMediaBackend *backend);
 };
 
@@ -223,8 +228,8 @@ struct RuntimeAnimationControlApi
 struct RuntimeAnimationFrameAcquireApi
 {
     uint32_t (*read_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    LPVOID(WINAPI *heap_realloc)(HANDLE heap, DWORD flags, LPVOID memory, SIZE_T bytes);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    void *(*heap_realloc)(RuntimeHeap *heap, uint32_t flags, void *memory, size_t bytes);
     void (*fail_animation)(RuntimeMediaBackend *backend, uint32_t error);
 };
 
@@ -245,7 +250,7 @@ struct RuntimeAnimationDecodeApi
 
 struct RuntimeAnimationCompletionApi
 {
-    void(WINAPI *sleep)(DWORD milliseconds);
+    void (*sleep)(uint32_t milliseconds);
     uint32_t (*set_stream_position)(AsyncFileRecord *record, uint32_t position);
 };
 
@@ -253,9 +258,9 @@ struct RuntimeAnimationCompletionApi
 struct RuntimeAnimationAudioApi
 {
     uint32_t (*time_get_time)();
-    void(WINAPI *sleep)(DWORD milliseconds);
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    LPVOID(WINAPI *heap_realloc)(HANDLE heap, DWORD flags, LPVOID memory, SIZE_T bytes);
+    void (*sleep)(uint32_t milliseconds);
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    void *(*heap_realloc)(RuntimeHeap *heap, uint32_t flags, void *memory, size_t bytes);
     void (*destroy_sound)(uint32_t handle);
     uint32_t (*queue_sound_data)(uint32_t handle, void *data, uint32_t size, int32_t replace);
     uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
@@ -269,9 +274,7 @@ struct RuntimeAnimationAudioApi
 
 struct RuntimeAnimationWorkerApi
 {
-    void(WINAPI *sleep)(DWORD milliseconds);
     uint32_t (*time_get_time)();
-    void(WINAPI *exit_thread)(DWORD exit_code);
 };
 
 

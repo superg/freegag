@@ -1,10 +1,24 @@
 #include "resource.h"
 #include <cstring>
+#include <mutex>
+#include <vector>
 #include "host_events.h"
 #include "runtime_internal.h"
 
 namespace gag
 {
+namespace
+{
+struct DeferredRuntimeResourceDestruction
+{
+    void *identity;
+    bool decrement_wait_count;
+};
+
+std::mutex deferred_runtime_resource_destruction_mutex;
+std::vector<DeferredRuntimeResourceDestruction> deferred_runtime_resource_destructions;
+} // namespace
+
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags)
 {
     RuntimeResourceConstructionPlan plan{ flags, scene_identifier, 0, x, y, RuntimeResourceSceneRole::xrgb_composition };
@@ -48,7 +62,7 @@ RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t s
         plan.x = 10000;
         plan.y = 10000;
     }
-    if((plan.flags & 1) == 0 && ((plan.scene_flags & 0x40) != 0 || (plan.flags & 0x606) != 0))
+    if((plan.flags & 1) == 0 && ((plan.scene_flags & 0x40) != 0 || (plan.flags & 6) != 0))
     {
         plan.scene_role = RuntimeResourceSceneRole::indexed_source;
     }
@@ -100,7 +114,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     }
                 }
                 resource = static_cast<RuntimeResourceObject *>(
-                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeResourceObject)));
+                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeResourceObject)));
                 if(resource != nullptr)
                 {
                     backend->extension_data = resource;
@@ -191,7 +205,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     wave = reinterpret_cast<RuntimeRiffChunk *>(reinterpret_cast<uint8_t *>(wave) + 1);
                 }
                 resource = static_cast<RuntimeResourceObject *>(
-                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeResourceObject)));
+                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeResourceObject)));
                 if(resource != nullptr)
                 {
                     resource->type_flags = (flags & 0xff) | 0x8000;
@@ -267,7 +281,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                 const uint32_t output_width = half_size ? source_width : source_width * width;
                 const uint32_t output_height = half_size ? source_height : source_height * height;
                 resource = static_cast<RuntimeResourceObject *>(
-                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeResourceObject)));
+                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeResourceObject)));
                 if(resource != nullptr)
                 {
                     backend->base.extension_data = resource;
@@ -288,7 +302,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                     resource->output_width = output_width;
                     resource->output_height = output_height;
                     resource->scene_role = plan.scene_role;
-                    const DisplayPixelFormatDescriptor *scene_format = select_runtime_resource_scene_format(plan.scene_role);
+                    const DisplayPixelFormatDescriptor *scene_format = select_runtime_resource_scene_format(resource->scene_role);
                     resource->scene_identifier = reinterpret_cast<intptr_t>(runtime_resource_construction_api.acquire_scene(scene_identifier, x, y, output_width, output_height, plan.scene_flags,
                         reinterpret_cast<intptr_t>(resource), &resource->scene_descriptor, scene_format));
                     if(resource->scene_identifier != 0)
@@ -361,7 +375,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
             if(backend != nullptr)
             {
                 resource = static_cast<RuntimeResourceObject *>(
-                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(RuntimeResourceObject)));
+                    runtime_resource_construction_api.heap_alloc(runtime_resource_construction_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeResourceObject)));
                 if(resource != nullptr)
                 {
                     resource->type_flags = (flags & 0xff) | 0x10000;
@@ -403,7 +417,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
 
     if(resource != nullptr)
     {
-        runtime_resource_construction_api.enter_critical_section(&runtime_resource_critical_section);
+        runtime_resource_construction_api.enter_critical_section(&runtime_resource_mutex);
         runtime_resource_construction_api.register_resource(runtime_media_objects_parent_identity, resource);
         if((resource->type_flags & 2) != 0)
         {
@@ -414,7 +428,7 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                 sizeof(context), 0);
         }
         runtime_display_context.flags &= ~0x200U;
-        runtime_resource_construction_api.leave_critical_section(&runtime_resource_critical_section);
+        runtime_resource_construction_api.leave_critical_section(&runtime_resource_mutex);
     }
     return result;
 }
@@ -493,6 +507,29 @@ void request_runtime_resource_destruction(void *identity)
     runtime_resource_control_api.release_record(reinterpret_cast<RuntimeLockRecord *>(resource));
 }
 
+void queue_runtime_resource_destruction(void *identity, bool decrement_wait_count)
+{
+    std::lock_guard lock(deferred_runtime_resource_destruction_mutex);
+    deferred_runtime_resource_destructions.push_back({ identity, decrement_wait_count });
+}
+
+void drain_runtime_resource_destructions()
+{
+    std::vector<DeferredRuntimeResourceDestruction> destructions;
+    {
+        std::lock_guard lock(deferred_runtime_resource_destruction_mutex);
+        destructions.swap(deferred_runtime_resource_destructions);
+    }
+    for(const DeferredRuntimeResourceDestruction &destruction : destructions)
+    {
+        destroy_runtime_resource(destruction.identity);
+        if(destruction.decrement_wait_count)
+        {
+            --runtime_resource_count;
+        }
+    }
+}
+
 uint32_t query_runtime_resource_frame_limit(void *identity)
 {
     auto *resource = reinterpret_cast<RuntimeResourceObject *>(runtime_resource_control_api.acquire_record(identity));
@@ -532,7 +569,7 @@ uint16_t query_runtime_resource_frame_number(void *identity)
 
 void select_runtime_resource(char *path)
 {
-    runtime_resource_selection_api.enter_critical_section(&runtime_resource_critical_section);
+    runtime_resource_selection_api.enter_critical_section(&runtime_resource_mutex);
     if((runtime_scene_control_flags & 0x10000000) != 0)
     {
         runtime_resource_selection_api.close_archive(runtime_resource_archive);
@@ -540,7 +577,7 @@ void select_runtime_resource(char *path)
         runtime_scene_control_flags &= 0xefffffff;
         runtime_graphics_resource_directory[0] = '\0';
     }
-    runtime_resource_selection_api.leave_critical_section(&runtime_resource_critical_section);
+    runtime_resource_selection_api.leave_critical_section(&runtime_resource_mutex);
     if(path != nullptr)
     {
         HostEventResult event_result = send_application_event(HostApplicationCommand::validate_resource_path, std::string(path));
@@ -597,14 +634,14 @@ uint32_t destroy_runtime_resource(void *identity)
     uint32_t result = 0;
     if(record == nullptr)
     {
-        runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_critical_section);
+        runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_mutex);
         RuntimeGenericResourceNode *generic = runtime_resource_destroy_api.find_generic(identity);
         if(generic != nullptr)
         {
             result = 1;
             runtime_resource_destroy_api.remove_generic(identity);
         }
-        runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_critical_section);
+        runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_mutex);
         return result;
     }
 
@@ -613,7 +650,7 @@ uint32_t destroy_runtime_resource(void *identity)
     if(type == 0x1000)
     {
         result = runtime_resource_destroy_api.destroy_media_backend(record->backend);
-        result &= runtime_resource_destroy_api.release_memory_data(record->data);
+        result = result != 0 && runtime_resource_destroy_api.release_memory_data(record->data);
     }
     else if(type == 0x2000)
     {
@@ -621,7 +658,7 @@ uint32_t destroy_runtime_resource(void *identity)
         const uint32_t storage = record->backend_flags & 0x03000000;
         if(storage == 0x01000000)
         {
-            result &= runtime_resource_destroy_api.release_memory_data(record->data);
+            result = result != 0 && runtime_resource_destroy_api.release_memory_data(record->data);
         }
         else if(storage == 0x02000000)
         {
@@ -636,7 +673,7 @@ uint32_t destroy_runtime_resource(void *identity)
     else if(type == 0x10000)
     {
         result = runtime_resource_destroy_api.destroy_generic_backend(record->backend);
-        result &= runtime_resource_destroy_api.release_memory_data(record->data);
+        result = result != 0 && runtime_resource_destroy_api.release_memory_data(record->data);
     }
     else
     {
@@ -650,10 +687,10 @@ uint32_t destroy_runtime_resource(void *identity)
     {
         current_runtime_resource = nullptr;
     }
-    runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_critical_section);
+    runtime_resource_destroy_api.enter_critical_section(&runtime_named_lock_mutex);
     runtime_resource_destroy_api.remove_runtime_child(runtime_named_lock_parent_identity, identity);
-    result &= runtime_resource_destroy_api.heap_free(runtime_resource_destroy_api.get_process_heap(), 0, record);
-    runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_critical_section);
+    result = result != 0 && runtime_resource_destroy_api.heap_free(runtime_resource_destroy_api.get_process_heap(), 0, record);
+    runtime_resource_destroy_api.leave_critical_section(&runtime_named_lock_mutex);
     return result;
 }
 
@@ -794,6 +831,7 @@ void finalize_runtime_resource_destruction(void *identity)
             {
                 while(target_count < runtime_resource_count)
                 {
+                    drain_runtime_resource_destructions();
                     runtime_resource_scene_destruction_api.sleep(1);
                 }
             }
@@ -850,13 +888,12 @@ void update_runtime_resource_scene_region(intptr_t scene_identifier, int32_t x, 
 
 void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *rectangle)
 {
-    auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
+    auto *format = static_cast<BitmapInfoHeader *>(backend->format_data);
     int32_t bitmap_width = format->biWidth;
     int32_t source_stride = (bitmap_width + 3) & ~3;
     if(backend->destination_bits_per_pixel == 32)
     {
-        const auto *file_header = static_cast<const BITMAPFILEHEADER *>(backend->source_data);
-        const uint8_t *source_pixels = static_cast<const uint8_t *>(backend->source_data) + file_header->bfOffBits;
+        const uint8_t *source_pixels = static_cast<const uint8_t *>(backend->source_data) + backend->bitmap_file.bfOffBits;
         auto *destination_pixels = reinterpret_cast<uint32_t *>(backend->destination_pixels);
         const int32_t bitmap_height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
         for(int32_t y = rectangle->top; y < rectangle->bottom; ++y)
@@ -867,8 +904,12 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
             for(int32_t x = rectangle->left; x < rectangle->right; ++x)
             {
                 const uint8_t index = source_row[x];
-                const PALETTEENTRY color = backend->palette_entries[index];
+                const PaletteEntry color = backend->palette_entries[index];
                 destination_row[x] = (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
+                if(backend->indexed_pixels != nullptr)
+                {
+                    backend->indexed_pixels[static_cast<size_t>(backend->indexed_origin_y + y) * backend->indexed_stride + backend->indexed_origin_x + x] = index;
+                }
             }
         }
         return;
@@ -878,8 +919,7 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
     int32_t source_skip = bitmap_width - source_stride + bitmap_width - copy_width;
     int32_t destination_stride = backend->destination_stride;
     int32_t destination_skip = destination_stride - copy_width;
-    const auto *file_header = static_cast<const BITMAPFILEHEADER *>(backend->source_data);
-    uint8_t *source = static_cast<uint8_t *>(backend->source_data) + file_header->bfOffBits + rectangle->top * source_stride + rectangle->left;
+    uint8_t *source = static_cast<uint8_t *>(backend->source_data) + backend->bitmap_file.bfOffBits + rectangle->top * source_stride + rectangle->left;
     uint8_t *destination = backend->destination_pixels + (static_cast<uint32_t>(backend->destination_y) + rectangle->top) * backend->destination_stride + backend->destination_x + rectangle->left;
     if(format->biHeight >= 0)
     {
@@ -899,7 +939,7 @@ void copy_runtime_bitmap_region(RuntimeMediaBackend *backend, DisplayRectangle *
 uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *rectangle)
 {
     uint32_t result = 0;
-    runtime_bitmap_region_render_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_bitmap_region_render_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     try
     {
         for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
@@ -908,7 +948,7 @@ uint32_t render_runtime_bitmap_backend_region(void *identity, DisplayRectangle *
             {
                 if(backend->type == 0xac)
                 {
-                    auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
+                    auto *format = static_cast<BitmapInfoHeader *>(backend->format_data);
                     int32_t height = format->biHeight < 0 ? -format->biHeight : format->biHeight;
                     if(rectangle->left < 0)
                     {
@@ -1036,7 +1076,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     uint8_t palette_step = static_cast<uint8_t>(step);
     uint8_t transition_active = 0;
     DisplayRectangle rectangle{};
-    PALETTEENTRY temporary_palette[0xec];
+    PaletteEntry temporary_palette[0xec];
     RuntimeLockRecord *record = runtime_palette_scene_transition_api.acquire_record(current_runtime_resource);
     if(record == nullptr || (reinterpret_cast<RuntimeResourceObject *>(record)->type_flags & 0x3000) == 0)
     {
@@ -1046,7 +1086,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     {
         auto *resource = reinterpret_cast<RuntimeResourceObject *>(record);
         auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
-        std::memcpy(&runtime_transition_palette[0], &backend->palette_version, sizeof(PALETTEENTRY));
+        std::memcpy(&runtime_transition_palette[0], &backend->palette_version, sizeof(PaletteEntry));
         std::memcpy(&runtime_transition_palette[1], backend->palette_entries, sizeof(backend->palette_entries));
         const uint32_t type = flags & 0xff000;
         if(type == 0x1000)
@@ -1067,12 +1107,12 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
                 }
                 for(size_t index = 0; index != 0xec; ++index)
                 {
-                    const PALETTEENTRY source = runtime_transition_palette[index + 1];
-                    temporary_palette[index].peRed = static_cast<BYTE>(source.peRed + 1);
-                    temporary_palette[index].peGreen = static_cast<BYTE>(source.peGreen + 1);
-                    temporary_palette[index].peBlue = static_cast<BYTE>(source.peBlue + 1);
+                    const PaletteEntry source = runtime_transition_palette[index + 1];
+                    temporary_palette[index].peRed = static_cast<uint8_t>(source.peRed + 1);
+                    temporary_palette[index].peGreen = static_cast<uint8_t>(source.peGreen + 1);
+                    temporary_palette[index].peBlue = static_cast<uint8_t>(source.peBlue + 1);
                     temporary_palette[index].peFlags = 0xff;
-                    runtime_transition_palette[index + 1] = PALETTEENTRY{ 0, 0, 0, 1 };
+                    runtime_transition_palette[index + 1] = PaletteEntry{ 0, 0, 0, 1 };
                 }
                 runtime_palette_scene_transition_api.apply_palette(runtime_transition_palette, 0);
                 runtime_palette_scene_transition_api.set_clip_rectangle(&rectangle);
@@ -1088,7 +1128,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
         return;
     }
     uint32_t completed = 0;
-    DWORD deadline = runtime_palette_scene_transition_api.time_get_time();
+    uint32_t deadline = runtime_palette_scene_transition_api.time_get_time();
     if((runtime_scene_control_flags & 0x40000) != 0)
     {
         palette_step = 0xff;
@@ -1098,7 +1138,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     {
         while(completed < 0xec)
         {
-            DWORD now = runtime_palette_scene_transition_api.time_get_time();
+            uint32_t now = runtime_palette_scene_transition_api.time_get_time();
             if(now < deadline)
             {
                 runtime_palette_scene_transition_api.sleep(0);
@@ -1112,8 +1152,8 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
                     completed = 0;
                     for(size_t reverse = 0xec; reverse != 0; --reverse)
                     {
-                        PALETTEENTRY &temporary = temporary_palette[reverse - 1];
-                        PALETTEENTRY &destination = runtime_transition_palette[reverse];
+                        PaletteEntry &temporary = temporary_palette[reverse - 1];
+                        PaletteEntry &destination = runtime_transition_palette[reverse];
                         if(temporary.peFlags == 0)
                         {
                             ++completed;
@@ -1151,7 +1191,7 @@ void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags)
     }
     while(completed < 0x2c4)
     {
-        DWORD now = runtime_palette_scene_transition_api.time_get_time();
+        uint32_t now = runtime_palette_scene_transition_api.time_get_time();
         if(now < deadline)
         {
             runtime_palette_scene_transition_api.sleep(0);
@@ -1224,10 +1264,10 @@ void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags)
             runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
             runtime_rectangle_scene_transition_api.release_display_lock();
         }
-        DWORD deadline = runtime_rectangle_scene_transition_api.time_get_time();
+        uint32_t deadline = runtime_rectangle_scene_transition_api.time_get_time();
         while((clip.bottom - clip.top) > static_cast<int32_t>(vertical_step * 2) || (clip.right - clip.left) > static_cast<int32_t>(horizontal_step * 2))
         {
-            DWORD now = runtime_rectangle_scene_transition_api.time_get_time();
+            uint32_t now = runtime_rectangle_scene_transition_api.time_get_time();
             if(now < deadline)
             {
                 runtime_rectangle_scene_transition_api.sleep(0);
@@ -1295,10 +1335,10 @@ void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags)
             runtime_rectangle_scene_transition_api.set_clip_rectangle(&clip);
             runtime_rectangle_scene_transition_api.release_display_lock();
         }
-        DWORD deadline = runtime_rectangle_scene_transition_api.get_tick_count();
+        uint32_t deadline = runtime_rectangle_scene_transition_api.get_tick_count();
         while((clip.right - clip.left) < static_cast<int32_t>(width) || (clip.bottom - clip.top) < static_cast<int32_t>(height))
         {
-            DWORD now = runtime_rectangle_scene_transition_api.get_tick_count();
+            uint32_t now = runtime_rectangle_scene_transition_api.get_tick_count();
             if(now < deadline)
             {
                 runtime_rectangle_scene_transition_api.sleep(0);
@@ -1462,12 +1502,12 @@ void release_runtime_lock_record(RuntimeLockRecord *record)
 
 RuntimeLockRecord *acquire_runtime_lock_record(void *child_identity)
 {
-    DWORD thread_id = runtime_named_lock_api.get_current_thread_id();
+    RuntimeThreadId thread_id = runtime_named_lock_api.get_current_thread_id();
     while(true)
     {
         RuntimeLockRecord *record = nullptr;
         bool contended = false;
-        runtime_named_lock_api.enter_critical_section(&runtime_named_lock_critical_section);
+        runtime_named_lock_api.enter_critical_section(&runtime_named_lock_mutex);
         RuntimeNamedNode *node = find_runtime_named_child(runtime_named_lock_parent_identity, child_identity);
         if(node != nullptr)
         {
@@ -1486,7 +1526,7 @@ RuntimeLockRecord *acquire_runtime_lock_record(void *child_identity)
                 contended = true;
             }
         }
-        runtime_named_lock_api.leave_critical_section(&runtime_named_lock_critical_section);
+        runtime_named_lock_api.leave_critical_section(&runtime_named_lock_mutex);
         if(!contended)
         {
             return record;
@@ -1540,10 +1580,10 @@ void reset_runtime_session()
 
     RuntimeNamedNode *media_objects = runtime_session_reset_api.get_named_node("MMediaObjectsList");
     RuntimeNamedNode *open_memory_files = runtime_session_reset_api.get_named_node("OpenMemoryFilesList");
-    DWORD start = runtime_session_reset_api.get_time();
+    uint32_t start = runtime_session_reset_api.get_time();
     while(media_objects->status != 0)
     {
-        DWORD current = runtime_session_reset_api.get_time();
+        uint32_t current = runtime_session_reset_api.get_time();
         if(current < start + 5000)
         {
             break;
@@ -1553,7 +1593,7 @@ void reset_runtime_session()
     start = runtime_session_reset_api.get_time();
     while(open_memory_files->status != 0)
     {
-        DWORD current = runtime_session_reset_api.get_time();
+        uint32_t current = runtime_session_reset_api.get_time();
         if(current < start + 5000)
         {
             break;
@@ -1656,8 +1696,10 @@ uint32_t shutdown_runtime_display()
         if(open_memory_files->status == 0 && media_objects->status == 0)
         {
             graphics_host_flags |= 1;
-            runtime_display_shutdown_api.wait_for_single_object(runtime_display_thread, INFINITE);
-            result = runtime_display_shutdown_api.close_handle(runtime_display_thread);
+            runtime_display_thread->join();
+            delete runtime_display_thread;
+            runtime_display_thread = nullptr;
+            result = 1;
         }
         uint32_t cleaned = 0;
         if(result != 0)
@@ -1672,7 +1714,6 @@ uint32_t shutdown_runtime_display()
             runtime_display_context.display_pixel_format = {};
             runtime_display_scene_identifier = 0;
             runtime_display_host = nullptr;
-            runtime_display_thread = nullptr;
             graphics_host_flags &= 0xfffff9ff;
             return cleaned;
         }
@@ -1722,6 +1763,7 @@ void wait_for_runtime_resource_count(uint32_t count)
 {
     while(runtime_resource_count != count)
     {
+        drain_runtime_resource_destructions();
         runtime_resource_wait_api.sleep(0);
     }
 }
@@ -1755,7 +1797,7 @@ void update_runtime_resource_host(const char *path, int32_t reset)
     char drive_prefix[32];
     char directory[260];
     directory[0] = '\0';
-    runtime_resource_host_api.enter_critical_section(&runtime_resource_critical_section);
+    runtime_resource_host_api.enter_critical_section(&runtime_resource_mutex);
     if(runtime_resource_host != nullptr)
     {
         if(reset != 0)
@@ -1797,7 +1839,7 @@ void update_runtime_resource_host(const char *path, int32_t reset)
     {
         runtime_resource_host_api.set_host_mode(runtime_resource_host, runtime_resource_host_mode);
     }
-    runtime_resource_host_api.leave_critical_section(&runtime_resource_critical_section);
+    runtime_resource_host_api.leave_critical_section(&runtime_resource_mutex);
 }
 
 uint32_t detect_runtime_resource_type(const char *path)
@@ -1806,11 +1848,11 @@ uint32_t detect_runtime_resource_type(const char *path)
     static constexpr uint8_t wave_signature[8]{ 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' };
     static constexpr uint8_t cdf_signature[6]{ 'C', 'D', 'F', '9', '6', 'a' };
     uint32_t type = 0;
-    LRESULT retry;
+    int32_t retry;
     do
     {
         retry = 0;
-        runtime_resource_type_api.enter_critical_section(&runtime_resource_critical_section);
+        runtime_resource_type_api.enter_critical_section(&runtime_resource_mutex);
         RuntimeResourceCacheEntry *entry = runtime_resource_type_api.find_cache_entry(runtime_resource_cache_parent_identity, path);
         if(entry != nullptr)
         {
@@ -1826,17 +1868,15 @@ uint32_t detect_runtime_resource_type(const char *path)
             runtime_resource_type_api.update_host(path, 0);
             char full_path[128];
             build_runtime_resource_path(full_path, path);
-            HANDLE file = runtime_resource_type_api.open_file(full_path);
-            if(file == nullptr)
+            StandardBinaryInputStream file(full_path);
+            if(!file.is_open())
             {
                 retry = 0;
             }
             else
             {
                 uint8_t header[16];
-                DWORD bytes_read = 0;
-                runtime_resource_type_api.read_file(file, header, sizeof(header), &bytes_read, nullptr);
-                runtime_resource_type_api.close_handle(file);
+                const uint32_t bytes_read = file.read(header, sizeof(header));
                 if(bytes_read == sizeof(header))
                 {
                     int16_t animation_marker;
@@ -1874,7 +1914,7 @@ uint32_t detect_runtime_resource_type(const char *path)
                 type = get_synthesized_resource_type(path);
             }
         }
-        runtime_resource_type_api.leave_critical_section(&runtime_resource_critical_section);
+        runtime_resource_type_api.leave_critical_section(&runtime_resource_mutex);
     } while(retry != 0);
     return type;
 }
@@ -1890,13 +1930,7 @@ void *open_runtime_cdf_entry_stream(CdfArchive *archive, const char *name)
         CdfEntry *entry = archive->entries[index];
         if(runtime_cdf_stream_api.compare_names(entry->name, name) == 0)
         {
-            if(archive->alternate_stream != 0)
-            {
-                return runtime_cdf_stream_api.duplicate_record(static_cast<AsyncFileRecord *>(archive->second_handle), entry->file_offset, entry->file_offset + entry->uncompressed_size, 0);
-            }
-            HANDLE file = runtime_cdf_stream_api.create_file(archive->path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-            runtime_cdf_stream_api.set_file_pointer(file, entry->file_offset, nullptr, FILE_BEGIN);
-            return file;
+            return open_cdf_entry_async_record(archive, runtime_resource_host, entry->file_offset, entry->file_offset + entry->uncompressed_size);
         }
     }
     return nullptr;
@@ -1913,11 +1947,11 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
     int32_t resource_storage = 0;
     while(true)
     {
-        LRESULT retry = 0;
+        int32_t retry = 0;
         char name[128];
         char full_path[128];
         copy_file_name_from_path(name, path);
-        runtime_resource_load_api.enter_critical_section(&runtime_resource_critical_section);
+        runtime_resource_load_api.enter_critical_section(&runtime_resource_mutex);
         RuntimeResourceCacheEntry *entry = runtime_resource_load_api.find_cache_entry(runtime_resource_cache_parent_identity, name);
         if(entry != nullptr)
         {
@@ -1929,7 +1963,7 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
         else if(VirtualScriptResource virtual_script{}; find_virtual_runtime_script(name, &virtual_script))
         {
             resource_size = virtual_script.size;
-            resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, HEAP_ZERO_MEMORY, resource_size + 1);
+            resource_data = runtime_resource_load_api.heap_alloc(runtime_resource_heap, runtime_heap_zero_memory, resource_size + 1);
             if(resource_data != nullptr)
             {
                 std::memcpy(resource_data, virtual_script.data, resource_size);
@@ -2110,7 +2144,7 @@ resource_loaded:
             }
             ++runtime_resource_streamed_count;
         }
-        runtime_resource_load_api.leave_critical_section(&runtime_resource_critical_section);
+        runtime_resource_load_api.leave_critical_section(&runtime_resource_mutex);
         if(retry == 0)
         {
             *data = resource_data;
@@ -2122,10 +2156,10 @@ resource_loaded:
     }
 }
 
-BOOL release_runtime_memory_resource(const char *name)
+bool release_runtime_memory_resource(const char *name)
 {
-    BOOL result = FALSE;
-    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    bool result = false;
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_mutex);
     RuntimeResourceCacheEntry *entry = runtime_resource_release_api.find_cache_entry(runtime_resource_cache_parent_identity, name);
     if(entry != nullptr)
     {
@@ -2136,14 +2170,14 @@ BOOL release_runtime_memory_resource(const char *name)
             runtime_resource_release_api.remove_cache_entry(runtime_resource_cache_parent_identity, entry->data);
         }
     }
-    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_mutex);
     return result;
 }
 
-BOOL release_runtime_memory_resource_by_data(void *data)
+bool release_runtime_memory_resource_by_data(void *data)
 {
-    BOOL result = FALSE;
-    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    bool result = false;
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_mutex);
     auto *entry = reinterpret_cast<RuntimeResourceCacheEntry *>(runtime_resource_release_api.find_child(runtime_resource_cache_parent_identity, data));
     if(entry != nullptr)
     {
@@ -2154,13 +2188,13 @@ BOOL release_runtime_memory_resource_by_data(void *data)
             runtime_resource_release_api.remove_cache_entry(runtime_resource_cache_parent_identity, entry->data);
         }
     }
-    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_mutex);
     return result;
 }
 
 uint32_t release_runtime_streamed_resource(AsyncFileRecord *record)
 {
-    runtime_resource_release_api.enter_critical_section(&runtime_resource_critical_section);
+    runtime_resource_release_api.enter_critical_section(&runtime_resource_mutex);
     uint32_t result = runtime_resource_release_api.close_async_record(record);
     if(result != 0 && runtime_resource_streamed_count != 0)
     {
@@ -2170,7 +2204,7 @@ uint32_t release_runtime_streamed_resource(AsyncFileRecord *record)
             runtime_resource_release_api.set_script_flags(0x10, 0);
         }
     }
-    runtime_resource_release_api.leave_critical_section(&runtime_resource_critical_section);
+    runtime_resource_release_api.leave_critical_section(&runtime_resource_mutex);
     return result;
 }
 
@@ -2195,16 +2229,6 @@ uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
         return 1;
     }
     return 0;
-}
-
-HANDLE open_runtime_resource_file(const char *path)
-{
-    OSVERSIONINFOA version{};
-    version.dwOSVersionInfoSize = sizeof(version);
-    runtime_resource_file_open_api.get_version(&version);
-    DWORD flags = 0x08000000 + (version.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS ? 0x20000000 : 0);
-    HANDLE file = runtime_resource_file_open_api.create_file(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, flags, nullptr);
-    return file == INVALID_HANDLE_VALUE ? nullptr : file;
 }
 
 void advance_async_host_read(AsyncFileHost *host, uint32_t bytes)
@@ -2234,10 +2258,10 @@ void advance_async_host_write(AsyncFileHost *host, uint32_t bytes)
 
 void invalidate_shared_async_records(AsyncFileRecord *record)
 {
-    HANDLE file = record->file;
-    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    const std::shared_ptr<SharedBinaryInputState> file = record->file;
+    async_file_lock_api.enter_critical_section(&async_file_global_mutex);
     AsyncFileHost *host = record->host;
-    async_file_lock_api.enter_critical_section(&host->secondary_lock);
+    async_file_lock_api.enter_critical_section(host->secondary_lock);
     for(AsyncFileRecord *sibling = host->files; sibling != nullptr; sibling = sibling->next)
     {
         if(sibling != record && sibling->file == file)
@@ -2245,14 +2269,14 @@ void invalidate_shared_async_records(AsyncFileRecord *record)
             sibling->flags &= ~0x20U;
             if(host->active_file == sibling)
             {
-                async_file_lock_api.enter_critical_section(&host->primary_lock);
+                async_file_lock_api.enter_critical_section(host->primary_lock);
                 host->active_file = nullptr;
-                async_file_lock_api.leave_critical_section(&host->primary_lock);
+                async_file_lock_api.leave_critical_section(host->primary_lock);
             }
         }
     }
-    async_file_lock_api.leave_critical_section(&host->secondary_lock);
-    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    async_file_lock_api.leave_critical_section(host->secondary_lock);
+    async_file_lock_api.leave_critical_section(&async_file_global_mutex);
 }
 
 void position_async_host(AsyncFileHost *host, uint32_t offset)
@@ -2268,13 +2292,11 @@ void position_async_host(AsyncFileHost *host, uint32_t offset)
         host->buffered_bytes = 0;
         host->available_bytes = host->buffer_size;
         async_file_lock_api.sleep(0);
-        async_file_host_api.set_file_pointer(host->file, host->file_offset, nullptr, FILE_BEGIN);
     }
     else
     {
         if((record->flags & 2) != 0)
         {
-            async_file_host_api.set_file_pointer(record->file, record->next_offset, nullptr, FILE_BEGIN);
             invalidate_shared_async_records(record);
         }
         const uint32_t previous_offset = record->previous_offset;
@@ -2307,7 +2329,7 @@ void seek_async_host(AsyncFileHost *host, uint32_t offset)
         host->current_offset = offset;
         return;
     }
-    async_file_lock_api.enter_critical_section(&host->primary_lock);
+    async_file_lock_api.enter_critical_section(host->primary_lock);
     if((host->flags & 0x20) == 0)
     {
         if((host->flags & 0x10) != 0 && 0 < static_cast<int32_t>(host->file_offset - offset))
@@ -2340,7 +2362,7 @@ void seek_async_host(AsyncFileHost *host, uint32_t offset)
             host->secondary_cursor = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(cursor) - reinterpret_cast<uintptr_t>(buffer_end));
         }
     }
-    async_file_lock_api.leave_critical_section(&host->primary_lock);
+    async_file_lock_api.leave_critical_section(host->primary_lock);
     host->current_offset = offset;
     host->flags &= ~0x10U;
 }
@@ -2389,7 +2411,7 @@ void activate_async_file_record(AsyncFileRecord *record)
     {
         return;
     }
-    async_file_lock_api.enter_critical_section(&host->primary_lock);
+    async_file_lock_api.enter_critical_section(host->primary_lock);
     const uint32_t read_chunk_size = 0x8000 / host->bytes_per_sector * host->bytes_per_sector;
     host->active_file = record;
     host->file = record->file;
@@ -2413,6 +2435,7 @@ void activate_async_file_record(AsyncFileRecord *record)
     if(initial_read_size != 0)
     {
         uint32_t remaining = initial_read_size;
+        uint32_t transferred = 0;
         auto *output = static_cast<uint8_t *>(host->write_cursor);
         do
         {
@@ -2422,14 +2445,18 @@ void activate_async_file_record(AsyncFileRecord *record)
                 bytes_to_read = read_chunk_size;
             }
             remaining -= bytes_to_read;
-            DWORD bytes_read = 0;
-            async_file_host_api.read_file(host->file, output, bytes_to_read, &bytes_read, nullptr);
+            const uint32_t bytes_read = host->file->read_at(host->file_offset, output, bytes_to_read);
             async_file_lock_api.sleep(0);
-            output += bytes_to_read;
+            output += bytes_read;
+            transferred += bytes_read;
+            if(bytes_read != bytes_to_read)
+            {
+                remaining = 0;
+            }
         } while(remaining != 0);
-        advance_async_host_write(host, initial_read_size);
+        advance_async_host_write(host, transferred);
     }
-    async_file_lock_api.leave_critical_section(&host->primary_lock);
+    async_file_lock_api.leave_critical_section(host->primary_lock);
 }
 
 void handle_async_host_short_read(AsyncFileHost *host)
@@ -2450,12 +2477,10 @@ void handle_async_host_short_read(AsyncFileHost *host)
     host->read_cursor = host->write_cursor;
     host->file_offset = host->start_offset / sector_size * sector_size;
     async_file_lock_api.sleep(0);
-    async_file_host_api.set_file_pointer(host->file, host->file_offset, nullptr, FILE_BEGIN);
 }
 
-DWORD WINAPI run_async_file_worker(LPVOID parameter)
+void run_async_file_worker(AsyncFileHost *host)
 {
-    AsyncFileHost *host = static_cast<AsyncFileHost *>(parameter);
     uint8_t *buffer_end = static_cast<uint8_t *>(host->buffer) + host->buffer_size;
     const uint32_t sector_size = host->bytes_per_sector;
     const uint32_t maximum_read = 0xc000 / sector_size * sector_size;
@@ -2469,7 +2494,7 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
     {
         if((flags & 1) != 0)
         {
-            return 0;
+            return;
         }
         if(host->active_file == nullptr)
         {
@@ -2486,10 +2511,10 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                 restart_timing = false;
             }
             uint32_t next_target = target_time;
-            async_file_lock_api.enter_critical_section(&host->primary_lock);
+            async_file_lock_api.enter_critical_section(host->primary_lock);
             if(host->active_file == nullptr || host->available_bytes < minimum_available)
             {
-                async_file_lock_api.leave_critical_section(&host->primary_lock);
+                async_file_lock_api.leave_critical_section(host->primary_lock);
                 async_file_lock_api.sleep(0);
             }
             else
@@ -2503,17 +2528,16 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                 if(buffer_end < static_cast<uint8_t *>(host->write_cursor) + bytes_to_read)
                 {
                     const uint32_t tail_bytes = static_cast<uint32_t>(buffer_end - static_cast<uint8_t *>(host->write_cursor));
-                    DWORD bytes_read = 0;
                     async_file_lock_api.sleep(0);
-                    async_file_host_api.read_file(host->file, host->write_cursor, tail_bytes, &bytes_read, nullptr);
-                    advance_async_host_write(host, tail_bytes);
+                    const uint32_t bytes_read = host->file->read_at(host->file_offset, host->write_cursor, tail_bytes);
+                    advance_async_host_write(host, bytes_read);
                     if(tail_bytes <= bytes_read && host->file_offset < host->end_offset)
                     {
                         bytes_to_read -= tail_bytes;
                         async_file_lock_api.sleep(0);
-                        async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
-                        advance_async_host_write(host, bytes_to_read);
-                        if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
+                        const uint32_t head_bytes = host->file->read_at(host->file_offset, host->write_cursor, bytes_to_read);
+                        advance_async_host_write(host, head_bytes);
+                        if(head_bytes < bytes_to_read || host->end_offset <= host->file_offset)
                         {
                             handle_async_host_short_read(host);
                         }
@@ -2525,18 +2549,17 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
                 }
                 else
                 {
-                    DWORD bytes_read = 0;
                     async_file_lock_api.sleep(0);
-                    async_file_host_api.read_file(host->file, host->write_cursor, bytes_to_read, &bytes_read, nullptr);
-                    advance_async_host_write(host, bytes_to_read);
+                    const uint32_t bytes_read = host->file->read_at(host->file_offset, host->write_cursor, bytes_to_read);
+                    advance_async_host_write(host, bytes_read);
                     if(bytes_read < bytes_to_read || host->end_offset <= host->file_offset)
                     {
                         handle_async_host_short_read(host);
                     }
                 }
-                async_file_lock_api.leave_critical_section(&host->primary_lock);
+                async_file_lock_api.leave_critical_section(host->primary_lock);
             }
-            const DWORD now = async_file_host_api.time_get_time();
+            const uint32_t now = async_file_host_api.time_get_time();
             const uint32_t requested_rate = host->mode;
             if(rate != requested_rate)
             {
@@ -2571,44 +2594,59 @@ DWORD WINAPI run_async_file_worker(LPVOID parameter)
 
 AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes, int32_t mode)
 {
+    (void)root;
     if(!async_file_enabled)
     {
         return nullptr;
     }
-    HANDLE heap = async_file_host_api.get_process_heap();
-    AsyncFileHost *host = static_cast<AsyncFileHost *>(async_file_host_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(AsyncFileHost)));
+    AsyncFileHost *host = new (std::nothrow) AsyncFileHost{};
     if(host == nullptr)
     {
         return nullptr;
     }
-    DWORD cluster_count = 0;
-    if(!async_file_host_api.get_disk_free_space(root, &host->sectors_per_cluster, &host->bytes_per_sector, &cluster_count, &cluster_count))
+    host->bytes_per_sector = 512;
+    host->primary_lock = new (std::nothrow) RuntimeMutex;
+    host->secondary_lock = new (std::nothrow) RuntimeMutex;
+    if(host->primary_lock == nullptr || host->secondary_lock == nullptr)
     {
-        async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, host);
+        delete host->primary_lock;
+        delete host->secondary_lock;
+        delete host;
         return nullptr;
     }
-    async_file_host_api.initialize_critical_section(&host->primary_lock);
-    async_file_host_api.initialize_critical_section(&host->secondary_lock);
     host->buffer_size = requested_bytes / 0xffff * 0xffff / host->bytes_per_sector * host->bytes_per_sector;
     host->available_bytes = host->buffer_size;
-    host->buffer = async_file_host_api.virtual_alloc(nullptr, host->buffer_size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    host->buffer = new (std::nothrow) uint8_t[host->buffer_size]{};
     if(host->buffer == nullptr)
     {
-        async_file_host_api.delete_critical_section(&host->primary_lock);
-        async_file_host_api.delete_critical_section(&host->secondary_lock);
-        async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, host);
+        delete host->primary_lock;
+        delete host->secondary_lock;
+        delete host;
         return nullptr;
     }
     host->self = host;
     host->write_cursor = host->buffer;
     host->secondary_cursor = host->buffer;
     host->mode = mode == 0 ? -1 : mode;
-    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    async_file_lock_api.enter_critical_section(&async_file_global_mutex);
     host->next = async_file_hosts;
     async_file_hosts = host;
-    async_file_lock_api.leave_critical_section(&async_file_global_lock);
-    DWORD thread_id = 0;
-    host->thread = async_file_host_api.create_thread(nullptr, 0, run_async_file_worker, host, 0, &thread_id);
+    async_file_lock_api.leave_critical_section(&async_file_global_mutex);
+    try
+    {
+        host->thread = new std::jthread([host]() { run_async_file_worker(host); });
+    }
+    catch(...)
+    {
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
+        async_file_hosts = host->next;
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
+        delete[] static_cast<uint8_t *>(host->buffer);
+        delete host->primary_lock;
+        delete host->secondary_lock;
+        delete host;
+        return nullptr;
+    }
     return host;
 }
 
@@ -2622,7 +2660,7 @@ AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
     {
         uint32_t busy = 0;
         AsyncFileHost *result = nullptr;
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
         {
             if(host->self == identity)
@@ -2636,7 +2674,7 @@ AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
                 break;
             }
         }
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
         if(busy == 0)
         {
             return result;
@@ -2647,7 +2685,7 @@ AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity)
 
 void release_async_file_host(AsyncFileHost *identity)
 {
-    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    async_file_lock_api.enter_critical_section(&async_file_global_mutex);
     for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
     {
         if(host->self == identity)
@@ -2656,7 +2694,7 @@ void release_async_file_host(AsyncFileHost *identity)
             break;
         }
     }
-    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    async_file_lock_api.leave_critical_section(&async_file_global_mutex);
 }
 
 uint32_t destroy_async_file_host(AsyncFileHost *identity)
@@ -2674,7 +2712,7 @@ uint32_t destroy_async_file_host(AsyncFileHost *identity)
     {
         close_async_file_record(host->files);
     }
-    async_file_lock_api.enter_critical_section(&async_file_global_lock);
+    async_file_lock_api.enter_critical_section(&async_file_global_mutex);
     AsyncFileHost *previous = nullptr;
     AsyncFileHost *current = async_file_hosts;
     while(current != nullptr && current->self != identity)
@@ -2690,14 +2728,14 @@ uint32_t destroy_async_file_host(AsyncFileHost *identity)
     {
         previous->next = current->next;
     }
-    async_file_lock_api.leave_critical_section(&async_file_global_lock);
+    async_file_lock_api.leave_critical_section(&async_file_global_mutex);
     current->flags |= 1;
-    async_file_host_api.wait_for_single_object(current->thread, INFINITE);
-    async_file_host_api.delete_critical_section(&current->primary_lock);
-    async_file_host_api.delete_critical_section(&current->secondary_lock);
-    async_file_open_api.close_handle(current->thread);
-    async_file_open_api.virtual_free(current->buffer, 0, MEM_RELEASE);
-    async_file_host_api.heap_free(async_file_host_api.get_process_heap(), 0, current);
+    current->thread->join();
+    delete current->primary_lock;
+    delete current->secondary_lock;
+    delete current->thread;
+    delete[] static_cast<uint8_t *>(current->buffer);
+    delete current;
     return 1;
 }
 
@@ -2713,14 +2751,13 @@ uint32_t shutdown_async_file_subsystem()
         {
             async_file_shutdown_api.destroy_host(async_file_hosts);
         }
-        async_file_shutdown_api.enter_critical_section(&async_file_global_lock);
+        async_file_shutdown_api.enter_critical_section(&async_file_global_mutex);
         if(async_file_hosts == nullptr)
         {
             break;
         }
-        async_file_shutdown_api.leave_critical_section(&async_file_global_lock);
+        async_file_shutdown_api.leave_critical_section(&async_file_global_mutex);
     }
-    async_file_shutdown_api.delete_critical_section(&async_file_global_lock);
     async_file_enabled = false;
     async_file_hosts = nullptr;
     return 1;
@@ -2737,7 +2774,7 @@ AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
     {
         uint32_t busy = 0;
         AsyncFileRecord *result = nullptr;
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
         {
             for(AsyncFileRecord *record = host->files; record != nullptr; record = record->next)
@@ -2770,7 +2807,7 @@ AsyncFileRecord *acquire_async_file_record(AsyncFileRecord *identity)
                 break;
             }
         }
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
         if(busy == 0)
         {
             return result;
@@ -2783,7 +2820,7 @@ void release_async_file_record(AsyncFileRecord *identity)
 {
     if(async_file_enabled)
     {
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         for(AsyncFileHost *host = async_file_hosts; host != nullptr; host = host->next)
         {
             for(AsyncFileRecord *record = host->files; record != nullptr; record = record->next)
@@ -2814,7 +2851,7 @@ void release_async_file_record(AsyncFileRecord *identity)
                 break;
             }
         }
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
     }
 }
 
@@ -2890,34 +2927,39 @@ uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position)
 
 AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
 {
+    auto file = std::make_shared<SharedBinaryInputState>(path);
+    if(!file->is_open())
+    {
+        return nullptr;
+    }
+    return open_async_file_record(host_identity, std::move(file), start_offset, end_offset, flags);
+}
+
+AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, std::shared_ptr<SharedBinaryInputState> file, uint32_t start_offset, uint32_t end_offset, uint32_t flags)
+{
     AsyncFileHost *host = acquire_async_file_host(host_identity);
     if(host == nullptr)
     {
         return nullptr;
     }
     AsyncFileRecord *record = nullptr;
-    HANDLE file = async_file_open_api.create_file(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0x20000000, nullptr);
-    bool valid = file != INVALID_HANDLE_VALUE;
+    bool valid = file->is_open();
     if(valid)
     {
-        HANDLE heap = async_file_open_api.get_process_heap();
-        record = static_cast<AsyncFileRecord *>(async_file_open_api.heap_alloc(heap, HEAP_ZERO_MEMORY, sizeof(AsyncFileRecord)));
+        record = new (std::nothrow) AsyncFileRecord{};
         if(record == nullptr)
         {
             valid = false;
-            async_file_open_api.close_handle(file);
         }
         if(valid)
         {
-            record->buffer = async_file_open_api.virtual_alloc(nullptr, 0x8000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            record->buffer = new (std::nothrow) uint8_t[0x8000]{};
             if(record->buffer == nullptr)
             {
-                HANDLE cleanup_heap = async_file_open_api.get_process_heap();
                 AsyncFileRecord *failed_record = record;
                 record = nullptr;
                 valid = false;
-                async_file_open_api.heap_free(cleanup_heap, 0, failed_record);
-                async_file_open_api.close_handle(file);
+                delete failed_record;
             }
         }
     }
@@ -2926,7 +2968,7 @@ AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char
         record->self = record;
         record->flags = flags | 1;
         record->file = file;
-        record->file_size = async_file_open_api.get_file_size(file, nullptr);
+        record->file_size = file->size();
         record->start_offset = start_offset;
         if(end_offset == 0)
         {
@@ -2936,10 +2978,10 @@ AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char
         record->remaining_size = end_offset - start_offset;
         record->current_offset = start_offset;
         record->host = host;
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         record->next = host->files;
         host->files = record;
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
     }
     release_async_file_host(host_identity);
     return record;
@@ -2953,7 +2995,7 @@ AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t
         return nullptr;
     }
     AsyncFileHost *host = source->host;
-    AsyncFileRecord *record = static_cast<AsyncFileRecord *>(async_file_open_api.heap_alloc(async_file_open_api.get_process_heap(), HEAP_ZERO_MEMORY, sizeof(AsyncFileRecord)));
+    AsyncFileRecord *record = new (std::nothrow) AsyncFileRecord{};
     if(record != nullptr)
     {
         record->self = record;
@@ -2970,10 +3012,10 @@ AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t
         record->end_offset = end_offset;
         record->remaining_size = end_offset - start_offset;
         record->current_offset = start_offset;
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         record->next = host->files;
         host->files = record;
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
         record->host = host;
     }
     release_async_file_record(identity);
@@ -2990,7 +3032,7 @@ uint32_t close_async_file_record(AsyncFileRecord *identity)
     while(true)
     {
         uint32_t busy = 0;
-        async_file_lock_api.enter_critical_section(&async_file_global_lock);
+        async_file_lock_api.enter_critical_section(&async_file_global_mutex);
         bool finished = false;
         for(AsyncFileHost *host = async_file_hosts; host != nullptr && !finished; host = host->next)
         {
@@ -3011,14 +3053,14 @@ uint32_t close_async_file_record(AsyncFileRecord *identity)
                         {
                             previous->next = record->next;
                         }
-                        async_file_lock_api.enter_critical_section(&host->secondary_lock);
+                        async_file_lock_api.enter_critical_section(host->secondary_lock);
                         if(host->active_file == record)
                         {
-                            async_file_lock_api.enter_critical_section(&host->primary_lock);
+                            async_file_lock_api.enter_critical_section(host->primary_lock);
                             host->active_file = nullptr;
-                            async_file_lock_api.leave_critical_section(&host->primary_lock);
+                            async_file_lock_api.leave_critical_section(host->primary_lock);
                         }
-                        async_file_lock_api.leave_critical_section(&host->secondary_lock);
+                        async_file_lock_api.leave_critical_section(host->secondary_lock);
                         int32_t shared_count = 0;
                         AsyncFileRecord *single_shared = nullptr;
                         if((record->flags & 2) != 0)
@@ -3038,12 +3080,9 @@ uint32_t close_async_file_record(AsyncFileRecord *identity)
                         }
                         if(shared_count == 0)
                         {
-                            BOOL closed = async_file_open_api.close_handle(record->file);
-                            BOOL freed_buffer = async_file_open_api.virtual_free(record->buffer, 0, MEM_RELEASE);
-                            HANDLE heap = async_file_open_api.get_process_heap();
-                            BOOL freed_record = async_file_open_api.heap_free(heap, 0, record);
-                            result = result & static_cast<uint32_t>(closed) & static_cast<uint32_t>(freed_buffer) & static_cast<uint32_t>(freed_record);
+                            delete[] static_cast<uint8_t *>(record->buffer);
                         }
+                        delete record;
                     }
                     finished = true;
                     break;
@@ -3051,7 +3090,7 @@ uint32_t close_async_file_record(AsyncFileRecord *identity)
                 previous = record;
             }
         }
-        async_file_lock_api.leave_critical_section(&async_file_global_lock);
+        async_file_lock_api.leave_critical_section(&async_file_global_mutex);
         if(busy == 0)
         {
             return result;
@@ -3074,12 +3113,12 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
     {
         while(true)
         {
-            async_file_lock_api.enter_critical_section(&host->secondary_lock);
+            async_file_lock_api.enter_critical_section(host->secondary_lock);
             if(force_host_buffer != 0 || host->active_file == record)
             {
                 break;
             }
-            async_file_lock_api.leave_critical_section(&host->secondary_lock);
+            async_file_lock_api.leave_critical_section(host->secondary_lock);
         }
         if(host->active_file == record)
         {
@@ -3107,7 +3146,7 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
             bytes -= chunk;
         }
         record->current_offset = host->current_offset;
-        async_file_lock_api.leave_critical_section(&host->secondary_lock);
+        async_file_lock_api.leave_critical_section(host->secondary_lock);
     }
     else
     {
@@ -3134,20 +3173,15 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
             {
                 break;
             }
-            const DWORD target_time = record->timestamp + chunk_size / host->mode;
+            const uint32_t target_time = record->timestamp + chunk_size / host->mode;
             async_file_lock_api.sleep(0);
-            DWORD file_bytes = 0;
+            uint32_t file_bytes = 0;
             if((record->flags & 0x20) == 0)
             {
                 const uint32_t aligned_offset = record->current_offset / host->bytes_per_sector * host->bytes_per_sector;
                 record->next_offset = aligned_offset;
                 record->previous_offset = aligned_offset;
-                async_file_host_api.set_file_pointer(record->file, aligned_offset, nullptr, FILE_BEGIN);
-                if(!async_file_host_api.read_file(record->file, record->buffer, chunk_size, &file_bytes, nullptr))
-                {
-                    result = 0;
-                    break;
-                }
+                file_bytes = record->file->read_at(aligned_offset, record->buffer, chunk_size);
                 if(file_bytes == 0)
                 {
                     break;
@@ -3163,11 +3197,7 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
             }
             else
             {
-                if(!async_file_host_api.read_file(record->file, record->buffer, chunk_size, &file_bytes, nullptr))
-                {
-                    result = 0;
-                    break;
-                }
+                file_bytes = record->file->read_at(record->next_offset, record->buffer, chunk_size);
                 if(file_bytes == 0)
                 {
                     break;
@@ -3177,7 +3207,7 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
             }
             record->previous_offset = record->next_offset;
             record->next_offset += file_bytes;
-            const DWORD now = async_file_host_api.time_get_time();
+            const uint32_t now = async_file_host_api.time_get_time();
             record->timestamp = now;
             if(now < target_time)
             {

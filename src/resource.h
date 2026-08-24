@@ -1,9 +1,11 @@
 #pragma once
 
+#include <memory>
 #include "runtime_types.h"
 
 namespace gag
 {
+class SharedBinaryInputState;
 
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags);
 
@@ -12,6 +14,10 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
 uint32_t update_runtime_resource_visibility(DisplayTraversalState *state);
 
 void request_runtime_resource_destruction(void *identity);
+
+void queue_runtime_resource_destruction(void *identity, bool decrement_wait_count);
+
+void drain_runtime_resource_destructions();
 
 uint32_t query_runtime_resource_frame_limit(void *identity);
 
@@ -27,9 +33,9 @@ void select_runtime_resource(char *path);
 
 uint32_t destroy_runtime_resource(void *identity);
 
-BOOL release_runtime_memory_resource(const char *name);
+bool release_runtime_memory_resource(const char *name);
 
-BOOL release_runtime_memory_resource_by_data(void *data);
+bool release_runtime_memory_resource_by_data(void *data);
 
 uint32_t release_runtime_streamed_resource(AsyncFileRecord *record);
 
@@ -83,8 +89,6 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
 
 uint32_t extract_runtime_drive_prefix(char *destination, const char *source);
 
-HANDLE open_runtime_resource_file(const char *path);
-
 AsyncFileHost *acquire_async_file_host(AsyncFileHost *identity);
 
 AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes, int32_t mode);
@@ -105,7 +109,7 @@ void activate_async_file_record(AsyncFileRecord *record);
 
 void handle_async_host_short_read(AsyncFileHost *host);
 
-DWORD WINAPI run_async_file_worker(LPVOID parameter);
+void run_async_file_worker(AsyncFileHost *host);
 
 void release_async_file_host(AsyncFileHost *identity);
 
@@ -126,6 +130,7 @@ uint32_t get_async_file_position(AsyncFileRecord *identity);
 uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position);
 
 AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
+AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, std::shared_ptr<SharedBinaryInputState> file, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
 
 AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
 

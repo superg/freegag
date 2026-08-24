@@ -186,7 +186,7 @@ void insert_script_object_container(RuntimeTreeNode *node, ScriptObjectContainer
 
 void remove_script_object_container_range(RuntimeTreeNode *parent, RuntimeTreeNode *node);
 
-BOOL destroy_script_object_container(ScriptObjectContainer *container);
+bool destroy_script_object_container(ScriptObjectContainer *container);
 
 bool script_object_container_state_matches_by_identity(void *identity);
 

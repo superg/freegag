@@ -136,7 +136,7 @@ void complete_runtime_sound_segment(RuntimeSoundSlot &slot, uint32_t marker)
         return;
     }
     segment.offset = 0;
-    if(slot.loop_value == std::numeric_limits<uint32_t>::max() || --slot.loop_remaining != 0)
+    if(slot.loop_value == runtime_infinite_wait || --slot.loop_remaining != 0)
     {
         return;
     }
@@ -792,7 +792,7 @@ uint32_t query_runtime_sound_status(uint32_t handle, RuntimeSoundStatus *status)
     status->playback_marker = slot->playback_marker;
     status->schedule_marker = slot->schedule_marker;
     status->completed = slot->segments.empty() && slot->partial_frame.empty();
-    status->infinite_loop = slot->loop_value == std::numeric_limits<uint32_t>::max();
+    status->infinite_loop = slot->loop_value == runtime_infinite_wait;
     return 1;
 }
 

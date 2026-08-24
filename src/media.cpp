@@ -1,4 +1,7 @@
 #include "media.h"
+#include <chrono>
+#include <new>
+#include <thread>
 #include "host_events.h"
 #include "runtime_internal.h"
 
@@ -6,7 +9,8 @@ namespace gag
 {
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
 {
-    auto *backend = static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeMediaBackend) + extension_bytes));
+    auto *backend =
+        static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeMediaBackend) + extension_bytes));
     if(backend == nullptr)
     {
         return nullptr;
@@ -18,16 +22,18 @@ RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_
     backend->type = 0xac;
     backend->identity = backend;
     backend->source_data = bitmap_data;
-    if(*static_cast<uint16_t *>(bitmap_data) != 0x4d42)
+    backend->bitmap_file = decode_bitmap_file_header(static_cast<const uint8_t *>(bitmap_data));
+    backend->bitmap_format = decode_bitmap_info_header(static_cast<const uint8_t *>(bitmap_data) + sizeof(BitmapFileHeader));
+    if(backend->bitmap_file.bfType != 0x4d42)
     {
         backend->error_state = 1;
         backend->media_flags |= 0x80000000;
     }
-    backend->format_data = static_cast<uint8_t *>(bitmap_data) + sizeof(BITMAPFILEHEADER);
+    backend->format_data = &backend->bitmap_format;
     backend->palette_version = 0x0300;
     backend->palette_entry_count = 0x00ec;
     backend->media_flags |= 0x20;
-    runtime_bitmap_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_bitmap_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     if(runtime_media_backend_head == nullptr)
     {
         runtime_media_backend_head = backend;
@@ -49,8 +55,8 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     RuntimeAnimationBackend *backend = nullptr;
     if(storage == 0x01000000)
     {
-        backend =
-            static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeAnimationBackend) + extension_bytes));
+        backend = static_cast<RuntimeAnimationBackend *>(
+            runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
         {
             return nullptr;
@@ -92,8 +98,8 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
         RuntimeAnimationFileHeader header;
         uint32_t bytes_read;
         runtime_animation_backend_create_api.read_record(record, &header, sizeof(header), &bytes_read, 0);
-        backend =
-            static_cast<RuntimeAnimationBackend *>(runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, sizeof(RuntimeAnimationBackend) + extension_bytes));
+        backend = static_cast<RuntimeAnimationBackend *>(
+            runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
         {
             return nullptr;
@@ -134,7 +140,7 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     backend->base.sound_handle = 0xffffffff;
     backend->base.scale_x = 1;
     backend->base.scale_y = 1;
-    runtime_animation_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_animation_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     if(runtime_media_backend_head == nullptr)
     {
         runtime_media_backend_head = &backend->base;
@@ -154,11 +160,11 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
 RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *result = nullptr;
-    const DWORD thread_id = runtime_media_backend_api.get_current_thread_id();
+    const RuntimeThreadId thread_id = runtime_media_backend_api.get_current_thread_id();
     for(;;)
     {
         bool contended = false;
-        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
         for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
         {
             if(backend->identity == identity)
@@ -188,7 +194,7 @@ RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
 uint32_t get_runtime_media_backend_type(void *identity)
 {
     uint32_t result = 0;
-    runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
     {
         if(backend->identity == identity)
@@ -241,7 +247,7 @@ uint32_t read_compressor_input(void *destination, uint32_t requested_size)
 
 void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t scale_y)
 {
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
     {
         if(backend->identity == identity)
@@ -256,7 +262,7 @@ void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t 
 
 uint32_t stop_runtime_animation_backend(void *identity)
 {
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr && backend->identity != identity)
     {
@@ -280,7 +286,7 @@ void *get_locked_runtime_media_extension(void *identity)
 
 uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
 {
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr && backend->identity != identity)
     {
@@ -297,7 +303,6 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDesc
         callback = &backend->palette_version;
     }
     backend->comparison_palette = callback;
-    backend->window = runtime_display_context.window;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
     backend->destination_y = static_cast<uint16_t>(descriptor->y);
     backend->destination_stride = static_cast<uint16_t>(descriptor->stride != 0 ? descriptor->stride : static_cast<uint16_t>(descriptor->width));
@@ -305,13 +310,20 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDesc
     backend->destination_bits_per_pixel = descriptor->bits_per_pixel != 0 ? descriptor->bits_per_pixel : 8;
     backend->descriptor_2 = descriptor->present;
     backend->destination_pixels = reinterpret_cast<uint8_t *>(descriptor->pixels);
+    if(backend->destination_bits_per_pixel == 32 && descriptor->indexed_pixels != 0)
+    {
+        backend->indexed_pixels = reinterpret_cast<uint8_t *>(descriptor->indexed_pixels);
+        backend->indexed_stride = descriptor->indexed_stride;
+        backend->indexed_origin_x = backend->destination_x;
+        backend->indexed_origin_y = backend->destination_y;
+    }
     runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
     return 1;
 }
 
 uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags, RuntimeAnimationCallback callback)
 {
-    runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr && backend->identity != identity)
     {
@@ -328,7 +340,6 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
     }
     backend->comparison_palette = comparison_palette;
     backend->animation_callback = callback;
-    backend->window = runtime_display_context.window;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
     backend->destination_y = static_cast<uint16_t>(descriptor->y);
     backend->destination_stride = static_cast<uint16_t>(descriptor->stride != 0 ? descriptor->stride : static_cast<uint16_t>(descriptor->width));
@@ -339,10 +350,21 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
     if(backend->destination_bits_per_pixel == 32)
     {
         const auto *resource = static_cast<const RuntimeResourceObject *>(backend->extension_data);
-        backend->indexed_stride = resource != nullptr ? resource->output_width : descriptor->width;
+        backend->indexed_stride = descriptor->indexed_stride;
+        backend->indexed_width = resource != nullptr ? resource->output_width : descriptor->width;
         backend->indexed_height = resource != nullptr ? resource->output_height : descriptor->height;
-        backend->indexed_pixels = static_cast<uint8_t *>(
-            runtime_animation_backend_configure_api.heap_alloc(runtime_media_backend_heap, HEAP_ZERO_MEMORY, static_cast<size_t>(backend->indexed_stride) * backend->indexed_height));
+        backend->indexed_origin_x = backend->destination_x;
+        backend->indexed_origin_y = backend->destination_y;
+        backend->indexed_pixels = reinterpret_cast<uint8_t *>(descriptor->indexed_pixels);
+        if(backend->indexed_pixels == nullptr)
+        {
+            backend->indexed_stride = resource != nullptr ? resource->output_width : descriptor->width;
+            backend->indexed_origin_x = 0;
+            backend->indexed_origin_y = 0;
+            backend->indexed_pixels = static_cast<uint8_t *>(
+                runtime_animation_backend_configure_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, static_cast<size_t>(backend->indexed_stride) * backend->indexed_height));
+            backend->owns_indexed_pixels = backend->indexed_pixels != nullptr;
+        }
         if(backend->indexed_pixels == nullptr)
         {
             runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
@@ -354,8 +376,13 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
     backend->dirty_right = 0;
     backend->dirty_bottom = 0;
     backend->media_flags |= flags;
-    HANDLE thread = runtime_animation_backend_configure_api.create_thread(nullptr, 0, run_runtime_animation_thread, backend, 0, reinterpret_cast<LPDWORD>(&backend->source_data));
-    runtime_animation_backend_configure_api.close_handle(thread);
+    backend->worker_thread = new (std::nothrow) std::jthread([backend] { run_runtime_animation_thread(backend); });
+    if(backend->worker_thread == nullptr)
+    {
+        backend->media_flags |= 0x10000;
+        runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        return 0;
+    }
     runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
     return 1;
 }
@@ -387,8 +414,8 @@ void configure_runtime_resource_palette(RuntimeResourceObject *resource)
 
 uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
 {
-    auto *format = static_cast<BITMAPINFOHEADER *>(backend->format_data);
-    const uint8_t *source_palette = reinterpret_cast<const uint8_t *>(format) + format->biSize;
+    auto *format = static_cast<BitmapInfoHeader *>(backend->format_data);
+    const uint8_t *source_palette = static_cast<const uint8_t *>(backend->source_data) + sizeof(BitmapFileHeader) + format->biSize;
     for(uint32_t index = 0; index < 0x100; ++index)
     {
         const uint8_t blue = source_palette[index * 4];
@@ -396,8 +423,7 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
         const uint8_t red = source_palette[index * 4 + 2];
         backend->palette_entries[index] = { red, green, blue, 1 };
     }
-    auto *bitmap_file = static_cast<BITMAPFILEHEADER *>(backend->source_data);
-    const uint8_t *source = reinterpret_cast<const uint8_t *>(bitmap_file) + bitmap_file->bfOffBits;
+    const uint8_t *source = static_cast<const uint8_t *>(backend->source_data) + backend->bitmap_file.bfOffBits;
     const uint16_t destination_x = backend->destination_x;
     const uint16_t destination_y = backend->destination_y;
     const uint16_t destination_stride = backend->destination_stride;
@@ -423,8 +449,12 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
             for(int32_t x = 0; x < width; ++x)
             {
                 result = source_row[x];
-                const PALETTEENTRY color = backend->palette_entries[result];
+                const PaletteEntry color = backend->palette_entries[result];
                 destination_row[x] = (result == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
+                if(backend->indexed_pixels != nullptr)
+                {
+                    backend->indexed_pixels[static_cast<size_t>(backend->indexed_origin_y + y) * backend->indexed_stride + backend->indexed_origin_x + x] = result;
+                }
             }
         }
         return result;
@@ -454,7 +484,7 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
 
 void finalize_runtime_media_backend(void *identity)
 {
-    runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+    runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr)
     {
@@ -702,10 +732,10 @@ void materialize_runtime_animation_xrgb(RuntimeMediaBackend *backend)
     {
         left = 0;
         top = 0;
-        right = static_cast<int32_t>(backend->indexed_stride);
+        right = static_cast<int32_t>(backend->indexed_width);
         bottom = static_cast<int32_t>(backend->indexed_height);
     }
-    const int32_t maximum_width = std::max(0, std::min(static_cast<int32_t>(backend->indexed_stride), static_cast<int32_t>(backend->destination_stride) - backend->destination_x));
+    const int32_t maximum_width = std::max(0, std::min(static_cast<int32_t>(backend->indexed_width), static_cast<int32_t>(backend->destination_stride) - backend->destination_x));
     const int32_t maximum_height = std::max(0, std::min(static_cast<int32_t>(backend->indexed_height), static_cast<int32_t>(backend->destination_reserved) - backend->destination_y));
     left = std::clamp(left, 0, maximum_width);
     top = std::clamp(top, 0, maximum_height);
@@ -718,12 +748,12 @@ void materialize_runtime_animation_xrgb(RuntimeMediaBackend *backend)
     auto *destination = reinterpret_cast<uint32_t *>(backend->destination_pixels);
     for(int32_t y = top; y < bottom; ++y)
     {
-        const uint8_t *source_row = backend->indexed_pixels + static_cast<size_t>(y) * backend->indexed_stride;
+        const uint8_t *source_row = backend->indexed_pixels + static_cast<size_t>(backend->indexed_origin_y + y) * backend->indexed_stride + backend->indexed_origin_x;
         uint32_t *destination_row = destination + static_cast<size_t>(backend->destination_y + y) * backend->destination_stride + backend->destination_x;
         for(int32_t x = left; x < right; ++x)
         {
             const uint8_t index = source_row[x];
-            const PALETTEENTRY color = backend->palette_entries[index];
+            const PaletteEntry color = backend->palette_entries[index];
             destination_row[x] = (index == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
         }
     }
@@ -997,21 +1027,20 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
     }
 }
 
-DWORD WINAPI run_runtime_animation_thread(void *backend_pointer)
+void run_runtime_animation_thread(void *backend_pointer)
 {
     auto *animation = static_cast<RuntimeAnimationBackend *>(backend_pointer);
     uint32_t wait_milliseconds = 0;
     for(;;)
     {
-        runtime_animation_worker_api.sleep(wait_milliseconds);
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_milliseconds));
         for(;;)
         {
             const uint32_t current_time = runtime_animation_worker_api.time_get_time();
             const RuntimeAnimationControlResult control = process_runtime_animation_control(animation, current_time, &wait_milliseconds);
             if(control == RuntimeAnimationControlResult::Exit)
             {
-                runtime_animation_worker_api.exit_thread(0);
-                return 0;
+                return;
             }
             if(control == RuntimeAnimationControlResult::Wait)
             {
@@ -1080,8 +1109,8 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
     const uint16_t area_x = read_word(source + 4);
     const uint16_t area_y = read_word(source + 6);
     source += 0x10;
-    const uint16_t origin_x = backend->indexed_pixels != nullptr ? 0 : backend->destination_x;
-    const uint16_t origin_y = backend->indexed_pixels != nullptr ? 0 : backend->destination_y;
+    const uint16_t origin_x = backend->indexed_pixels != nullptr ? backend->indexed_origin_x : backend->destination_x;
+    const uint16_t origin_y = backend->indexed_pixels != nullptr ? backend->indexed_origin_y : backend->destination_y;
     const uint32_t destination_stride = backend->indexed_pixels != nullptr ? backend->indexed_stride : backend->destination_stride;
     uint8_t *destination_base = backend->indexed_pixels != nullptr ? backend->indexed_pixels : backend->destination_pixels;
     const uint32_t scale_x = backend->scale_x;
@@ -1199,8 +1228,8 @@ void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
     uint16_t source_height = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
     std::memcpy(&source_height, header + 10, sizeof(source_height));
-    const uint16_t origin_x = backend->indexed_pixels != nullptr ? 0 : backend->destination_x;
-    const uint16_t origin_y = backend->indexed_pixels != nullptr ? 0 : backend->destination_y;
+    const uint16_t origin_x = backend->indexed_pixels != nullptr ? backend->indexed_origin_x : backend->destination_x;
+    const uint16_t origin_y = backend->indexed_pixels != nullptr ? backend->indexed_origin_y : backend->destination_y;
     const uint32_t destination_stride = backend->indexed_pixels != nullptr ? backend->indexed_stride : backend->destination_stride;
     uint8_t *destination_base = backend->indexed_pixels != nullptr ? backend->indexed_pixels : backend->destination_pixels;
     const uint32_t horizontal_scale = backend->scale_x;
@@ -1240,8 +1269,8 @@ void decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
     uint16_t source_height = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
     std::memcpy(&source_height, header + 10, sizeof(source_height));
-    const uint16_t origin_x = backend->indexed_pixels != nullptr ? 0 : backend->destination_x;
-    const uint16_t origin_y = backend->indexed_pixels != nullptr ? 0 : backend->destination_y;
+    const uint16_t origin_x = backend->indexed_pixels != nullptr ? backend->indexed_origin_x : backend->destination_x;
+    const uint16_t origin_y = backend->indexed_pixels != nullptr ? backend->indexed_origin_y : backend->destination_y;
     const uint32_t destination_stride = backend->indexed_pixels != nullptr ? backend->indexed_stride : backend->destination_stride;
     uint8_t *destination_base = backend->indexed_pixels != nullptr ? backend->indexed_pixels : backend->destination_pixels;
     const uint32_t effective_horizontal_scale = backend->scale_x < 2 ? 1 : backend->scale_x;
@@ -1297,8 +1326,8 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
     const auto *header = static_cast<const uint8_t *>(backend->format_data);
     uint16_t source_width = 0;
     std::memcpy(&source_width, header + 8, sizeof(source_width));
-    const uint16_t origin_x = backend->indexed_pixels != nullptr ? 0 : backend->destination_x;
-    const uint16_t origin_y = backend->indexed_pixels != nullptr ? 0 : backend->destination_y;
+    const uint16_t origin_x = backend->indexed_pixels != nullptr ? backend->indexed_origin_x : backend->destination_x;
+    const uint16_t origin_y = backend->indexed_pixels != nullptr ? backend->indexed_origin_y : backend->destination_y;
     const uint32_t destination_stride = backend->indexed_pixels != nullptr ? backend->indexed_stride : backend->destination_stride;
     uint8_t *destination_base = backend->indexed_pixels != nullptr ? backend->indexed_pixels : backend->destination_pixels;
     const uint32_t scale_x = backend->scale_x < 2 ? 1 : backend->scale_x;
@@ -1409,7 +1438,7 @@ uint32_t destroy_runtime_media_backend(void *identity)
     uint32_t result = 0;
     if(backend != nullptr)
     {
-        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, INFINITE);
+        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
         if(backend->previous == nullptr)
         {
             runtime_media_backend_head = backend->next;
@@ -1430,9 +1459,15 @@ uint32_t destroy_runtime_media_backend(void *identity)
         runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
         if(backend->type == 0xaa)
         {
-            if(backend->indexed_pixels != nullptr)
+            if(backend->worker_thread != nullptr)
             {
-                result &= runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->indexed_pixels);
+                backend->worker_thread->join();
+                delete backend->worker_thread;
+                backend->worker_thread = nullptr;
+            }
+            if(backend->indexed_pixels != nullptr && backend->owns_indexed_pixels)
+            {
+                result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->indexed_pixels);
             }
             if(backend->allocation_1_active != 0)
             {
@@ -1440,10 +1475,10 @@ uint32_t destroy_runtime_media_backend(void *identity)
             }
             if(backend->allocation_2_active != 0)
             {
-                result &= runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->frame_buffer);
+                result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->frame_buffer);
             }
         }
-        result &= runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend);
+        result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend);
     }
     return result;
 }

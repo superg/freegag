@@ -38,20 +38,20 @@ struct RuntimeGenericBackendChild
 
 struct RuntimeGenericBackendApi
 {
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
-    void(WINAPI *sleep)(DWORD milliseconds);
-    HANDLE(WINAPI *get_process_heap)();
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
+    void (*sleep)(uint32_t milliseconds);
+    RuntimeHeap *(*get_process_heap)();
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
 };
 
 struct RuntimeGenericBackendCreateApi
 {
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    BOOL(WINAPI *heap_free)(HANDLE heap, DWORD flags, LPVOID memory);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    RuntimeHeap *(*get_process_heap)();
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
 };
 
 
@@ -61,10 +61,10 @@ struct RuntimeGenericChildCreateApi
     RuntimeGenericBackend *(*acquire_backend)(void *identity);
     int32_t (*find_text_entry)(RuntimeGenericBackend *backend, int32_t category, const char *name);
     int32_t (*parse_integer)(const char *text, uint32_t *position, uint32_t end, uint32_t flags);
-    HANDLE(WINAPI *get_process_heap)();
-    LPVOID(WINAPI *heap_alloc)(HANDLE heap, DWORD flags, SIZE_T bytes);
-    DWORD(WINAPI *wait_for_single_object)(HANDLE handle, DWORD milliseconds);
-    BOOL(WINAPI *release_mutex)(HANDLE mutex);
+    RuntimeHeap *(*get_process_heap)();
+    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
+    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
+    void (*release_mutex)(RuntimeMutex *mutex);
     uint32_t (*build_child_state)(void *identity, uint32_t selection, uint32_t *state, DisplaySceneDescriptor *descriptor, uintptr_t *context);
     void (*clear_backend_ready)(RuntimeGenericBackend *backend);
 };

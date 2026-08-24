@@ -1,12 +1,13 @@
 #pragma once
 
 #include <memory>
+#include "../runtime_input.h"
 #include "gameplay_state.h"
 
 namespace xtet
 {
 
-struct GameWindowMessageCallbacks
+struct GameInputCallbacks
 {
     std::function<void()> destroy;
     std::function<void(uint32_t)> key_down;
@@ -22,7 +23,7 @@ struct GameKeyDownCallbacks
     std::function<void()> drain_keyboard;
 };
 
-uint32_t dispatch_game_window_message(uint32_t gameplay_state, uint32_t message, uint32_t wparam, const GameWindowMessageCallbacks &callbacks);
+uint32_t dispatch_game_input(uint32_t gameplay_state, const gag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks);
 uint32_t calculate_result_input_deadline(uint32_t current_time);
 void handle_game_key_down(uint32_t &gameplay_state, uint32_t key, uint32_t current_time, uint32_t result_input_deadline, uint32_t score, const GameKeyDownCallbacks &callbacks);
 bool set_game_paused(uint32_t &gameplay_state, bool paused, const std::function<bool(bool)> &loop_playing_callback);

@@ -45,7 +45,7 @@ struct ScriptedSaveLoadPersistenceApi
     uintptr_t (*get_script_state)();
     void (*free_memory)(void *memory);
     bool (*write_state)(char *path, char *name, void *bitmap, uintptr_t script_state);
-    uint32_t (*get_file_attributes)(const char *path);
+    bool (*file_exists)(const char *path);
 };
 
 uint32_t enumerate_archive_comment_entries(const char *directory, const char *extension, ArchiveCommentCollection *collection);

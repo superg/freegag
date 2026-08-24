@@ -5,6 +5,8 @@ add_executable(freegag
   "audio.cpp"
   "audio.h"
   "audio_types.h"
+  "binary_stream.cpp"
+  "binary_stream.h"
   "cdf_archive.cpp"
   "display_host.cpp"
   "display_host.h"
@@ -48,13 +50,11 @@ add_executable(freegag
   "text.h"
   "text_types.h"
 )
-target_compile_definitions(freegag PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(freegag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(freegag PRIVATE
   xtet
   SDL3::SDL3-static
   ZLIB::ZLIBSTATIC
-  user32 gdi32
 )
 
 add_subdirectory("xtet")

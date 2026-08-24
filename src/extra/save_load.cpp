@@ -3,13 +3,16 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <limits>
+#include <new>
 #include <vector>
 #include "application.h"
 #include "cdf_archive.h"
 #include "display_host.h"
 #include "display_scene.h"
 #include "media.h"
+#include "portable_string.h"
 #include "resource.h"
 #include "runtime.h"
 #include "runtime_model.h"
@@ -166,31 +169,18 @@ bool write_save_state(char *path, char *name, void *bitmap, uintptr_t script_sta
     return write_synchronized_cdf_package(path, name, bitmap, reinterpret_cast<void *>(script_state));
 }
 
-uint32_t get_save_file_attributes(const char *path)
+bool save_file_exists(const char *path)
 {
-    return GetFileAttributesA(path);
+    std::error_code error;
+    return std::filesystem::is_regular_file(path, error);
 }
 
-ScriptedSaveLoadPersistenceApi persistence_api{ capture_save_state, get_save_script_state, free_heap_memory, write_save_state, get_save_file_attributes };
+ScriptedSaveLoadPersistenceApi persistence_api{ capture_save_state, get_save_script_state, free_heap_memory, write_save_state, save_file_exists };
 ScriptedSaveLoadController controller{};
-
-
-uint64_t file_time_value(const FILETIME &time)
-{
-    return (static_cast<uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
-}
 
 bool archive_entry_less(const ArchiveCommentEntry &left, const ArchiveCommentEntry &right)
 {
-    if(left.modification_time != right.modification_time)
-    {
-        return left.modification_time < right.modification_time;
-    }
-    if(left.numeric_identifier != right.numeric_identifier)
-    {
-        return left.numeric_identifier < right.numeric_identifier;
-    }
-    return _stricmp(left.file_name, right.file_name) < 0;
+    return compare_ascii_case_insensitive(left.file_name, right.file_name) < 0;
 }
 
 RuntimeTreeSceneLink *find_tree_scene_link(RuntimeTreeNode *tree, const char *name)
@@ -201,7 +191,7 @@ RuntimeTreeSceneLink *find_tree_scene_link(RuntimeTreeNode *tree, const char *na
     }
     for(RuntimeTreeSceneLink *link = tree->scene_link_head; link != nullptr; link = link->next)
     {
-        if(_stricmp(link->name, name) == 0)
+        if(compare_ascii_case_insensitive(link->name, name) == 0)
         {
             return link;
         }
@@ -237,7 +227,7 @@ void prepare_caption_layer(RuntimeTreeSceneLink *link)
         return;
     }
     auto *scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(link->scene_identifier));
-    const PALETTEENTRY *palette = get_display_palette_entries();
+    const PaletteEntry *palette = get_display_palette_entries();
     if(palette != nullptr)
     {
         configure_display_scene_palette(scene, reinterpret_cast<const uint32_t *>(palette), 256);
@@ -247,32 +237,30 @@ void prepare_caption_layer(RuntimeTreeSceneLink *link)
 
 struct DecodedPreview
 {
-    const RGBQUAD *palette;
+    const BitmapColor *palette;
     const uint8_t *pixels;
 };
 
 bool validate_preview(const uint8_t *data, uint32_t size, DecodedPreview *preview)
 {
-    if(data == nullptr || preview == nullptr || size < sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER))
+    if(data == nullptr || preview == nullptr || size < sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader))
     {
         return false;
     }
-    BITMAPFILEHEADER file_header;
-    BITMAPINFOHEADER info_header;
-    std::memcpy(&file_header, data, sizeof(file_header));
-    std::memcpy(&info_header, data + sizeof(file_header), sizeof(info_header));
-    constexpr uint32_t palette_offset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
-    constexpr uint32_t palette_bytes = 256 * sizeof(RGBQUAD);
+    const BitmapFileHeader file_header = decode_bitmap_file_header(data);
+    const BitmapInfoHeader info_header = decode_bitmap_info_header(data + sizeof(BitmapFileHeader));
+    constexpr uint32_t palette_offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader);
+    constexpr uint32_t palette_bytes = 256 * sizeof(BitmapColor);
     constexpr uint32_t pixel_bytes = preview_width * preview_height;
-    if(file_header.bfType != 0x4d42 || info_header.biSize != sizeof(BITMAPINFOHEADER) || info_header.biWidth != static_cast<int32_t>(preview_width)
-        || info_header.biHeight != static_cast<int32_t>(preview_height) || info_header.biPlanes != 1 || info_header.biBitCount != 8 || info_header.biCompression != BI_RGB
+    if(file_header.bfType != 0x4d42 || info_header.biSize != sizeof(BitmapInfoHeader) || info_header.biWidth != static_cast<int32_t>(preview_width)
+        || info_header.biHeight != static_cast<int32_t>(preview_height) || info_header.biPlanes != 1 || info_header.biBitCount != 8 || info_header.biCompression != 0
         || file_header.bfOffBits < palette_offset + palette_bytes || file_header.bfOffBits > size || pixel_bytes > size - file_header.bfOffBits
         || (file_header.bfSize != 0 && (file_header.bfSize > size || file_header.bfSize < file_header.bfOffBits + pixel_bytes)))
     {
         return false;
     }
 
-    preview->palette = reinterpret_cast<const RGBQUAD *>(data + palette_offset);
+    preview->palette = reinterpret_cast<const BitmapColor *>(data + palette_offset);
     preview->pixels = data + file_header.bfOffBits;
     return true;
 }
@@ -406,7 +394,7 @@ void render_preview()
         uint32_t size = controller.snapshot_size;
         if(controller.snapshot != nullptr && size == 0)
         {
-            BITMAPFILEHEADER header;
+            BitmapFileHeader header;
             std::memcpy(&header, controller.snapshot, sizeof(header));
             size = header.bfSize;
         }
@@ -424,7 +412,7 @@ void render_preview()
         return;
     }
     const uint32_t size = api.get_entry_size(archive, 0, "COMMENT.BMP");
-    constexpr uint32_t minimum_size = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD) + preview_width * preview_height;
+    constexpr uint32_t minimum_size = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader) + 256 * sizeof(BitmapColor) + preview_width * preview_height;
     if(size < minimum_size || size > 16 * 1024 * 1024)
     {
         api.close_archive(archive);
@@ -557,7 +545,7 @@ bool change_selection(int32_t delta)
 
 bool parse_automatic_save_number(const char *name, uint64_t *number)
 {
-    if(name == nullptr || number == nullptr || _strnicmp(name, "save", 4) != 0 || name[4] == '\0')
+    if(name == nullptr || number == nullptr || compare_ascii_case_insensitive(name, "save", 4) != 0 || name[4] == '\0')
     {
         return false;
     }
@@ -602,7 +590,7 @@ const ArchiveCommentEntry *find_save_by_name(const char *name)
 {
     for(uint32_t index = controller.saves.count; index != 0; --index)
     {
-        if(_stricmp(controller.saves.entries[index - 1].comment, name) == 0)
+        if(compare_ascii_case_insensitive(controller.saves.entries[index - 1].comment, name) == 0)
         {
             return &controller.saves.entries[index - 1];
         }
@@ -622,11 +610,11 @@ bool prepare_new_save_path(char *path)
         {
             return false;
         }
-        if(persistence_api.get_file_attributes(path) == INVALID_FILE_ATTRIBUTES)
+        if(!persistence_api.file_exists(path))
         {
             return true;
         }
-        if(identifier == std::numeric_limits<uint32_t>::max())
+        if(identifier == runtime_infinite_wait)
         {
             return false;
         }
@@ -713,41 +701,56 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
     *collection = {};
     const ArchiveCommentEnumerationApi &api = get_archive_comment_enumeration_api();
 
-    char path[0x104];
-    copy_string(path, directory);
-    append_string(path, "*");
-    append_string(path, extension);
-    WIN32_FIND_DATAA find_data;
-    HANDLE find = api.find_first(path, &find_data);
-    if(find == INVALID_HANDLE_VALUE)
+    std::error_code error;
+    std::vector<std::filesystem::path> files;
+    const std::filesystem::path enumeration_directory = *directory == '\0' ? std::filesystem::path(".") : std::filesystem::path(directory);
+    for(std::filesystem::directory_iterator entry(enumeration_directory, error), end; !error && entry != end; entry.increment(error))
+    {
+        if(!entry->is_regular_file(error))
+        {
+            error.clear();
+            continue;
+        }
+        const std::string entry_extension = entry->path().extension().string();
+        if(compare_ascii_case_insensitive(entry_extension.c_str(), extension) == 0)
+        {
+            files.push_back(entry->path());
+        }
+    }
+    if(files.empty())
     {
         return 2;
     }
+    std::sort(files.begin(), files.end(),
+        [](const std::filesystem::path &left, const std::filesystem::path &right)
+        {
+            const std::string left_name = left.filename().string();
+            const std::string right_name = right.filename().string();
+            return compare_ascii_case_insensitive(left_name.c_str(), right_name.c_str()) < 0;
+        });
 
-    HANDLE heap = api.get_process_heap();
-    collection->entries = static_cast<ArchiveCommentEntry *>(api.heap_alloc(heap, 0, 10 * sizeof(ArchiveCommentEntry)));
+    collection->entries = new (std::nothrow) ArchiveCommentEntry[10];
     if(collection->entries == nullptr)
     {
-        api.find_close(find);
         return 0x10000;
     }
     collection->capacity = 10;
 
-    do
+    for(const std::filesystem::path &file : files)
     {
-        if(_stricmp(find_data.cFileName, "AutoSave.cdf") == 0)
+        const std::string file_name = file.filename().string();
+        if(compare_ascii_case_insensitive(file_name.c_str(), "AutoSave.cdf") == 0)
         {
             continue;
         }
-        std::snprintf(path, sizeof(path), "%s%s", directory, find_data.cFileName);
-        CdfArchive *archive = api.open_archive(path, 0);
+        const std::string path = file.string();
+        CdfArchive *archive = api.open_archive(path.c_str(), 0);
         if(archive == nullptr)
         {
             if(api.get_error(nullptr) == 0x10000)
             {
                 destroy_archive_comment_collection(collection);
-                api.find_close(find);
-                api.delete_file(path);
+                std::filesystem::remove(file, error);
                 return 0x10000;
             }
             continue;
@@ -760,22 +763,23 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
             comment[comment_size] = '\0';
             if(collection->count == collection->capacity)
             {
-                auto *grown = static_cast<ArchiveCommentEntry *>(api.heap_realloc(heap, 0, collection->entries, (collection->capacity + 10) * sizeof(ArchiveCommentEntry)));
+                auto *grown = new (std::nothrow) ArchiveCommentEntry[collection->capacity + 10];
                 if(grown == nullptr)
                 {
                     api.close_archive(archive);
                     break;
                 }
+                std::copy_n(collection->entries, collection->count, grown);
+                delete[] collection->entries;
                 collection->entries = grown;
                 collection->capacity += 10;
             }
             ArchiveCommentEntry &entry = collection->entries[collection->count++];
             std::memset(&entry, 0, sizeof(entry));
-            copy_string(entry.path, path);
+            copy_string(entry.path, path.c_str());
             copy_string(entry.comment, comment);
-            copy_string(entry.file_name, find_data.cFileName);
-            entry.modification_time = file_time_value(find_data.ftLastWriteTime);
-            entry.numeric_identifier = parse_path_numeric_identifier(find_data.cFileName);
+            copy_string(entry.file_name, file_name.c_str());
+            entry.numeric_identifier = parse_path_numeric_identifier(file_name.c_str());
             const uint32_t identifier_limit = static_cast<uint32_t>(entry.numeric_identifier + 1);
             if(static_cast<int32_t>(collection->next_identifier) < static_cast<int32_t>(identifier_limit))
             {
@@ -787,9 +791,8 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
             }
         }
         api.close_archive(archive);
-    } while(api.find_next(find, &find_data) != FALSE);
+    }
 
-    api.find_close(find);
     if(collection->count == 0)
     {
         destroy_archive_comment_collection(collection);
@@ -807,15 +810,14 @@ void destroy_archive_comment_collection(ArchiveCommentCollection *collection)
     }
     if(collection->entries != nullptr)
     {
-        const ArchiveCommentEnumerationApi &api = get_archive_comment_enumeration_api();
-        api.heap_free(api.get_process_heap(), 0, collection->entries);
+        delete[] collection->entries;
     }
     *collection = {};
 }
 
 bool find_save_load_virtual_script(const char *name, VirtualScriptResource *resource)
 {
-    if(name != nullptr && resource != nullptr && _stricmp(name, "SAVELOAD.CFG") == 0)
+    if(name != nullptr && resource != nullptr && compare_ascii_case_insensitive(name, "SAVELOAD.CFG") == 0)
     {
         resource->data = save_load_script;
         resource->size = static_cast<uint32_t>(sizeof(save_load_script) - 1);
@@ -985,7 +987,7 @@ void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree)
     {
         return;
     }
-    if(tree == nullptr || _stricmp(tree->name, save_load_screen_section(controller.mode)) != 0)
+    if(tree == nullptr || compare_ascii_case_insensitive(tree->name, save_load_screen_section(controller.mode)) != 0)
     {
         return;
     }
