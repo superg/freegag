@@ -29,8 +29,8 @@ struct FallingFigurine
 
 enum class FigurineSpriteFamily
 {
-    man,
-    woman
+    MAN,
+    WOMAN
 };
 
 struct FigurineSpriteSelection
@@ -45,11 +45,11 @@ struct FigurineSpriteSelection
 
 enum class FigurineMove
 {
-    rotate,
-    up,
-    right,
-    down,
-    left
+    ROTATE,
+    UP,
+    RIGHT,
+    DOWN,
+    LEFT
 };
 
 struct FigurineBoardEntry
@@ -67,19 +67,19 @@ struct FigurineMatch
 
 enum class GameplayMoveResult
 {
-    rejected,
-    moved,
-    matched
+    REJECTED,
+    MOVED,
+    MATCHED
 };
 
 enum class GameplayInput
 {
-    none,
-    rotate,
-    left,
-    right,
-    down,
-    hard_drop
+    NONE,
+    ROTATE,
+    LEFT,
+    RIGHT,
+    DOWN,
+    HARD_DROP
 };
 
 struct CascadeResult
@@ -90,25 +90,25 @@ struct CascadeResult
 
 enum class GameTickResult
 {
-    inactive,
-    spawned,
-    spawn_failed,
-    moved,
-    settled,
-    matched
+    INACTIVE,
+    SPAWNED,
+    SPAWN_FAILED,
+    MOVED,
+    SETTLED,
+    MATCHED
 };
 
 enum class GameplayInputResult
 {
-    ignored,
-    rejected,
-    moved,
-    matched
+    IGNORED,
+    REJECTED,
+    MOVED,
+    MATCHED
 };
 
 struct GameplayInputOutcome
 {
-    GameplayInputResult result{};
+    GameplayInputResult result{ GameplayInputResult::IGNORED };
     uint32_t moves{};
 };
 

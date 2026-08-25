@@ -3,41 +3,24 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace gag
+namespace freegag
 {
+inline constexpr uint8_t CDF_ENTRY_COMPRESSED = 1u << 4;
+
+enum CdfError : uint32_t
+{
+    CDF_ERROR_NONE = 0,
+    CDF_ERROR_READ_FAILED = 1,
+    CDF_ERROR_WRITE_FAILED = 2,
+    CDF_ERROR_STORAGE_FAILURE = 0x00010000,
+    CDF_ERROR_ALLOCATION_FAILED = 0x00020000,
+    CDF_ERROR_FILE_OPEN_FAILED = 0x01000000,
+    CDF_ERROR_INVALID_FORMAT = 0x02000000
+};
 
 struct ScriptTextBuffer;
 struct AsyncFileHost;
-class BinaryInputStream;
-class BinaryOutputStream;
-
-struct CdfEntry
-{
-    uint8_t flags;
-    char name[0x23];
-    uint32_t file_offset;
-    uint32_t uncompressed_size;
-};
-
-
-struct CdfArchive
-{
-    uint32_t unknown_0000;
-    char signature[7];
-    uint8_t unknown_000b[9];
-    char path[0x104];
-    uint32_t index_size;
-    void *entry_storage;
-    uint32_t entry_count;
-    BinaryInputStream *input;
-    BinaryOutputStream *output;
-    intptr_t alternate_stream;
-    BinaryInputStream *second_input;
-    uint32_t error;
-    uint32_t write_entry_index;
-    uint32_t index_data_size;
-    CdfEntry *entries[2000];
-};
+struct CdfArchive;
 
 
 // Compression adapters backed by zlib.
@@ -47,10 +30,6 @@ uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *des
 CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream);
 
 const char *get_cdf_entry_name_by_index(CdfArchive *archive, uint32_t index);
-
-uint32_t get_cdf_entry_count(CdfArchive *archive);
-
-uint32_t get_cdf_index_data_size(CdfArchive *archive);
 
 uint8_t get_cdf_entry_flags(CdfArchive *archive, const char *name);
 
@@ -80,9 +59,9 @@ CdfArchive *create_cdf_writer(const char *path, uint32_t capacity);
 
 uint32_t get_cdf_error(CdfArchive *archive);
 
-void *open_cdf_entry_async_record(CdfArchive *archive, AsyncFileHost *host, uint32_t start, uint32_t end);
+void *open_cdf_entry_async_record(CdfArchive *archive, AsyncFileHost *host, const char *name);
 
 uint32_t write_comment_cdf_package(const char *path, const void *comment, const void *bitmap, const ScriptTextBuffer *configuration);
 
 
-} // namespace gag
+} // namespace freegag

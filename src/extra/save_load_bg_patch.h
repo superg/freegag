@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace gag::save_load_background_manual_patch
+namespace freegag::save_load_background_manual_patch
 {
 struct Region
 {

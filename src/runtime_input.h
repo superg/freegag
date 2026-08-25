@@ -1,28 +1,30 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
-namespace gag
+namespace freegag
 {
 enum class RuntimeInputType
 {
-    pointer_move,
-    pointer_leave,
-    button_down,
-    button_up,
-    key_down,
-    key_up,
-    text,
-    close
+    POINTER_MOVE,
+    POINTER_LEAVE,
+    BUTTON_DOWN,
+    BUTTON_UP,
+    KEY_DOWN,
+    KEY_UP,
+    TEXT,
+    CLOSE
 };
 
 enum class RuntimeMouseButton
 {
-    none,
-    left,
-    middle,
-    right
+    NONE,
+    LEFT,
+    MIDDLE,
+    RIGHT
 };
 
 struct RuntimeInputEvent
@@ -38,9 +40,20 @@ struct RuntimeInputEvent
 
 enum class RuntimeQueuedInputType : uint32_t
 {
-    pointer_move = 0x200,
-    left_button_down = 0x201,
-    left_button_up = 0x202,
-    right_button_down = 0x204
+    POINTER_MOVE = 0x200,
+    LEFT_BUTTON_DOWN = 0x201,
+    LEFT_BUTTON_UP = 0x202,
+    RIGHT_BUTTON_DOWN = 0x204
 };
-} // namespace gag
+
+struct RuntimeQueuedInput
+{
+    RuntimeQueuedInputType type;
+    uint32_t packed_position;
+};
+
+inline constexpr size_t runtime_input_text_capacity = 0x20;
+using RuntimeInputText = std::array<char, runtime_input_text_capacity>;
+
+inline constexpr uint32_t RUNTIME_POINTER_POSITION_OUTSIDE = 0xffffffff;
+} // namespace freegag

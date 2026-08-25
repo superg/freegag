@@ -3,12 +3,105 @@
 #include "application_types.h"
 #include "runtime_services.h"
 
-namespace gag
+namespace freegag
 {
+inline constexpr uint32_t SCRIPT_PARSE_END = 0xffffffff;
+
+inline constexpr int32_t SCRIPT_INTEGER_INVALID = 0x7fffffff;
+
+enum ScriptValueType : uint32_t
+{
+    SCRIPT_VALUE_TYPE_NONE = 0,
+    SCRIPT_VALUE_TYPE_BOOLEAN = 1,
+    SCRIPT_VALUE_TYPE_INTEGER = 2,
+    SCRIPT_VALUE_TYPE_STRING = 4,
+    SCRIPT_VALUE_TYPE_INVALID = 0x7fffffff
+};
+
+enum ScriptBooleanValue : uint32_t
+{
+    SCRIPT_BOOLEAN_TRUE = 0x03000000,
+    SCRIPT_BOOLEAN_FALSE = 0x07000000
+};
+
 enum class RuntimeResourceSceneRole : uint32_t
 {
-    indexed_source,
-    xrgb_composition,
+    INDEXED_SOURCE,
+    XRGB_COMPOSITION,
+};
+
+enum ScriptScopeCode : uint32_t
+{
+    SCRIPT_SCOPE_VALUE = 0x00010000,
+    SCRIPT_SCOPE_UP_DOWN = 0x00020000,
+    SCRIPT_SCOPE_NO_MATCHES = 0x00030000,
+    SCRIPT_SCOPE_Z = 0x00040000,
+    SCRIPT_SCOPE_LAYER = 0x00050000,
+    SCRIPT_SCOPE_INVERT_NO_PALETTE = 0x00060000,
+    SCRIPT_SCOPE_LIST = 0x00100000,
+    SCRIPT_SCOPE_GLOBAL = 0x00200000,
+    SCRIPT_SCOPE_RATIO = 0x00300000,
+    SCRIPT_SCOPE_RADIUS = 0x00400000,
+    SCRIPT_SCOPE_LINE = 0x00500000,
+    SCRIPT_SCOPE_TIME = 0x00600000,
+    SCRIPT_SCOPE_PATH = 0x00700000,
+    SCRIPT_SCOPE_IMAGE = 0x00800000,
+    SCRIPT_SCOPE_LOOP = 0x00900000,
+    SCRIPT_SCOPE_RANDOM = 0x00a00000,
+    SCRIPT_SCOPE_PRIORITY = 0x00b00000,
+    SCRIPT_SCOPE_KEY_UP = 0x00c00000,
+    SCRIPT_SCOPE_TRANSPARENT = 0x00d00000,
+    SCRIPT_SCOPE_TEXT = 0x00e00000,
+    SCRIPT_SCOPE_FONT = 0x00f00000,
+    SCRIPT_SCOPE_FILE = 0x01000000,
+    SCRIPT_SCOPE_RECTANGLE = 0x02000000,
+    SCRIPT_SCOPE_SOURCE = 0x05000000,
+    SCRIPT_SCOPE_DESTINATION = 0x06000000,
+    SCRIPT_SCOPE_FLAGS = 0x0a000000,
+    SCRIPT_SCOPE_POSITION = 0x0b000000,
+    SCRIPT_SCOPE_COMMAND = 0x0c000000,
+    SCRIPT_SCOPE_MOUSE = 0x0d000000,
+    SCRIPT_SCOPE_CONTAINER_CONDITION = 0x0e000000,
+    SCRIPT_SCOPE_ZONE = 0x0f000000,
+    SCRIPT_SCOPE_PARENT_COMMAND = 0x10000000,
+    SCRIPT_SCOPE_ALTERNATE_MOUSE = 0x20000000,
+    SCRIPT_SCOPE_OWNER = 0x30000000,
+    SCRIPT_SCOPE_PRELOAD = 0x50000000
+};
+
+enum ScriptImageFlag : uint32_t
+{
+    SCRIPT_IMAGE_PRIMARY = 0x00000001,
+    SCRIPT_IMAGE_NATURAL_MOUSE = 0x00010000,
+    SCRIPT_IMAGE_STOPPED = 0x00000010,
+    SCRIPT_IMAGE_LOAD_ONLY = 0x00000200,
+    SCRIPT_IMAGE_DOUBLE_SIZE = 0x00200000,
+    SCRIPT_IMAGE_NO_PALETTE = 0x04000000
+};
+
+inline constexpr uint32_t RUNTIME_NAMED_NODE_ENABLED = 0x00000001;
+
+inline constexpr uint32_t RUNTIME_GENERIC_BACKEND_LOCKED = 0x00010000;
+
+enum RuntimeGenericChildFlag : uint32_t
+{
+    RUNTIME_GENERIC_CHILD_STATE_VALID = 0x00000001,
+    RUNTIME_GENERIC_CHILD_USE_CURRENT_SELECTION = 0x00000002,
+    RUNTIME_GENERIC_CHILD_SELECTION_OVERRIDE = 0x00000100,
+    RUNTIME_GENERIC_CHILD_MODE_200 = 0x00000200,
+    RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER = 0x00001000,
+    RUNTIME_GENERIC_CHILD_LOCKED = 0x00010000
+};
+
+inline constexpr uint32_t RUNTIME_GENERIC_CHILD_FLAGS_UNAVAILABLE = 0x7fffffff;
+
+enum ScriptRuntimeFlag : uint32_t
+{
+    SCRIPT_RUNTIME_COMMENTS_SUPPRESSED = 0x00000001,
+    SCRIPT_RUNTIME_NO_SAVE = 0x00000100,
+    SCRIPT_RUNTIME_STREAMING_ACTIVE = 0x00000010,
+    SCRIPT_RUNTIME_PLANS_INACTIVE = 0x00000020,
+    SCRIPT_RUNTIME_NO_PALETTE_ADJUSTMENT = 0x04000000
 };
 
 struct ScriptTextBuffer
@@ -17,15 +110,6 @@ struct ScriptTextBuffer
     uint32_t capacity;
     char *data;
 };
-
-struct ScriptUtilityApi
-{
-    uint32_t (*get_tick_count)();
-    void (*seed_random)(unsigned int seed);
-    int (*random)();
-};
-
-
 
 struct RuntimeTreeNode;
 struct RuntimeGenericResourceNode;
@@ -39,43 +123,12 @@ struct ScriptParserState
     char *name;
     char *creation_text;
     char *scratch_text;
-    uint8_t unknown_0010[4];
     RuntimeGenericResourceNode *resource;
     const char *text;
     uint32_t text_length;
     uint32_t start_offset;
     uint32_t cursor;
     RuntimeVisualObject *primary_visual;
-};
-
-
-
-struct ScriptValueParseApi
-{
-    uint32_t (*evaluate_parameter)(ScriptParserState *parser, const char *name, void *value, uint32_t *value_type);
-};
-
-struct ScriptTypedValueApi
-{
-    int32_t (*parse_integer_expression)(ScriptParserState *parser);
-    uint32_t (*parse_image_flag)(ScriptParserState *parser);
-    uint32_t (*parse_value_token)(ScriptParserState *parser, char *value, uint32_t capacity);
-};
-
-struct RuntimeTreeCommandTargetApi
-{
-    uint32_t (*parse_image_flag)(ScriptParserState *parser);
-    uint32_t (*parse_value_token)(ScriptParserState *parser, char *value, uint32_t value_capacity);
-};
-
-struct ScriptIntegerExpressionApi
-{
-    uint32_t (*evaluate_parameter)(ScriptParserState *parser, const char *name, void *value, uint32_t *value_type);
-    int32_t (*select_random)(int32_t minimum, int32_t maximum);
-    RuntimeTreeLink84 *(*find_link_0084)(const void *name);
-    RuntimeTreePrimaryResourceLink *(*find_primary_link)(const void *name);
-    int32_t (*get_object_integer)(const char *object_name, const void *field_name);
-    void (*query_runtime)(uint32_t operation, const void *source, int32_t *value);
 };
 
 
@@ -87,7 +140,7 @@ struct ScriptObjectState
     ScriptObjectState *next;
     char field_names[32][0x20];
     uint32_t field_count;
-    uint32_t flags_042c;
+    uint32_t mouse_flags;
     char mouse_visual_name[0x20];
     char alternate_mouse_visual_name[0x20];
     RuntimeVisualObject *visual_object;
@@ -98,40 +151,6 @@ struct ScriptObjectState
     int32_t integer_values[32];
     char string_values[32][0x20];
 };
-
-
-struct ScriptObjectMemoryApi
-{
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-};
-
-struct ScriptObjectReleaseApi
-{
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-};
-
-struct ScriptObjectFieldSnapshot
-{
-    char object_name[0x20];
-    char field_name[0x20];
-    uint32_t active;
-    int32_t integer_value;
-    char string_value[0x20];
-};
-
-
-
-struct ScriptObjectParseApi
-{
-    uint32_t (*parse_value)(ScriptParserState *parser, char *value, uint32_t capacity);
-    uint32_t (*parse_scope)(ScriptParserState *parser);
-    int32_t (*parse_integer)(ScriptParserState *parser);
-    uint32_t (*parse_image_flag)(ScriptParserState *parser);
-    bool (*fixed_equal)(const void *left, const void *right, uint32_t bytes);
-    RuntimeVisualObject *(*find_visual)(const char *name);
-    ScriptObjectState *(*create_object)(const void *name);
-};
-
 
 
 struct ScriptObjectSlot
@@ -174,12 +193,12 @@ struct RuntimePointerRegion
     char name[0x20];
     void *identity;
     RuntimePointerRegion *next;
-    uint8_t unknown_0028[4];
+    uint32_t link_movement_flags;
     int32_t left;
     int32_t top;
     int32_t right;
     int32_t bottom;
-    uint8_t unknown_003c[4];
+    uint32_t link_movement_deadline;
     uint32_t scene_mask;
     uint32_t first_scene_bit;
     uint32_t current_scene_bit;
@@ -244,7 +263,7 @@ struct RuntimeResourceCacheEntry
 
 struct RuntimeExpandedListResource
 {
-    uint8_t unknown_0000[0x430];
+    uint8_t reserved_0000[0x430];
     char primary_resource_name[0x4c];
     uint32_t link_value;
 };
@@ -257,33 +276,14 @@ struct RuntimeGenericResourceNode
     uint32_t current_position;
     uint32_t resource_metadata;
     uint32_t active_references;
-    uint8_t unknown_0034[4];
     RuntimeGenericResourceNode *next;
 };
 
 
 
-struct RuntimeNamedNodeMemoryApi
-{
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-};
-
-struct RuntimeResourceReleaseApi
-{
-    void (*enter_critical_section)(RuntimeMutex *mutex);
-    void (*leave_critical_section)(RuntimeMutex *mutex);
-    RuntimeResourceCacheEntry *(*find_cache_entry)(void *parent_identity, const char *name);
-    RuntimeNamedNode *(*find_child)(void *parent_identity, void *child_identity);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-    uint32_t (*remove_cache_entry)(void *parent_identity, void *child_identity);
-    uint32_t (*close_async_record)(AsyncFileRecord *record);
-    void (*set_script_flags)(uint32_t flags, int enabled);
-};
-
 struct RuntimePlanNode
 {
-    uint8_t unknown_0000[0x24];
+    uint8_t reserved_0000[0x24];
     RuntimePlanNode *next;
     uint32_t flags;
 };
@@ -302,11 +302,8 @@ struct RuntimeTreeNode
     char name[0x20];
     void *identity;
     RuntimeTreeNode *parent;
-    uint8_t unknown_0028[4];
     uint32_t flags;
-    uint8_t unknown_0030[0x10];
     char class_name[0x20];
-    uint8_t unknown_0060[4];
     RuntimeTreeNode *iterator_current;
     uint32_t iterator_ascending;
     RuntimeTreeParserContext *parser_contexts;
@@ -339,45 +336,6 @@ struct RuntimeTreeAuxiliaryNode
     void *identity;
     RuntimeTreeAuxiliaryNode *next;
 };
-
-
-struct RuntimeTreeAuxiliaryReleaseApi
-{
-    void (*notify)(uint32_t operation, uint32_t unused, RuntimeTreeAuxiliaryNode *node);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-};
-
-
-
-struct RuntimeTreeAuxiliaryCreateApi
-{
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-    void (*resolve)(uint32_t operation, void **identity, void **metadata);
-};
-
-
-
-struct RuntimeTreeDestructionCoreApi
-{
-    RuntimeTreeNode *(*find_node)(void *identity);
-    void (*notify)(uint32_t operation, uint32_t unused, void *value);
-    void (*remove_scene_links)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_secondary_links)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_primary_links)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_links_7c)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_links_84)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_links_8c)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    void (*remove_containers)(RuntimeTreeNode *parent, RuntimeTreeNode *node);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-    bool (*destroy_container)(ScriptObjectContainer *container);
-    void (*release_auxiliary)(RuntimeTreeNode *owner);
-    void (*release_parsers)(RuntimeTreeNode *owner);
-    RuntimeTreeParserContext *(*find_parser)(RuntimeTreeNode *owner, const char *name);
-    RuntimeTreeNode *(*dispatch_parser)(RuntimeTreeParserContext *context);
-    void (*update_global_links)(RuntimeTreeNode *removed, RuntimeTreeNode *replacement);
-};
-
 
 
 struct RuntimeFixedNameListNode
@@ -418,8 +376,6 @@ struct RuntimeResourceObject
     uint32_t recursion_count;
     intptr_t scene_identifier;
     DisplaySceneDescriptor scene_descriptor;
-    uint32_t presentation_owner;
-    uint32_t field_0034;
     int32_t x;
     int32_t y;
     uint32_t output_width;
@@ -433,10 +389,8 @@ struct RuntimeResourceObject
     RuntimeResourceSceneRole scene_role;
     void *fixed_resource_identity;
     void *secondary_resource_identity;
-    uint8_t unknown_006c[8];
     RuntimeGenericBackendChild *generic_backend_child;
-    uint8_t unknown_0078[0x11c];
     intptr_t callback_position;
 };
 
-} // namespace gag
+} // namespace freegag

@@ -5,21 +5,16 @@
 
 namespace xtet
 {
-namespace
-{
 
-bool is_space(uint8_t value)
-{
-    return value == 0x1a || std::isspace((unsigned char)value) != 0;
-}
+constexpr uint8_t DOS_TEXT_END = 0x1a;
 
-bool tokenize(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
+bool tokenize_asset_manifest(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
 {
     tokens.clear();
     size_t offset = 0;
     while(offset < bytes.size())
     {
-        while(offset < bytes.size() && is_space(bytes[offset]))
+        while(offset < bytes.size() && (bytes[offset] == DOS_TEXT_END || std::isspace(static_cast<unsigned char>(bytes[offset])) != 0))
             ++offset;
         if(offset == bytes.size())
             break;
@@ -35,7 +30,8 @@ bool tokenize(const std::vector<uint8_t> &bytes, std::vector<std::string> &token
             continue;
         }
         const size_t start = offset;
-        while(offset < bytes.size() && !is_space(bytes[offset]) && bytes[offset] != '{' && bytes[offset] != '}' && bytes[offset] != ';')
+        while(offset < bytes.size() && bytes[offset] != DOS_TEXT_END && std::isspace(static_cast<unsigned char>(bytes[offset])) == 0 && bytes[offset] != '{' && bytes[offset] != '}'
+              && bytes[offset] != ';')
             ++offset;
         if(start == offset)
             return false;
@@ -58,7 +54,7 @@ bool load_script(const SfsArchive &archive, const std::string &path, AssetManife
 
     std::vector<uint8_t> bytes;
     std::vector<std::string> tokens;
-    if(!archive.read(path, bytes) || !tokenize(bytes, tokens))
+    if(!archive.read(path, bytes) || !tokenize_asset_manifest(bytes, tokens))
         return false;
 
     active_scripts.push_back(path);
@@ -102,27 +98,20 @@ bool load_script(const SfsArchive &archive, const std::string &path, AssetManife
     return depth == 0;
 }
 
-} // namespace
 
 bool load_asset_manifest(const SfsArchive &archive, const std::vector<std::string> &root_scripts, AssetManifest &manifest)
 {
     AssetManifest loaded;
     std::vector<std::string> active_scripts;
     for(const std::string &path : root_scripts)
-    {
         if(!load_script(archive, path, loaded, active_scripts))
             return false;
-    }
     for(const std::string &path : loaded.bitmap_paths)
-    {
         if(!archive.find(path))
             return false;
-    }
     for(const std::string &path : loaded.wave_paths)
-    {
         if(!archive.find(path))
             return false;
-    }
     manifest = std::move(loaded);
     return true;
 }

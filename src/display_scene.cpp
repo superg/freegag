@@ -2,46 +2,38 @@
 #include <new>
 #include "runtime_internal.h"
 
-namespace gag
+namespace freegag
 {
 
 uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     uint32_t busy = 0;
     uint32_t mode = 0;
-    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = runtime_thread_id();
     do
     {
         do
         {
             if(busy != 0)
-            {
-                display_lock_acquire_api.wait_for_event(display_lock_gate_event);
-            }
-            if(mode == 0x3000)
-            {
-                display_lock_acquire_api.wait_for_event(display_lock_release_event);
-            }
-            if(mode == 0x2000)
-            {
-                display_lock_acquire_api.sleep(5);
-            }
-            display_lock_acquire_api.enter_mutex(display_lock_mutex);
+                wait_runtime_event(display_lock_gate_event);
+            if(mode == DISPLAY_SCENE_LOCK_MODE_MASK)
+                wait_runtime_event(display_lock_release_event);
+            if(mode == DISPLAY_SCENE_LOCK_ACQUIRED)
+                runtime_sleep(5);
+            lock_runtime_mutex(display_lock_mutex);
             busy = display_lock_busy;
-            mode = display_lock_flags & 0x3000;
+            mode = display_lock_flags & DISPLAY_SCENE_LOCK_MODE_MASK;
             if((mode == 0 || display_lock_owner_thread == thread_id) && busy == 0)
             {
                 uint32_t dirty_flags = 0;
                 bool first_acquisition = display_lock_recursion_count == 0;
                 ++display_lock_recursion_count;
-                if(first_acquisition || mode == 0x2000)
+                if(first_acquisition || mode == DISPLAY_SCENE_LOCK_ACQUIRED)
                 {
-                    display_lock_acquire_api.reset_event(display_lock_release_event);
-                    display_lock_flags |= 0x3000;
+                    display_lock_release_event->reset();
+                    display_lock_flags |= DISPLAY_SCENE_LOCK_MODE_MASK;
                     display_lock_owner_thread = thread_id;
                 }
                 mode = 0;
@@ -55,37 +47,25 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
                     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
                     {
                         if(node->state_60 != 0)
-                        {
                             process_scene_node_callbacks(node);
-                        }
                         accumulate_scene_node_rectangle(primary_rectangle, node);
                     }
                     if(clip_display_rectangle(primary_rectangle))
-                    {
-                        dirty_flags = 0x10000;
-                    }
+                        dirty_flags = DISPLAY_DIRTY_PRIMARY;
                     if(secondary_rectangle != nullptr)
                     {
                         *secondary_rectangle = *primary_rectangle;
                         for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
-                        {
-                            if((node->flags & 0x20) != 0)
-                            {
+                            if((node->flags & DISPLAY_SCENE_OPAQUE) != 0)
                                 trim_display_rectangle_overlap(secondary_rectangle, node);
-                            }
-                        }
                         if(clip_display_rectangle(secondary_rectangle))
-                        {
-                            dirty_flags |= 0x20000;
-                        }
+                            dirty_flags |= DISPLAY_DIRTY_SECONDARY;
                     }
                 }
                 if(rectangle_flags != nullptr)
-                {
                     *rectangle_flags = dirty_flags;
-                }
             }
-            display_lock_acquire_api.leave_mutex(display_lock_mutex);
+            unlock_runtime_mutex(display_lock_mutex);
         } while(busy != 0);
     } while((mode & 0xff00) != 0);
     return mode;
@@ -93,22 +73,20 @@ uint32_t acquire_display_lock(DisplayRectangle *primary_rectangle, DisplayRectan
 
 uint32_t release_display_lock()
 {
-    uint32_t result = 0x80000000;
-    if((display_lock_flags & 1) != 0)
+    uint32_t result = DISPLAY_OPERATION_FAILED;
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) != 0)
     {
-        RuntimeThreadId thread_id = display_lock_release_api.get_current_thread_id();
-        if(thread_id == display_lock_owner_thread && (display_lock_flags & 0x3000) != 0)
+        RuntimeThreadId thread_id = runtime_thread_id();
+        if(thread_id == display_lock_owner_thread && (display_lock_flags & DISPLAY_SCENE_LOCK_MODE_MASK) != 0)
         {
-            result = 0;
+            result = DISPLAY_OPERATION_SUCCESS;
             --display_lock_recursion_count;
             if(display_lock_recursion_count == 0)
             {
-                if((display_lock_flags & 0x1000) != 0)
-                {
-                    display_lock_release_api.set_event(display_lock_release_event);
-                }
+                if((display_lock_flags & DISPLAY_SCENE_LOCK_RELEASE_PENDING) != 0)
+                    set_runtime_event(display_lock_release_event);
                 display_lock_owner_thread = {};
-                display_lock_flags &= 0xffffcfff;
+                display_lock_flags &= ~DISPLAY_SCENE_LOCK_MODE_MASK;
             }
         }
     }
@@ -118,80 +96,56 @@ uint32_t release_display_lock()
 bool clip_display_rectangle(DisplayRectangle *rectangle)
 {
     if(rectangle->left < display_clip_bounds.left)
-    {
         rectangle->left = display_clip_bounds.left;
-    }
     if(rectangle->top < display_clip_bounds.top)
-    {
         rectangle->top = display_clip_bounds.top;
-    }
     if(display_clip_bounds.right < rectangle->right)
-    {
         rectangle->right = display_clip_bounds.right;
-    }
     if(display_clip_bounds.bottom < rectangle->bottom)
-    {
         rectangle->bottom = display_clip_bounds.bottom;
-    }
     return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
 }
 
 bool constrain_display_rectangle_to_surface(DisplayRectangle *rectangle)
 {
     if(rectangle->left < 0)
-    {
         rectangle->left = 0;
-    }
     if(rectangle->top < 0)
-    {
         rectangle->top = 0;
-    }
     if(display_width < rectangle->right)
-    {
         rectangle->right = display_width;
-    }
     if(display_height < rectangle->bottom)
-    {
         rectangle->bottom = display_height;
-    }
     return rectangle->right != rectangle->left && rectangle->left <= rectangle->right && rectangle->bottom != rectangle->top && rectangle->top <= rectangle->bottom;
 }
 
 int process_scene_node_callbacks(DisplaySceneNode *node)
 {
-    DisplayTraversalState state{ 0x01000000, display_scene_callback_api.time_get_time(), static_cast<uint32_t>(node->width), static_cast<uint32_t>(node->height), node->callback_first_position,
+    DisplayTraversalState state{ DISPLAY_TRAVERSAL_QUERY, runtime_milliseconds(), static_cast<uint32_t>(node->width), static_cast<uint32_t>(node->height), node->callback_first_position,
         node->callback_current_position, &node->accumulated_rectangle.left, &display_clip_bounds, nullptr };
-    int result = 1;
+    int result = DISPLAY_TRAVERSAL_UNCHANGED;
     for(DisplaySceneCallbackNode *callback = node->callbacks; callback != nullptr; callback = callback->next)
     {
         state.callback_context = callback->context;
-        if(callback->callback(&state) == 0)
-        {
-            result = 0;
-        }
+        if(callback->callback(&state) == DISPLAY_TRAVERSAL_BUFFER_UPDATED)
+            result = DISPLAY_TRAVERSAL_BUFFER_UPDATED;
     }
-    if(result == 0)
+    if(result == DISPLAY_TRAVERSAL_BUFFER_UPDATED)
     {
-        state.flags = 0x02000000;
+        state.flags = DISPLAY_TRAVERSAL_RENDER;
         for(DisplaySceneCallbackNode *callback = node->callbacks; callback != nullptr; callback = callback->next)
         {
             state.callback_context = callback->context;
             result = callback->callback(&state);
-            if(result == 0x10)
-            {
+            if(result == DISPLAY_TRAVERSAL_STOP)
                 break;
-            }
-            if(result == 0 && (callback->flags & 0x10000) == 0)
+            if(result == DISPLAY_TRAVERSAL_BUFFER_UPDATED && (callback->flags & DISPLAY_SCENE_CALLBACK_NO_BUFFER_SWAP) == 0)
             {
                 state.first_position = state.current_position;
                 if(state.current_position == node->callback_current_position)
-                {
                     state.current_position = node->callback_alternate_position;
-                }
                 else
-                {
                     state.current_position = node->callback_current_position;
-                }
             }
         }
         node->callback_position = state.first_position;
@@ -201,10 +155,8 @@ int process_scene_node_callbacks(DisplaySceneNode *node)
 
 void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
-    if(node == nullptr || rectangle == nullptr || (node->flags & 0x01000000) != 0)
-    {
+    if(node == nullptr || rectangle == nullptr || (node->flags & DISPLAY_SCENE_UPDATE_PENDING) != 0)
         return;
-    }
     int32_t node_left = node->x;
     int32_t node_top = node->y;
     int32_t node_right = node_left + node->width;
@@ -238,24 +190,16 @@ void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNod
         if((edges & 3) == 3)
         {
             if((edges & 0x10000) != 0)
-            {
                 rectangle->top += overlap_height;
-            }
             if((edges & 0x20000) != 0)
-            {
                 rectangle->bottom -= overlap_height;
-            }
         }
         if((edges & 0x30000) == 0x30000)
         {
             if((edges & 1) != 0)
-            {
                 rectangle->left += overlap_width;
-            }
             if((edges & 2) != 0)
-            {
                 rectangle->right -= overlap_width;
-            }
         }
     }
 }
@@ -263,9 +207,7 @@ void trim_display_rectangle_overlap(DisplayRectangle *rectangle, DisplaySceneNod
 void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNode *node)
 {
     if(rectangle == nullptr || node == nullptr)
-    {
         return;
-    }
     int32_t left = node->x + node->x_offset;
     int32_t top = node->y + node->y_offset;
     int32_t right;
@@ -301,39 +243,23 @@ void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNo
         bottom += node->height;
     }
     if(left < 0)
-    {
         left = 0;
-    }
     if(top < 0)
-    {
         top = 0;
-    }
     if(node->surface->width < right)
-    {
         right = node->surface->width;
-    }
     if(node->surface->height < bottom)
-    {
         bottom = node->surface->height;
-    }
     if(left < right && top < bottom)
     {
         if(left < rectangle->left)
-        {
             rectangle->left = left;
-        }
         if(top < rectangle->top)
-        {
             rectangle->top = top;
-        }
         if(rectangle->right < right)
-        {
             rectangle->right = right;
-        }
         if(rectangle->bottom < bottom)
-        {
             rectangle->bottom = bottom;
-        }
     }
     node->accumulated_rectangle.right = 0;
     node->accumulated_rectangle.bottom = 0;
@@ -346,9 +272,7 @@ void accumulate_scene_node_rectangle(DisplayRectangle *rectangle, DisplaySceneNo
 void merge_display_rectangle(DisplayRectangle *destination, const DisplayRectangleTransform *transform, const DisplayRectangle *source)
 {
     if(source == nullptr || destination == nullptr)
-    {
         return;
-    }
     int32_t left = source->left;
     int32_t top = source->top;
     int32_t right = source->right;
@@ -361,65 +285,43 @@ void merge_display_rectangle(DisplayRectangle *destination, const DisplayRectang
         bottom = static_cast<int32_t>((static_cast<uint32_t>(bottom) & 0xffff0000) | static_cast<uint16_t>(static_cast<int16_t>(bottom) + transform->y));
     }
     if(left < destination->left)
-    {
         destination->left = left;
-    }
     if(top < destination->top)
-    {
         destination->top = top;
-    }
     if(destination->right < right)
-    {
         destination->right = right;
-    }
     if(destination->bottom < bottom)
-    {
         destination->bottom = bottom;
-    }
     if(transform != nullptr)
     {
         if(destination->left < 0)
-        {
             destination->left = 0;
-        }
         if(destination->top < 0)
-        {
             destination->top = 0;
-        }
         if(static_cast<int32_t>(transform->width) < destination->right)
-        {
             destination->right = transform->width;
-        }
         if(static_cast<int32_t>(transform->height) < destination->bottom)
-        {
             destination->bottom = transform->height;
-        }
     }
 }
 
 uint32_t queue_display_rectangle(DisplayRectangle *rectangle)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     if(!constrain_display_rectangle_to_surface(rectangle))
-    {
-        return 0;
-    }
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+        return DISPLAY_OPERATION_SUCCESS;
+    lock_runtime_mutex(display_lock_mutex);
     merge_display_rectangle(&display_pending_rectangle, nullptr, rectangle);
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
-    return 0;
+    unlock_runtime_mutex(display_lock_mutex);
+    return DISPLAY_OPERATION_SUCCESS;
 }
 
 uint32_t find_available_display_scene_index(uint32_t candidate)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return candidate;
-    }
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    lock_runtime_mutex(display_lock_mutex);
     DisplaySceneNode *current = display_scene_head;
     DisplaySceneNode *previous = display_scene_head;
     while(current != nullptr && ((candidate <= previous->scene_index && previous != current) || current->scene_index <= candidate))
@@ -427,93 +329,74 @@ uint32_t find_available_display_scene_index(uint32_t candidate)
         uint32_t current_index = current->scene_index;
         uint32_t next_candidate = candidate;
         if(candidate <= current_index && current_index <= candidate)
-        {
             next_candidate = candidate + 1;
-        }
         candidate = next_candidate;
         previous = current;
         current = current->next;
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return candidate;
 }
 
 uint32_t wait_for_display_scene_ready(uint32_t timeout)
 {
-    if((display_lock_flags & 1) != 0)
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) != 0)
     {
-        display_lock_flags &= ~0x20u;
+        display_lock_flags &= ~DISPLAY_SCENE_WORKER_READY;
         uint32_t start = runtime_milliseconds();
         do
         {
-            if((display_lock_flags & 0x20) != 0)
-            {
-                return 0;
-            }
-            display_lock_acquire_api.sleep(0);
+            if((display_lock_flags & DISPLAY_SCENE_WORKER_READY) != 0)
+                return DISPLAY_OPERATION_SUCCESS;
+            runtime_sleep(0);
         } while(runtime_milliseconds() - start <= timeout);
     }
-    return 0x80000000;
+    return DISPLAY_OPERATION_FAILED;
 }
 
 uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle)
 {
-    if((display_lock_flags & 1) == 0)
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    RuntimeThreadId thread_id = runtime_thread_id();
+    if((display_lock_flags & DISPLAY_SCENE_LOCK_ACQUIRED) == 0 || display_lock_owner_thread != thread_id)
+        return DISPLAY_OPERATION_LOCK_NOT_OWNED;
+    if(rectangle == nullptr)
     {
-        return 0x80000000;
+        display_clip_bounds = { 0, 0, 0, 0 };
+        return DISPLAY_OPERATION_SUCCESS;
     }
-    uint32_t result = 0x20000000;
-    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
-    if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
-    {
-        if(rectangle == nullptr)
-        {
-            display_clip_bounds = { 0, 0, 0, 0 };
-            return 0;
-        }
-        if(rectangle->right >= 0 && rectangle->bottom >= 0 && rectangle->left <= display_width && rectangle->top <= display_height)
-        {
-            constrain_display_rectangle_to_surface(rectangle);
-            display_clip_bounds = *rectangle;
-            return 0;
-        }
-        return 0x80000000;
-    }
-    return result;
+    if(rectangle->right < 0 || rectangle->bottom < 0 || rectangle->left > display_width || rectangle->top > display_height)
+        return DISPLAY_OPERATION_FAILED;
+    constrain_display_rectangle_to_surface(rectangle);
+    display_clip_bounds = *rectangle;
+    return DISPLAY_OPERATION_SUCCESS;
 }
 
-uint32_t release_display_lock_mode_1000()
+uint32_t release_pending_display_lock()
 {
-    uint32_t result = 0x80000000;
-    if((display_lock_flags & 1) != 0)
-    {
-        RuntimeThreadId thread_id = display_lock_release_api.get_current_thread_id();
-        if(display_lock_owner_thread == thread_id && (display_lock_flags & 0x1000) != 0)
-        {
-            result = 0x1000;
-            if(display_lock_recursion_count == 1)
-            {
-                display_lock_flags &= ~0x1000u;
-                display_lock_release_api.set_event(display_lock_release_event);
-                result = 0;
-            }
-        }
-    }
-    return result;
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    RuntimeThreadId thread_id = runtime_thread_id();
+    if(display_lock_owner_thread != thread_id || (display_lock_flags & DISPLAY_SCENE_LOCK_RELEASE_PENDING) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    if(display_lock_recursion_count != 1)
+        return DISPLAY_OPERATION_RELEASE_PENDING;
+    display_lock_flags &= ~DISPLAY_SCENE_LOCK_RELEASE_PENDING;
+    set_runtime_event(display_lock_release_event);
+    return DISPLAY_OPERATION_SUCCESS;
 }
 
 DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return nullptr;
-    }
-    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
+    RuntimeThreadId thread_id = runtime_thread_id();
     while(true)
     {
         bool busy = false;
         DisplaySceneNode *result = nullptr;
-        display_lock_acquire_api.enter_mutex(display_lock_mutex);
+        lock_runtime_mutex(display_lock_mutex);
         for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
         {
             if(node->identifier == identifier)
@@ -531,23 +414,19 @@ DisplaySceneNode *lock_display_scene_node(intptr_t identifier)
                 break;
             }
         }
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
+        unlock_runtime_mutex(display_lock_mutex);
         if(!busy)
-        {
             return result;
-        }
-        display_lock_acquire_api.sleep(5);
+        runtime_sleep(5);
     }
 }
 
 void unlock_display_scene_node(intptr_t identifier)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return;
-    }
-    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    RuntimeThreadId thread_id = runtime_thread_id();
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -556,24 +435,20 @@ void unlock_display_scene_node(intptr_t identifier)
             {
                 --node->lock_count;
                 if(node->lock_count == 0)
-                {
                     node->lock_owner_thread = {};
-                }
             }
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
 }
 
 bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool replace_existing)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return false;
-    }
     bool result = false;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -601,31 +476,25 @@ bool set_display_scene_primary_owner(intptr_t identifier, intptr_t owner, bool r
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return result;
 }
 
 intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *descriptor, DisplayPixelFormatDescriptor *callback_format)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return 0;
-    }
     intptr_t result = 0;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    lock_runtime_mutex(display_lock_mutex);
     DisplaySceneNode *selected = nullptr;
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(static_cast<int32_t>(node->scene_index) == index)
         {
-            if(selected == nullptr || node->storage == DisplaySceneStorage::xrgb_composition)
-            {
+            if(selected == nullptr || node->storage == DisplaySceneStorage::XRGB_COMPOSITION)
                 selected = node;
-            }
-            if(node->storage == DisplaySceneStorage::xrgb_composition)
-            {
+            if(node->storage == DisplaySceneStorage::XRGB_COMPOSITION)
                 break;
-            }
         }
     }
     if(selected != nullptr)
@@ -637,74 +506,56 @@ intptr_t query_display_scene_by_index(int32_t index, DisplaySceneDescriptor *des
             descriptor->y = 0;
             descriptor->width = static_cast<int16_t>(selected->width);
             descriptor->height = static_cast<int16_t>(selected->height);
-            descriptor->present = 1;
-            descriptor->reserved = 0;
             descriptor->pixels = selected->callback_first_position;
             descriptor->bits_per_pixel = selected->rectangle_callback_format.bits_per_pixel;
             descriptor->stride = static_cast<uint32_t>(selected->sync_secondary_position) / (selected->rectangle_callback_format.bits_per_pixel >> 3);
         }
         if(callback_format != nullptr)
-        {
             *callback_format = selected->rectangle_callback_format;
-        }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     if(result == 0)
     {
         if(descriptor != nullptr)
-        {
             std::memset(descriptor, 0, sizeof(*descriptor));
-        }
         if(callback_format != nullptr)
-        {
             *callback_format = {};
-        }
     }
     return result;
 }
 
 uint32_t blit_display_scene(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t flags)
 {
-    if(destination == nullptr || source == nullptr || destination->storage != DisplaySceneStorage::xrgb_composition)
-    {
-        return 0x80000000;
-    }
+    if(destination == nullptr || source == nullptr || destination->storage != DisplaySceneStorage::XRGB_COMPOSITION)
+        return DISPLAY_OPERATION_FAILED;
     uint32_t result = begin_display_scene_update(reinterpret_cast<intptr_t>(source));
-    if(result == 0)
+    if(result == DISPLAY_OPERATION_SUCCESS)
     {
         result = begin_display_scene_update(reinterpret_cast<intptr_t>(destination));
-        if(result == 0)
+        if(result == DISPLAY_OPERATION_SUCCESS)
         {
             DisplayRectangleTransform transform{};
             transform.width = static_cast<uint16_t>(destination->width);
             transform.height = static_cast<uint16_t>(destination->height);
 
-            if(source->storage == DisplaySceneStorage::indexed_source && source->rectangle_callback_format.palette_source != nullptr)
+            if(source->storage == DisplaySceneStorage::INDEXED_SOURCE && source->rectangle_callback_format.palette_source != nullptr)
             {
                 if(source->rectangle_callback_format.palette_entries == nullptr)
                 {
                     source->rectangle_callback_format.palette_entries = source->palette_mapping;
                     build_indexed_to_32_palette(&source->rectangle_callback_format);
                 }
-                if((flags & 0x02000000) == 0)
-                {
+                if((flags & DISPLAY_SCENE_FIXED_SIZE) == 0)
                     composite_opaque_indexed_to_32(destination, destination_x, destination_y, source, rectangle, &source->rectangle_callback_format, 0);
-                }
                 else
-                {
                     composite_transparent_indexed_to_32(destination, destination_x, destination_y, source, rectangle, &source->rectangle_callback_format, 0);
-                }
             }
-            else if(source->storage == DisplaySceneStorage::xrgb_composition)
+            else if(source->storage == DisplaySceneStorage::XRGB_COMPOSITION)
             {
-                if((flags & 0x02000000) == 0)
-                {
+                if((flags & DISPLAY_SCENE_FIXED_SIZE) == 0)
                     composite_opaque_32_to_32(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
-                }
                 else
-                {
                     composite_transparent_32_to_32(destination, destination_x, destination_y, source, rectangle, nullptr, 0);
-                }
             }
             end_display_scene_update(reinterpret_cast<intptr_t>(destination), &transform, rectangle);
         }
@@ -715,103 +566,91 @@ uint32_t blit_display_scene(DisplaySceneNode *destination, int32_t destination_x
 
 uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t y_delta)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
-    uint32_t result = 0x80000000;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    uint32_t result = DISPLAY_OPERATION_FAILED;
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
         {
-            if((node->flags & 0x04000002) == 0)
+            if((node->flags & (DISPLAY_SCENE_FIXED_POSITION | DISPLAY_SCENE_STATIC)) == 0)
             {
                 node->x_offset += x_delta;
                 node->y_offset += y_delta;
             }
-            result = 0;
+            result = DISPLAY_OPERATION_SUCCESS;
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return result;
 }
 
 uint32_t begin_display_scene_update(intptr_t identifier)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     while(true)
     {
-        display_lock_acquire_api.enter_mutex(display_lock_mutex);
-        uint32_t result = display_lock_flags & 0x1000;
-        if(result == 0)
+        lock_runtime_mutex(display_lock_mutex);
+        uint32_t result = display_lock_flags & DISPLAY_SCENE_LOCK_RELEASE_PENDING;
+        if(result == DISPLAY_OPERATION_SUCCESS)
         {
-            result = 0x80000000;
+            result = DISPLAY_OPERATION_FAILED;
             for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
             {
                 if(node->identifier == identifier)
                 {
-                    if(node->owner_count != 0 && (node->flags & 0x01000000) != 0)
+                    if(node->owner_count != 0 && (node->flags & DISPLAY_SCENE_UPDATE_PENDING) != 0)
                     {
-                        node->flags &= ~0x01000000u;
+                        node->flags &= ~DISPLAY_SCENE_UPDATE_PENDING;
                         node->accumulated_rectangle.left = 0;
                         node->accumulated_rectangle.top = 0;
                         node->accumulated_rectangle.right = node->width;
                         node->accumulated_rectangle.bottom = node->height;
                     }
                     if(display_lock_busy == 0)
-                    {
-                        display_lock_acquire_api.reset_event(display_lock_gate_event);
-                    }
+                        display_lock_gate_event->reset();
                     ++display_lock_busy;
-                    result = 0;
+                    result = DISPLAY_OPERATION_SUCCESS;
                     break;
                 }
             }
         }
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
-        if(result != 0x1000)
-        {
+        unlock_runtime_mutex(display_lock_mutex);
+        if(result != DISPLAY_OPERATION_RELEASE_PENDING)
             return result;
-        }
-        display_lock_acquire_api.wait_for_event(display_lock_release_event);
+        wait_runtime_event(display_lock_release_event);
     }
 }
 
 bool activate_display_scene_node(intptr_t identifier)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return false;
-    }
     bool activated = false;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
         {
-            node->flags &= ~0x01000000u;
+            node->flags &= ~DISPLAY_SCENE_UPDATE_PENDING;
             node->accumulated_rectangle = { 0, 0, node->width, node->height };
             activated = true;
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return activated;
 }
 
 uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
-    uint32_t result = 0x80000000;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    uint32_t result = DISPLAY_OPERATION_FAILED;
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -821,68 +660,54 @@ uint32_t end_display_scene_update(intptr_t identifier, const DisplayRectangleTra
                 merge_display_rectangle(&node->accumulated_rectangle, transform, rectangle);
                 --display_lock_busy;
                 if(display_lock_busy == 0)
-                {
-                    display_lock_release_api.set_event(display_lock_gate_event);
-                }
-                result = 0;
+                    set_runtime_event(display_lock_gate_event);
+                result = DISPLAY_OPERATION_SUCCESS;
             }
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return result;
 }
 
 uint32_t update_display_root_region(DisplaySceneNode *scene, DisplayRectangle *rectangle, uint32_t callback_value)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     if(scene == nullptr)
-    {
         scene = display_scene_root;
-    }
-    uint32_t result = display_root_region_api.begin_scene_update(reinterpret_cast<intptr_t>(scene));
-    if(result == 0)
+    uint32_t result = begin_display_scene_update(reinterpret_cast<intptr_t>(scene));
+    if(result == DISPLAY_OPERATION_SUCCESS)
     {
         DisplayRectangleTransform transform{ 0, 0, static_cast<uint16_t>(scene->width), static_cast<uint16_t>(scene->height) };
         if(scene->root_rectangle_callback != nullptr)
-        {
             scene->root_rectangle_callback(scene, rectangle, callback_value);
-        }
-        display_root_region_api.end_scene_update(reinterpret_cast<intptr_t>(scene), &transform, rectangle);
+        end_display_scene_update(reinterpret_cast<intptr_t>(scene), &transform, rectangle);
     }
     return result;
 }
 
 uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(DisplayTraversalState *state), const void *context, uint32_t context_size, uint32_t flags)
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     while(true)
     {
-        display_lock_acquire_api.enter_mutex(display_lock_mutex);
-        uint32_t result = display_lock_flags & 0x1000;
-        if(result == 0)
+        lock_runtime_mutex(display_lock_mutex);
+        uint32_t result = display_lock_flags & DISPLAY_SCENE_LOCK_RELEASE_PENDING;
+        if(result == DISPLAY_OPERATION_SUCCESS)
         {
-            result = 0x80000000;
+            result = DISPLAY_OPERATION_FAILED;
             DisplaySceneNode *node = display_scene_head;
             while(node != nullptr && node->identifier != identifier)
-            {
                 node = node->next;
-            }
             if(node != nullptr)
             {
                 DisplaySceneCallbackNode *previous = node->callbacks;
                 for(DisplaySceneCallbackNode *entry = node->callbacks; entry != nullptr; entry = entry->next)
-                {
                     previous = entry;
-                }
-                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
-                auto *entry = static_cast<DisplaySceneCallbackNode *>(display_scene_memory_api.heap_alloc(heap, 0, context_size + sizeof(DisplaySceneCallbackNode)));
+                RuntimeHeap *heap = runtime_process_heap();
+                auto *entry = static_cast<DisplaySceneCallbackNode *>(allocate_runtime_heap(heap, 0, context_size + sizeof(DisplaySceneCallbackNode)));
                 if(entry != nullptr)
                 {
                     entry->identity = reinterpret_cast<uintptr_t>(entry);
@@ -899,84 +724,62 @@ uint32_t add_display_scene_callback(intptr_t identifier, int (*callback)(Display
                         std::memcpy(entry->context, context, context_size);
                     }
                     ++node->state_60;
-                    result = 0;
-                    if((flags & 0x10000) == 0)
+                    result = DISPLAY_OPERATION_SUCCESS;
+                    if((flags & DISPLAY_SCENE_CALLBACK_NO_BUFFER_SWAP) == 0)
                     {
                         intptr_t *buffer_position;
                         if(node->callback_current_position == 0)
-                        {
                             buffer_position = &node->callback_current_position;
-                        }
                         else if(node->callback_alternate_position == 0)
-                        {
                             buffer_position = &node->callback_alternate_position;
-                        }
                         else
-                        {
                             buffer_position = nullptr;
-                        }
                         if(buffer_position != nullptr)
                         {
                             const size_t pixel_bytes = static_cast<size_t>(node->rectangle_callback_format.bits_per_pixel >> 3);
-                            void *buffer = display_scene_memory_api.heap_alloc(heap, 0, static_cast<size_t>(node->width) * static_cast<size_t>(node->height) * pixel_bytes);
+                            void *buffer = allocate_runtime_heap(heap, 0, static_cast<size_t>(node->width) * static_cast<size_t>(node->height) * pixel_bytes);
                             *buffer_position = reinterpret_cast<intptr_t>(buffer);
                             if(buffer == nullptr)
                             {
                                 --node->state_60;
-                                display_scene_memory_api.heap_free(heap, 0, entry);
-                                result = 0x80000000;
+                                free_runtime_heap(heap, 0, entry);
+                                result = DISPLAY_OPERATION_FAILED;
                             }
                         }
                     }
-                    if(result == 0)
+                    if(result == DISPLAY_OPERATION_SUCCESS)
                     {
                         if(previous == nullptr)
-                        {
                             node->callbacks = entry;
-                        }
                         else
-                        {
                             previous->next = entry;
-                        }
                     }
                 }
             }
         }
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
-        if(result != 0x1000)
-        {
+        unlock_runtime_mutex(display_lock_mutex);
+        if(result != DISPLAY_OPERATION_RELEASE_PENDING)
             return result;
-        }
-        display_lock_acquire_api.wait_for_event(display_lock_release_event);
+        wait_runtime_event(display_lock_release_event);
     }
 }
 
 void fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
-    {
         return;
-    }
     int32_t left = rectangle->left;
     int32_t top = rectangle->top;
     int32_t right = rectangle->right;
     int32_t bottom = rectangle->bottom;
     if(left < 0)
-    {
         left = 0;
-    }
     if(top < 0)
-    {
         top = 0;
-    }
     if(node->width < right)
-    {
         right = node->width;
-    }
     if(node->height < bottom)
-    {
         bottom = node->height;
-    }
     int32_t row_width = right - left;
     int32_t row_count = bottom - top;
     if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
@@ -991,8 +794,6 @@ void fill_display_scene_rectangle_8(DisplaySceneNode *node, DisplayRectangle *re
     }
 }
 
-namespace
-{
 
 struct CompositeRegion
 {
@@ -1008,10 +809,8 @@ struct CompositeRegion
 bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t mode,
     CompositeRegion &region)
 {
-    if(source == nullptr || destination == nullptr || rectangle == nullptr || (source->flags & 1) != 0 || (source->flags & 0x01000000) != 0)
-    {
+    if(source == nullptr || destination == nullptr || rectangle == nullptr || (source->flags & DISPLAY_SCENE_DISABLED) != 0 || (source->flags & DISPLAY_SCENE_UPDATE_PENDING) != 0)
         return false;
-    }
     int32_t source_x = 0;
     int32_t source_y = 0;
     int32_t destination_right;
@@ -1023,21 +822,13 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
         int32_t source_right = rectangle->right;
         int32_t source_bottom = rectangle->bottom;
         if(source_x < 0)
-        {
             source_x = 0;
-        }
         if(source_y < 0)
-        {
             source_y = 0;
-        }
         if(source->width < source_right)
-        {
             source_right = source->width;
-        }
         if(source->height < source_bottom)
-        {
             source_bottom = source->height;
-        }
         destination_right = (source_right - source_x) + destination_x;
         destination_bottom = (source_bottom - source_y) + destination_y;
         if(destination_x < 0)
@@ -1051,13 +842,9 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
             destination_y = 0;
         }
         if(destination->width < destination_right)
-        {
             destination_right = destination->width;
-        }
         if(destination->height < destination_bottom)
-        {
             destination_bottom = destination->height;
-        }
         rectangle->left = destination_x;
         rectangle->top = destination_y;
         rectangle->right = destination_right;
@@ -1080,13 +867,9 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
             source_top = rectangle->top;
         }
         if(rectangle->right < source_right)
-        {
             source_right = rectangle->right;
-        }
         if(rectangle->bottom < source_bottom)
-        {
             source_bottom = rectangle->bottom;
-        }
         destination_x = source_left - destination->x;
         if(destination_x < 0)
         {
@@ -1102,13 +885,9 @@ bool prepare_composite_region(DisplaySceneNode *destination, int32_t destination
         destination_right = source_right - destination->x;
         destination_bottom = source_bottom - destination->y;
         if(destination->width < destination_right)
-        {
             destination_right = destination->width;
-        }
         if(destination->height < destination_bottom)
-        {
             destination_bottom = destination->height;
-        }
     }
     region = { source_x, source_y, destination_x, destination_y, destination_right - destination_x, destination_bottom - destination_y };
     return region.width != 0 && destination_x <= destination_right && region.height != 0 && destination_y <= destination_bottom;
@@ -1123,9 +902,7 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
                           + region.destination_x * (destination_bits >> 3);
     const uint32_t *palette = nullptr;
     if(convert_palette)
-    {
         palette = static_cast<const DisplayPixelFormatDescriptor *>(source_state)->palette_entries;
-    }
     for(int32_t row_index = 0; row_index < region.height; ++row_index)
     {
         if(destination_bits == 32)
@@ -1135,9 +912,7 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
             {
                 const uint8_t source_pixel = source_row[column];
                 if(!transparent || source_pixel != 0)
-                {
                     destination_pixels[column] = palette[source_pixel];
-                }
             }
         }
         else if(destination_bits == 16)
@@ -1147,9 +922,7 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
             {
                 uint8_t source_pixel = source_row[column];
                 if(!transparent || source_pixel != 0)
-                {
                     destination_pixels[column] = static_cast<uint16_t>(palette[source_pixel]);
-                }
             }
         }
         else
@@ -1158,9 +931,7 @@ void composite_indexed_pixels(DisplaySceneNode *destination, DisplaySceneNode *s
             {
                 uint8_t source_pixel = source_row[column];
                 if(!transparent || source_pixel != 0)
-                {
                     destination_row[column] = convert_palette ? static_cast<uint8_t>(palette[source_pixel]) : source_pixel;
-                }
             }
         }
         source_row += source->sync_secondary_position;
@@ -1173,18 +944,14 @@ void composite_scene_pixels(DisplaySceneNode *destination, int32_t destination_x
 {
     CompositeRegion region{};
     if(prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
-    {
         composite_indexed_pixels(destination, source, source_state, region, transparent, convert_palette, destination_bits);
-    }
 }
 
 void composite_xrgb_pixels(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, uint32_t mode, bool transparent)
 {
     CompositeRegion region{};
     if(!prepare_composite_region(destination, destination_x, destination_y, source, rectangle, mode, region))
-    {
         return;
-    }
     auto *source_row = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(source->callback_position)) + region.source_y * source->sync_secondary_position
                      + region.source_x * static_cast<int32_t>(sizeof(uint32_t));
     auto *destination_row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(destination->callback_position)) + region.destination_y * destination->sync_secondary_position
@@ -1196,12 +963,8 @@ void composite_xrgb_pixels(DisplaySceneNode *destination, int32_t destination_x,
         if(transparent)
         {
             for(int32_t column = 0; column < region.width; ++column)
-            {
                 if((source_pixels[column] & 0xff000000) != 0)
-                {
                     destination_pixels[column] = source_pixels[column];
-                }
-            }
         }
         else
         {
@@ -1212,7 +975,6 @@ void composite_xrgb_pixels(DisplaySceneNode *destination, int32_t destination_x,
     }
 }
 
-} // namespace
 
 void composite_transparent_8_to_8(DisplaySceneNode *destination, int32_t destination_x, int32_t destination_y, DisplaySceneNode *source, DisplayRectangle *rectangle, void *source_state, uint32_t mode)
 {
@@ -1273,27 +1035,17 @@ void composite_opaque_32_to_32(DisplaySceneNode *destination, int32_t destinatio
 void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
     if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 0x10)
-    {
         return;
-    }
     const auto count_bits = [](uint32_t mask, uint32_t &shift)
     {
         shift = 0;
         if(mask != 0)
-        {
             while(((mask >> shift) & 1) == 0)
-            {
                 ++shift;
-            }
-        }
         uint32_t high_bit = 31;
         if(mask != 0)
-        {
             while((mask >> high_bit) == 0)
-            {
                 --high_bit;
-            }
-        }
         return (high_bit + 1) - shift;
     };
     uint32_t red_shift;
@@ -1324,9 +1076,7 @@ void build_indexed_to_16_palette(DisplayPixelFormatDescriptor *source_state, con
 void build_indexed_to_32_palette(DisplayPixelFormatDescriptor *source_state)
 {
     if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || source_state->palette_entries == nullptr)
-    {
         return;
-    }
     const uint32_t *source_palette = source_state->palette_source;
     auto *destination_palette = const_cast<uint32_t *>(source_state->palette_entries);
     for(uint32_t index = 0; index < source_state->palette_count; ++index)
@@ -1342,9 +1092,7 @@ void build_indexed_to_32_palette(DisplayPixelFormatDescriptor *source_state)
 void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state, const DisplayPixelFormatDescriptor *destination_state)
 {
     if(source_state->bits_per_pixel != 8 || source_state->palette_source == nullptr || destination_state->bits_per_pixel != 8 || destination_state->palette_source == nullptr)
-    {
         return;
-    }
     uint32_t source_count = source_state->palette_count;
     uint32_t destination_count = destination_state->palette_count;
     const uint32_t *source_palette = source_state->palette_source;
@@ -1367,24 +1115,16 @@ void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state
                     uint32_t destination_component = (destination_color >> (component * 8)) & 0xff;
                     uint32_t difference = source_component < destination_component ? destination_component - source_component : source_component - destination_component;
                     if(maximum_difference < difference)
-                    {
                         maximum_difference = difference;
-                    }
                 }
                 if(maximum_difference <= threshold)
-                {
                     break;
-                }
             }
             if(destination_index < destination_count)
-            {
                 break;
-            }
             threshold += 10;
             if(0x104 <= threshold)
-            {
                 break;
-            }
         }
         mapping[source_index] = destination_index;
     }
@@ -1393,9 +1133,7 @@ void build_indexed_to_indexed_palette(DisplayPixelFormatDescriptor *source_state
 bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *palette, uint32_t count)
 {
     if(node == nullptr)
-    {
         node = display_scene_root;
-    }
     bool result = false;
     if(begin_display_scene_update(reinterpret_cast<intptr_t>(node)) == 0)
     {
@@ -1410,18 +1148,14 @@ bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *pal
                 if(node == display_scene_root)
                 {
                     for(DisplaySceneNode *entry = display_scene_head; entry != nullptr; entry = entry->next)
-                    {
                         if(entry != node && entry->rectangle_callback_format.bits_per_pixel == 8 && entry->rectangle_callback_format.palette_source != nullptr)
-                        {
-                            entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
-                        }
-                    }
+                            entry->rectangle_callback = (entry->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                     display_palette_source_state = nullptr;
-                    display_lock_flags |= 0x10;
+                    display_lock_flags |= DISPLAY_SCENE_PALETTE_CHANGED;
                 }
                 else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
                 {
-                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+                    node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                 }
                 else
                 {
@@ -1443,29 +1177,29 @@ bool configure_display_scene_palette(DisplaySceneNode *node, const uint32_t *pal
                         if(entry != node && entry->rectangle_callback_format.bits_per_pixel == 8 && entry->rectangle_callback_format.palette_source != nullptr)
                         {
                             build_indexed_to_indexed_palette(&entry->rectangle_callback_format, node_state);
-                            entry->rectangle_callback = (entry->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+                            entry->rectangle_callback = (entry->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
                         }
                     }
                     display_palette_source_state = node_state;
-                    display_lock_flags |= 0x10;
+                    display_lock_flags |= DISPLAY_SCENE_PALETTE_CHANGED;
                 }
                 else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
                 {
                     if(display_scene_root->rectangle_callback_format.palette_source != nullptr)
                     {
                         build_indexed_to_indexed_palette(node_state, &display_scene_root->rectangle_callback_format);
-                        node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+                        node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
                     }
                 }
                 else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 0x10)
                 {
                     build_indexed_to_16_palette(node_state, &display_scene_root->rectangle_callback_format);
-                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
+                    node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
                 }
                 else if(display_scene_root->rectangle_callback_format.bits_per_pixel == 32)
                 {
                     build_indexed_to_32_palette(node_state);
-                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
+                    node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
                 }
             }
         }
@@ -1483,9 +1217,7 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
     node->rectangle_callback_format.palette_source = nullptr;
     node->rectangle_callback_format.palette_entries = nullptr;
     if(display_scene_root == nullptr)
-    {
         return;
-    }
     uint32_t destination_bits = display_scene_root->rectangle_callback_format.bits_per_pixel;
     uint32_t source_bits = format->bits_per_pixel;
     if(node == display_scene_root)
@@ -1493,9 +1225,7 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
         if(source_bits == 8)
         {
             if(format->palette_source != nullptr)
-            {
                 configure_display_scene_palette(node, format->palette_source, format->palette_count);
-            }
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
         }
         else if(source_bits == 0x10)
@@ -1520,11 +1250,11 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
             {
                 std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
                 node->rectangle_callback_format.palette_entries = node->palette_mapping;
-                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
+                node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_8 : composite_opaque_indexed_to_8;
             }
             else
             {
-                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
+                node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
             }
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
         }
@@ -1545,7 +1275,7 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
             {
                 std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
                 node->rectangle_callback_format.palette_entries = node->palette_mapping;
-                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
+                node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_16 : composite_opaque_indexed_to_16;
             }
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
         }
@@ -1557,13 +1287,9 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
     else if(destination_bits == 0x18)
     {
         if(source_bits == 8)
-        {
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
-        }
         else if(source_bits == 0x10)
-        {
             node->root_rectangle_callback = fill_display_scene_rectangle_16;
-        }
     }
     else if(destination_bits == 32)
     {
@@ -1577,13 +1303,13 @@ void configure_display_scene_format(DisplaySceneNode *node, const DisplayPixelFo
             {
                 std::memcpy(node->palette_mapping, format->palette_entries, sizeof(node->palette_mapping));
                 node->rectangle_callback_format.palette_entries = node->palette_mapping;
-                node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
+                node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_indexed_to_32 : composite_opaque_indexed_to_32;
             }
             node->root_rectangle_callback = fill_display_scene_rectangle_8;
         }
         else if(source_bits == 32)
         {
-            node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_32_to_32 : composite_opaque_32_to_32;
+            node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_32_to_32 : composite_opaque_32_to_32;
             node->root_rectangle_callback = fill_display_scene_rectangle_32;
         }
     }
@@ -1593,49 +1319,39 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
     const DisplayPixelFormatDescriptor *format)
 {
     if(owner != 0 && descriptor == nullptr)
-    {
         return nullptr;
-    }
     if(format == nullptr)
-    {
         format = &default_display_pixel_format;
-    }
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return nullptr;
-    }
     DisplaySceneNode *result = nullptr;
     DisplaySceneNode *previous = nullptr;
     uint32_t previous_mode = 0;
     bool locked_node = false;
     int32_t requested_x = x;
     uint32_t requested_index = index;
-    const DisplaySceneStorage requested_storage = format->bits_per_pixel == 8 ? DisplaySceneStorage::indexed_source : DisplaySceneStorage::xrgb_composition;
+    const DisplaySceneStorage requested_storage = format->bits_per_pixel == 8 ? DisplaySceneStorage::INDEXED_SOURCE : DisplaySceneStorage::XRGB_COMPOSITION;
     if((flags & 1) != 0)
     {
-        requested_index = 0x7fffffff;
-        flags |= 0x22;
+        requested_index = DISPLAY_SCENE_ROOT_INDEX;
+        flags |= DISPLAY_SCENE_OPAQUE | DISPLAY_SCENE_STATIC;
     }
     while(true)
     {
         if(locked_node)
         {
-            display_lock_acquire_api.sleep(5);
+            runtime_sleep(5);
             locked_node = false;
         }
-        if(previous_mode == 0x3000)
-        {
-            display_lock_acquire_api.wait_for_event(display_lock_release_event);
-        }
-        if(previous_mode == 0x2000)
-        {
-            display_lock_acquire_api.sleep(5);
-        }
-        display_lock_acquire_api.enter_mutex(display_lock_mutex);
-        previous_mode = display_lock_flags & 0x3000;
+        if(previous_mode == DISPLAY_SCENE_LOCK_MODE_MASK)
+            wait_runtime_event(display_lock_release_event);
+        if(previous_mode == DISPLAY_SCENE_LOCK_ACQUIRED)
+            runtime_sleep(5);
+        lock_runtime_mutex(display_lock_mutex);
+        previous_mode = display_lock_flags & DISPLAY_SCENE_LOCK_MODE_MASK;
         if(previous_mode == 0)
         {
-            previous_mode = 0x80000000;
+            previous_mode = DISPLAY_OPERATION_FAILED;
             DisplaySceneNode *existing = display_scene_head;
             previous = nullptr;
             bool matching_scene = false;
@@ -1648,12 +1364,10 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     continue;
                 }
                 if(existing->scene_index > requested_index)
-                {
                     break;
-                }
                 if(existing->storage == requested_storage)
                 {
-                    if(requested_storage == DisplaySceneStorage::xrgb_composition)
+                    if(requested_storage == DisplaySceneStorage::XRGB_COMPOSITION)
                     {
                         matching_scene = true;
                         break;
@@ -1667,26 +1381,22 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         }
                     }
                     if(matching_scene)
-                    {
                         break;
-                    }
                 }
-                if(requested_storage == DisplaySceneStorage::xrgb_composition)
-                {
+                if(requested_storage == DisplaySceneStorage::XRGB_COMPOSITION)
                     break;
-                }
                 previous = existing;
                 existing = existing->next;
             }
             if(!matching_scene)
             {
-                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
-                auto *node = static_cast<DisplaySceneNode *>(display_scene_memory_api.heap_alloc(heap, 8, sizeof(DisplaySceneNode)));
+                RuntimeHeap *heap = runtime_process_heap();
+                auto *node = static_cast<DisplaySceneNode *>(allocate_runtime_heap(heap, 8, sizeof(DisplaySceneNode)));
                 if(node != nullptr)
                 {
                     uint32_t bytes_per_pixel = format->bits_per_pixel >> 3;
                     uint32_t pixel_bytes;
-                    if(requested_index == 0x7fffffff)
+                    if(requested_index == DISPLAY_SCENE_ROOT_INDEX)
                     {
                         pixel_bytes = bytes_per_pixel * static_cast<uint32_t>(display_height) * static_cast<uint32_t>(display_width);
                         display_scene_root = node;
@@ -1698,7 +1408,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     else
                     {
                         pixel_bytes = bytes_per_pixel * height * width;
-                        void *pixels = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                        void *pixels = allocate_runtime_heap(heap, 0, pixel_bytes);
                         node->callback_first_position = reinterpret_cast<intptr_t>(pixels);
                         if(pixels != nullptr)
                         {
@@ -1711,55 +1421,46 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                             node->previous_y = y;
                         }
                     }
-                    if(node->callback_first_position != 0 && requested_storage == DisplaySceneStorage::xrgb_composition)
+                    if(node->callback_first_position != 0 && requested_storage == DisplaySceneStorage::XRGB_COMPOSITION)
                     {
                         const size_t indexed_bytes = static_cast<size_t>(node->width) * static_cast<size_t>(node->height);
-                        node->indexed_backing = reinterpret_cast<intptr_t>(display_scene_memory_api.heap_alloc(heap, runtime_heap_zero_memory, indexed_bytes));
+                        node->indexed_backing = reinterpret_cast<intptr_t>(allocate_runtime_heap(heap, runtime_heap_zero_memory, indexed_bytes));
                     }
-                    if((node->callback_first_position == 0 && requested_index != 0x7fffffff) || (requested_storage == DisplaySceneStorage::xrgb_composition && node->indexed_backing == 0))
+                    if((node->callback_first_position == 0 && requested_index != DISPLAY_SCENE_ROOT_INDEX)
+                        || (requested_storage == DisplaySceneStorage::XRGB_COMPOSITION && node->indexed_backing == 0))
                     {
-                        if(node->callback_first_position != 0 && requested_index != 0x7fffffff)
-                        {
-                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
-                        }
-                        display_scene_memory_api.heap_free(heap, 0, node);
+                        if(node->callback_first_position != 0 && requested_index != DISPLAY_SCENE_ROOT_INDEX)
+                            free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
+                        free_runtime_heap(heap, 0, node);
                     }
                     else
                     {
                         if(node->callback_first_position != 0)
                         {
-                            if((flags & 0x20000) != 0)
-                            {
+                            if((flags & DISPLAY_SCENE_PRIMARY) != 0)
                                 std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)), 0, pixel_bytes);
-                            }
-                            if(requested_index == 0x7fffffff)
-                            {
+                            if(requested_index == DISPLAY_SCENE_ROOT_INDEX)
                                 display_scene_root_secondary_position = node->sync_secondary_position;
-                            }
                         }
                         node->callback_position = node->callback_first_position;
                         node->storage = requested_storage;
                         node->identifier = reinterpret_cast<intptr_t>(node);
                         node->surface = &display_scene_surface_state;
-                        node->flags = (flags & 0xf7fcffbf) | 0x01000000;
+                        node->flags = (flags & ~(DISPLAY_SCENE_XRGB_COMPOSITION | DISPLAY_SCENE_PRIMARY_OWNER | DISPLAY_SCENE_PRIMARY | DISPLAY_SCENE_INDEXED)) | DISPLAY_SCENE_UPDATE_PENDING;
                         node->scene_index = requested_index;
                         node->accumulated_rectangle.left = node->width;
                         node->accumulated_rectangle.top = node->height;
                         if(owner != 0)
                         {
-                            if((flags & 0x10000) != 0 && node->primary_owner == 0)
-                            {
+                            if((flags & DISPLAY_SCENE_PRIMARY_OWNER) != 0 && node->primary_owner == 0)
                                 node->primary_owner = owner;
-                            }
                             node->owners[0] = owner;
                             ++node->owner_count;
-                            node->flags |= flags & 0xffccffff;
+                            node->flags |= flags & ~(DISPLAY_SCENE_PRIMARY_OWNER | DISPLAY_SCENE_PRIMARY | DISPLAY_SCENE_PRESERVE_POSITION | DISPLAY_SCENE_PRESERVE_DIMENSIONS);
                             descriptor->x = 0;
                             descriptor->y = 0;
                             descriptor->width = static_cast<int16_t>(width);
                             descriptor->height = static_cast<int16_t>(height);
-                            descriptor->present = 1;
-                            descriptor->reserved = 0;
                             descriptor->pixels = node->callback_first_position;
                             descriptor->bits_per_pixel = format->bits_per_pixel;
                             descriptor->stride = width;
@@ -1784,24 +1485,16 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
             }
             else
             {
-                if((flags & 0x08000000) != 0)
+                if((flags & DISPLAY_SCENE_XRGB_COMPOSITION) != 0)
                 {
                     if(requested_x < existing->x)
-                    {
                         requested_x = existing->x;
-                    }
                     if(y < existing->y)
-                    {
                         y = existing->y;
-                    }
                     if(static_cast<uint32_t>(existing->x + existing->width) < static_cast<uint32_t>(requested_x) + width)
-                    {
                         requested_x = (existing->width - static_cast<int32_t>(width)) + existing->x;
-                    }
                     if(static_cast<uint32_t>(existing->y + existing->height) < static_cast<uint32_t>(y) + height)
-                    {
                         y = (existing->height - static_cast<int32_t>(height)) + existing->y;
-                    }
                 }
                 int32_t offset_x = requested_x - existing->x;
                 int32_t offset_y = y - existing->y;
@@ -1817,34 +1510,30 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                 bool fits = offset_x >= 0 && offset_y >= 0 && static_cast<uint32_t>(offset_x) + width <= static_cast<uint32_t>(existing->width)
                          && static_cast<uint32_t>(offset_y) + height <= static_cast<uint32_t>(existing->height);
                 uint32_t existing_flags = existing->flags;
-                if((existing_flags & 0x40) != 0 || owner_exists || !fits || (existing->owner_count == 0 && (existing_flags & 2) == 0))
+                if((existing_flags & DISPLAY_SCENE_INDEXED) != 0 || owner_exists || !fits || (existing->owner_count == 0 && (existing_flags & DISPLAY_SCENE_STATIC) == 0))
                 {
                     locked_node = true;
                     if(existing->lock_count == 0)
                     {
                         locked_node = false;
-                        if((flags & 0x200000) != 0)
+                        if((flags & DISPLAY_SCENE_PRESERVE_DIMENSIONS) != 0)
                         {
                             if(width <= static_cast<uint32_t>(existing->width))
-                            {
                                 width = existing->width;
-                            }
                             if(height <= static_cast<uint32_t>(existing->height))
-                            {
                                 height = existing->height;
-                            }
                         }
-                        if((flags & 0x100000) != 0)
+                        if((flags & DISPLAY_SCENE_PRESERVE_POSITION) != 0)
                         {
                             requested_x = existing->x;
                             y = existing->y;
                         }
-                        if(((existing->owner_count == 0 && owner != 0) || (existing->owner_count == 1 && owner_exists)) && (existing_flags & 0x42) == 0)
+                        if(((existing->owner_count == 0 && owner != 0) || (existing->owner_count == 1 && owner_exists)) && (existing_flags & (DISPLAY_SCENE_INDEXED | DISPLAY_SCENE_STATIC)) == 0)
                         {
                             uint32_t pixel_bytes = (format->bits_per_pixel >> 3) * height * width;
                             if(existing->rectangle_callback_format.bits_per_pixel == format->bits_per_pixel
-                                && ((existing_flags & 0x02000000) == 0 || (width == static_cast<uint32_t>(existing->width) && height == static_cast<uint32_t>(existing->height)))
-                                && ((existing_flags & 0x04000000) == 0 || (requested_x == existing->x && y == existing->y)))
+                                && ((existing_flags & DISPLAY_SCENE_FIXED_SIZE) == 0 || (width == static_cast<uint32_t>(existing->width) && height == static_cast<uint32_t>(existing->height)))
+                                && ((existing_flags & DISPLAY_SCENE_FIXED_POSITION) == 0 || (requested_x == existing->x && y == existing->y)))
                             {
                                 DisplayRectangle old_rectangle{ existing->x, existing->y, existing->x + existing->width, existing->y + existing->height };
                                 void *primary;
@@ -1853,7 +1542,7 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                 void *indexed_backing;
                                 bool allocation_success = true;
                                 const bool dimensions_changed = existing->width != static_cast<int32_t>(width) || existing->height != static_cast<int32_t>(height);
-                                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
+                                RuntimeHeap *heap = runtime_process_heap();
                                 if(!dimensions_changed)
                                 {
                                     primary = reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position));
@@ -1868,32 +1557,26 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     current = nullptr;
                                     alternate = nullptr;
                                     indexed_backing = nullptr;
-                                    primary = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                    primary = allocate_runtime_heap(heap, 0, pixel_bytes);
                                     allocation_success = primary != nullptr;
                                     if(had_current && allocation_success)
                                     {
-                                        current = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                        current = allocate_runtime_heap(heap, 0, pixel_bytes);
                                         if(current == nullptr)
-                                        {
                                             allocation_success = false;
-                                        }
                                     }
                                     if(had_alternate && allocation_success)
                                     {
-                                        alternate = display_scene_memory_api.heap_alloc(heap, 0, pixel_bytes);
+                                        alternate = allocate_runtime_heap(heap, 0, pixel_bytes);
                                         if(alternate == nullptr)
-                                        {
                                             allocation_success = false;
-                                        }
                                     }
-                                    if(existing->storage == DisplaySceneStorage::xrgb_composition && allocation_success)
+                                    if(existing->storage == DisplaySceneStorage::XRGB_COMPOSITION && allocation_success)
                                     {
                                         const size_t indexed_bytes = static_cast<size_t>(width) * static_cast<size_t>(height);
-                                        indexed_backing = display_scene_memory_api.heap_alloc(heap, runtime_heap_zero_memory, indexed_bytes);
+                                        indexed_backing = allocate_runtime_heap(heap, runtime_heap_zero_memory, indexed_bytes);
                                         if(indexed_backing == nullptr)
-                                        {
                                             allocation_success = false;
-                                        }
                                     }
                                 }
                                 if(allocation_success)
@@ -1901,35 +1584,25 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     if(dimensions_changed)
                                     {
                                         if(existing->callback_alternate_position != 0)
-                                        {
-                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position)));
-                                        }
+                                            free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_alternate_position)));
                                         if(existing->callback_current_position != 0)
-                                        {
-                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position)));
-                                        }
-                                        display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)));
+                                            free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_current_position)));
+                                        free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)));
                                         if(existing->indexed_backing != 0)
-                                        {
-                                            display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->indexed_backing)));
-                                        }
+                                            free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(existing->indexed_backing)));
                                     }
                                     existing->callback_first_position = reinterpret_cast<intptr_t>(primary);
                                     existing->callback_current_position = reinterpret_cast<intptr_t>(current);
                                     existing->callback_alternate_position = reinterpret_cast<intptr_t>(alternate);
                                     existing->indexed_backing = reinterpret_cast<intptr_t>(indexed_backing);
                                     queue_display_rectangle(&old_rectangle);
-                                    if((flags & 0x10000) != 0 && existing->primary_owner == 0)
-                                    {
+                                    if((flags & DISPLAY_SCENE_PRIMARY_OWNER) != 0 && existing->primary_owner == 0)
                                         existing->primary_owner = owner;
-                                    }
-                                    if((flags & 0x20000) != 0)
+                                    if((flags & DISPLAY_SCENE_PRIMARY) != 0)
                                     {
                                         std::memset(primary, 0, pixel_bytes);
                                         if(indexed_backing != nullptr)
-                                        {
                                             std::memset(indexed_backing, 0, static_cast<size_t>(width) * height);
-                                        }
                                     }
                                     existing->owners[0] = owner;
                                     existing->owner_count = 1;
@@ -1942,13 +1615,11 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                     existing->y = y;
                                     existing->previous_x = requested_x;
                                     existing->previous_y = y;
-                                    existing->flags = flags | 0x01000000;
+                                    existing->flags = flags | DISPLAY_SCENE_UPDATE_PENDING;
                                     descriptor->x = 0;
                                     descriptor->y = 0;
                                     descriptor->width = static_cast<int16_t>(width);
                                     descriptor->height = static_cast<int16_t>(height);
-                                    descriptor->present = 1;
-                                    descriptor->reserved = 0;
                                     descriptor->pixels = reinterpret_cast<intptr_t>(primary);
                                     descriptor->bits_per_pixel = format->bits_per_pixel;
                                     descriptor->stride = width;
@@ -1959,21 +1630,13 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                                 else
                                 {
                                     if(alternate != nullptr)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, alternate);
-                                    }
+                                        free_runtime_heap(heap, 0, alternate);
                                     if(current != nullptr)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, current);
-                                    }
+                                        free_runtime_heap(heap, 0, current);
                                     if(primary != nullptr)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, primary);
-                                    }
+                                        free_runtime_heap(heap, 0, primary);
                                     if(indexed_backing != nullptr)
-                                    {
-                                        display_scene_memory_api.heap_free(heap, 0, indexed_backing);
-                                    }
+                                        free_runtime_heap(heap, 0, indexed_backing);
                                 }
                             }
                         }
@@ -1988,11 +1651,9 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     result = existing;
                     if(owner != 0)
                     {
-                        if((flags & 0x10000) != 0 && existing->primary_owner == 0)
-                        {
+                        if((flags & DISPLAY_SCENE_PRIMARY_OWNER) != 0 && existing->primary_owner == 0)
                             existing->primary_owner = owner;
-                        }
-                        if((flags & 0x20000) != 0 && existing->owner_count == 0)
+                        if((flags & DISPLAY_SCENE_PRIMARY) != 0 && existing->owner_count == 0)
                         {
                             const uint32_t pixel_bytes = existing->rectangle_callback_format.bits_per_pixel >> 3;
                             std::memset(reinterpret_cast<void *>(static_cast<uintptr_t>(existing->callback_first_position)), 0,
@@ -2008,8 +1669,6 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                         descriptor->y = static_cast<int16_t>(offset_y);
                         descriptor->width = static_cast<int16_t>(existing->width);
                         descriptor->height = static_cast<int16_t>(existing->height);
-                        descriptor->present = 1;
-                        descriptor->reserved = 0;
                         descriptor->pixels = existing->callback_first_position;
                         descriptor->bits_per_pixel = existing->rectangle_callback_format.bits_per_pixel;
                         descriptor->stride = static_cast<uint32_t>(existing->sync_secondary_position) / (existing->rectangle_callback_format.bits_per_pixel >> 3);
@@ -2019,20 +1678,14 @@ DisplaySceneNode *acquire_display_scene_node(uint32_t index, int32_t x, int32_t 
                     }
                 }
             }
-            if(result != nullptr && (result->scene_index != 0x7fffffff || result->reference_count == 0))
-            {
+            if(result != nullptr && (result->scene_index != DISPLAY_SCENE_ROOT_INDEX || result->reference_count == 0))
                 ++result->reference_count;
-            }
         }
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
-        if((previous_mode & 0x3000) != 0)
-        {
+        unlock_runtime_mutex(display_lock_mutex);
+        if((previous_mode & DISPLAY_SCENE_LOCK_MODE_MASK) != 0)
             continue;
-        }
         if(!locked_node)
-        {
             return result;
-        }
     }
 }
 
@@ -2040,13 +1693,9 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     int (*synchronize)(void *context, void *payload, uint32_t mode), void *context, uint32_t worker_interval)
 {
     if(primary_position == 0)
-    {
         return nullptr;
-    }
-    if((display_lock_flags & 1) != 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) != 0)
         return &display_lock_flags;
-    }
 
     display_lock_flags = 0;
     display_lock_mutex = nullptr;
@@ -2061,7 +1710,7 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     display_pending_rectangle = {};
     display_width = 0;
     display_height = 0;
-    display_scene_sync_api.synchronize = nullptr;
+    display_scene_synchronize = nullptr;
     display_scene_sync_context = nullptr;
     display_scene_worker_interval = 0;
     display_scene_worker_rate = 0;
@@ -2093,7 +1742,7 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     display_height = height;
     display_scene_surface_state.width = width;
     display_scene_surface_state.height = height;
-    display_lock_flags = 1;
+    display_lock_flags = DISPLAY_SCENE_HOST_INITIALIZED;
     display_scene_root_primary_position = primary_position;
     display_scene_root = acquire_display_scene_node(0, 0, 0, 0, 0, 1, 0, nullptr, format);
     if(display_scene_root == nullptr)
@@ -2109,13 +1758,13 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
     }
     if(synchronize != nullptr)
     {
-        display_scene_sync_api.synchronize = synchronize;
+        display_scene_synchronize = synchronize;
         display_scene_sync_context = context;
         display_scene_worker_interval = worker_interval;
         display_scene_worker_thread = new (std::nothrow) std::jthread([] { run_display_scene_worker(&display_lock_flags); });
         if(display_scene_worker_thread == nullptr)
         {
-            display_lock_flags |= 0x40000000;
+            display_lock_flags |= DISPLAY_SCENE_HOST_SHUTDOWN_REQUESTED;
             release_display_scene_node(reinterpret_cast<intptr_t>(display_scene_root), 0);
             delete display_lock_release_event;
             delete display_lock_gate_event;
@@ -2135,18 +1784,16 @@ uint32_t *initialize_display_scene_host(intptr_t primary_position, const Display
 
 uint32_t shutdown_display_scene_host()
 {
-    if((display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    lock_runtime_mutex(display_lock_mutex);
     if(display_scene_count != 1)
     {
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
-        return 0x80000000;
+        unlock_runtime_mutex(display_lock_mutex);
+        return DISPLAY_OPERATION_FAILED;
     }
-    display_lock_flags = (display_lock_flags & ~1U) | 0x40000000;
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    display_lock_flags = (display_lock_flags & ~DISPLAY_SCENE_HOST_INITIALIZED) | DISPLAY_SCENE_HOST_SHUTDOWN_REQUESTED;
+    unlock_runtime_mutex(display_lock_mutex);
     if(display_scene_worker_thread != nullptr)
     {
         display_scene_worker_thread->join();
@@ -2160,68 +1807,60 @@ uint32_t shutdown_display_scene_host()
     display_lock_release_event = nullptr;
     display_lock_gate_event = nullptr;
     display_lock_mutex = nullptr;
-    return 0;
+    return DISPLAY_OPERATION_SUCCESS;
 }
 
 void run_display_scene_worker(uint32_t *flags)
 {
-    uint32_t frame_start = display_scene_worker_api.time_get_time();
+    uint32_t frame_start = runtime_milliseconds();
     uint32_t rate_start = frame_start;
     uint32_t frame_count = 0;
-    while((*flags & 0x40000000) == 0)
+    while((*flags & DISPLAY_SCENE_HOST_SHUTDOWN_REQUESTED) == 0)
     {
         DisplayRectangle primary_rectangle{};
         DisplayRectangle secondary_rectangle{};
         uint32_t dirty_flags = 0;
-        const uint32_t acquire_result = display_scene_worker_api.acquire_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
-        if(acquire_result == 0)
+        const uint32_t acquire_result = acquire_display_lock(&primary_rectangle, &secondary_rectangle, &dirty_flags);
+        if(acquire_result == DISPLAY_OPERATION_SUCCESS)
         {
-            const int synchronize_result = dirty_flags != 0 ? display_scene_worker_api.synchronize_node(display_scene_root, &primary_rectangle) : 0;
+            const int synchronize_result = dirty_flags != 0 ? synchronize_display_scene_node(display_scene_root, &primary_rectangle) : 0;
             if(dirty_flags != 0 && synchronize_result != 0)
             {
-                *flags |= 0x20;
-                if((dirty_flags & 0x20000) != 0 && display_scene_root->root_rectangle_callback != nullptr)
-                {
+                *flags |= DISPLAY_SCENE_WORKER_READY;
+                if((dirty_flags & DISPLAY_DIRTY_SECONDARY) != 0 && display_scene_root->root_rectangle_callback != nullptr)
                     display_scene_root->root_rectangle_callback(display_scene_root, &secondary_rectangle, 0);
-                }
-                if((dirty_flags & 0x10000) != 0)
+                if((dirty_flags & DISPLAY_DIRTY_PRIMARY) != 0)
                 {
                     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
-                    {
                         if(node->rectangle_callback != nullptr)
-                        {
                             node->rectangle_callback(display_scene_root, 0, 0, node, &primary_rectangle, &node->rectangle_callback_format, 0x01000000);
-                        }
-                    }
                 }
-                display_scene_worker_api.publish_node(display_scene_root);
-                display_scene_worker_api.release_mode_1000();
-                if((*flags & 0x10) != 0)
+                publish_display_scene_node(display_scene_root);
+                release_pending_display_lock();
+                if((*flags & DISPLAY_SCENE_PALETTE_CHANGED) != 0)
                 {
-                    display_scene_sync_api.synchronize(display_scene_sync_context, display_palette_source_state, 2);
-                    *flags &= ~0x10U;
+                    display_scene_synchronize(display_scene_sync_context, display_palette_source_state, 2);
+                    *flags &= ~DISPLAY_SCENE_PALETTE_CHANGED;
                 }
-                display_scene_sync_api.synchronize(display_scene_sync_context, &primary_rectangle, 1);
+                display_scene_synchronize(display_scene_sync_context, &primary_rectangle, 1);
             }
-            display_scene_worker_api.release_lock();
+            release_display_lock();
         }
-        uint32_t now = display_scene_worker_api.time_get_time();
+        uint32_t now = runtime_milliseconds();
         uint32_t elapsed = now - frame_start;
         if(elapsed < display_scene_worker_interval)
         {
             uint32_t delay = display_scene_worker_interval - elapsed;
-            display_scene_worker_api.sleep(delay);
+            runtime_sleep(delay);
             frame_start = now + delay;
         }
         else
         {
-            display_scene_worker_api.sleep(0);
+            runtime_sleep(0);
             frame_start = now;
         }
         if(dirty_flags != 0)
-        {
             ++frame_count;
-        }
         if(now - rate_start >= 1000)
         {
             display_scene_worker_rate = frame_count;
@@ -2233,10 +1872,8 @@ void run_display_scene_worker(uint32_t *flags)
 
 uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
 {
-    if((identifier == 0 && owner == 0) || (display_lock_flags & 1) == 0)
-    {
-        return 0x80000000;
-    }
+    if((identifier == 0 && owner == 0) || (display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
     uint32_t previous_mode = 0;
     uint32_t previous_busy = 0;
     bool locked_node = false;
@@ -2244,29 +1881,23 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
     {
         if(locked_node)
         {
-            display_lock_acquire_api.sleep(5);
+            runtime_sleep(5);
             locked_node = false;
         }
         if(previous_busy != 0)
-        {
-            display_lock_acquire_api.wait_for_event(display_lock_gate_event);
-        }
-        if(previous_mode == 0x3000)
-        {
-            display_lock_acquire_api.wait_for_event(display_lock_release_event);
-        }
-        if(previous_mode == 0x2000)
-        {
-            display_lock_acquire_api.sleep(5);
-        }
-        display_lock_acquire_api.enter_mutex(display_lock_mutex);
+            wait_runtime_event(display_lock_gate_event);
+        if(previous_mode == DISPLAY_SCENE_LOCK_MODE_MASK)
+            wait_runtime_event(display_lock_release_event);
+        if(previous_mode == DISPLAY_SCENE_LOCK_ACQUIRED)
+            runtime_sleep(5);
+        lock_runtime_mutex(display_lock_mutex);
         uint32_t observed_busy = display_lock_busy;
-        previous_mode = display_lock_flags & 0x3000;
+        previous_mode = display_lock_flags & DISPLAY_SCENE_LOCK_MODE_MASK;
         previous_busy = display_lock_busy;
         uint32_t result = previous_mode;
         if(previous_mode == 0 && display_lock_busy == 0)
         {
-            result = 0x80000000;
+            result = DISPLAY_OPERATION_FAILED;
             DisplaySceneNode *previous = nullptr;
             DisplaySceneNode *node = display_scene_head;
             while(node != nullptr)
@@ -2289,7 +1920,7 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                     node->owners[node->owner_count] = 0;
                                     if(node->owner_count == 0)
                                     {
-                                        node->flags = (node->flags & ~0x40u) | 0x01000000;
+                                        node->flags = (node->flags & ~DISPLAY_SCENE_INDEXED) | DISPLAY_SCENE_UPDATE_PENDING;
                                         if(node->rectangle_callback_format.bits_per_pixel == 8)
                                         {
                                             node->rectangle_callback_format.palette_count = 0;
@@ -2298,31 +1929,25 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                             if(node != display_scene_root)
                                             {
                                                 if(display_scene_root->rectangle_callback_format.bits_per_pixel == 8)
-                                                {
-                                                    node->rectangle_callback = (node->flags & 0x20) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
-                                                }
+                                                    node->rectangle_callback = (node->flags & DISPLAY_SCENE_OPAQUE) == 0 ? composite_transparent_8_to_8 : composite_opaque_8_to_8;
                                                 else
-                                                {
                                                     node->rectangle_callback = nullptr;
-                                                }
                                             }
                                         }
                                     }
                                     if(node->primary_owner == owner)
-                                    {
                                         node->primary_owner = 0;
-                                    }
-                                    result = 0;
+                                    result = DISPLAY_OPERATION_SUCCESS;
                                     remaining_owner = 0;
                                     break;
                                 }
                             }
                         }
-                        if(static_cast<int32_t>(node->scene_index) != 0x7fffffff || (display_lock_flags & 0x40000000) != 0)
+                        if(static_cast<int32_t>(node->scene_index) != DISPLAY_SCENE_ROOT_INDEX || (display_lock_flags & DISPLAY_SCENE_HOST_SHUTDOWN_REQUESTED) != 0)
                         {
                             if(remaining_owner == 0 && node->owner_count < node->reference_count)
                             {
-                                result = 0;
+                                result = DISPLAY_OPERATION_SUCCESS;
                                 --node->reference_count;
                             }
                             if(node->reference_count == 0)
@@ -2335,42 +1960,28 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                                 queue_display_rectangle(&dirty_rectangle);
                                 --display_scene_count;
                                 if(previous == nullptr)
-                                {
                                     display_scene_head = next;
-                                }
                                 else
-                                {
                                     previous->next = next;
-                                }
-                                RuntimeHeap *heap = display_scene_memory_api.get_process_heap();
+                                RuntimeHeap *heap = runtime_process_heap();
                                 DisplaySceneCallbackNode *callback = node->callbacks;
                                 while(callback != nullptr)
                                 {
                                     DisplaySceneCallbackNode *next_callback = callback->next;
-                                    display_scene_memory_api.heap_free(heap, 0, callback);
+                                    free_runtime_heap(heap, 0, callback);
                                     callback = next_callback;
                                 }
                                 if(node->callback_alternate_position != 0)
-                                {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_alternate_position)));
-                                }
+                                    free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_alternate_position)));
                                 if(node->callback_current_position != 0)
-                                {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_current_position)));
-                                }
-                                if(static_cast<int32_t>(node->scene_index) == 0x7fffffff)
-                                {
+                                    free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_current_position)));
+                                if(static_cast<int32_t>(node->scene_index) == DISPLAY_SCENE_ROOT_INDEX)
                                     display_scene_root = nullptr;
-                                }
                                 else
-                                {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
-                                }
+                                    free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->callback_first_position)));
                                 if(node->indexed_backing != 0)
-                                {
-                                    display_scene_memory_api.heap_free(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->indexed_backing)));
-                                }
-                                display_scene_memory_api.heap_free(heap, 0, node);
+                                    free_runtime_heap(heap, 0, reinterpret_cast<void *>(static_cast<uintptr_t>(node->indexed_backing)));
+                                free_runtime_heap(heap, 0, node);
                                 retained_node = nullptr;
                             }
                         }
@@ -2380,55 +1991,37 @@ uint32_t release_display_scene_node(intptr_t identifier, intptr_t owner)
                         locked_node = true;
                     }
                     if(identifier != 0)
-                    {
                         break;
-                    }
                 }
                 node = next;
                 if(retained_node != nullptr)
-                {
                     previous = retained_node;
-                }
             }
         }
-        display_lock_acquire_api.leave_mutex(display_lock_mutex);
-        if((previous_mode & 0x3000) != 0 || observed_busy != 0)
-        {
+        unlock_runtime_mutex(display_lock_mutex);
+        if((previous_mode & DISPLAY_SCENE_LOCK_MODE_MASK) != 0 || observed_busy != 0)
             continue;
-        }
         if(!locked_node)
-        {
             return result;
-        }
     }
 }
 
 void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
-    {
         return;
-    }
     int32_t left = rectangle->left;
     int32_t top = rectangle->top;
     int32_t right = rectangle->right;
     int32_t bottom = rectangle->bottom;
     if(left < 0)
-    {
         left = 0;
-    }
     if(top < 0)
-    {
         top = 0;
-    }
     if(node->width < right)
-    {
         right = node->width;
-    }
     if(node->height < bottom)
-    {
         bottom = node->height;
-    }
     int32_t row_width = right - left;
     int32_t row_count = bottom - top;
     if(row_width != 0 && left <= right && row_count != 0 && top <= bottom)
@@ -2438,9 +2031,7 @@ void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *r
         do
         {
             for(int32_t column = 0; column < row_width; ++column)
-            {
                 row[column] = static_cast<uint16_t>(value);
-            }
             row = reinterpret_cast<uint16_t *>(reinterpret_cast<uint8_t *>(row) + node->sync_secondary_position);
             --row_count;
         } while(row_count != 0);
@@ -2450,17 +2041,13 @@ void fill_display_scene_rectangle_16(DisplaySceneNode *node, DisplayRectangle *r
 void fill_display_scene_rectangle_32(DisplaySceneNode *node, DisplayRectangle *rectangle, int value)
 {
     if(rectangle == nullptr || node == nullptr)
-    {
         return;
-    }
     const int32_t left = std::clamp(rectangle->left, 0, node->width);
     const int32_t top = std::clamp(rectangle->top, 0, node->height);
     const int32_t right = std::clamp(rectangle->right, 0, node->width);
     const int32_t bottom = std::clamp(rectangle->bottom, 0, node->height);
     if(left >= right || top >= bottom)
-    {
         return;
-    }
     auto *row = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(node->callback_first_position)) + top * node->sync_secondary_position + left * static_cast<int32_t>(sizeof(uint32_t));
     for(int32_t y = top; y < bottom; ++y)
     {
@@ -2484,20 +2071,16 @@ int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *out
     intptr_t primary_position = node->callback_first_position;
     int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
-    int synchronized = display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x10000);
+    int synchronized = display_scene_synchronize(display_scene_sync_context, &request, 0x10000);
     if(synchronized == 0)
-    {
         return 0;
-    }
     synchronized = 1;
     if(node->sync_secondary_position != secondary_position || node->callback_first_position != primary_position || node->width != geometry.right || node->height != geometry.bottom)
     {
         if(node->width == geometry.right && node->height == geometry.bottom)
         {
             if(output_rectangle != nullptr)
-            {
                 *output_rectangle = geometry;
-            }
             node->callback_first_position = primary_position;
             node->callback_position = primary_position;
             node->sync_secondary_position = secondary_position;
@@ -2518,7 +2101,7 @@ int synchronize_display_scene_node(DisplaySceneNode *node, DisplayRectangle *out
                 display_height = geometry.bottom;
             }
             queue_display_rectangle(&geometry);
-            display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
+            display_scene_synchronize(display_scene_sync_context, &request, 0x20000);
         }
     }
     return synchronized;
@@ -2530,20 +2113,18 @@ void publish_display_scene_node(DisplaySceneNode *node)
     intptr_t primary_position = node->callback_first_position;
     int32_t secondary_position = node->sync_secondary_position;
     DisplaySyncRequest request{ node == display_scene_root ? nullptr : node, &geometry, &secondary_position, &primary_position };
-    display_scene_sync_api.synchronize(display_scene_sync_context, &request, 0x20000);
+    display_scene_synchronize(display_scene_sync_context, &request, 0x20000);
 }
 
 uint32_t dispatch_display_scene_update(void *target, uint32_t options)
 {
-    if((display_lock_flags & 1) == 0 || display_scene_sync_api.synchronize == nullptr)
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0 || display_scene_synchronize == nullptr)
+        return DISPLAY_OPERATION_FAILED;
+    uint32_t result = DISPLAY_OPERATION_LOCK_NOT_OWNED;
+    RuntimeThreadId thread_id = runtime_thread_id();
+    if((display_lock_flags & DISPLAY_SCENE_LOCK_ACQUIRED) != 0 && display_lock_owner_thread == thread_id)
     {
-        return 0x80000000;
-    }
-    uint32_t result = 0x20000000;
-    RuntimeThreadId thread_id = display_lock_acquire_api.get_current_thread_id();
-    if((display_lock_flags & 0x2000) != 0 && display_lock_owner_thread == thread_id)
-    {
-        result = 0x80000000;
+        result = DISPLAY_OPERATION_FAILED;
         DisplayRectangle local_rectangle;
         DisplayRectangle *rectangle = static_cast<DisplayRectangle *>(target);
         if((options & 0x100) != 0)
@@ -2552,30 +2133,20 @@ uint32_t dispatch_display_scene_update(void *target, uint32_t options)
             DisplaySceneNode *node = static_cast<DisplaySceneNode *>(target);
             rectangle = &local_rectangle;
             if(contains_display_scene_node(reinterpret_cast<intptr_t>(node)))
-            {
                 accumulate_scene_node_rectangle(rectangle, node);
-            }
         }
         uint32_t attempts = 0;
         while(true)
         {
             if(synchronize_display_scene_node(display_scene_root, rectangle) == 0)
-            {
                 ++attempts;
-            }
             else
-            {
                 attempts = 0;
-            }
             if(attempts == 0)
-            {
                 break;
-            }
             if(attempts >= 10)
-            {
-                return 0x80000000;
-            }
-            display_lock_acquire_api.sleep(5);
+                return DISPLAY_OPERATION_FAILED;
+            runtime_sleep(5);
         }
         if(!constrain_display_rectangle_to_surface(rectangle))
         {
@@ -2585,30 +2156,18 @@ uint32_t dispatch_display_scene_update(void *target, uint32_t options)
         {
             DisplayRectangle secondary_rectangle = *rectangle;
             for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
-            {
-                if((node->flags & 0x20) != 0)
-                {
+                if((node->flags & DISPLAY_SCENE_OPAQUE) != 0)
                     trim_display_rectangle_overlap(&secondary_rectangle, node);
-                }
-            }
             bool secondary_valid = constrain_display_rectangle_to_surface(&secondary_rectangle);
             if(secondary_valid && display_scene_root->root_rectangle_callback != nullptr)
-            {
                 display_scene_root->root_rectangle_callback(display_scene_root, &secondary_rectangle, 0);
-            }
             for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
-            {
                 if(node->rectangle_callback != nullptr)
-                {
                     node->rectangle_callback(display_scene_root, 0, 0, node, rectangle, &node->rectangle_callback_format, 0x01000000);
-                }
-            }
             publish_display_scene_node(display_scene_root);
             if((options & 0x200) == 0)
-            {
-                display_scene_sync_api.synchronize(display_scene_sync_context, rectangle, 1);
-            }
-            result = 0;
+                display_scene_synchronize(display_scene_sync_context, rectangle, 1);
+            result = DISPLAY_OPERATION_SUCCESS;
         }
     }
     return result;
@@ -2616,12 +2175,10 @@ uint32_t dispatch_display_scene_update(void *target, uint32_t options)
 
 bool contains_display_scene_node(intptr_t identifier)
 {
-    if((display_lock_flags & 1) == 0)
-    {
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
         return false;
-    }
     bool found = false;
-    display_lock_acquire_api.enter_mutex(display_lock_mutex);
+    lock_runtime_mutex(display_lock_mutex);
     for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
     {
         if(node->identifier == identifier)
@@ -2630,8 +2187,8 @@ bool contains_display_scene_node(intptr_t identifier)
             break;
         }
     }
-    display_lock_acquire_api.leave_mutex(display_lock_mutex);
+    unlock_runtime_mutex(display_lock_mutex);
     return found;
 }
 
-} // namespace gag
+} // namespace freegag

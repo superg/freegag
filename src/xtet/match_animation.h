@@ -10,10 +10,10 @@ namespace xtet
 
 enum class MatchAnimationResource
 {
-    man,
-    rotated_man,
-    woman,
-    rotated_woman
+    MAN,
+    ROTATED_MAN,
+    WOMAN,
+    ROTATED_WOMAN
 };
 
 struct MatchAnimationParticipant

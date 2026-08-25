@@ -3,16 +3,10 @@
 #include <stdint.h>
 #include <vector>
 
-namespace gag
+namespace freegag
 {
 
 struct CdfArchive;
-
-struct SynthesizedResourceSourceApi
-{
-    uint32_t (*get_size)(CdfArchive *archive, uint8_t selector, const char *name);
-    int (*read)(CdfArchive *archive, uint8_t selector, const char *name, void *destination);
-};
 
 struct SynthesizedResource
 {
@@ -21,6 +15,6 @@ struct SynthesizedResource
 };
 
 uint32_t get_synthesized_resource_type(const char *name);
-bool synthesize_resource(CdfArchive *archive, const char *name, const SynthesizedResourceSourceApi &source_api, SynthesizedResource *resource);
+bool synthesize_resource(CdfArchive *archive, const char *name, SynthesizedResource *resource);
 
-} // namespace gag
+} // namespace freegag

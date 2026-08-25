@@ -4,18 +4,36 @@
 #include <limits>
 #include <zlib.h>
 #include "cdf_archive.h"
+#include "media_types.h"
 #include "portable_string.h"
 #include "portable_types.h"
 #include "save_load_bg_patch.h"
 
-namespace gag
-{
-namespace
+namespace freegag
 {
 constexpr int32_t synthesized_width = 640;
 constexpr int32_t synthesized_height = 480;
 constexpr uint32_t palette_count = 256;
 constexpr char base85_alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#";
+constexpr char gagboy_startup_script[] = R"([CFG]
+event=e_START /RELOADNOFADE:GAGBOY;
+
+[GAGBOY]
+flags=NOSAVE NOCOMMENT PAL_NOADJUST;
+mouse=TET /FILE:K_ghand.256:0 /FILE:K_ukaz.bmp:1 /F:NOPAL /POS:7,11;
+mouse=TNM /FILE:K_gnone.256:0 /FILE:K_none.bmp:1 /F:NOPAL;
+command=Go;
+object=GAGBoy Score::0;
+image=Background /FILE:VE-GBNEW.BMP /F:NOPAL /INVERT_NOPAL /F:PRIMARY;
+zone=Global /RECT:0,0,639,479 /COMM:Go /MOUSE:TNM /P:10;
+zone=Start /POS:149,49,88,84 /COMM:Go /MOUSE:TET /P:20;
+zone=Action1 /POS:180,185,45,200 /COMM:Go /MOUSE:TET /P:20;
+zone=Action2 /POS:505,90,45,200 /COMM:Go /MOUSE:TET /P:20;
+zone=Exit /POS:478,426,66,54 /COMM:Go /MOUSE:TET /P:20;
+event=e_RUN /GAME:XTETDLL.DLL:GAGBoy::Score /QUIT;
+
+[END]
+)";
 
 struct IndexedBitmapView
 {
@@ -32,7 +50,7 @@ struct BlitRegion
     uint32_t bottom;
 };
 
-using SynthesizedResourceBuilder = bool (*)(CdfArchive *archive, const SynthesizedResourceSourceApi &source_api, SynthesizedResource *resource);
+using SynthesizedResourceBuilder = bool (*)(CdfArchive *archive, SynthesizedResource *resource);
 
 struct SynthesizedResourceDefinition
 {
@@ -45,24 +63,18 @@ const char *file_name_from_path(const char *path)
 {
     const char *name = path;
     for(const char *cursor = path; *cursor != '\0'; ++cursor)
-    {
         if(*cursor == '\\' || *cursor == '/')
-        {
             name = cursor + 1;
-        }
-    }
     return name;
 }
 
-bool load_source(CdfArchive *archive, const char *name, const SynthesizedResourceSourceApi &source_api, std::vector<uint8_t> *data)
+bool load_source(CdfArchive *archive, const char *name, std::vector<uint8_t> *data)
 {
-    const uint32_t size = source_api.get_size(archive, 0, name);
+    const uint32_t size = get_cdf_entry_size(archive, 0, name);
     if(size == 0)
-    {
         return false;
-    }
     data->resize(size);
-    if(source_api.read(archive, 0, name, data->data()) == 0)
+    if(read_cdf_entry(archive, 0, name, data->data()) == 0)
     {
         data->clear();
         return false;
@@ -73,9 +85,7 @@ bool load_source(CdfArchive *archive, const char *name, const SynthesizedResourc
 bool validate_source(const std::vector<uint8_t> &data, IndexedBitmapView *view)
 {
     if(data.size() < sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader))
-    {
         return false;
-    }
     const BitmapFileHeader file_header = decode_bitmap_file_header(data.data());
     const BitmapInfoHeader info_header = decode_bitmap_info_header(data.data() + sizeof(BitmapFileHeader));
     constexpr uint32_t palette_offset = sizeof(BitmapFileHeader) + sizeof(BitmapInfoHeader);
@@ -117,30 +127,18 @@ std::array<uint8_t, palette_count> build_palette_mapping(const IndexedBitmapView
 {
     std::array<uint8_t, palette_count> mapping{};
     for(uint32_t index = 0; index < palette_count; ++index)
-    {
         mapping[index] = closest_palette_index(source.palette[index], destination_palette);
-    }
     return mapping;
-}
-
-uint8_t source_pixel(const IndexedBitmapView &source, uint32_t x, uint32_t y)
-{
-    return source.pixels[(synthesized_height - 1u - y) * source.row_stride + x];
-}
-
-uint8_t *output_pixel(uint8_t *pixels, uint32_t stride, uint32_t x, uint32_t y)
-{
-    return pixels + (synthesized_height - 1u - y) * stride + x;
 }
 
 void blit(const IndexedBitmapView &source, const std::array<uint8_t, palette_count> &mapping, uint8_t *destination_pixels, uint32_t destination_stride, const BlitRegion &region)
 {
     for(uint32_t y = region.top; y < region.bottom; ++y)
     {
+        const uint8_t *source_row = source.pixels + (synthesized_height - 1u - y) * source.row_stride;
+        uint8_t *destination_row = destination_pixels + (synthesized_height - 1u - y) * destination_stride;
         for(uint32_t x = region.left; x < region.right; ++x)
-        {
-            *output_pixel(destination_pixels, destination_stride, x, y) = mapping[source_pixel(source, x, y)];
-        }
+            destination_row[x] = mapping[source_row[x]];
     }
 }
 
@@ -157,15 +155,11 @@ bool decode_manual_patch(std::vector<uint8_t> *pixels)
         {
             const char *position = std::strchr(base85_alphabet, save_load_background_manual_patch::encoded_pixels[offset + digit]);
             if(position == nullptr)
-            {
                 return false;
-            }
             value = value * 85 + static_cast<uint64_t>(position - base85_alphabet);
         }
         if(value > UINT32_MAX)
-        {
             return false;
-        }
         compressed[output++] = static_cast<uint8_t>(value >> 24);
         compressed[output++] = static_cast<uint8_t>(value >> 16);
         compressed[output++] = static_cast<uint8_t>(value >> 8);
@@ -181,39 +175,32 @@ bool apply_manual_patch(uint8_t *destination_pixels, uint32_t destination_stride
 {
     std::vector<uint8_t> pixels;
     if(!decode_manual_patch(&pixels))
-    {
         return false;
-    }
     size_t offset = 0;
     for(const save_load_background_manual_patch::Region &region : save_load_background_manual_patch::regions)
     {
         for(uint32_t y = region.top; y < region.bottom; ++y)
         {
+            uint8_t *destination_row = destination_pixels + (synthesized_height - 1u - y) * destination_stride;
             for(uint32_t x = region.left; x < region.right; ++x)
-            {
-                *output_pixel(destination_pixels, destination_stride, x, y) = pixels[offset++];
-            }
+                destination_row[x] = pixels[offset++];
         }
     }
     return offset == pixels.size();
 }
 
-bool synthesize_save_load_background(CdfArchive *archive, const SynthesizedResourceSourceApi &source_api, SynthesizedResource *resource)
+bool synthesize_save_load_background(CdfArchive *archive, SynthesizedResource *resource)
 {
     std::vector<uint8_t> fullscreen;
     std::vector<uint8_t> help;
     std::vector<uint8_t> help_page;
-    if(!load_source(archive, "FSCR0000.BMP", source_api, &fullscreen) || !load_source(archive, "HELP0000.BMP", source_api, &help) || !load_source(archive, "HELP0001.BMP", source_api, &help_page))
-    {
+    if(!load_source(archive, "FSCR0000.BMP", &fullscreen) || !load_source(archive, "HELP0000.BMP", &help) || !load_source(archive, "HELP0001.BMP", &help_page))
         return false;
-    }
     IndexedBitmapView fullscreen_view{};
     IndexedBitmapView help_view{};
     IndexedBitmapView help_page_view{};
     if(!validate_source(fullscreen, &fullscreen_view) || !validate_source(help, &help_view) || !validate_source(help_page, &help_page_view))
-    {
         return false;
-    }
     const std::array<uint8_t, palette_count> fullscreen_mapping = build_palette_mapping(fullscreen_view, help_view.palette);
     const std::array<uint8_t, palette_count> help_page_mapping = build_palette_mapping(help_page_view, help_view.palette);
     resource->data = help;
@@ -224,48 +211,45 @@ bool synthesize_save_load_background(CdfArchive *archive, const SynthesizedResou
     return apply_manual_patch(output_pixels, help_view.row_stride);
 }
 
+bool synthesize_gagboy_startup_script(CdfArchive *, SynthesizedResource *resource)
+{
+    const auto *data = reinterpret_cast<const uint8_t *>(gagboy_startup_script);
+    resource->data.assign(data, data + sizeof(gagboy_startup_script) - 1);
+    return true;
+}
+
 constexpr SynthesizedResourceDefinition synthesized_resources[]{
-    { "FGSL0000.BMP", 1, synthesize_save_load_background }
+    { "FGSL0000.BMP", RUNTIME_MEDIA_DATA_BITMAP,        synthesize_save_load_background  },
+    { "FGGAGBOY.CFG", RUNTIME_MEDIA_DATA_CONFIGURATION, synthesize_gagboy_startup_script }
 };
 
 const SynthesizedResourceDefinition *find_definition(const char *path)
 {
     if(path == nullptr)
-    {
         return nullptr;
-    }
     const char *name = file_name_from_path(path);
     for(const SynthesizedResourceDefinition &definition : synthesized_resources)
-    {
         if(compare_ascii_case_insensitive(name, definition.name) == 0)
-        {
             return &definition;
-        }
-    }
     return nullptr;
-}
 }
 
 uint32_t get_synthesized_resource_type(const char *name)
 {
     const SynthesizedResourceDefinition *definition = find_definition(name);
-    return definition == nullptr ? 0 : definition->resource_type;
+    return definition == nullptr ? RUNTIME_MEDIA_DATA_UNKNOWN : definition->resource_type;
 }
 
-bool synthesize_resource(CdfArchive *archive, const char *name, const SynthesizedResourceSourceApi &source_api, SynthesizedResource *resource)
+bool synthesize_resource(CdfArchive *archive, const char *name, SynthesizedResource *resource)
 {
     const SynthesizedResourceDefinition *definition = find_definition(name);
-    if(archive == nullptr || definition == nullptr || source_api.get_size == nullptr || source_api.read == nullptr || resource == nullptr)
-    {
+    if(archive == nullptr || definition == nullptr || resource == nullptr)
         return false;
-    }
     *resource = {};
-    if(!definition->builder(archive, source_api, resource))
-    {
+    if(!definition->builder(archive, resource))
         return false;
-    }
     resource->resource_type = definition->resource_type;
     return true;
 }
 
-} // namespace gag
+} // namespace freegag

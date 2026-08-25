@@ -11,11 +11,11 @@ namespace xtet
 
 enum class SceneNodeType
 {
-    sprites,
-    sprite_bitmap,
-    bitmap,
-    wave,
-    empty
+    SPRITES,
+    SPRITE_BITMAP,
+    BITMAP,
+    WAVE,
+    EMPTY
 };
 
 struct ScenePoint

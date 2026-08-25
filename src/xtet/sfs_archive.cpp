@@ -7,8 +7,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 constexpr size_t kHeaderSize = 0x100;
 constexpr size_t kDirectoryEntrySize = 0x20;
@@ -33,10 +31,8 @@ uint32_t hash_table_value(uint8_t index, const std::array<uint32_t, 8> &basis)
 {
     uint32_t value = 0;
     for(size_t bit = 0; bit < basis.size(); ++bit)
-    {
         if((index & (1u << bit)) != 0)
             value ^= basis[bit];
-    }
     return value;
 }
 
@@ -98,7 +94,6 @@ bool decode_lzss(const uint8_t *source, size_t source_size, std::vector<uint8_t>
     return true;
 }
 
-} // namespace
 
 bool SfsArchive::mount(ResourceView resource)
 {
@@ -123,10 +118,8 @@ bool SfsArchive::mount(ResourceView resource)
 
     uint32_t checksum = 0;
     for(size_t offset = 0; offset < kHeaderSize; ++offset)
-    {
         if(offset < 0x08 || offset >= 0x0c)
             checksum += resource.data[offset];
-    }
     if(checksum != header.checksum)
         return false;
 
@@ -165,11 +158,6 @@ bool SfsArchive::mount(ResourceView resource)
 bool SfsArchive::valid() const
 {
     return resource_.data != nullptr;
-}
-
-const SfsHeader &SfsArchive::header() const
-{
-    return header_;
 }
 
 const SfsEntry *SfsArchive::find(std::string_view path) const

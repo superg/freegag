@@ -1,7 +1,7 @@
 #include "runtime_clock.h"
 #include <chrono>
 
-namespace gag
+namespace freegag
 {
 
 uint32_t runtime_milliseconds() noexcept
@@ -10,4 +10,4 @@ uint32_t runtime_milliseconds() noexcept
     return static_cast<uint32_t>(milliseconds);
 }
 
-} // namespace gag
+} // namespace freegag

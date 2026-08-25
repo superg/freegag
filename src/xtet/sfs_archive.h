@@ -38,7 +38,6 @@ class SfsArchive
 public:
     bool mount(ResourceView resource);
     bool valid() const;
-    const SfsHeader &header() const;
     const SfsEntry *find(std::string_view path) const;
     bool read(const SfsEntry &entry, std::vector<uint8_t> &bytes) const;
     bool read(std::string_view path, std::vector<uint8_t> &bytes) const;

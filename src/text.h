@@ -2,7 +2,7 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 void render_runtime_generic_backend_child(RuntimeMediaBackend *backend);
@@ -14,8 +14,6 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend);
 RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size);
 
 RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity);
-
-void clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend);
 
 void *find_available_runtime_generic_child(uint32_t maximum_end_position);
 
@@ -73,4 +71,4 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position);
 
 uint32_t destroy_runtime_generic_backend(void *identity);
 
-} // namespace gag
+} // namespace freegag

@@ -4,149 +4,112 @@
 #include "host_events.h"
 #include "runtime_internal.h"
 
-namespace gag
+namespace freegag
 {
 void enable_runtime_subsystem()
 {
-    if((graphics_host_flags & 2) == 0)
+    if((graphics_host_flags & RUNTIME_HOST_AUDIO_ENABLED) == 0)
     {
-        graphics_host_flags |= 2;
+        graphics_host_flags |= RUNTIME_HOST_AUDIO_ENABLED;
         toggle_runtime_sound_state();
     }
 }
 
 void disable_runtime_subsystem()
 {
-    if((graphics_host_flags & 2) != 0)
+    if((graphics_host_flags & RUNTIME_HOST_AUDIO_ENABLED) != 0)
     {
-        graphics_host_flags &= 0xfffffffd;
+        graphics_host_flags &= ~RUNTIME_HOST_AUDIO_ENABLED;
         toggle_runtime_sound_state();
     }
 }
 
-void set_active_object_field_0824(uint32_t value)
+void set_runtime_resource_variant(uint32_t value)
 {
     if(script_runtime_root != nullptr)
-    {
-        script_runtime_root->state_value_0824 = value;
-    }
+        script_runtime_root->resource_variant = value;
 }
 
-void set_runtime_flag_01000000()
+void suspend_runtime_state()
 {
-    graphics_host_flags |= 0x01000000;
-}
-
-void clear_runtime_flag_01000000()
-{
-    graphics_host_flags &= 0xfeffffff;
-}
-
-void clear_runtime_command_state()
-{
-    runtime_command_state = 0;
-}
-
-void set_credits_runtime_flag()
-{
-    if((graphics_host_flags & 0x40000000) == 0)
-    {
-        graphics_host_flags |= 0x40000000;
-    }
-}
-
-void enter_runtime_state_1000()
-{
-    if((graphics_host_flags & 0x1000) == 0)
+    if((graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) == 0)
     {
         runtime_state_value = saved_runtime_state_value;
-        runtime_state_transition_callback(0);
-        graphics_host_flags |= 0x1000;
+        switch_runtime_scene(nullptr);
+        graphics_host_flags |= RUNTIME_HOST_SCENE_SWITCH_DEFERRED;
     }
 }
 
-void leave_runtime_state_1000()
+void resume_runtime_state()
 {
-    if((graphics_host_flags & 0x4000) == 0 && (graphics_host_flags & 0x1000) != 0)
+    if((graphics_host_flags & RUNTIME_HOST_SCENE_TRANSITION_GUARDED) == 0 && (graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) != 0)
     {
-        graphics_host_flags &= 0xffffefff;
-        runtime_state_transition_callback(runtime_state_value);
+        graphics_host_flags &= ~RUNTIME_HOST_SCENE_SWITCH_DEFERRED;
+        switch_runtime_scene(reinterpret_cast<void *>(runtime_state_value));
     }
 }
 
-RuntimePathApi runtime_path_api{ enter_runtime_path_lock, leave_runtime_path_lock };
-
-void reset_runtime_pair_queue()
+void reset_runtime_input_queue()
 {
-    if((graphics_host_flags & 0x100400) == 0x100400)
+    if((graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY)
     {
-        runtime_queue_api.enter_pair_lock();
-        runtime_display_context.pair_write_index = 0;
-        runtime_display_context.pair_read_index = 0;
-        runtime_queue_api.leave_pair_lock();
+        enter_runtime_input_queue_lock();
+        runtime_display_context.queued_input_write_index = 0;
+        runtime_display_context.queued_input_read_index = 0;
+        leave_runtime_input_queue_lock();
     }
 }
 
 void enqueue_runtime_byte(uint8_t value)
 {
-    if((graphics_host_flags & 0x100400) == 0x100400)
+    if((graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY)
     {
-        runtime_queue_api.enter_byte_lock();
+        enter_runtime_byte_queue_lock();
         runtime_display_context.byte_available = 1;
         runtime_display_context.byte_queue[runtime_display_context.byte_write_index] = value;
         ++runtime_display_context.byte_write_index;
         if(runtime_display_context.byte_write_index == 0x20)
-        {
             runtime_display_context.byte_write_index = 0;
-        }
         if(runtime_display_context.byte_read_index == runtime_display_context.byte_write_index)
         {
             ++runtime_display_context.byte_read_index;
             if(runtime_display_context.byte_read_index == 0x20)
-            {
                 runtime_display_context.byte_read_index = 0;
-            }
         }
-        runtime_queue_api.leave_byte_lock();
+        leave_runtime_byte_queue_lock();
     }
 }
 
 uint8_t dequeue_runtime_byte()
 {
     if(runtime_display_context.byte_available == 0)
-    {
         return 0;
-    }
     uint8_t value = 0;
-    if((graphics_host_flags & 0x100400) == 0x100400)
+    if((graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY)
     {
-        runtime_queue_api.enter_byte_lock();
+        enter_runtime_byte_queue_lock();
         if(runtime_display_context.byte_read_index != runtime_display_context.byte_write_index)
         {
             value = runtime_display_context.byte_queue[runtime_display_context.byte_read_index];
             ++runtime_display_context.byte_read_index;
             if(runtime_display_context.byte_read_index == 0x20)
-            {
                 runtime_display_context.byte_read_index = 0;
-            }
             if(runtime_display_context.byte_read_index == runtime_display_context.byte_write_index)
-            {
                 runtime_display_context.byte_available = 0;
-            }
         }
-        runtime_queue_api.leave_byte_lock();
+        leave_runtime_byte_queue_lock();
     }
     return value;
 }
 
 void reset_runtime_byte_queue()
 {
-    if((graphics_host_flags & 0x100400) == 0x100400)
+    if((graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY)
     {
-        runtime_queue_api.enter_byte_lock();
+        enter_runtime_byte_queue_lock();
         runtime_display_context.byte_write_index = 0;
         runtime_display_context.byte_read_index = 0;
-        runtime_queue_api.leave_byte_lock();
+        leave_runtime_byte_queue_lock();
     }
 }
 
@@ -155,63 +118,57 @@ DisplaySceneNode *acquire_runtime_text_input_scene(uint32_t index, int32_t x, in
 {
     release_runtime_text_input_scene_guard();
     const intptr_t current_identifier = runtime_display_context.input_scene_identifier;
-    if(current_identifier != 0 && runtime_text_input_scene_redraw_api.begin_update(current_identifier) == 0)
+    if(current_identifier != 0 && begin_display_scene_update(current_identifier) == 0)
     {
         auto *current = reinterpret_cast<DisplaySceneNode *>(current_identifier);
         if(width <= static_cast<uint32_t>(current->width) && height <= static_cast<uint32_t>(current->height))
         {
             runtime_text_input_guarded_scene = current_identifier;
-            flags |= 0x200000;
+            flags |= DISPLAY_SCENE_PRESERVE_DIMENSIONS;
         }
         else
         {
-            runtime_text_input_scene_redraw_api.end_update(current_identifier, nullptr, nullptr);
+            end_display_scene_update(current_identifier, nullptr, nullptr);
         }
     }
 
-    DisplaySceneNode *scene = runtime_text_input_scene_redraw_api.acquire_scene(index, x, y, width, height, flags, owner, descriptor, format);
+    DisplaySceneNode *scene = acquire_display_scene_node(index, x, y, width, height, flags, owner, descriptor, format);
     if(scene == nullptr)
-    {
         release_runtime_text_input_scene_guard();
-    }
     return scene;
 }
 
 uint32_t begin_runtime_text_input_scene_update(intptr_t identifier)
 {
-    const uint32_t result = runtime_text_input_scene_redraw_api.begin_update(identifier);
+    const uint32_t result = begin_display_scene_update(identifier);
     if(result != 0)
-    {
         release_runtime_text_input_scene_guard();
-    }
     return result;
 }
 
 uint32_t end_runtime_text_input_scene_update(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle)
 {
-    const uint32_t result = runtime_text_input_scene_redraw_api.end_update(identifier, transform, rectangle);
+    const uint32_t result = end_display_scene_update(identifier, transform, rectangle);
     release_runtime_text_input_scene_guard();
     return result;
 }
 
 void process_runtime_text_input(RuntimeCommandLoopState *state)
 {
-    if((state->flags & 0x100) == 0)
-    {
+    if((state->flags & RUNTIME_COMMAND_TEXT_INPUT_ACTIVE) == 0)
         return;
-    }
 
     bool changed = false;
-    uint8_t value = runtime_text_input_api.dequeue_byte();
+    uint8_t value = dequeue_runtime_byte();
     uint32_t cursor = state->input_cursor;
     if(state->input_end - cursor == 1 || value == 0x0d)
     {
         state->input_text[cursor] = '\0';
         ++state->input_cursor;
-        state->flags &= 0xfffffeff;
+        state->flags &= ~RUNTIME_COMMAND_TEXT_INPUT_ACTIVE;
         if(state->input_scene_identifier != 0)
         {
-            runtime_text_input_api.release_scene(state->input_scene_identifier, reinterpret_cast<intptr_t>(state));
+            release_display_scene_node(state->input_scene_identifier, reinterpret_cast<intptr_t>(state));
             state->input_scene_identifier = 0;
         }
         return;
@@ -232,15 +189,11 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
         {
             if(static_cast<int8_t>(value) > '@')
             {
-                uint32_t letter_mode = state->input_text_flags & 0x30;
-                if(letter_mode == 0x10)
-                {
+                uint32_t letter_mode = state->input_text_flags & RUNTIME_TEXT_INPUT_LETTER_CASE_MASK;
+                if(letter_mode == RUNTIME_TEXT_INPUT_LOWERCASE)
                     value |= 0x20;
-                }
-                else if(letter_mode == 0x20)
-                {
+                else if(letter_mode == RUNTIME_TEXT_INPUT_UPPERCASE)
                     value &= 0xdf;
-                }
             }
             state->input_text[cursor] = static_cast<char>(value);
             cursor = state->input_cursor++;
@@ -250,11 +203,9 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
     }
 
     if(state->input_scene_identifier == 0)
-    {
         return;
-    }
 
-    uint32_t current_tick = runtime_text_input_api.time_get_time();
+    uint32_t current_tick = runtime_milliseconds();
     char &caret = state->input_text[state->input_cursor];
     if(state->input_caret_tick + 250 < current_tick)
     {
@@ -273,111 +224,91 @@ void process_runtime_text_input(RuntimeCommandLoopState *state)
     }
 
     if(state->input_caret_tick + 500 < current_tick)
-    {
         state->input_caret_tick = current_tick;
-    }
 
     RuntimeStandaloneTextState &text_state = runtime_display_context.input_text_state;
     if(changed
-        && runtime_text_input_api.initialize_text(runtime_display_context.input_text, text_state.x, text_state.y, text_state.font_identity, text_state.low_color, text_state.high_color, &text_state)
-               != 0)
+        && initialize_runtime_standalone_text(runtime_display_context.input_text, text_state.x, text_state.y, text_state.font_identity, text_state.low_color, text_state.high_color, &text_state) != 0)
     {
         DisplaySceneDescriptor descriptor;
-        runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(runtime_text_input_api.acquire_scene(runtime_display_context.input_scene_index, 0, 0, text_state.bounds[2],
+        runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(acquire_runtime_text_input_scene(runtime_display_context.input_scene_index, 0, 0, text_state.bounds[2],
             text_state.bounds[3], 0x120000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, nullptr));
-        if(runtime_text_input_api.begin_update(runtime_display_context.input_scene_identifier) == 0)
+        if(begin_runtime_text_input_scene_update(runtime_display_context.input_scene_identifier) == 0)
         {
-            runtime_text_input_api.draw_text(&text_state, &descriptor);
+            draw_runtime_standalone_text(&text_state, &descriptor);
             const DisplayRectangleTransform transform = display_rectangle_transform(descriptor);
-            runtime_text_input_api.end_update(runtime_display_context.input_scene_identifier, &transform, &text_state.bounds_rectangle);
+            end_runtime_text_input_scene_update(runtime_display_context.input_scene_identifier, &transform, &text_state.bounds_rectangle);
         }
     }
 }
 
-void enqueue_runtime_pair(uint32_t first, uint32_t second)
+void enqueue_runtime_input(RuntimeQueuedInputType type, uint32_t packed_position)
 {
-    bool input_enabled = (graphics_host_flags & 0x100400) == 0x100400;
+    bool input_enabled = (graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY;
     // A borderless transition temporarily clears the queue-enable bit while the capture child remains interactive. Retain the physical release, but not resize-generated moves that would
     // change the active game region before that release is applied.
-    if(desktop_presentation_state.fullscreen && (graphics_host_flags & 0x400) != 0 && first == static_cast<uint32_t>(RuntimeQueuedInputType::left_button_up))
-    {
+    if(desktop_presentation_state.fullscreen && (graphics_host_flags & RUNTIME_HOST_MESSAGE_QUEUE_ENABLED) != 0 && type == RuntimeQueuedInputType::LEFT_BUTTON_UP)
         input_enabled = true;
-    }
     if(input_enabled)
     {
-        runtime_queue_api.enter_pair_lock();
-        runtime_display_context.pair_available = 1;
-        runtime_display_context.pair_queue[runtime_display_context.pair_write_index].first = first;
-        runtime_display_context.pair_queue[runtime_display_context.pair_write_index].second = second;
-        ++runtime_display_context.pair_write_index;
-        if(runtime_display_context.pair_write_index == 0x20)
+        enter_runtime_input_queue_lock();
+        runtime_display_context.queued_input_available = 1;
+        runtime_display_context.queued_inputs[runtime_display_context.queued_input_write_index] = { type, packed_position };
+        ++runtime_display_context.queued_input_write_index;
+        if(runtime_display_context.queued_input_write_index == 0x20)
+            runtime_display_context.queued_input_write_index = 0;
+        if(runtime_display_context.queued_input_read_index == runtime_display_context.queued_input_write_index)
         {
-            runtime_display_context.pair_write_index = 0;
+            ++runtime_display_context.queued_input_read_index;
+            if(runtime_display_context.queued_input_read_index == 0x20)
+                runtime_display_context.queued_input_read_index = 0;
         }
-        if(runtime_display_context.pair_read_index == runtime_display_context.pair_write_index)
-        {
-            ++runtime_display_context.pair_read_index;
-            if(runtime_display_context.pair_read_index == 0x20)
-            {
-                runtime_display_context.pair_read_index = 0;
-            }
-        }
-        runtime_queue_api.leave_pair_lock();
+        leave_runtime_input_queue_lock();
     }
 }
 
-int dequeue_runtime_pair(RuntimeMessagePair *pair)
+bool dequeue_runtime_input(RuntimeQueuedInput *input)
 {
-    if(runtime_display_context.pair_available == 0)
+    if(runtime_display_context.queued_input_available == 0)
+        return false;
+    bool dequeued = false;
+    if((graphics_host_flags & RUNTIME_HOST_INPUT_READY) == RUNTIME_HOST_INPUT_READY)
     {
-        return 0;
-    }
-    int result = 0;
-    if((graphics_host_flags & 0x100400) == 0x100400)
-    {
-        runtime_queue_api.enter_pair_lock();
-        if(runtime_display_context.pair_read_index != runtime_display_context.pair_write_index)
+        enter_runtime_input_queue_lock();
+        if(runtime_display_context.queued_input_read_index != runtime_display_context.queued_input_write_index)
         {
-            *pair = runtime_display_context.pair_queue[runtime_display_context.pair_read_index];
-            ++runtime_display_context.pair_read_index;
-            if(runtime_display_context.pair_read_index == 0x20)
-            {
-                runtime_display_context.pair_read_index = 0;
-            }
-            if(runtime_display_context.pair_read_index == runtime_display_context.pair_write_index)
-            {
-                runtime_display_context.pair_available = 0;
-            }
-            result = 1;
+            *input = runtime_display_context.queued_inputs[runtime_display_context.queued_input_read_index];
+            ++runtime_display_context.queued_input_read_index;
+            if(runtime_display_context.queued_input_read_index == 0x20)
+                runtime_display_context.queued_input_read_index = 0;
+            if(runtime_display_context.queued_input_read_index == runtime_display_context.queued_input_write_index)
+                runtime_display_context.queued_input_available = 0;
+            dequeued = true;
         }
-        runtime_queue_api.leave_pair_lock();
+        leave_runtime_input_queue_lock();
     }
-    return result;
+    return dequeued;
 }
 
 bool synchronize_runtime_plan_mode()
 {
     bool changed = false;
-    if((runtime_display_context.flags & 0x40000000) == 0)
+    if((runtime_display_context.flags & RUNTIME_HOST_CREDITS_ACTIVE) == 0)
     {
-        if((runtime_display_context.flags & 0x80000000) != 0)
+        if((runtime_display_context.flags & RUNTIME_HOST_PLAN_MODE) != 0)
         {
-            changed = runtime_plan_mode_sync_api.clear_inactive();
+            changed = clear_runtime_plans_inactive();
             if(changed)
-            {
-                runtime_plan_mode_sync_api.rebuild();
-            }
-            runtime_display_context.flags &= 0x7fffffff;
+                rebuild_runtime_pointer_resources();
+            runtime_display_context.flags &= ~RUNTIME_HOST_PLAN_MODE;
         }
     }
-    else if((runtime_display_context.flags & 0x80000000) == 0)
+    else if((runtime_display_context.flags & RUNTIME_HOST_PLAN_MODE) == 0)
     {
-        changed = runtime_plan_mode_sync_api.set_inactive();
+        changed = set_runtime_plans_inactive();
         if(changed)
-        {
-            runtime_plan_mode_sync_api.rebuild();
-        }
-        runtime_display_context.flags |= 0x80000000;
+            rebuild_runtime_pointer_resources();
+        runtime_display_context.flags |= RUNTIME_HOST_PLAN_MODE;
     }
     return changed;
 }
@@ -385,27 +316,25 @@ bool synchronize_runtime_plan_mode()
 bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
 {
     bool changed = false;
-    if((runtime_display_context.flags & 0x4000000) != 0)
+    if((runtime_display_context.flags & RUNTIME_HOST_TREE_SWITCH_PENDING) != 0)
     {
         runtime_display_context.accumulated_tree_flags = 0;
-        runtime_pending_tree_switch_api.destroy_resources(node);
-        RuntimeTreeNode *activated = runtime_pending_tree_switch_api.activate_tree(runtime_display_context.first_runtime_path, runtime_display_context.second_runtime_path, nullptr, nullptr);
+        destroy_runtime_tree_resources(node);
+        RuntimeTreeNode *activated = activate_runtime_tree_with_notifications(runtime_display_context.first_runtime_path, runtime_display_context.second_runtime_path, nullptr, nullptr);
         if(activated == nullptr)
         {
-            runtime_pending_tree_switch_api.rebuild_runtime_plans(node);
+            rebuild_runtime_tree_resources(node);
         }
         else
         {
             changed = node->identity != activated;
             if(!changed)
-            {
-                runtime_pending_tree_switch_api.finalize_current_tree(activated);
-            }
-            runtime_pending_tree_switch_api.rebuild_runtime_plans(activated);
+                reset_runtime_tree_parser_contexts(activated);
+            rebuild_runtime_tree_resources(activated);
             activated->flags |= runtime_display_context.accumulated_tree_flags;
         }
-        runtime_pending_tree_switch_api.update_pointer(runtime_scene_x, runtime_scene_y);
-        runtime_display_context.flags &= 0xfbffffff;
+        update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+        runtime_display_context.flags &= ~RUNTIME_HOST_TREE_SWITCH_PENDING;
     }
     return changed;
 }
@@ -414,39 +343,37 @@ bool process_pending_runtime_tree_switch(RuntimeTreeNode *node)
 
 RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_name, const char *tree_name, void *parent_selector, void *creation_context)
 {
-    RuntimeGenericResourceNode *resource = runtime_tree_activation_api.find_or_load_resource(resource_name);
-    RuntimeTreeNode *node = runtime_tree_activation_api.create_tree_node(resource, parent_selector, tree_name, creation_context);
+    RuntimeGenericResourceNode *resource = find_or_load_runtime_generic_resource(resource_name);
+    RuntimeTreeNode *node = create_runtime_tree_node(resource, parent_selector, tree_name, creation_context);
     if(node != nullptr)
     {
-        if((node->flags & 0x1000) != 0 || node->name[0] == 0)
+        if((node->flags & RUNTIME_TREE_INVENTORY_PACK) != 0 || node->name[0] == 0)
         {
-            runtime_tree_activation_api.set_script_flags(2, 0);
-            runtime_tree_activation_api.set_script_flags(4, 0);
+            set_script_runtime_flags(2, 0);
+            set_script_runtime_flags(4, 0);
         }
-        if((node->flags & 0x800) != 0)
-        {
-            runtime_tree_activation_api.activate_comment(node);
-        }
+        if((node->flags & RUNTIME_TREE_COMMENT) != 0)
+            activate_runtime_tree_node_comment(node);
     }
     return node;
 }
 
 
-uint32_t process_runtime_pair_message()
+uint32_t process_runtime_queued_input()
 {
-    RuntimeMessagePair pair;
-    if(runtime_pair_dispatch_api.dequeue_pair(&pair) != 0 && (runtime_display_context.flags & 4) == 0)
+    RuntimeQueuedInput input;
+    if(dequeue_runtime_input(&input) && (runtime_display_context.flags & RUNTIME_HOST_PROPERTY_STATE_ACTIVE) == 0)
     {
-        switch(pair.first)
+        switch(input.type)
         {
-        case static_cast<uint32_t>(RuntimeQueuedInputType::pointer_move):
-            return runtime_pair_dispatch_api.move_pointer(static_cast<int32_t>(pair.second & 0xffff), static_cast<int32_t>(pair.second >> 16));
-        case static_cast<uint32_t>(RuntimeQueuedInputType::left_button_down):
-            return runtime_pair_dispatch_api.left_button_down();
-        case static_cast<uint32_t>(RuntimeQueuedInputType::left_button_up):
-            return runtime_pair_dispatch_api.left_button_up();
-        case static_cast<uint32_t>(RuntimeQueuedInputType::right_button_down):
-            return runtime_pair_dispatch_api.right_button_down();
+        case RuntimeQueuedInputType::POINTER_MOVE:
+            return update_runtime_pointer_region(static_cast<int32_t>(input.packed_position & 0xffff), static_cast<int32_t>(input.packed_position >> 16));
+        case RuntimeQueuedInputType::LEFT_BUTTON_DOWN:
+            return handle_runtime_right_button_down();
+        case RuntimeQueuedInputType::LEFT_BUTTON_UP:
+            return handle_runtime_left_button_up();
+        case RuntimeQueuedInputType::RIGHT_BUTTON_DOWN:
+            return handle_runtime_left_button_down();
         }
     }
     return 0;
@@ -454,114 +381,96 @@ uint32_t process_runtime_pair_message()
 
 
 
-uint32_t copy_runtime_input_session_record(RuntimeInputSessionRecord *record)
+RuntimeInputText take_runtime_input_text()
 {
-    std::memcpy(record, runtime_display_context.input_text, sizeof(*record));
-    uint32_t status = runtime_display_context.input_cursor;
+    RuntimeInputText input;
+    std::memcpy(input.data(), runtime_display_context.input_text, input.size());
     runtime_display_context.input_cursor = 0;
-    return status;
+    return input;
 }
 
 void initialize_runtime_input_session(void *first, void *second, void *selector, void *fourth, void *fifth, uint32_t character_width, void *session_value)
 {
     if(runtime_display_context.input_scene_identifier != 0)
-    {
         return;
-    }
 
-    runtime_input_session_api.reset_byte_queue();
+    reset_runtime_byte_queue();
     runtime_display_context.input_text[1] = '\0';
     runtime_display_context.input_cursor = 0;
     runtime_display_context.input_text_flags = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(session_value));
     runtime_display_context.input_text[0] = '-';
     runtime_display_context.input_end = character_width;
     if(runtime_display_context.input_end == 0)
-    {
         runtime_display_context.input_end = 0x20;
-    }
-    runtime_display_context.input_caret_tick = runtime_input_session_api.get_time();
+    runtime_display_context.input_caret_tick = runtime_milliseconds();
 
-    RuntimeLockRecord *record = runtime_input_session_api.acquire_record(selector);
+    RuntimeLockRecord *record = acquire_runtime_lock_record(selector);
     void *font_identity = nullptr;
     if(record != nullptr)
-    {
         font_identity = record->identity_context;
-    }
-    if(runtime_input_session_api.initialize_text(runtime_display_context.input_text, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(first)),
-           static_cast<uint32_t>(reinterpret_cast<uintptr_t>(second)), font_identity, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fourth)),
-           static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fifth)), &runtime_display_context.input_text_state)
+    if(initialize_runtime_standalone_text(runtime_display_context.input_text, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(first)), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(second)),
+           font_identity, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fourth)), static_cast<uint32_t>(reinterpret_cast<uintptr_t>(fifth)), &runtime_display_context.input_text_state)
         != 0)
     {
-        runtime_display_context.input_scene_index = runtime_input_session_api.find_scene_index(0x80000);
+        runtime_display_context.input_scene_index = find_available_display_scene_index(0x80000);
         intptr_t scene_identifier;
-        if((record->flags & 0x04000000) != 0)
-        {
+        if((record->flags & SCRIPT_IMAGE_NO_PALETTE) != 0)
             scene_identifier = runtime_display_context.input_alternate_scene_identifier;
-        }
         else
-        {
             scene_identifier = record->scene_identifier;
-        }
-        DisplaySceneNode *locked_scene = runtime_input_session_api.lock_scene(scene_identifier);
+        DisplaySceneNode *locked_scene = lock_display_scene_node(scene_identifier);
         if(locked_scene != nullptr)
         {
             DisplaySceneDescriptor descriptor;
-            runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(runtime_input_session_api.acquire_scene(runtime_display_context.input_scene_index,
+            runtime_display_context.input_scene_identifier = reinterpret_cast<intptr_t>(acquire_display_scene_node(runtime_display_context.input_scene_index,
                 static_cast<int32_t>(reinterpret_cast<uintptr_t>(first)), static_cast<int32_t>(reinterpret_cast<uintptr_t>(second)), runtime_display_context.input_text_state.bounds[2],
                 runtime_display_context.input_text_state.bounds[3], 0x20000, reinterpret_cast<intptr_t>(&runtime_display_context), &descriptor, &default_display_pixel_format));
-            if(runtime_input_session_api.begin_update(runtime_display_context.input_scene_identifier) == 0)
+            if(begin_display_scene_update(runtime_display_context.input_scene_identifier) == 0)
             {
-                runtime_input_session_api.draw_text(&runtime_display_context.input_text_state, &descriptor);
+                draw_runtime_standalone_text(&runtime_display_context.input_text_state, &descriptor);
                 const DisplayRectangleTransform transform = display_rectangle_transform(descriptor);
-                runtime_input_session_api.end_update(runtime_display_context.input_scene_identifier, &transform, &runtime_display_context.input_text_state.bounds_rectangle);
+                end_display_scene_update(runtime_display_context.input_scene_identifier, &transform, &runtime_display_context.input_text_state.bounds_rectangle);
             }
         }
-        runtime_input_session_api.unlock_scene(scene_identifier);
+        unlock_display_scene_node(scene_identifier);
     }
     if(record != nullptr)
-    {
-        runtime_input_session_api.release_record(record);
-    }
-    runtime_display_context.flags |= 0x100;
+        release_runtime_lock_record(record);
+    runtime_display_context.flags |= RUNTIME_HOST_TEXT_INPUT_COMMITTED;
 }
 
 int run_runtime_command_loop(RuntimeCommandLoopState *state)
 {
     uint32_t initial_flags = state->flags;
-    if((initial_flags & 0x03000040) == 0)
-    {
+    if((initial_flags & (RUNTIME_COMMAND_LOOP_RUNNING | RUNTIME_COMMAND_RESUME_REQUESTED | RUNTIME_COMMAND_LOOP_STOP_REQUESTED)) == 0)
         return 0;
-    }
-    const uint32_t restore_flag = initial_flags & 0x100000;
-    state->flags = (initial_flags & 0xffefffff) | 0x01000000;
-    runtime_command_loop_api.begin_first();
-    runtime_command_loop_api.begin_second();
-    runtime_command_loop_api.begin_third(0);
-    post_application_event(HostApplicationCommand::command_completed);
+    const uint32_t restore_flag = initial_flags & RUNTIME_COMMAND_SCRIPT_EXECUTION_ENABLED;
+    state->flags = (initial_flags & ~RUNTIME_COMMAND_SCRIPT_EXECUTION_ENABLED) | RUNTIME_COMMAND_LOOP_RUNNING;
+    pause_runtime_game_dll();
+    runtime_animation_control_flags |= RUNTIME_ANIMATION_PAUSED;
+    pause_runtime_sound_output(0);
+    post_application_event(HostApplicationCommand::COMMAND_COMPLETED);
     while(true)
     {
         drain_runtime_resource_destructions();
-        runtime_command_loop_api.process(state);
-        if((state->flags & 0x02000000) != 0)
+        if((state->flags & RUNTIME_COMMAND_RESUME_REQUESTED) != 0)
+            graphics_host_flags &= ~RUNTIME_HOST_RESUME_PENDING;
+        if((state->flags & RUNTIME_COMMAND_LOOP_STOP_REQUESTED) != 0)
         {
-            graphics_host_flags &= 0xfdffffff;
-        }
-        if((state->flags & 0x40) != 0)
-        {
-            runtime_command_loop_api.complete_first();
-            runtime_command_loop_api.cancel_first();
-            runtime_command_loop_api.cancel_second();
-            state->flags &= 0xfeffffbf;
-            post_application_event(HostApplicationCommand::runtime_shutdown);
+            reset_runtime_session();
+            resume_runtime_sound_output();
+            runtime_animation_control_flags &= ~RUNTIME_ANIMATION_PAUSED;
+            state->flags &= ~(RUNTIME_COMMAND_LOOP_RUNNING | RUNTIME_COMMAND_LOOP_STOP_REQUESTED);
+            post_application_event(HostApplicationCommand::RUNTIME_SHUTDOWN);
             return 1;
         }
-        runtime_command_loop_api.sleep(100);
-        if((state->flags & 0x01000000) == 0)
+        runtime_sleep(100);
+        if((state->flags & RUNTIME_COMMAND_LOOP_RUNNING) == 0)
         {
             state->flags |= restore_flag;
-            runtime_command_loop_api.cancel_first();
-            runtime_command_loop_api.cancel_second();
-            runtime_command_loop_api.cancel_third();
+            resume_runtime_sound_output();
+            runtime_animation_control_flags &= ~RUNTIME_ANIMATION_PAUSED;
+            resume_runtime_game_dll();
             return 1;
         }
     }
@@ -569,10 +478,10 @@ int run_runtime_command_loop(RuntimeCommandLoopState *state)
 
 uint32_t run_pending_runtime_external_command()
 {
-    if((runtime_scene_control_flags & 0x200000) != 0)
+    if((runtime_scene_control_flags & RUNTIME_HOST_EXTERNAL_COMMAND_PENDING) != 0)
     {
         runtime_display_context.external_command_pending = 0;
-        runtime_scene_control_flags &= 0xffdfffff;
+        runtime_scene_control_flags &= ~RUNTIME_HOST_EXTERNAL_COMMAND_PENDING;
     }
     return 0;
 }
@@ -604,42 +513,30 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             {
                 target = static_cast<RuntimeTreeNode *>(find_runtime_tree_root_identity_by_name(first));
                 if(target == nullptr)
-                {
-                    return RuntimeScriptOpcodeDisposition::complete;
-                }
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
             }
         }
         if(target_flags == 0)
-        {
-            state->accumulated_tree_flags = target->flags & 0xff;
-        }
+            state->accumulated_tree_flags = target->flags & RUNTIME_TREE_LOW_FLAG_MASK;
         else
-        {
-            state->accumulated_tree_flags = target_flags | 0x10000000;
-        }
+            state->accumulated_tree_flags = target_flags | RUNTIME_TREE_EXPLICIT_FLAGS;
         if(target->parent == nullptr)
         {
             if(state->current_runtime_resource != nullptr && activate_default_comment_scene("m_DEF_LOAD") > 0)
-            {
                 wait_for_display_scene_ready(500);
-            }
             destroy_runtime_tree_resources(target);
             RuntimeTreeNode *previous = target->previous;
             if(previous == nullptr)
             {
                 rebuild_runtime_tree_resources(target);
                 refresh_runtime_pointer_region();
-                return RuntimeScriptOpcodeDisposition::finish_link;
+                return RuntimeScriptOpcodeDisposition::FINISH_LINK;
             }
             auto *deactivated = reinterpret_cast<RuntimeTreeNode *>(static_cast<uintptr_t>(deactivate_runtime_tree_and_visuals(target, previous)));
-            if((previous->flags & 0x200) == 0 || deactivated == previous)
-            {
+            if((previous->flags & RUNTIME_TREE_SECTION_FALLBACK_ENABLED) == 0 || deactivated == previous)
                 reset_runtime_tree_parser_contexts(deactivated);
-            }
             else
-            {
                 opcode = 0x70000000;
-            }
             if(opcode != 0xb0000000)
             {
                 rebuild_runtime_tree_resources(deactivated);
@@ -648,7 +545,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             state->runtime_tree_identity = deactivated;
             refresh_runtime_pointer_region();
             // Replacing the root may release the current link and parser, so skip the common tail.
-            return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
+            return RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR;
         }
 
         destroy_runtime_tree_resources(target);
@@ -656,133 +553,110 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         std::memcpy(first, target->name, sizeof(first));
         std::memcpy(typed_value, parser->owner->name, 0x20);
         if(root_level || (reset_runtime_tree_parser_contexts(tree), root_level) || find_runtime_tree_descendant_identity_by_name(tree, first) != nullptr)
-        {
             deactivate_runtime_tree_and_visuals(target, nullptr);
-        }
         void *continuation;
         if(root_level)
-        {
             continuation = find_runtime_tree_root_identity_by_name(typed_value);
-        }
         else
-        {
             continuation = find_runtime_tree_descendant_identity_by_name(tree, typed_value);
-        }
         if(continuation == nullptr)
-        {
             state->active_script_link = nullptr;
-        }
         rebuild_runtime_pointer_resources();
         refresh_runtime_pointer_region();
         // A missing continuation may deactivate and release the current link, so skip the common tail.
-        return continuation == nullptr ? RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor : RuntimeScriptOpcodeDisposition::complete;
+        return continuation == nullptr ? RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR : RuntimeScriptOpcodeDisposition::COMPLETE;
     }
 
     case 0xa0000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary == nullptr)
             {
                 if(find_runtime_tree_identity_by_name_recursive(nullptr, first) != nullptr)
-                {
-                    return RuntimeScriptOpcodeDisposition::pause;
-                }
+                    return RuntimeScriptOpcodeDisposition::PAUSE;
             }
             else
             {
                 const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
-                if(flags != 0 && (flags & 0x80001000) == 0 && ((flags & 0x2000) == 0 || (flags & 1) == 0 || (flags & 0x20) != 0)
-                    && ((flags & 0x400) == 0 || query_runtime_resource_frame_limit(primary->resource_identity) != 0xffffffff))
+                if(flags != 0 && (flags & (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP)) == 0
+                    && ((flags & RUNTIME_RESOURCE_TYPE_ANIMATION) == 0 || (flags & RUNTIME_RESOURCE_PRIMARY) == 0 || (flags & RUNTIME_RESOURCE_INDEPENDENT_SCENE) != 0)
+                    && ((flags & RUNTIME_RESOURCE_LOOP) == 0 || query_runtime_resource_frame_limit(primary->resource_identity) != RUNTIME_RESOURCE_FRAME_LIMIT_UNBOUNDED))
                 {
-                    return RuntimeScriptOpcodeDisposition::pause;
+                    return RuntimeScriptOpcodeDisposition::PAUSE;
                 }
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xf0000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary == nullptr)
             {
                 if(find_runtime_tree_identity_by_name_recursive(nullptr, first) == nullptr)
-                {
-                    return RuntimeScriptOpcodeDisposition::pause;
-                }
+                    return RuntimeScriptOpcodeDisposition::PAUSE;
             }
             else
             {
                 const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
-                if(flags != 0 && (flags & 0x80001001) == 0 && (flags & 0x2000) != 0)
-                {
-                    return RuntimeScriptOpcodeDisposition::pause;
-                }
+                if(flags != 0 && (flags & (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP | RUNTIME_RESOURCE_PRIMARY)) == 0 && (flags & RUNTIME_RESOURCE_TYPE_ANIMATION) != 0)
+                    return RuntimeScriptOpcodeDisposition::PAUSE;
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x90000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             uint32_t flags = 0;
             uint32_t parsed_flag;
-            while((parsed_flag = parse_image_flag(parser)) != 0xffffffff)
-            {
+            while((parsed_flag = parse_image_flag(parser)) != SCRIPT_PARSE_END)
                 flags |= parsed_flag;
-            }
             if(primary != nullptr)
-            {
                 set_runtime_resource_state(primary->resource_identity, flags);
-            }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x80000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
         {
             parse_script_typed_value(parser, typed_value, &value_type);
-            if(value_type != 0x7fffffff)
-            {
-                resolve_state_field_reference(first, second, typed_value, static_cast<int>(value_type));
-            }
+            if(value_type != SCRIPT_VALUE_TYPE_INVALID)
+                resolve_state_field_reference(first, second, typed_value, static_cast<ScriptValueType>(value_type));
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xd0000000:
     case 0xc0000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             if(opcode == 0xd0000000)
-            {
                 rotate_runtime_named_node_cursor_next(first, 1);
-            }
             else
-            {
                 rotate_runtime_named_node_cursor_previous(first, 1);
-            }
             rebuild_runtime_pointer_resources();
             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xe0000000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreeLink84 *zone = find_global_runtime_tree_link_0084_by_name(first);
             if(zone != nullptr)
             {
                 const int32_t x = parse_script_integer_expression(parser);
                 const int32_t y = parse_script_integer_expression(parser);
-                if(x != 0x7fffffff && y != 0x7fffffff)
+                if(x != SCRIPT_INTEGER_INVALID && y != SCRIPT_INTEGER_INVALID)
                 {
-                    update_runtime_tree_link_0084(tree, zone, x, y, zone->width - zone->x + x, zone->height - zone->y + y, 0, nullptr, nullptr, 0, 0, 0x7fffffff);
+                    update_runtime_tree_link_0084(tree, zone, x, y, zone->width - zone->x + x, zone->height - zone->y + y, 0, nullptr, nullptr, 0, 0, SCRIPT_INTEGER_INVALID);
                     rebuild_runtime_pointer_resources();
                     update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
                 }
-                else if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff)
+                else if(parse_script_value_token(parser, second, sizeof(second)) == SCRIPT_PARSE_END)
                 {
                     zone->movement_flags |= 2;
                 }
@@ -791,59 +665,55 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                     RuntimeTreeLink8C *path = find_global_runtime_tree_link_008c_by_name(second);
                     if(path != nullptr)
                     {
-                        if((zone->movement_flags & 1) == 0)
+                        if((zone->movement_flags & RUNTIME_MOVEMENT_ACTIVE) == 0)
                         {
                             zone->movement_deadline = state->script_clock;
-                            zone->movement_flags = (zone->movement_flags & 0xfffffffd) | 1;
+                            zone->movement_flags = (zone->movement_flags & ~RUNTIME_MOVEMENT_STOPPED) | RUNTIME_MOVEMENT_ACTIVE;
                         }
                         if(state->script_clock < zone->movement_deadline)
+                            return RuntimeScriptOpcodeDisposition::PAUSE;
+                        if((zone->movement_flags & RUNTIME_MOVEMENT_STOPPED) == 0 && path->x <= zone->x && path->y <= zone->y && zone->width <= path->width && zone->height <= path->height)
                         {
-                            return RuntimeScriptOpcodeDisposition::pause;
-                        }
-                        if((zone->movement_flags & 2) == 0 && path->x <= zone->x && path->y <= zone->y && zone->width <= path->width && zone->height <= path->height)
-                        {
-                            if((path->flags & 1) != 0)
+                            if((path->flags & RUNTIME_PATH_HAS_LINE_DELTA) != 0)
                             {
                                 update_runtime_tree_link_0084(tree->identity, zone->identity, zone->x + path->line_first, zone->y + path->line_second, zone->width + path->line_first,
-                                    zone->height + path->line_second, 0, nullptr, nullptr, 0, 0, 0x7fffffff);
+                                    zone->height + path->line_second, 0, nullptr, nullptr, 0, 0, SCRIPT_INTEGER_INVALID);
                                 zone->movement_deadline = state->script_clock + path->time;
                             }
                             rebuild_runtime_pointer_resources();
                             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
-                            return RuntimeScriptOpcodeDisposition::pause;
+                            return RuntimeScriptOpcodeDisposition::PAUSE;
                         }
                     }
-                    zone->movement_flags &= 0xfffffffc;
+                    zone->movement_flags &= ~RUNTIME_MOVEMENT_MASK;
                 }
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 1:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
             {
-                primary->flags &= 0x7fffffff;
+                primary->flags &= ~RUNTIME_PRIMARY_RESOURCE_REFRESH_PENDING;
                 rebuild_runtime_pointer_resources();
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x100:
-        if((link->owner_flags & 0x40000000) == 0)
+        if((link->owner_flags & RUNTIME_SCRIPT_LINK_WAIT_PENDING) == 0)
         {
-            if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+            if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
             {
                 uintptr_t selection = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 char selection_name[0x20];
-                if(selection == 0x7fffffff)
+                if(selection == SCRIPT_INTEGER_INVALID)
                 {
-                    if(parse_script_value_token(parser, selection_name, sizeof(selection_name)) == 0xffffffff)
-                    {
-                        return RuntimeScriptOpcodeDisposition::complete;
-                    }
+                    if(parse_script_value_token(parser, selection_name, sizeof(selection_name)) == SCRIPT_PARSE_END)
+                        return RuntimeScriptOpcodeDisposition::COMPLETE;
                     selection = reinterpret_cast<uintptr_t>(selection_name);
                 }
                 else
@@ -852,15 +722,15 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
                 RuntimeTreeSecondaryResourceLink *secondary = find_global_runtime_tree_secondary_resource_link_by_name(first);
                 RuntimeFixedNameListNode *fixed = find_runtime_fixed_name_list_node(second);
-                if((script_runtime_root->flags & 1) == 0 && secondary != nullptr && fixed != nullptr)
+                if((script_runtime_root->flags & SCRIPT_RUNTIME_COMMENTS_SUPPRESSED) == 0 && secondary != nullptr && fixed != nullptr)
                 {
                     link->backend_child = attach_runtime_generic_backend_child(nullptr, fixed->resource_identity, secondary->resource_identity, selection, 0);
                     if(link->backend_child != nullptr)
                     {
                         link->secondary_resource_identity = secondary->resource_identity;
                         link->fixed_resource_identity = fixed->resource_identity;
-                        link->owner_flags |= 0x40010000;
-                        return RuntimeScriptOpcodeDisposition::pause;
+                        link->owner_flags |= RUNTIME_SCRIPT_LINK_WAIT_PENDING | RUNTIME_SCRIPT_LINK_BACKEND_CHILD_ACTIVE;
+                        return RuntimeScriptOpcodeDisposition::PAUSE;
                     }
                 }
             }
@@ -868,18 +738,14 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         else
         {
             const uint32_t flags = get_runtime_generic_backend_child_flags(link->backend_child);
-            if(flags != 0x7fffffff && (flags & 0x200) != 0)
-            {
-                return RuntimeScriptOpcodeDisposition::pause;
-            }
+            if(flags != RUNTIME_GENERIC_CHILD_FLAGS_UNAVAILABLE && (flags & RUNTIME_GENERIC_CHILD_MODE_200) != 0)
+                return RuntimeScriptOpcodeDisposition::PAUSE;
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x200:
-        if((state->flags & 0x100) != 0)
-        {
-            return RuntimeScriptOpcodeDisposition::pause;
-        }
+        if((state->flags & RUNTIME_COMMAND_TEXT_INPUT_ACTIVE) != 0)
+            return RuntimeScriptOpcodeDisposition::PAUSE;
         if(state->input_cursor == 0)
         {
             void *first_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
@@ -887,17 +753,15 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             parse_script_value_token(parser, first, sizeof(first));
             void *fourth_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
             void *fifth_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_script_integer_expression(parser)));
-            if(parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+            if(parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
             {
                 uint32_t character_width = static_cast<uint32_t>(parse_script_integer_expression(parser));
-                if(character_width == 0x7fffffff)
-                {
+                if(character_width == SCRIPT_INTEGER_INVALID)
                     character_width = 0;
-                }
                 void *session_value = reinterpret_cast<void *>(static_cast<uintptr_t>(parse_image_flag(parser)));
                 RuntimeFixedNameListNode *fixed = find_runtime_fixed_name_list_node(first);
                 initialize_runtime_input_session(first_value, second_value, fixed == nullptr ? nullptr : fixed->resource_identity, fourth_value, fifth_value, character_width, session_value);
-                return RuntimeScriptOpcodeDisposition::pause;
+                return RuntimeScriptOpcodeDisposition::PAUSE;
             }
         }
         else
@@ -907,40 +771,36 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             parse_script_value_token(parser, first, sizeof(first));
             parse_script_integer_expression(parser);
             parse_script_integer_expression(parser);
-            if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+            if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
             {
-                RuntimeInputSessionRecord input{};
-                copy_runtime_input_session_record(&input);
-                resolve_state_field_reference(first, second, &input, 4);
+                RuntimeInputText input = take_runtime_input_text();
+                resolve_state_field_reference(first, second, input.data(), SCRIPT_VALUE_TYPE_STRING);
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x300:
     {
         state->external_command_pending = 1;
         uint32_t result = 0;
         const int32_t command = parse_script_integer_expression(parser);
-        if(command != 0x7fffffff)
+        if(command != SCRIPT_INTEGER_INVALID)
         {
-            ScriptObjectFieldSnapshot snapshot;
             HostApplicationPayload payload;
-            if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+            if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
             {
-                if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff || get_script_object_field_snapshot(first, second, &snapshot) == 0)
+                if(parse_script_value_token(parser, second, sizeof(second)) == SCRIPT_PARSE_END || !has_script_object_field(first, second))
                 {
                     state->external_command_pending = 0;
-                    return RuntimeScriptOpcodeDisposition::complete;
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
                 }
-                payload = HostStateFieldQuery{ snapshot.object_name, snapshot.field_name };
+                payload = HostStateFieldQuery{ first, second };
             }
             if(should_send_runtime_script_message(command))
             {
                 HostEventResult event_result = send_application_event(static_cast<uint32_t>(command), std::move(payload));
                 if(const auto *value = std::get_if<uint32_t>(&event_result))
-                {
                     result = *value;
-                }
             }
         }
         if(result != 0)
@@ -948,18 +808,17 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             result = 0;
             while(state->external_command_pending != 0)
             {
-                process_runtime_message(state);
                 result |= static_cast<uint32_t>(run_runtime_command_loop(state));
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
         state->external_command_pending = 0;
         // after this /MESSAGE rather than issue it again.
-        return result == 0 ? RuntimeScriptOpcodeDisposition::complete : RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
+        return result == 0 ? RuntimeScriptOpcodeDisposition::COMPLETE : RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR;
     }
 
     case 0x400:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreeSceneLink *scene = find_global_runtime_tree_scene_link_by_name(first);
             intptr_t identifier;
@@ -970,30 +829,20 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             if(scene == nullptr)
             {
                 if(!strings_equal(first, "BACKGND"))
-                {
-                    return RuntimeScriptOpcodeDisposition::complete;
-                }
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
                 identifier = state->input_alternate_scene_identifier;
                 x = parse_script_integer_expression(parser);
                 y = parse_script_integer_expression(parser);
                 width = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 height = static_cast<uint32_t>(parse_script_integer_expression(parser));
-                if(x == 0x7fffffff)
-                {
+                if(x == SCRIPT_INTEGER_INVALID)
                     x = 0;
-                }
-                if(y == 0x7fffffff)
-                {
+                if(y == SCRIPT_INTEGER_INVALID)
                     y = 0;
-                }
-                if(width == 0x7fffffff)
-                {
+                if(width == SCRIPT_INTEGER_INVALID)
                     width = runtime_display_context.width;
-                }
-                if(height == 0x7fffffff)
-                {
+                if(height == SCRIPT_INTEGER_INVALID)
                     height = runtime_display_context.height;
-                }
             }
             else
             {
@@ -1002,56 +851,48 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 y = parse_script_integer_expression(parser);
                 width = static_cast<uint32_t>(parse_script_integer_expression(parser));
                 height = static_cast<uint32_t>(parse_script_integer_expression(parser));
-                if(x == 0x7fffffff)
-                {
+                if(x == SCRIPT_INTEGER_INVALID)
                     x = 0;
-                }
-                if(y == 0x7fffffff)
-                {
+                if(y == SCRIPT_INTEGER_INVALID)
                     y = 0;
-                }
-                if(width == 0x7fffffff)
-                {
+                if(width == SCRIPT_INTEGER_INVALID)
                     width = scene->width;
-                }
-                if(height == 0x7fffffff)
-                {
+                if(height == SCRIPT_INTEGER_INVALID)
                     height = scene->height;
-                }
             }
             update_runtime_resource_scene_region(identifier, x, y, width, height);
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x500:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             clear_runtime_named_node_children(first);
             rebuild_runtime_pointer_resources();
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x600:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             const uint32_t fade_flag = parse_image_flag(parser);
             if(static_cast<int32_t>(fade_flag) > 0)
             {
                 const int32_t duration = parse_script_integer_expression(parser);
                 RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
-                if(duration != 0x7fffffff && primary != nullptr)
+                if(duration != SCRIPT_INTEGER_INVALID && primary != nullptr)
                 {
                     RuntimeLockRecord *record = acquire_runtime_lock_record(primary->resource_identity);
                     if(record != nullptr)
                     {
-                        if((record->type_flags & 0x8000) != 0)
+                        if((record->type_flags & RUNTIME_RESOURCE_TYPE_SOUND) != 0)
                         {
-                            if(fade_flag == 0x03000000)
+                            if(fade_flag == SCRIPT_BOOLEAN_TRUE)
                             {
                                 set_runtime_sound_volume(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), 0);
                                 fade_out_runtime_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), duration, 1);
                             }
-                            else if(fade_flag == 0x07000000)
+                            else if(fade_flag == SCRIPT_BOOLEAN_FALSE)
                             {
                                 fade_in_runtime_sound(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(record->identity_context)), duration, 1);
                             }
@@ -1061,36 +902,32 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x1000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
             {
-                primary->flags |= 0x80000000;
+                primary->flags |= RUNTIME_PRIMARY_RESOURCE_REFRESH_PENDING;
                 rebuild_runtime_pointer_resources();
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x3000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
         {
             const int32_t delta = parse_script_integer_expression(parser);
-            if(delta != 0x7fffffff)
-            {
+            if(delta != SCRIPT_INTEGER_INVALID)
                 add_script_object_integer(first, second, delta);
-            }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x4000:
-        if(parse_script_value_token(parser, first, sizeof(first)) == 0xffffffff || parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff)
-        {
-            return RuntimeScriptOpcodeDisposition::complete;
-        }
+        if(parse_script_value_token(parser, first, sizeof(first)) == SCRIPT_PARSE_END || parse_script_value_token(parser, second, sizeof(second)) == SCRIPT_PARSE_END)
+            return RuntimeScriptOpcodeDisposition::COMPLETE;
         [[fallthrough]];
 
     case 0x40000:
@@ -1098,117 +935,101 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         for(;;)
         {
             const uint32_t control_opcode = parse_script_opcode(parser);
-            if(control_opcode == 0xffffffff)
-            {
-                return RuntimeScriptOpcodeDisposition::complete;
-            }
+            if(control_opcode == SCRIPT_PARSE_END)
+                return RuntimeScriptOpcodeDisposition::COMPLETE;
             if(control_opcode <= 0x6000)
             {
                 if(control_opcode == 0x6000)
-                {
-                    return RuntimeScriptOpcodeDisposition::complete;
-                }
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
                 if(control_opcode == 0x5000)
                 {
                     parse_script_typed_value(parser, typed_value, &value_type);
-                    if((value_type != 0x7fffffff && compare_script_object_field(first, second, typed_value, static_cast<int32_t>(value_type)))
+                    if((value_type != SCRIPT_VALUE_TYPE_INVALID && compare_script_object_field(first, second, typed_value, static_cast<int32_t>(value_type)))
                         || scan_runtime_tree_link_007c_control_boundary(link, 0x60000) == 0x6000)
                     {
-                        return RuntimeScriptOpcodeDisposition::complete;
+                        return RuntimeScriptOpcodeDisposition::COMPLETE;
                     }
                 }
                 continue;
             }
-            uint32_t boundary = 0xffffffff;
+            uint32_t boundary = SCRIPT_PARSE_END;
             if(control_opcode == 0x70000)
             {
                 const int32_t minimum = parse_script_integer_expression(parser);
                 const int32_t maximum = parse_script_integer_expression(parser);
-                if(minimum != 0x7fffffff && maximum != 0x7fffffff && minimum <= random_value && random_value <= maximum)
-                {
-                    return RuntimeScriptOpcodeDisposition::complete;
-                }
+                if(minimum != SCRIPT_INTEGER_INVALID && maximum != SCRIPT_INTEGER_INVALID && minimum <= random_value && random_value <= maximum)
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
                 boundary = scan_runtime_tree_link_007c_control_boundary(link, 0x60000);
             }
             else if(control_opcode == 0x80000)
             {
-                if(parse_script_value_token(parser, reinterpret_cast<char *>(typed_value), 0x20) != 0xffffffff && script_object_container_state_matches_by_name(typed_value))
-                {
-                    return RuntimeScriptOpcodeDisposition::complete;
-                }
+                if(parse_script_value_token(parser, reinterpret_cast<char *>(typed_value), 0x20) != SCRIPT_PARSE_END && script_object_container_state_matches_by_name(typed_value))
+                    return RuntimeScriptOpcodeDisposition::COMPLETE;
                 boundary = scan_runtime_tree_link_007c_control_boundary(link, 0x60000);
             }
             if(boundary == 0x6000)
-            {
-                return RuntimeScriptOpcodeDisposition::complete;
-            }
+                return RuntimeScriptOpcodeDisposition::COMPLETE;
         }
 
     case 0xa000:
-        if((link->owner_flags & 0x20000000) == 0)
+        if((link->owner_flags & RUNTIME_SCRIPT_LINK_SCENE_UPDATE_OPEN) == 0)
         {
-            link->owner_flags |= 0x20000000;
+            link->owner_flags |= RUNTIME_SCRIPT_LINK_SCENE_UPDATE_OPEN;
             begin_display_scene_update(state->input_alternate_scene_identifier);
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xb000:
-        if((link->owner_flags & 0x20000000) != 0)
+        if((link->owner_flags & RUNTIME_SCRIPT_LINK_SCENE_UPDATE_OPEN) != 0)
         {
-            link->owner_flags &= 0xdfffffff;
+            link->owner_flags &= ~RUNTIME_SCRIPT_LINK_SCENE_UPDATE_OPEN;
             end_display_scene_update(state->input_alternate_scene_identifier, nullptr, nullptr);
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xc000:
-        if((state->flags & 0x10) != 0)
+        if((state->flags & RUNTIME_COMMAND_GAME_BUSY) != 0)
+            return RuntimeScriptOpcodeDisposition::PAUSE;
+        if((state->flags & RUNTIME_COMMAND_GAME_RESULT_READY) == 0)
         {
-            return RuntimeScriptOpcodeDisposition::pause;
-        }
-        if((state->flags & 0x20) == 0)
-        {
-            if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && load_and_initialize_runtime_game_dll(first))
-            {
-                return RuntimeScriptOpcodeDisposition::pause;
-            }
+            if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && load_and_initialize_runtime_game_dll(first))
+                return RuntimeScriptOpcodeDisposition::PAUSE;
         }
         else
         {
-            state->flags &= 0xffffffdf;
+            state->flags &= ~RUNTIME_COMMAND_GAME_RESULT_READY;
             parse_script_value_token(parser, first, sizeof(first));
-            if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+            if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
             {
-                resolve_state_field_reference(first, second, state->game_result_data, static_cast<int>(state->game_result_type));
+                resolve_state_field_reference(first, second, state->game_result_data, static_cast<ScriptValueType>(state->game_result_type));
                 std::memset(state->game_result_data, 0, sizeof(state->game_result_data));
                 state->game_result_type = 0;
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xd000:
         stop_runtime_game_dll();
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xe000:
         if(state->nested_runtime_state_count == 0)
         {
-            state->flags |= 0x4000;
-            enter_runtime_state_1000();
+            state->flags |= RUNTIME_COMMAND_NESTED_STATE_ACTIVE;
+            suspend_runtime_state();
         }
         ++state->nested_runtime_state_count;
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xf000:
         if(state->nested_runtime_state_count == 1)
         {
-            state->flags &= 0xffffbfff;
-            leave_runtime_state_1000();
+            state->flags &= ~RUNTIME_COMMAND_NESTED_STATE_ACTIVE;
+            resume_runtime_state();
         }
         if(state->nested_runtime_state_count != 0)
-        {
             --state->nested_runtime_state_count;
-        }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x7000:
     case 0x8000:
@@ -1216,36 +1037,28 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
     {
         void *parent_identity;
         if(opcode == 0x7000)
-        {
             parent_identity = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
-        }
         else if(opcode == 0x8000)
-        {
             parent_identity = tree;
-        }
         else
-        {
             parent_identity = parser->owner;
-        }
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
-            if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff)
+            if(parse_script_value_token(parser, second, sizeof(second)) == SCRIPT_PARSE_END)
             {
                 std::memcpy(second, first, sizeof(second));
                 std::memcpy(first, parser->resource->name, sizeof(first));
             }
             RuntimeTreeNode *activated = activate_runtime_tree_with_notifications(first, second, parent_identity, nullptr);
             if(activated != nullptr)
-            {
                 rebuild_runtime_tree_resources(activated);
-            }
             refresh_runtime_pointer_region();
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
     }
 
     case 0x9000:
-        if(parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+        if(parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
         {
             DisplaySceneNode *destination = nullptr;
             RuntimeTreePrimaryResourceLink *destination_primary = find_global_runtime_tree_primary_resource_link_by_name(second);
@@ -1262,27 +1075,19 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             {
                 RuntimeTreeSceneLink *destination_scene = find_global_runtime_tree_scene_link_by_name(second);
                 if(destination_scene != nullptr)
-                {
                     destination = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(destination_scene->scene_identifier));
-                }
                 else if(strings_equal(second, "BACKGND"))
-                {
                     destination = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(state->input_alternate_scene_identifier));
-                }
             }
             if(destination != nullptr)
             {
                 int32_t destination_x = parse_script_integer_expression(parser);
                 int32_t destination_y = parse_script_integer_expression(parser);
-                if(destination_x == 0x7fffffff)
-                {
+                if(destination_x == SCRIPT_INTEGER_INVALID)
                     destination_x = 0;
-                }
-                if(destination_y == 0x7fffffff)
-                {
+                if(destination_y == SCRIPT_INTEGER_INVALID)
                     destination_y = 0;
-                }
-                if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+                if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
                 {
                     DisplaySceneNode *source = nullptr;
                     DisplayRectangle rectangle{};
@@ -1298,22 +1103,14 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
                             rectangle.bottom = parse_script_integer_expression(parser);
-                            if(rectangle.left == 0x7fffffff)
-                            {
+                            if(rectangle.left == SCRIPT_INTEGER_INVALID)
                                 rectangle.left = 0;
-                            }
-                            if(rectangle.top == 0x7fffffff)
-                            {
+                            if(rectangle.top == SCRIPT_INTEGER_INVALID)
                                 rectangle.top = 0;
-                            }
-                            if(rectangle.right == 0x7fffffff)
-                            {
+                            if(rectangle.right == SCRIPT_INTEGER_INVALID)
                                 rectangle.right = static_cast<int32_t>(resource->output_width);
-                            }
-                            if(rectangle.bottom == 0x7fffffff)
-                            {
+                            if(rectangle.bottom == SCRIPT_INTEGER_INVALID)
                                 rectangle.bottom = static_cast<int32_t>(resource->output_height);
-                            }
                             release_runtime_lock_record(record);
                         }
                     }
@@ -1327,22 +1124,14 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
                             rectangle.bottom = parse_script_integer_expression(parser);
-                            if(rectangle.left == 0x7fffffff)
-                            {
+                            if(rectangle.left == SCRIPT_INTEGER_INVALID)
                                 rectangle.left = 0;
-                            }
-                            if(rectangle.top == 0x7fffffff)
-                            {
+                            if(rectangle.top == SCRIPT_INTEGER_INVALID)
                                 rectangle.top = 0;
-                            }
-                            if(rectangle.right == 0x7fffffff)
-                            {
+                            if(rectangle.right == SCRIPT_INTEGER_INVALID)
                                 rectangle.right = static_cast<int32_t>(source_scene->width);
-                            }
-                            if(rectangle.bottom == 0x7fffffff)
-                            {
+                            if(rectangle.bottom == SCRIPT_INTEGER_INVALID)
                                 rectangle.bottom = static_cast<int32_t>(source_scene->height);
-                            }
                         }
                         else if(strings_equal(second, "BACKGND"))
                         {
@@ -1351,22 +1140,14 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                             rectangle.top = parse_script_integer_expression(parser);
                             rectangle.right = parse_script_integer_expression(parser);
                             rectangle.bottom = parse_script_integer_expression(parser);
-                            if(rectangle.left == 0x7fffffff)
-                            {
+                            if(rectangle.left == SCRIPT_INTEGER_INVALID)
                                 rectangle.left = 0;
-                            }
-                            if(rectangle.top == 0x7fffffff)
-                            {
+                            if(rectangle.top == SCRIPT_INTEGER_INVALID)
                                 rectangle.top = 0;
-                            }
-                            if(rectangle.right == 0x7fffffff)
-                            {
+                            if(rectangle.right == SCRIPT_INTEGER_INVALID)
                                 rectangle.right = state->width;
-                            }
-                            if(rectangle.bottom == 0x7fffffff)
-                            {
+                            if(rectangle.bottom == SCRIPT_INTEGER_INVALID)
                                 rectangle.bottom = state->height;
-                            }
                         }
                     }
                     if(source != nullptr)
@@ -1378,64 +1159,56 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x10000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
-            {
                 set_runtime_resource_loop_count(primary->resource_identity, 1);
-            }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x20000:
     case 0x30000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
         {
             if(opcode == 0x20000)
-            {
                 add_script_object_to_runtime_named_node(first, second);
-            }
             else
-            {
                 remove_script_object_from_runtime_named_node(first, second);
-            }
             rebuild_runtime_pointer_resources();
             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xc0000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
-            {
                 set_runtime_resource_state(primary->resource_identity, 1);
-            }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xb0000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             seek_runtime_tree_link_007c_label(link, first);
-            return RuntimeScriptOpcodeDisposition::commit_cursor;
+            return RuntimeScriptOpcodeDisposition::COMMIT_CURSOR;
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xd0000:
         reset_runtime_session();
-        send_application_event(HostApplicationCommand::close_requested);
-        state->flags &= 0xffefffff;
+        send_application_event(HostApplicationCommand::CLOSE_REQUESTED);
+        state->flags &= ~RUNTIME_COMMAND_SCRIPT_EXECUTION_ENABLED;
         // A session reset invalidates the old parser cursor, so do not restore it.
-        return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
+        return RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR;
 
     case 0xe0000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff && parse_script_value_token(parser, second, sizeof(second)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END && parse_script_value_token(parser, second, sizeof(second)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
@@ -1444,79 +1217,75 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 rebuild_runtime_pointer_resources();
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x90000:
-        if(parse_script_value_token(parser, first, sizeof(first)) != 0xffffffff)
+        if(parse_script_value_token(parser, first, sizeof(first)) != SCRIPT_PARSE_END)
         {
             RuntimeTreePrimaryResourceLink *primary = find_global_runtime_tree_primary_resource_link_by_name(first);
             if(primary != nullptr)
             {
                 const int32_t x = parse_script_integer_expression(parser);
                 const int32_t y = parse_script_integer_expression(parser);
-                if(x != 0x7fffffff && y != 0x7fffffff)
+                if(x != SCRIPT_INTEGER_INVALID && y != SCRIPT_INTEGER_INVALID)
                 {
                     update_runtime_tree_primary_resource_link(tree, primary, nullptr, x - primary->x, y - primary->y, 0);
                     rebuild_runtime_pointer_resources();
                     update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
                 }
-                else if(parse_script_value_token(parser, second, sizeof(second)) == 0xffffffff)
+                else if(parse_script_value_token(parser, second, sizeof(second)) == SCRIPT_PARSE_END)
                 {
-                    primary->flags |= 2;
+                    primary->flags |= RUNTIME_MOVEMENT_STOPPED;
                 }
                 else
                 {
                     RuntimeTreeLink8C *path = find_global_runtime_tree_link_008c_by_name(second);
                     if(path != nullptr)
                     {
-                        if((primary->flags & 1) == 0)
+                        if((primary->flags & RUNTIME_MOVEMENT_ACTIVE) == 0)
                         {
                             primary->movement_deadline = state->script_clock;
-                            primary->flags = (primary->flags & 0xfffffffd) | 1;
+                            primary->flags = (primary->flags & ~RUNTIME_MOVEMENT_STOPPED) | RUNTIME_MOVEMENT_ACTIVE;
                         }
                         if(state->script_clock < primary->movement_deadline)
-                        {
-                            return RuntimeScriptOpcodeDisposition::pause;
-                        }
-                        if((primary->flags & 2) == 0 && path->x <= primary->x && path->y <= primary->y && primary->x <= static_cast<int32_t>(path->width)
+                            return RuntimeScriptOpcodeDisposition::PAUSE;
+                        if((primary->flags & RUNTIME_MOVEMENT_STOPPED) == 0 && path->x <= primary->x && path->y <= primary->y && primary->x <= static_cast<int32_t>(path->width)
                             && primary->y <= static_cast<int32_t>(path->height))
                         {
-                            if((path->flags & 1) != 0)
+                            if((path->flags & RUNTIME_PATH_HAS_LINE_DELTA) != 0)
                             {
                                 update_runtime_tree_primary_resource_link(tree, primary, nullptr, path->line_first, path->line_second, 0);
                                 primary->movement_deadline = state->script_clock + path->time;
                             }
                             rebuild_runtime_pointer_resources();
                             update_runtime_pointer_region(runtime_pointer_x, runtime_pointer_y);
-                            return RuntimeScriptOpcodeDisposition::pause;
+                            return RuntimeScriptOpcodeDisposition::PAUSE;
                         }
                     }
-                    primary->flags &= 0xfffffffc;
+                    primary->flags &= ~RUNTIME_MOVEMENT_MASK;
                 }
             }
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xf0000:
-        if((link->owner_flags & 0x40000000) == 0)
+        if((link->owner_flags & RUNTIME_SCRIPT_LINK_WAIT_PENDING) == 0)
         {
             const int32_t duration = parse_script_integer_expression(parser);
-            if(duration != 0x7fffffff)
+            if(duration != SCRIPT_INTEGER_INVALID)
             {
                 link->wait_deadline = state->script_clock + static_cast<uint32_t>(duration);
-                link->owner_flags |= 0x40000000;
-                return RuntimeScriptOpcodeDisposition::pause;
+                link->owner_flags |= RUNTIME_SCRIPT_LINK_WAIT_PENDING;
+                return RuntimeScriptOpcodeDisposition::PAUSE;
             }
         }
         else
         {
             if(state->script_clock < link->wait_deadline)
-            {
-                return RuntimeScriptOpcodeDisposition::pause;
-            }
-            link->owner_flags &= 0xbfffffff;
+                return RuntimeScriptOpcodeDisposition::PAUSE;
+            link->owner_flags &= ~RUNTIME_SCRIPT_LINK_WAIT_PENDING;
         }
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x40000000:
     case 0x40000001:
@@ -1525,41 +1294,31 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
     {
         uint32_t target_flags = 0;
         if(parse_runtime_tree_command_target(parser, first, second, &target_flags) == 0)
-        {
-            return RuntimeScriptOpcodeDisposition::complete;
-        }
+            return RuntimeScriptOpcodeDisposition::COMPLETE;
         state->accumulated_tree_flags = target_flags;
         if((opcode & 0xff) != 0)
-        {
-            state->accumulated_tree_flags = opcode & 0xff;
-        }
+            state->accumulated_tree_flags = opcode & RUNTIME_TREE_LOW_FLAG_MASK;
         if(target_flags != 0)
-        {
-            state->accumulated_tree_flags |= 0x10000000;
-        }
+            state->accumulated_tree_flags |= RUNTIME_TREE_EXPLICIT_FLAGS;
         if(state->current_runtime_resource != nullptr && activate_default_comment_scene("m_DEF_LOAD") > 0)
-        {
             wait_for_display_scene_ready(500);
-        }
         destroy_runtime_tree_resources(tree);
         RuntimeTreeNode *activated = activate_runtime_tree_with_notifications(first, second, nullptr, nullptr);
         void *published_identity = state->runtime_tree_identity;
         if(activated == nullptr)
         {
             RuntimeTreeNode *rebuild = nullptr;
-            if((link->owner_flags & 0x10000000) != 0)
+            if((link->owner_flags & RUNTIME_SCRIPT_LINK_TREE_FALLBACK) != 0)
             {
                 copy_runtime_tree_command_name(first, opcode);
                 const uint32_t cursor = find_runtime_tree_link_007c_opcode_value(link, 0x700, first, 1);
-                if(cursor != 0xffffffff)
-                {
+                if(cursor != SCRIPT_PARSE_END)
                     saved_cursor = cursor;
-                }
                 rebuild = find_and_create_runtime_tree_jump(parser, first, saved_cursor);
             }
             if(rebuild == nullptr)
             {
-                send_application_event(HostApplicationCommand::runtime_failure);
+                send_application_event(HostApplicationCommand::RUNTIME_FAILURE);
                 rebuild = tree;
             }
             rebuild_runtime_tree_resources(rebuild);
@@ -1568,13 +1327,9 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         else
         {
             if(tree->identity == activated)
-            {
                 reset_runtime_tree_parser_contexts(activated);
-            }
             else if((opcode & 0xffffff00) == 0x50000000)
-            {
                 deactivate_runtime_tree_and_visuals(tree, activated);
-            }
             rebuild_runtime_tree_resources(activated);
             activated->flags |= state->accumulated_tree_flags;
             published_identity = state->runtime_tree_identity;
@@ -1582,15 +1337,15 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         state->runtime_tree_identity = published_identity;
         refresh_runtime_pointer_region();
         // The command invalidates the saved parser cursor, so bypass the common restore path.
-        return RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor;
+        return RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR;
     }
 
     case 0x60000:
         scan_runtime_tree_link_007c_control_boundary(link, 0x6000);
-        return RuntimeScriptOpcodeDisposition::complete;
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     default:
-        return RuntimeScriptOpcodeDisposition::unhandled;
+        return RuntimeScriptOpcodeDisposition::UNHANDLED;
     }
 }
 
@@ -1598,12 +1353,10 @@ bool should_send_runtime_script_message(int32_t command)
 {
     // The transition can acknowledge its host-event caller before the UI thread finishes the callback. Suppress another synchronous 2010 send from that same physical press at the sending
     // boundary, where it cannot block waiting for the still-busy UI thread.
-    if(command == 0x7da)
+    if(command == static_cast<int32_t>(HostApplicationCommand::TOGGLE_FULLSCREEN))
     {
         if(desktop_fullscreen_toggle_latched)
-        {
             return false;
-        }
         desktop_fullscreen_toggle_latched = true;
     }
     return true;
@@ -1612,77 +1365,69 @@ bool should_send_runtime_script_message(int32_t command)
 void execute_script_commands(void *parameter)
 {
     auto *state = static_cast<RuntimeCommandLoopState *>(parameter);
-    uint32_t previous_tick = runtime_script_executor_api.get_tick_count();
+    uint32_t previous_tick = runtime_milliseconds();
     // Initialize before the first outer pass so SWRAND always has a defined prior value.
     int32_t random_value = 0;
     while(true)
     {
         drain_runtime_resource_destructions();
-        if((state->flags & 1) != 0)
-        {
+        if((state->flags & RUNTIME_COMMAND_SHUTDOWN_REQUESTED) != 0)
             return;
-        }
-        runtime_script_executor_api.process_children(state->script_clock);
-        runtime_script_executor_api.process_message(state);
-        runtime_script_executor_api.process_text_input(state);
-        runtime_script_executor_api.process_pair_message();
-        runtime_script_executor_api.run_command_loop(state);
-        if((state->flags & 0x100000) == 0)
+        process_available_runtime_generic_children(state->script_clock);
+        process_runtime_text_input(state);
+        process_runtime_queued_input();
+        run_runtime_command_loop(state);
+        if((state->flags & RUNTIME_COMMAND_SCRIPT_EXECUTION_ENABLED) == 0)
         {
-            previous_tick = runtime_script_executor_api.time_get_time();
-            runtime_script_executor_api.sleep(10);
+            previous_tick = runtime_milliseconds();
+            runtime_sleep(10);
             continue;
         }
 
-        RuntimeTreeNode *tree = runtime_script_executor_api.resolve_tree(state->runtime_tree_identity);
+        RuntimeTreeNode *tree = find_runtime_tree_node_by_identity(state->runtime_tree_identity);
         bool restart_outer = false;
         if(tree != nullptr)
         {
-            runtime_script_executor_api.synchronize_plan_mode();
-            if(!runtime_script_executor_api.process_pending_tree_switch(tree))
+            synchronize_runtime_plan_mode();
+            if(!process_pending_runtime_tree_switch(tree))
             {
-                runtime_script_executor_api.acknowledge_event();
+                acknowledge_current_runtime_event_record();
                 for(RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head; link != nullptr; link = link->next)
                 {
-                    runtime_script_executor_api.process_children(state->script_clock);
-                    runtime_script_executor_api.process_message(state);
-                    runtime_script_executor_api.process_text_input(state);
-                    if(runtime_script_executor_api.run_external_command() != 0 || runtime_script_executor_api.process_pair_message() != 0 || runtime_script_executor_api.run_command_loop(state) != 0)
-                    {
+                    process_available_runtime_generic_children(state->script_clock);
+                    process_runtime_text_input(state);
+                    if(run_pending_runtime_external_command() != 0 || process_runtime_queued_input() != 0 || run_runtime_command_loop(state) != 0)
                         break;
-                    }
 
                     ScriptParserState *parser = nullptr;
-                    if(runtime_script_executor_api.activate_link(link) != 0)
+                    if(activate_runtime_tree_link_007c(link) != 0)
                     {
                         state->active_script_link = link;
                         parser = &link->parser;
                         while(true)
                         {
                             uint32_t saved_cursor = parser->cursor;
-                            const uint32_t opcode = runtime_script_executor_api.parse_opcode(parser);
-                            if(opcode == 0xffffffff)
+                            const uint32_t opcode = parse_script_opcode(parser);
+                            if(opcode == SCRIPT_PARSE_END)
                             {
                                 saved_cursor = parser->start_offset;
-                                link->owner_flags &= 0x7fffffff;
+                                link->owner_flags &= ~RUNTIME_SCRIPT_LINK_ACTIVE;
                                 parser->cursor = saved_cursor;
                                 break;
                             }
-                            const RuntimeScriptOpcodeDisposition disposition = runtime_script_executor_api.dispatch_opcode(state, tree, link, opcode, random_value, saved_cursor);
-                            if(disposition == RuntimeScriptOpcodeDisposition::complete || disposition == RuntimeScriptOpcodeDisposition::unhandled)
-                            {
+                            const RuntimeScriptOpcodeDisposition disposition = execute_simple_runtime_script_opcode(state, tree, link, opcode, random_value, saved_cursor);
+                            if(disposition == RuntimeScriptOpcodeDisposition::COMPLETE || disposition == RuntimeScriptOpcodeDisposition::UNHANDLED)
                                 continue;
-                            }
-                            if(disposition == RuntimeScriptOpcodeDisposition::finish_link)
+                            if(disposition == RuntimeScriptOpcodeDisposition::FINISH_LINK)
                             {
                                 saved_cursor = parser->start_offset;
-                                link->owner_flags &= 0x7fffffff;
+                                link->owner_flags &= ~RUNTIME_SCRIPT_LINK_ACTIVE;
                             }
-                            else if(disposition == RuntimeScriptOpcodeDisposition::commit_cursor)
+                            else if(disposition == RuntimeScriptOpcodeDisposition::COMMIT_CURSOR)
                             {
                                 saved_cursor = parser->cursor;
                             }
-                            else if(disposition == RuntimeScriptOpcodeDisposition::restart_outer_commit_cursor)
+                            else if(disposition == RuntimeScriptOpcodeDisposition::RESTART_OUTER_COMMIT_CURSOR)
                             {
                                 // This disposition returns directly to the outer loop. The command may have destroyed the current tree or link, so neither parser read nor write is valid
                                 // here.
@@ -1690,56 +1435,24 @@ void execute_script_commands(void *parameter)
                                 break;
                             }
                             parser->cursor = saved_cursor;
-                            if(disposition == RuntimeScriptOpcodeDisposition::restart_outer)
-                            {
+                            if(disposition == RuntimeScriptOpcodeDisposition::RESTART_OUTER)
                                 restart_outer = true;
-                            }
                             break;
                         }
                     }
                     state->active_script_link = nullptr;
                     if(restart_outer)
-                    {
                         break;
-                    }
                 }
             }
         }
 
         state->active_script_link = nullptr;
-        const uint32_t current_tick = runtime_script_executor_api.time_get_time();
-        random_value = runtime_script_executor_api.select_random(-10000, 10000);
+        const uint32_t current_tick = runtime_milliseconds();
+        random_value = select_bounded_random_value(-10000, 10000);
         state->script_clock = current_tick + (state->script_clock - previous_tick);
         previous_tick = current_tick;
-        runtime_script_executor_api.sleep(10);
-    }
-}
-
-void process_runtime_message(RuntimeCommandLoopState *state)
-{
-    uint32_t message = runtime_message_processor_api.dequeue_message();
-    if(message == 0)
-    {
-        return;
-    }
-    bool handled = false;
-    if(message == 0x30f)
-    {
-        state->flags &= 0xfffbffff;
-        runtime_message_processor_api.handle_message_30f();
-        handled = true;
-    }
-    else if(message == 0x311)
-    {
-        state->flags |= 0x40000;
-        runtime_message_processor_api.handle_message_311();
-        handled = true;
-    }
-    if(handled && runtime_message_processor_api.query_state(nullptr, nullptr, nullptr) == 0)
-    {
-        RuntimeCommandBounds bounds{ 0, 0, state->width, state->height };
-        runtime_message_processor_api.update_target(nullptr, &bounds, 1);
-        runtime_message_processor_api.present();
+        runtime_sleep(10);
     }
 }
 
@@ -1747,82 +1460,18 @@ bool update_runtime_target(void *, RuntimeCommandBounds *bounds, int mode)
 {
     if(mode == 1)
     {
-        runtime_target_update_api.draw_bounds(bounds, 1);
+        synchronize_display_region(reinterpret_cast<DisplayRectangle *>(bounds), 1);
         return true;
     }
     if(mode == 0x10000)
     {
-        if((runtime_target_flags & 0x100000) == 0 && bounds->first == 0)
-        {
-            return runtime_target_update_api.begin_target(bounds->height, bounds->second, bounds->width) == 0;
-        }
+        if((runtime_target_flags & RUNTIME_TARGET_ACTIVE) == 0 && bounds->first == 0)
+            return begin_runtime_target_from_bounds_fields(bounds->height, bounds->second, bounds->width) == 0;
         return true;
     }
-    if(mode == 0x20000 && (runtime_target_flags & 0x100000) == 0 && bounds->first == 0)
-    {
-        return runtime_target_update_api.end_target() == 0;
-    }
+    if(mode == 0x20000 && (runtime_target_flags & RUNTIME_TARGET_ACTIVE) == 0 && bounds->first == 0)
+        return end_display_target() == 0;
     return true;
 }
 
-void enqueue_runtime_message(uint32_t message)
-{
-    if((graphics_host_flags & 0x400) == 0)
-    {
-        return;
-    }
-    runtime_queue_api.enter_queue_lock();
-    if(message == 0x30f)
-    {
-        runtime_display_context.message_write_index = 0;
-        runtime_display_context.message_read_index = 0;
-    }
-    uint32_t previous_index = runtime_display_context.message_write_index == 0 ? 0x1f : runtime_display_context.message_write_index - 1;
-    if(runtime_display_context.message_write_index == runtime_display_context.message_read_index || runtime_display_context.message_queue[previous_index] != message)
-    {
-        runtime_display_context.message_available = 1;
-        runtime_display_context.message_queue[runtime_display_context.message_write_index] = message;
-        ++runtime_display_context.message_write_index;
-        if(runtime_display_context.message_write_index == 0x20)
-        {
-            runtime_display_context.message_write_index = 0;
-        }
-        if(runtime_display_context.message_write_index == runtime_display_context.message_read_index)
-        {
-            ++runtime_display_context.message_read_index;
-            if(runtime_display_context.message_read_index == 0x20)
-            {
-                runtime_display_context.message_read_index = 0;
-            }
-        }
-    }
-    runtime_queue_api.leave_queue_lock();
-}
-
-uint32_t dequeue_runtime_message()
-{
-    if(runtime_display_context.message_available == 0)
-    {
-        return 0;
-    }
-    uint32_t message = 0;
-    runtime_queue_api.enter_queue_lock();
-    if(runtime_display_context.message_write_index != runtime_display_context.message_read_index)
-    {
-        message = runtime_display_context.message_queue[runtime_display_context.message_read_index];
-        ++runtime_display_context.message_read_index;
-        if(runtime_display_context.message_read_index == 0x20)
-        {
-            runtime_display_context.message_read_index = 0;
-        }
-        if(runtime_display_context.message_write_index == runtime_display_context.message_read_index)
-        {
-            runtime_display_context.message_available = 0;
-        }
-    }
-    runtime_queue_api.leave_queue_lock();
-    return message;
-}
-
-
-} // namespace gag
+} // namespace freegag

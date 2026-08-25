@@ -5,8 +5,6 @@
 namespace xtet
 {
 
-namespace
-{
 
 constexpr std::array<const char *, 6> kSoundLinks{ "loop", "act", "stop", "level", "over", "win" };
 
@@ -16,12 +14,11 @@ bool formats_equal(const PcmFormat &first, const PcmFormat &second)
         && first.average_bytes_per_second == second.average_bytes_per_second && first.block_alignment == second.block_alignment && first.bits_per_sample == second.bits_per_sample;
 }
 
-} // namespace
 
 bool AudioCoordinator::initialize(const SceneDescription &scene, const std::map<std::string, WavePcm> &waves, const AudioHostCallbacks &callbacks)
 {
     destroy();
-    if(!callbacks.create || !callbacks.destroy || !callbacks.queue || !callbacks.stop || !callbacks.start)
+    if(!callbacks.create || !callbacks.destroy || !callbacks.queue || !callbacks.pause || !callbacks.resume)
         return false;
     callbacks_ = callbacks;
     for(const char *link : kSoundLinks)
@@ -35,7 +32,7 @@ bool AudioCoordinator::initialize(const SceneDescription &scene, const std::map<
         SoundGroup group;
         for(const SceneNode *node : nodes)
         {
-            if(node == nullptr || node->type != SceneNodeType::wave)
+            if(node == nullptr || node->type != SceneNodeType::WAVE)
             {
                 destroy();
                 return false;
@@ -63,7 +60,7 @@ bool AudioCoordinator::initialize(const SceneDescription &scene, const std::map<
 bool AudioCoordinator::initializeLoopQueue()
 {
     const auto found = groups_.find("loop");
-    if(found == groups_.end() || found->second.waves.size() != 8 || !callbacks_.stop(found->second.handle, false))
+    if(found == groups_.end() || found->second.waves.size() != 8 || !callbacks_.pause(found->second.handle, false))
         return false;
     const SoundGroup &group = found->second;
     const auto queue_wave = [&](const WavePcm &wave, bool replace) { return callbacks_.queue(group.handle, wave.samples.data(), (uint32_t)wave.samples.size(), replace); };
@@ -85,17 +82,12 @@ bool AudioCoordinator::queueRandom(const std::string &link, uint32_t random_valu
     return callbacks_.queue(found->second.handle, wave.samples.data(), (uint32_t)wave.samples.size(), true);
 }
 
-bool AudioCoordinator::queueFirst(const std::string &link)
-{
-    return queueRandom(link, 0);
-}
-
 bool AudioCoordinator::setLoopPlaying(bool playing)
 {
     const auto found = groups_.find("loop");
     if(found == groups_.end())
         return false;
-    return playing ? callbacks_.start(found->second.handle, false) : callbacks_.stop(found->second.handle, false);
+    return playing ? callbacks_.resume(found->second.handle, false) : callbacks_.pause(found->second.handle, false);
 }
 
 void AudioCoordinator::destroy()

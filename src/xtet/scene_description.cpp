@@ -5,10 +5,8 @@
 
 namespace xtet
 {
-namespace
-{
 
-bool tokenize(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
+bool tokenize_scene_description(const std::vector<uint8_t> &bytes, std::vector<std::string> &tokens)
 {
     tokens.clear();
     size_t offset = 0;
@@ -98,7 +96,7 @@ private:
             return false;
         std::vector<uint8_t> bytes;
         std::vector<std::string> tokens;
-        if(!archive_.read(path, bytes) || !tokenize(bytes, tokens))
+        if(!archive_.read(path, bytes) || !tokenize_scene_description(bytes, tokens))
             return false;
         active_scripts_.push_back(path);
         size_t offset = 0;
@@ -144,17 +142,17 @@ private:
             return parseLinks(tokens, offset, node);
         }
         if(type == "TSprites")
-            node.type = SceneNodeType::sprites;
+            node.type = SceneNodeType::SPRITES;
         else if(type == "TSprBmp")
-            node.type = SceneNodeType::sprite_bitmap;
+            node.type = SceneNodeType::SPRITE_BITMAP;
         else if(type == "TBmp")
-            node.type = SceneNodeType::bitmap;
+            node.type = SceneNodeType::BITMAP;
         else if(type == "TWave")
-            node.type = SceneNodeType::wave;
+            node.type = SceneNodeType::WAVE;
         else
             return false;
 
-        if(node.type == SceneNodeType::wave)
+        if(node.type == SceneNodeType::WAVE)
         {
             if(offset >= tokens.size() || tokens[offset] == "}")
                 return false;
@@ -207,20 +205,20 @@ private:
             else if(property == "EMPTY")
             {
                 SceneNode child;
-                child.type = SceneNodeType::empty;
+                child.type = SceneNodeType::EMPTY;
                 child.source_script = source_script;
                 node.children.push_back(std::move(child));
             }
             else if(property == "LOAD")
             {
-                if(node.type != SceneNodeType::bitmap || offset >= tokens.size() || !node.loaded_path.empty())
+                if(node.type != SceneNodeType::BITMAP || offset >= tokens.size() || !node.loaded_path.empty())
                     return false;
                 node.loaded_path = tokens[offset++];
             }
             else if(property == "CREATE")
             {
                 ScenePoint point;
-                if(node.type != SceneNodeType::bitmap || node.created_size || !parsePoint(tokens, offset, point))
+                if(node.type != SceneNodeType::BITMAP || node.created_size || !parsePoint(tokens, offset, point))
                     return false;
                 node.created_size = point;
             }
@@ -229,9 +227,9 @@ private:
         }
         if(offset >= tokens.size() || tokens[offset++] != "}")
             return false;
-        if(node.type == SceneNodeType::bitmap && (node.loaded_path.empty() == !node.created_size))
+        if(node.type == SceneNodeType::BITMAP && (node.loaded_path.empty() == !node.created_size))
             return false;
-        if(node.type == SceneNodeType::wave && (!node.children.empty() || node.loaded_path.empty()))
+        if(node.type == SceneNodeType::WAVE && (!node.children.empty() || node.loaded_path.empty()))
             return false;
         return parseLinks(tokens, offset, node);
     }
@@ -247,7 +245,6 @@ private:
     std::vector<std::string> active_scripts_;
 };
 
-} // namespace
 
 bool load_scene_description(const SfsArchive &archive, const std::vector<std::string> &root_scripts, SceneDescription &description)
 {

@@ -59,12 +59,6 @@ void GameWorker::stop()
     stopping_ = false;
 }
 
-bool GameWorker::running() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return thread_.joinable() && !stopping_;
-}
-
 void GameWorker::run()
 {
     try

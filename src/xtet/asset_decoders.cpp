@@ -5,8 +5,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 bool span_fits(size_t offset, size_t size, size_t total)
 {
@@ -28,7 +26,6 @@ bool is_fourcc(const uint8_t *data, const char *value)
     return std::equal(data, data + 4, (const uint8_t *)value);
 }
 
-} // namespace
 
 bool decode_indexed_bitmap(const std::vector<uint8_t> &bytes, IndexedBitmap &bitmap)
 {
@@ -66,7 +63,7 @@ bool decode_indexed_bitmap(const std::vector<uint8_t> &bytes, IndexedBitmap &bit
     for(size_t index = 0; index < palette_count; ++index)
     {
         const uint8_t *color = bytes.data() + palette_offset + index * 4;
-        decoded.palette[index] = { color[0], color[1], color[2], color[3] };
+        decoded.palette[index] = { color[0], color[1], color[2] };
     }
     decoded.pixels.resize((size_t)pixel_count_64);
     const size_t row_stride = (size_t)row_stride_64;

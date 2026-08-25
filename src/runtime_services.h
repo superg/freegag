@@ -12,7 +12,7 @@
 #include <thread>
 #include <unordered_map>
 
-namespace gag
+namespace freegag
 {
 inline constexpr uint32_t runtime_infinite_wait = UINT32_MAX;
 
@@ -123,11 +123,6 @@ inline void set_runtime_event(RuntimeManualResetEvent *event)
     event->set();
 }
 
-inline void reset_runtime_event(RuntimeManualResetEvent *event)
-{
-    event->reset();
-}
-
 class RuntimeHeap
 {
 public:
@@ -139,14 +134,10 @@ public:
     void *allocate(size_t size, bool zeroed = false)
     {
         if(size == 0)
-        {
             size = 1;
-        }
         std::unique_ptr<uint8_t[]> storage(zeroed ? new (std::nothrow) uint8_t[size]{} : new (std::nothrow) uint8_t[size]);
         if(storage == nullptr)
-        {
             return nullptr;
-        }
         void *memory = storage.get();
         std::lock_guard lock(mutex_);
         allocations_.emplace(memory, Allocation{ std::move(storage), size });
@@ -156,24 +147,16 @@ public:
     void *reallocate(void *memory, size_t size, bool zeroed = false)
     {
         if(memory == nullptr)
-        {
             return allocate(size, zeroed);
-        }
         std::lock_guard lock(mutex_);
         const auto found = allocations_.find(memory);
         if(found == allocations_.end())
-        {
             return nullptr;
-        }
         if(size == 0)
-        {
             size = 1;
-        }
         std::unique_ptr<uint8_t[]> replacement(zeroed ? new (std::nothrow) uint8_t[size]{} : new (std::nothrow) uint8_t[size]);
         if(replacement == nullptr)
-        {
             return nullptr;
-        }
         std::memcpy(replacement.get(), found->second.storage.get(), std::min(size, found->second.size));
         allocations_.erase(found);
         void *result = replacement.get();
@@ -184,9 +167,7 @@ public:
     bool release(void *memory)
     {
         if(memory == nullptr)
-        {
             return true;
-        }
         std::lock_guard lock(mutex_);
         return allocations_.erase(memory) != 0;
     }
@@ -241,4 +222,4 @@ inline bool free_runtime_heap(RuntimeHeap *heap, uint32_t, void *memory)
 {
     return heap != nullptr && heap->release(memory);
 }
-} // namespace gag
+} // namespace freegag

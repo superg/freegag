@@ -1,19 +1,12 @@
 #pragma once
 
 #include <thread>
+#include "runtime_input.h"
 #include "runtime_services.h"
 #include "runtime_tree_types.h"
 
-namespace gag
+namespace freegag
 {
-struct RuntimePathApi
-{
-    void (*enter_lock)();
-    void (*leave_lock)();
-};
-
-
-
 struct DisplayBitmapCaptureSource
 {
     uint32_t width;
@@ -27,127 +20,151 @@ struct DisplayBitmapCaptureSource
     const PaletteEntry *palette_entries;
 };
 
-
-struct RuntimeQueueApi
+enum RuntimeHostFlag : uint32_t
 {
-    void (*enter_pair_lock)();
-    void (*leave_pair_lock)();
-    void (*enter_queue_lock)();
-    void (*leave_queue_lock)();
-    void (*enter_byte_lock)();
-    void (*leave_byte_lock)();
+    RUNTIME_HOST_SHUTDOWN_REQUESTED = 0x00000001,
+    RUNTIME_HOST_AUDIO_ENABLED = 0x00000002,
+    RUNTIME_HOST_PROPERTY_STATE_ACTIVE = 0x00000004,
+    RUNTIME_HOST_DEFAULT_COMMENT_SCENE_ACTIVE = 0x00000008,
+    RUNTIME_HOST_EMBEDDED_GAME_ACTIVE = 0x00000010,
+    RUNTIME_HOST_EMBEDDED_GAME_INACTIVE = 0x00000020,
+    RUNTIME_HOST_COMMAND_STOP_REQUESTED = 0x00000040,
+    RUNTIME_HOST_DEFAULT_COMMENT_SCENE_LOCKED = 0x00000080,
+    RUNTIME_HOST_TEXT_INPUT_COMMITTED = 0x00000100,
+    RUNTIME_HOST_RESOURCE_LOAD_ACTIVE = 0x00000200,
+    RUNTIME_HOST_MESSAGE_QUEUE_ENABLED = 0x00000400,
+    RUNTIME_HOST_INITIALIZED = 0x00000800,
+    RUNTIME_HOST_SCENE_SWITCH_DEFERRED = 0x00001000,
+    RUNTIME_HOST_SCENE_TRANSITION_GUARDED = 0x00004000,
+    RUNTIME_HOST_PALETTE_STATE = 0x00008000,
+    RUNTIME_HOST_POINTER_MODE_PRIMARY = 0x00010000,
+    RUNTIME_HOST_POINTER_MODE_SECONDARY = 0x00020000,
+    RUNTIME_HOST_FORCE_PALETTE_REFRESH = 0x00040000,
+    RUNTIME_HOST_SCRIPT_TREE_ACTIVE = 0x00100000,
+    RUNTIME_HOST_EXTERNAL_COMMAND_PENDING = 0x00200000,
+    RUNTIME_HOST_PAUSED = 0x01000000,
+    RUNTIME_HOST_RESUME_PENDING = 0x02000000,
+    RUNTIME_HOST_TREE_SWITCH_PENDING = 0x04000000,
+    RUNTIME_HOST_RESOURCE_ARCHIVE_OPEN = 0x10000000,
+    RUNTIME_HOST_CREDITS_ACTIVE = 0x40000000,
+    RUNTIME_HOST_PLAN_MODE = 0x80000000,
+
+    RUNTIME_HOST_POINTER_MODE_MASK = RUNTIME_HOST_POINTER_MODE_PRIMARY | RUNTIME_HOST_POINTER_MODE_SECONDARY,
+    RUNTIME_HOST_INPUT_READY = RUNTIME_HOST_MESSAGE_QUEUE_ENABLED | RUNTIME_HOST_SCRIPT_TREE_ACTIVE,
+    RUNTIME_HOST_DISPLAY_READY = RUNTIME_HOST_RESOURCE_LOAD_ACTIVE | RUNTIME_HOST_MESSAGE_QUEUE_ENABLED,
+    RUNTIME_HOST_DISPLAY_RESET_MASK = 0x0083c1bc
 };
 
-
-
-struct RuntimeMessagePair
+enum RuntimeCommandFlag : uint32_t
 {
-    uint32_t first;
-    uint32_t second;
+    RUNTIME_COMMAND_SHUTDOWN_REQUESTED = 0x00000001,
+    RUNTIME_COMMAND_GAME_BUSY = 0x00000010,
+    RUNTIME_COMMAND_GAME_RESULT_READY = 0x00000020,
+    RUNTIME_COMMAND_LOOP_STOP_REQUESTED = 0x00000040,
+    RUNTIME_COMMAND_TEXT_INPUT_ACTIVE = 0x00000100,
+    RUNTIME_COMMAND_NESTED_STATE_ACTIVE = 0x00004000,
+    RUNTIME_COMMAND_SCRIPT_EXECUTION_ENABLED = 0x00100000,
+    RUNTIME_COMMAND_LOOP_RUNNING = 0x01000000,
+    RUNTIME_COMMAND_RESUME_REQUESTED = 0x02000000
 };
 
+inline constexpr uint32_t RUNTIME_TARGET_ACTIVE = 0x00100000;
 
-
-struct RuntimePlanModeSyncApi
+enum RuntimeTextInputFlag : uint32_t
 {
-    bool (*set_inactive)();
-    bool (*clear_inactive)();
-    void (*rebuild)();
+    RUNTIME_TEXT_INPUT_LOWERCASE = 0x00000010,
+    RUNTIME_TEXT_INPUT_UPPERCASE = 0x00000020,
+    RUNTIME_TEXT_INPUT_LETTER_CASE_MASK = RUNTIME_TEXT_INPUT_LOWERCASE | RUNTIME_TEXT_INPUT_UPPERCASE
 };
 
-
-struct RuntimePendingTreeSwitchApi
+enum DisplayPresenterFlag : uint32_t
 {
-    void (*destroy_resources)(void *identity);
-    RuntimeTreeNode *(*activate_tree)(const char *first, const char *second, void *third, void *fourth);
-    void (*finalize_current_tree)(void *identity);
-    void (*rebuild_runtime_plans)(void *identity);
-    uint32_t (*update_pointer)(int32_t x, int32_t y);
+    DISPLAY_TARGET_LOCKED = 0x40000000,
+    DISPLAY_PRESENTER_INITIALIZED = 0x80000000
 };
 
-
-
-struct RuntimeTreeActivationApi
+enum DisplayTargetResult : uint32_t
 {
-    RuntimeGenericResourceNode *(*find_or_load_resource)(const char *name);
-    RuntimeTreeNode *(*create_tree_node)(RuntimeGenericResourceNode *resource, void *parent_selector, const char *name, void *creation_context);
-    void (*set_script_flags)(uint32_t flags, int enabled);
-    void (*activate_comment)(RuntimeTreeNode *node);
+    DISPLAY_TARGET_SUCCESS = 0,
+    DISPLAY_TARGET_UNAVAILABLE = 0x00200000
 };
 
-
-
-struct RuntimePairDispatchApi
+enum DisplaySceneHostFlag : uint32_t
 {
-    int (*dequeue_pair)(RuntimeMessagePair *pair);
-    uint32_t (*move_pointer)(int32_t x, int32_t y);
-    uint32_t (*left_button_down)();
-    uint32_t (*left_button_up)();
-    uint32_t (*right_button_down)();
+    DISPLAY_SCENE_HOST_INITIALIZED = 0x00000001,
+    DISPLAY_SCENE_PALETTE_CHANGED = 0x00000010,
+    DISPLAY_SCENE_WORKER_READY = 0x00000020,
+    DISPLAY_SCENE_LOCK_RELEASE_PENDING = 0x00001000,
+    DISPLAY_SCENE_LOCK_ACQUIRED = 0x00002000,
+    DISPLAY_SCENE_LOCK_MODE_MASK = DISPLAY_SCENE_LOCK_RELEASE_PENDING | DISPLAY_SCENE_LOCK_ACQUIRED,
+    DISPLAY_SCENE_HOST_SHUTDOWN_REQUESTED = 0x40000000
 };
 
-
-
-struct RuntimeInputSessionRecord
+enum DisplayOperationResult : uint32_t
 {
-    uint32_t values[8];
+    DISPLAY_OPERATION_SUCCESS = 0,
+    DISPLAY_OPERATION_RELEASE_PENDING = DISPLAY_SCENE_LOCK_RELEASE_PENDING,
+    DISPLAY_OPERATION_LOCK_NOT_OWNED = 0x20000000,
+    DISPLAY_OPERATION_FAILED = 0x80000000
 };
 
+inline constexpr uint32_t DISPLAY_SCENE_ROOT_INDEX = 0x7fffffff;
 
-
-struct RuntimeInputSessionApi
+enum DisplaySceneFlag : uint32_t
 {
-    void (*reset_byte_queue)();
-    uint32_t (*get_time)();
-    RuntimeLockRecord *(*acquire_record)(void *selector);
-    uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
-    uint32_t (*find_scene_index)(uint32_t flags);
-    DisplaySceneNode *(*lock_scene)(intptr_t identifier);
-    DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
-        const DisplayPixelFormatDescriptor *format);
-    uint32_t (*begin_update)(intptr_t identifier);
-    void (*draw_text)(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination);
-    uint32_t (*end_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
-    void (*unlock_scene)(intptr_t identifier);
-    void (*release_record)(RuntimeLockRecord *record);
+    DISPLAY_SCENE_DISABLED = 0x00000001,
+    DISPLAY_SCENE_STATIC = 0x00000002,
+    DISPLAY_SCENE_OPAQUE = 0x00000020,
+    DISPLAY_SCENE_INDEXED = 0x00000040,
+    DISPLAY_SCENE_PRIMARY_OWNER = 0x00010000,
+    DISPLAY_SCENE_PRIMARY = 0x00020000,
+    DISPLAY_SCENE_PRESERVE_POSITION = 0x00100000,
+    DISPLAY_SCENE_PRESERVE_DIMENSIONS = 0x00200000,
+    DISPLAY_SCENE_UPDATE_PENDING = 0x01000000,
+    DISPLAY_SCENE_FIXED_SIZE = 0x02000000,
+    DISPLAY_SCENE_FIXED_POSITION = 0x04000000,
+    DISPLAY_SCENE_XRGB_COMPOSITION = 0x08000000
 };
 
-struct RuntimeTextInputSceneRedrawApi
+enum DisplayDirtyFlag : uint32_t
 {
-    DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
-        const DisplayPixelFormatDescriptor *format);
-    uint32_t (*begin_update)(intptr_t identifier);
-    uint32_t (*end_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
+    DISPLAY_DIRTY_PRIMARY = 0x00010000,
+    DISPLAY_DIRTY_SECONDARY = 0x00020000
+};
+
+inline constexpr uint32_t DISPLAY_SCENE_CALLBACK_NO_BUFFER_SWAP = 0x00010000;
+
+enum DisplayTraversalFlag : uint32_t
+{
+    DISPLAY_TRAVERSAL_QUERY = 0x01000000,
+    DISPLAY_TRAVERSAL_RENDER = 0x02000000
+};
+
+enum DisplayTraversalResult : int
+{
+    DISPLAY_TRAVERSAL_BUFFER_UPDATED = 0,
+    DISPLAY_TRAVERSAL_UNCHANGED = 1,
+    DISPLAY_TRAVERSAL_STOP = 0x10
 };
 
 
 
 struct RuntimeCommandLoopState
 {
-    uint8_t unknown_004[8];
     uint8_t resource_archive_state;
-    uint8_t unknown_00d[0x103];
     char resource_directory[0x104];
     void *display_scene_host;
-    uint8_t unknown_218[0x10];
     DisplayPixelFormatDescriptor display_pixel_format;
     intptr_t input_alternate_scene_identifier;
     char first_runtime_path[0x104];
     char second_runtime_path[0x104];
-    void *command_context;
     uint16_t width;
     uint16_t height;
-    void *display_surface;
-    uint32_t callback_first_position_1;
-    uint32_t callback_first_position_2;
-    uint32_t callback_first_position_3;
-    PaletteEntry *palette_entries;
-    uint8_t unknown_490[0x94];
     RuntimeGameInputHandler game_input_handler;
     RuntimeGameDllExecute game_dll_execute;
     uint32_t game_result_type;
     uint8_t game_result_data[0x104];
-    char input_text[0x20];
+    char input_text[runtime_input_text_capacity];
     RuntimeStandaloneTextState input_text_state;
     intptr_t input_scene_identifier;
     uint32_t input_text_flags;
@@ -155,18 +172,14 @@ struct RuntimeCommandLoopState
     uint32_t input_caret_tick;
     uint32_t input_cursor;
     uint32_t input_end;
-    uint32_t pair_available;
-    RuntimeMessagePair pair_queue[0x20];
-    uint32_t pair_read_index;
-    uint32_t pair_write_index;
+    uint32_t queued_input_available;
+    RuntimeQueuedInput queued_inputs[0x20];
+    uint32_t queued_input_read_index;
+    uint32_t queued_input_write_index;
     uint32_t byte_available;
     uint8_t byte_queue[0x20];
     uint32_t byte_read_index;
     uint32_t byte_write_index;
-    uint32_t message_available;
-    uint32_t message_queue[0x20];
-    uint32_t message_read_index;
-    uint32_t message_write_index;
     CdfArchive *active_archive;
     union
     {
@@ -175,30 +188,27 @@ struct RuntimeCommandLoopState
     };
     void *resource_cache_parent_identity;
     RuntimeMutex byte_queue_mutex;
-    RuntimeMutex pair_queue_mutex;
-    RuntimeMutex message_queue_mutex;
+    RuntimeMutex queued_input_mutex;
     RuntimeMutex resource_mutex;
     RuntimeMutex path_mutex;
     RuntimeHeap *resource_heap;
     std::jthread *script_thread;
-    uint8_t unknown_900[4];
     void *media_objects_parent_identity;
     uint32_t resource_wait_count;
     uint32_t accumulated_tree_flags;
-    uint32_t reset_value_1;
-    uint32_t reset_value_2;
-    uint32_t reset_value_3;
+    uint32_t palette_transition_step;
+    uint32_t rectangle_transition_step_size;
+    uint32_t available_scene_transitions;
     uint32_t nested_runtime_state_count;
     uint32_t nested_runtime_state_4_count;
     uint32_t resource_count;
     uint32_t external_command_pending;
     uint32_t target_flags;
     uint32_t flags;
-    int32_t resource_host_mode;
+    int32_t resource_stream_rate_bytes_per_millisecond;
     uint32_t script_clock;
     int32_t scene_x;
     int32_t scene_y;
-    uint8_t unknown_944[0x10];
     void *saved_default_comment_scene_identity;
     union
     {
@@ -215,21 +225,6 @@ struct RuntimeCommandLoopState
     RuntimeTreeLink7C *active_script_link;
     RuntimePointerRegion *active_pointer_region;
 };
-struct RuntimeTextInputApi
-{
-    uint8_t (*dequeue_byte)();
-    uint32_t (*time_get_time)();
-    uint32_t (*initialize_text)(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state);
-    DisplaySceneNode *(*acquire_scene)(uint32_t index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags, intptr_t owner, DisplaySceneDescriptor *descriptor,
-        const DisplayPixelFormatDescriptor *format);
-    uint32_t (*begin_update)(intptr_t identifier);
-    void (*draw_text)(RuntimeStandaloneTextState *state, DisplaySceneDescriptor *destination);
-    uint32_t (*end_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
-    uint32_t (*release_scene)(intptr_t identifier, intptr_t owner);
-};
-
-
-
 struct RuntimeCommandBounds
 {
     uint32_t first;
@@ -240,46 +235,7 @@ struct RuntimeCommandBounds
 
 struct DisplayRectangle;
 
-struct RuntimeMessageProcessorApi
-{
-    uint32_t (*dequeue_message)();
-    void (*handle_message_30f)();
-    void (*handle_message_311)();
-    uint32_t (*query_state)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags);
-    bool (*update_target)(void *target, RuntimeCommandBounds *bounds, int enabled);
-    void (*present)();
-};
-
-
-
-struct RuntimeTargetUpdateApi
-{
-    void (*draw_bounds)(RuntimeCommandBounds *bounds, int mode);
-    int (*begin_target)(uint32_t height, uint32_t second, uint32_t width);
-    uint32_t (*end_target)();
-};
-
-
-
-struct DisplayLockReleaseApi
-{
-    RuntimeThreadId (*get_current_thread_id)();
-    void (*set_event)(RuntimeManualResetEvent *event);
-};
-
 struct DisplayRectangle;
-
-struct DisplayLockAcquireApi
-{
-    RuntimeThreadId (*get_current_thread_id)();
-    void (*wait_for_event)(RuntimeManualResetEvent *event);
-    void (*sleep)(uint32_t milliseconds);
-    void (*enter_mutex)(RuntimeMutex *mutex);
-    void (*leave_mutex)(RuntimeMutex *mutex);
-    void (*reset_event)(RuntimeManualResetEvent *event);
-};
-
-
 
 struct DisplayRectangleTransform
 {
@@ -291,7 +247,6 @@ struct DisplayRectangleTransform
 
 struct DisplaySceneSurface
 {
-    uint8_t unknown_00[0x34];
     int32_t width;
     int32_t height;
 };
@@ -302,8 +257,8 @@ struct DisplaySceneNode;
 
 enum class DisplaySceneStorage : uint32_t
 {
-    xrgb_composition,
-    indexed_source,
+    XRGB_COMPOSITION,
+    INDEXED_SOURCE,
 };
 
 using DisplayRootRectangleCallback = void (*)(DisplaySceneNode *root, DisplayRectangle *rectangle, int value);
@@ -370,11 +325,6 @@ struct DisplaySceneNode
 };
 
 
-struct DisplaySceneCallbackApi
-{
-    uint32_t (*time_get_time)();
-};
-
 struct DisplaySyncRequest
 {
     DisplaySceneNode *node;
@@ -383,134 +333,21 @@ struct DisplaySyncRequest
     intptr_t *primary_position;
 };
 
-struct DisplaySceneSyncApi
-{
-    int (*synchronize)(void *context, void *payload, uint32_t mode);
-};
-
-struct DisplaySceneMemoryApi
-{
-    RuntimeHeap *(*get_process_heap)();
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-};
-
-
-
-struct DisplaySceneWorkerApi
-{
-    uint32_t (*time_get_time)();
-    void (*sleep)(uint32_t milliseconds);
-    uint32_t (*acquire_lock)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *dirty_flags);
-    int (*synchronize_node)(DisplaySceneNode *node, DisplayRectangle *rectangle);
-    void (*publish_node)(DisplaySceneNode *node);
-    uint32_t (*release_mode_1000)();
-    uint32_t (*release_lock)();
-};
-
-
-
-struct FramebufferInvalidateApi
-{
-    uint32_t (*acquire_lock)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags);
-    uint32_t (*dispatch_update)(void *target, uint32_t options);
-    uint32_t (*release_lock)();
-};
-
-
+using DisplaySceneSynchronizeCallback = int (*)(void *context, void *payload, uint32_t mode);
 
 // Provides fallback layer storage for ownerless script declarations.
 
 
-struct DisplayRootRegionApi
-{
-    uint32_t (*begin_scene_update)(intptr_t identifier);
-    uint32_t (*end_scene_update)(intptr_t identifier, const DisplayRectangleTransform *transform, const DisplayRectangle *rectangle);
-};
-
-
-
-struct ClearRuntimeDisplayApi
-{
-    uint32_t (*acquire_display_lock)(DisplayRectangle *primary_rectangle, DisplayRectangle *secondary_rectangle, uint32_t *rectangle_flags);
-    uint32_t (*set_clip_rectangle)(DisplayRectangle *rectangle);
-    void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
-    uint32_t (*release_display_lock)();
-    uint32_t (*update_root_region)(DisplaySceneNode *scene, DisplayRectangle *rectangle, uint32_t callback_value);
-};
-
-
-
-struct RuntimeCommandLoopApi
-{
-    void (*begin_first)();
-    void (*begin_second)();
-    void (*begin_third)(int value);
-    void (*process)(RuntimeCommandLoopState *state);
-    void (*sleep)(uint32_t milliseconds);
-    void (*cancel_first)();
-    void (*cancel_second)();
-    void (*cancel_third)();
-    void (*complete_first)();
-};
-
-struct RuntimeSessionResetApi
-{
-    uint32_t (*stop_game_dll)();
-    RuntimeTreeNode *(*get_tree_root)();
-    void (*destroy_tree_resources)(void *identity);
-    intptr_t (*deactivate_tree)(void *identity, void *replacement_identity);
-    void (*reset_display_state)();
-    void (*request_resource_destruction)(void *identity);
-    void (*destroy_fixed_name_nodes)();
-    void (*purge_named_nodes)();
-    void (*destroy_object_states)();
-    void (*destroy_visual_objects)();
-    void (*clear_command_definitions)();
-    void (*remove_generic_resources)();
-    uint32_t (*close_archive)(CdfArchive *archive);
-    uint32_t (*destroy_async_host)(AsyncFileHost *host);
-    void (*operate_surface)(int32_t x, int32_t y, int32_t width, int32_t height, int32_t mode);
-    RuntimeNamedNode *(*get_named_node)(const char *name);
-    uint32_t (*get_time)();
-    void (*sleep)(uint32_t milliseconds);
-};
-
-
-
 enum class RuntimeScriptOpcodeDisposition : uint32_t
 {
-    unhandled,
-    complete,
-    pause,
-    commit_cursor,
-    finish_link,
-    restart_outer,
-    restart_outer_commit_cursor
+    UNHANDLED,
+    COMPLETE,
+    PAUSE,
+    COMMIT_CURSOR,
+    FINISH_LINK,
+    RESTART_OUTER,
+    RESTART_OUTER_COMMIT_CURSOR
 };
 
 
-struct RuntimeScriptExecutorApi
-{
-    uint32_t (*get_tick_count)();
-    uint32_t (*time_get_time)();
-    void (*sleep)(uint32_t milliseconds);
-    void (*process_children)(uint32_t maximum_end_position);
-    void (*process_message)(RuntimeCommandLoopState *state);
-    void (*process_text_input)(RuntimeCommandLoopState *state);
-    uint32_t (*process_pair_message)();
-    int (*run_command_loop)(RuntimeCommandLoopState *state);
-    RuntimeTreeNode *(*resolve_tree)(void *identity);
-    bool (*synchronize_plan_mode)();
-    bool (*process_pending_tree_switch)(RuntimeTreeNode *node);
-    void (*acknowledge_event)();
-    uint32_t (*run_external_command)();
-    uint32_t (*activate_link)(RuntimeTreeLink7C *link);
-    uint32_t (*parse_opcode)(ScriptParserState *parser);
-    RuntimeScriptOpcodeDisposition (*dispatch_opcode)(RuntimeCommandLoopState *state, RuntimeTreeNode *tree, RuntimeTreeLink7C *link, uint32_t opcode, int32_t random_value, uint32_t saved_cursor);
-    int32_t (*select_random)(int32_t minimum, int32_t maximum);
-};
-
-
-
-} // namespace gag
+} // namespace freegag

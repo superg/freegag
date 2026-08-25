@@ -4,12 +4,9 @@
 
 namespace xtet
 {
-namespace
-{
 
 constexpr size_t rli_declared_size_offset = 2;
 constexpr size_t rli_frame_count_offset = 6;
-constexpr size_t rli_flags_offset = 8;
 constexpr size_t rli_width_offset = 0x16;
 constexpr size_t rli_height_offset = 0x1a;
 constexpr size_t rli_frame_records_offset = 0x53a;
@@ -82,7 +79,6 @@ bool decode_rle8(const uint8_t *source, size_t source_size, uint32_t width, uint
     return false;
 }
 
-} // namespace
 
 bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &bytes, RliAnimation &animation)
 {
@@ -99,7 +95,6 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
         return false;
 
     animation.path = path;
-    animation.flags = read_u16(bytes, rli_flags_offset) & 0x1000;
     animation.width = (int32_t)read_u32(bytes, rli_width_offset);
     animation.height = (int32_t)read_u32(bytes, rli_height_offset);
     if(animation.width <= 0 || animation.height <= 0)
@@ -138,7 +133,7 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
         size_t data_offset = record.data_offset;
         if(record.right < record.left || record.bottom < record.top || record.left < 0 || record.top < 0 || record.right >= animation.width || record.bottom >= animation.height)
             return false;
-        if((record.flags & 4) != 0)
+        if((record.flags & RLI_FRAME_PALETTE) != 0)
         {
             if(record.palette_start < 0 || record.palette_count < 0 || (uint32_t)record.palette_start + record.palette_count > 256)
                 return false;
@@ -149,7 +144,7 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
             {
                 const size_t source_offset = data_offset + static_cast<size_t>(palette_index) * 4;
                 const size_t destination_index = static_cast<size_t>(record.palette_start + palette_index);
-                current_palette[destination_index] = { bytes[source_offset], bytes[source_offset + 1], bytes[source_offset + 2], bytes[source_offset + 3] };
+                current_palette[destination_index] = { bytes[source_offset], bytes[source_offset + 1], bytes[source_offset + 2] };
                 current_palette_defined[destination_index] = 1;
             }
             data_offset += palette_size;
@@ -158,7 +153,7 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
         record.palette_defined = current_palette_defined;
         const uint32_t width = (uint32_t)(record.right - record.left + 1);
         const uint32_t height = (uint32_t)(record.bottom - record.top + 1);
-        if((record.flags & 1) != 0)
+        if((record.flags & RLI_FRAME_RAW_PIXELS) != 0)
         {
             const size_t source_stride = (width + 3) & ~(size_t)3;
             if(source_stride > (data_end - data_offset) / height)
@@ -168,7 +163,7 @@ bool decode_rli_animation(const std::string &path, const std::vector<uint8_t> &b
             for(uint32_t row = 0; row < height; ++row)
                 std::copy_n(bytes.data() + data_offset + (size_t)(height - row - 1) * source_stride, width, record.pixels.begin() + (size_t)row * width);
         }
-        else if((record.flags & 2) != 0)
+        else if((record.flags & RLI_FRAME_RLE_PIXELS) != 0)
         {
             if(!decode_rle8(bytes.data() + data_offset, data_end - data_offset, width, height, record.pixels, record.coverage))
                 return false;

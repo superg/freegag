@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace gag
+namespace freegag
 {
 struct PaletteEntry
 {
@@ -11,6 +11,15 @@ struct PaletteEntry
     uint8_t peGreen{};
     uint8_t peBlue{};
     uint8_t peFlags{};
+};
+
+struct RuntimeGameHostContext
+{
+    uint32_t bits_per_pixel;
+    uint16_t width;
+    uint16_t height;
+    void *framebuffer;
+    PaletteEntry *palette_entries;
 };
 
 struct BitmapColor
@@ -118,4 +127,4 @@ inline void encode_bitmap_info_header(uint8_t *bytes, const BitmapInfoHeader &he
     write_little_endian_u32(bytes + 32, header.biClrUsed);
     write_little_endian_u32(bytes + 36, header.biClrImportant);
 }
-} // namespace gag
+} // namespace freegag

@@ -2,7 +2,7 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 void release_runtime_tree_auxiliary_nodes(RuntimeTreeNode *owner);
@@ -64,8 +64,6 @@ void reset_runtime_tree_parser_contexts(void *identity);
 RuntimeTreeNode *dispatch_runtime_tree_section(void *resource_identity, void *node_identity, const char *section_name, const char *creation_text);
 
 uintptr_t dispatch_runtime_tree_section_command(ScriptParserState *parser);
-
-bool parse_runtime_language(ScriptParserState *parser);
 
 RuntimeTreeNode *create_runtime_tree_command(ScriptParserState *parser);
 
@@ -164,8 +162,6 @@ uint32_t find_runtime_tree_link_007c_opcode_value(void *identity, uint32_t opcod
 
 uint32_t scan_runtime_tree_link_007c_control_boundary(void *identity, uint32_t requested_boundary);
 
-uint32_t match_runtime_tree_link_007c_interaction(uintptr_t *state, const RuntimeTreeInteractionCriteria *criteria);
-
 uint32_t activate_runtime_tree_link_007c(RuntimeTreeLink7C *link);
 
 uint32_t parse_script_object_container(ScriptParserState *parser);
@@ -204,4 +200,4 @@ void remove_runtime_tree_link_008c_range(RuntimeTreeNode *parent, RuntimeTreeNod
 
 RuntimeTreeLink8C *find_global_runtime_tree_link_008c_by_name(const void *name);
 
-} // namespace gag
+} // namespace freegag

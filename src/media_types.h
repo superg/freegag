@@ -4,8 +4,48 @@
 #include "pcm_format.h"
 #include "resource_types.h"
 
-namespace gag
+namespace freegag
 {
+enum RuntimeMediaDataType : uint8_t
+{
+    RUNTIME_MEDIA_DATA_UNKNOWN = 0,
+    RUNTIME_MEDIA_DATA_BITMAP = 1,
+    RUNTIME_MEDIA_DATA_WAVE = 2,
+    RUNTIME_MEDIA_DATA_ANIMATION = 3,
+    RUNTIME_MEDIA_DATA_CONFIGURATION = 4,
+    RUNTIME_MEDIA_DATA_ARCHIVE = 5
+};
+
+enum RuntimeMediaFlag : uint32_t
+{
+    RUNTIME_MEDIA_PAUSED = 0x00000001,
+    RUNTIME_MEDIA_RESOURCE_PENDING = 0x00000020,
+    RUNTIME_MEDIA_FULL_REFRESH_PENDING = 0x00000040,
+    RUNTIME_MEDIA_SKIP_PRESENTATION = 0x00000100,
+    RUNTIME_MEDIA_ONE_STEP = 0x00000200,
+    RUNTIME_MEDIA_LOOP = 0x00000400,
+    RUNTIME_MEDIA_CLOSE_AFTER_PLAYBACK = 0x00000800,
+    RUNTIME_MEDIA_CLOSE_REQUESTED = 0x00001000,
+    RUNTIME_MEDIA_PAUSE_NOTIFIED = 0x00002000,
+    RUNTIME_MEDIA_PALETTE_CHANGED = 0x00004000,
+    RUNTIME_MEDIA_PIXELS_CHANGED = 0x00008000,
+    RUNTIME_MEDIA_STOP_REQUESTED = 0x00010000,
+    RUNTIME_MEDIA_RESTART_REQUESTED = 0x00020000,
+    RUNTIME_MEDIA_SYNCHRONIZED_TIMING = 0x00100000,
+    RUNTIME_MEDIA_AUDIO_STARTED = 0x00400000,
+    RUNTIME_MEDIA_AUDIO_DISABLED = 0x00800000,
+    RUNTIME_MEDIA_MEMORY_BACKED = 0x01000000,
+    RUNTIME_MEDIA_STREAM_BACKED = 0x02000000,
+    RUNTIME_MEDIA_STORAGE_MASK = RUNTIME_MEDIA_MEMORY_BACKED | RUNTIME_MEDIA_STREAM_BACKED,
+    RUNTIME_MEDIA_NO_PALETTE = 0x04000000,
+    RUNTIME_MEDIA_DECODE_STARTED = 0x10000000,
+    RUNTIME_MEDIA_FRAME_DECODED = 0x20000000,
+    RUNTIME_MEDIA_LOOP_BOUNDARY = 0x40000000,
+    RUNTIME_MEDIA_INITIALIZING = 0x80000000
+};
+
+inline constexpr uint32_t RUNTIME_ANIMATION_PAUSED = 0x01000000;
+
 struct RuntimeSoundStatus;
 struct RuntimeMediaBackend;
 struct DisplaySceneDescriptor;
@@ -21,14 +61,12 @@ struct RuntimeMediaBackend
     RuntimeMediaBackend *next;
     const void *comparison_palette;
     uint16_t palette_version;
-    uint16_t palette_entry_count;
     PaletteEntry palette_entries[0x100];
     uint16_t destination_x;
     uint16_t destination_y;
     uint16_t destination_stride;
     uint16_t destination_reserved;
     uint32_t destination_bits_per_pixel;
-    uint32_t descriptor_2;
     uint8_t *destination_pixels;
     uint8_t *indexed_pixels;
     uint32_t indexed_stride;
@@ -55,7 +93,6 @@ struct RuntimeMediaBackend
     int32_t dirty_right;
     int32_t dirty_bottom;
     uint16_t frame_number;
-    uint16_t frame_reserved;
     uint32_t previous_frame_time;
     uint32_t next_frame_time;
     int32_t timing_correction;
@@ -71,15 +108,6 @@ struct RuntimeMediaBackend
 };
 
 
-struct RuntimeMediaBackendApi
-{
-    RuntimeThreadId (*get_current_thread_id)();
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-    bool (*heap_free)(RuntimeHeap *heap, uint32_t flags, void *memory);
-    void (*sleep)(uint32_t milliseconds);
-};
-
 #pragma pack(push, 1)
 struct RuntimeAnimationFileHeader
 {
@@ -88,12 +116,12 @@ struct RuntimeAnimationFileHeader
     uint16_t frame_count;
     uint16_t width;
     uint16_t height;
-    uint8_t unknown_000c[4];
+    uint8_t reserved_000c[4];
     uint32_t frame_duration;
-    uint8_t unknown_0014[0x3c];
+    uint8_t reserved_0014[0x3c];
     uint32_t data_start_offset;
     uint32_t data_end_offset;
-    uint8_t unknown_0058[0x28];
+    uint8_t reserved_0058[0x28];
 };
 
 struct RuntimeAnimationFrameHeader
@@ -101,7 +129,7 @@ struct RuntimeAnimationFrameHeader
     uint32_t size;
     uint16_t signature;
     uint16_t chunk_count;
-    uint8_t unknown_0008[8];
+    uint8_t reserved_0008[8];
 };
 
 struct RuntimeAnimationChunkHeader
@@ -114,20 +142,19 @@ struct RuntimeAnimationStreamHeaders
 {
     RuntimeAnimationFrameHeader frame;
     RuntimeAnimationChunkHeader chunk;
-    uint8_t unknown_0016[2];
 };
 
 struct RuntimeAnimationSoundFormatChunk
 {
     RuntimeAnimationChunkHeader chunk;
-    uint8_t unknown_0006[0x0c];
+    uint8_t reserved_0006[0x0c];
     RuntimePcmFormat format;
     uint16_t extra_format_size;
 };
 
 struct RuntimeFontFormat
 {
-    uint32_t unknown_0000;
+    uint32_t reserved_0000;
     int32_t fixed_cell_width;
     int32_t fixed_cell_height;
 };
@@ -146,14 +173,6 @@ struct RuntimeRiffChunk
 };
 #pragma pack(pop)
 
-struct RuntimeBitmapBackendCreateApi
-{
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-};
-
-
 struct RuntimeAnimationBackend
 {
     RuntimeMediaBackend base;
@@ -167,115 +186,11 @@ struct RuntimeAnimationBackend
 struct DisplaySceneNode;
 
 
-struct RuntimeAnimationBackendCreateApi
-{
-    uint32_t (*get_position)(AsyncFileRecord *record);
-    uint32_t (*read_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    uint32_t (*set_position)(AsyncFileRecord *record, uint32_t position);
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-};
-
-struct RuntimeMediaBackendConfigureApi
-{
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-};
-
-struct RuntimeAnimationBackendConfigureApi
-{
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-};
-
-
-
-struct RuntimeResourcePaletteConfigureApi
-{
-    bool (*set_primary_owner)(intptr_t identifier, intptr_t owner, bool replace_existing);
-    bool (*configure_palette)(DisplaySceneNode *node, const uint32_t *palette, uint32_t count);
-};
-
-
-
-struct RuntimeMediaBackendFinalizeApi
-{
-    void (*wait_for_single_object)(RuntimeMutex *mutex, uint32_t milliseconds);
-    void (*release_mutex)(RuntimeMutex *mutex);
-    uint8_t (*convert_bitmap)(RuntimeMediaBackend *backend);
-};
-
-
 enum class RuntimeAnimationControlResult
 {
-    DecodeFrame,
-    Wait,
-    Exit
+    DECODE_FRAME,
+    WAIT,
+    EXIT
 };
 
-struct RuntimeAnimationControlApi
-{
-    void (*destroy_sound)(uint32_t handle);
-    uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
-    uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
-    uint32_t (*set_stream_position)(AsyncFileRecord *record, uint32_t position);
-};
-
-
-
-struct RuntimeAnimationFrameAcquireApi
-{
-    uint32_t (*read_record)(AsyncFileRecord *record, void *destination, uint32_t bytes, uint32_t *bytes_read, int32_t force_host_buffer);
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    void *(*heap_realloc)(RuntimeHeap *heap, uint32_t flags, void *memory, size_t bytes);
-    void (*fail_animation)(RuntimeMediaBackend *backend, uint32_t error);
-};
-
-
-struct RuntimeAnimationDecodeApi
-{
-    void (*decode_palette)(RuntimeMediaBackend *backend);
-    void (*decode_mvz5)(RuntimeMediaBackend *backend);
-    void (*decode_delta_flc)(RuntimeMediaBackend *backend);
-    void (*decode_mvz8)(RuntimeMediaBackend *backend);
-    void (*ignore_chunk_11)();
-    void (*ignore_chunk_12)();
-    void (*ignore_chunk_13)();
-    void (*decode_byte_run)(RuntimeMediaBackend *backend);
-    void (*decode_literal)(RuntimeMediaBackend *backend);
-};
-
-
-struct RuntimeAnimationCompletionApi
-{
-    void (*sleep)(uint32_t milliseconds);
-    uint32_t (*set_stream_position)(AsyncFileRecord *record, uint32_t position);
-};
-
-
-struct RuntimeAnimationAudioApi
-{
-    uint32_t (*time_get_time)();
-    void (*sleep)(uint32_t milliseconds);
-    void *(*heap_alloc)(RuntimeHeap *heap, uint32_t flags, size_t bytes);
-    void *(*heap_realloc)(RuntimeHeap *heap, uint32_t flags, void *memory, size_t bytes);
-    void (*destroy_sound)(uint32_t handle);
-    uint32_t (*queue_sound_data)(uint32_t handle, void *data, uint32_t size, int32_t replace);
-    uint32_t (*stop_sound)(uint32_t handle, int32_t reset_timing);
-    uint32_t (*start_sound)(uint32_t handle, int32_t reset_timing);
-    uint32_t (*create_sound)(const RuntimePcmFormat *format);
-    uint32_t (*query_sound)(uint32_t handle, RuntimeSoundStatus *status);
-    uint32_t (*set_playback_marker)(uint32_t handle, uint32_t marker);
-    uint32_t (*set_schedule_marker)(uint32_t handle, uint32_t marker);
-};
-
-
-struct RuntimeAnimationWorkerApi
-{
-    uint32_t (*time_get_time)();
-};
-
-
-} // namespace gag
+} // namespace freegag

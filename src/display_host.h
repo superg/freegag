@@ -3,12 +3,12 @@
 #include <SDL3/SDL.h>
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
-GraphicsHostInitializationResult *initialize_runtime_graphics();
+bool initialize_runtime_graphics();
 
-uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t options);
+uint32_t initialize_sdl_presenter(int32_t width, int32_t height);
 
 void set_sdl_presenter_integer_scaling(bool enabled);
 
@@ -31,10 +31,6 @@ void *create_display_surface(int32_t width, int32_t height);
 void teardown_display_palette_surface();
 
 uint32_t apply_display_palette(const PaletteEntry *palette, uint32_t update_flags);
-
-void enable_display_palette_mode();
-
-void disable_display_palette_mode();
 
 PaletteEntry *get_display_palette_entries();
 
@@ -62,4 +58,4 @@ bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle);
 
 bool get_sdl_presenter_mouse_position(int32_t *x, int32_t *y);
 
-} // namespace gag
+} // namespace freegag

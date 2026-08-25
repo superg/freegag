@@ -14,9 +14,7 @@
 #include "host_events.h"
 #include "runtime_internal.h"
 
-namespace gag
-{
-namespace
+namespace freegag
 {
 constexpr size_t presentation_queue_capacity = 3;
 
@@ -60,22 +58,16 @@ void update_front_buffer(const DisplayRectangle &requested, uint32_t mode)
 {
     const DisplayRectangle rectangle = clipped_rectangle(requested.left, requested.top, requested.right, requested.bottom);
     if(rectangle.left >= rectangle.right || rectangle.top >= rectangle.bottom)
-    {
         return;
-    }
 
     for(int32_t y = rectangle.top; y < rectangle.bottom; ++y)
     {
         const size_t offset = static_cast<size_t>(y) * presenter.width + rectangle.left;
         const size_t count = static_cast<size_t>(rectangle.right - rectangle.left);
         if(mode == 1)
-        {
             std::copy_n(presenter.root_pixels.data() + offset, count, presenter.front_pixels.data() + offset);
-        }
         else if(mode == 2)
-        {
             std::fill_n(presenter.front_pixels.data() + offset, count, uint32_t{});
-        }
     }
 }
 
@@ -89,9 +81,7 @@ bool create_presenter_texture()
     presenter.texture = SDL_CreateTexture(presenter.renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, presenter.width, presenter.height);
     presenter.texture_has_frame = false;
     if(presenter.texture != nullptr)
-    {
         SDL_SetTextureScaleMode(presenter.texture, SDL_SCALEMODE_NEAREST);
-    }
     return presenter.texture != nullptr;
 }
 
@@ -102,9 +92,7 @@ bool upload_and_present(const std::vector<uint32_t> &snapshot)
         void *texture_pixels = nullptr;
         int pitch = 0;
         if(!SDL_LockTexture(presenter.texture, nullptr, &texture_pixels, &pitch))
-        {
             return false;
-        }
         for(int32_t y = 0; y < presenter.height; ++y)
         {
             std::memcpy(static_cast<uint8_t *>(texture_pixels) + static_cast<size_t>(y) * pitch, snapshot.data() + static_cast<size_t>(y) * presenter.width,
@@ -117,18 +105,14 @@ bool upload_and_present(const std::vector<uint32_t> &snapshot)
     };
 
     if(attempt())
-    {
         return true;
-    }
     return create_presenter_texture() && attempt();
 }
 
 bool present_cached_texture()
 {
     if(presenter.renderer == nullptr || presenter.texture == nullptr || !presenter.texture_has_frame)
-    {
         return true;
-    }
     return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
         && SDL_RenderPresent(presenter.renderer);
 }
@@ -136,20 +120,16 @@ bool present_cached_texture()
 void fail_runtime_presentation()
 {
     if(presenter.runtime_failure_reported)
-    {
         return;
-    }
     presenter.runtime_failure_reported = true;
     std::fprintf(stderr, "SDL presenter failed: %s\n", SDL_GetError());
-    post_application_event(HostApplicationCommand::close_requested);
+    post_application_event(HostApplicationCommand::CLOSE_REQUESTED);
 }
 
 void present_snapshot(const std::vector<uint32_t> &snapshot)
 {
     if(!snapshot.empty() && !upload_and_present(snapshot))
-    {
         fail_runtime_presentation();
-    }
 }
 
 bool present_next_queued_snapshot()
@@ -158,9 +138,7 @@ bool present_next_queued_snapshot()
     {
         std::lock_guard lock(presenter.mutex);
         if(presenter.queued_snapshots.empty())
-        {
             return false;
-        }
         snapshot_index = presenter.queued_snapshots.front();
         presenter.queued_snapshots.pop_front();
     }
@@ -184,9 +162,7 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
         {
             std::lock_guard lock(presenter.mutex);
             if(presenter.shutting_down)
-            {
                 return;
-            }
             update_front_buffer(rectangle, mode);
             snapshot = presenter.front_pixels;
         }
@@ -198,9 +174,7 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
     std::unique_lock lock(presenter.mutex);
     presenter.queue_changed.wait(lock, [] { return presenter.shutting_down || !presenter.available_snapshots.empty(); });
     if(presenter.shutting_down)
-    {
         return;
-    }
     update_front_buffer(rectangle, mode);
     const size_t snapshot_index = presenter.available_snapshots.front();
     presenter.available_snapshots.pop_front();
@@ -213,88 +187,66 @@ void queue_presentation(const DisplayRectangle &rectangle, uint32_t mode)
     }
     lock.unlock();
     if(wake_presenter)
-    {
         post_host_event(HostPresentPendingFramesEvent{});
-    }
-}
 }
 
-GraphicsHostInitializationResult *initialize_runtime_graphics()
+bool initialize_runtime_graphics()
 {
-    if((runtime_scene_control_flags & 0x800) == 0)
-    {
-        return nullptr;
-    }
-    if((runtime_scene_control_flags & 0x400) != 0)
-    {
-        return &graphics_host_state;
-    }
+    if((runtime_scene_control_flags & RUNTIME_HOST_INITIALIZED) == 0)
+        return false;
+    if((runtime_scene_control_flags & RUNTIME_HOST_MESSAGE_QUEUE_ENABLED) != 0)
+        return true;
 
     void *surface = create_display_surface(runtime_game_host_context.width, runtime_game_host_context.height);
     if(surface == nullptr)
-    {
-        return nullptr;
-    }
+        return false;
 
-    runtime_game_host_context.display_surface = surface;
     runtime_game_host_context.palette_entries = reinterpret_cast<PaletteEntry *>(get_display_palette_entries());
 
     auto *descriptor = &runtime_display_context.display_pixel_format;
     *descriptor = { 0, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0, nullptr, nullptr };
     runtime_game_host_context.bits_per_pixel = 32;
-    graphics_host_state.bits_per_pixel = 32;
 
-    runtime_display_host = runtime_bootstrap_api.initialize_scene_host(reinterpret_cast<intptr_t>(surface), descriptor, runtime_game_host_context.width, runtime_game_host_context.height,
+    runtime_display_host = initialize_display_scene_host(reinterpret_cast<intptr_t>(surface), descriptor, runtime_game_host_context.width, runtime_game_host_context.height,
         reinterpret_cast<int (*)(void *, void *, uint32_t)>(&update_runtime_target), &runtime_game_host_context, 0x0f);
     if(runtime_display_host == nullptr)
-    {
-        return nullptr;
-    }
+        return false;
 
-    runtime_display_scene_identifier =
-        reinterpret_cast<intptr_t>(runtime_bootstrap_api.acquire_scene_node(0, 0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 0x20022, 0, nullptr, nullptr));
+    runtime_display_scene_identifier = reinterpret_cast<intptr_t>(acquire_display_scene_node(0, 0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 0x20022, 0, nullptr, nullptr));
     if(runtime_display_scene_identifier == 0)
-    {
-        return nullptr;
-    }
+        return false;
 
-    DisplaySceneNode *node = runtime_bootstrap_api.lock_scene_node(runtime_display_scene_identifier);
+    DisplaySceneNode *node = lock_display_scene_node(runtime_display_scene_identifier);
     if(node == nullptr)
-    {
-        return nullptr;
-    }
-    runtime_game_host_context.unknown_0028 = node->callback_first_position;
+        return false;
     runtime_game_host_context.framebuffer = reinterpret_cast<void *>(node->callback_first_position);
-    runtime_game_host_context.unknown_0030 = node->callback_first_position;
-    runtime_bootstrap_api.unlock_scene_node(runtime_display_scene_identifier);
+    unlock_display_scene_node(runtime_display_scene_identifier);
 
-    if(runtime_bootstrap_api.acquire_display_lock(nullptr, nullptr, nullptr) == 0)
+    if(acquire_display_lock(nullptr, nullptr, nullptr) == 0)
     {
-        runtime_bootstrap_api.set_clip_rectangle(nullptr);
-        runtime_bootstrap_api.release_display_lock();
+        set_display_clip_rectangle(nullptr);
+        release_display_lock();
     }
     operate_display_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
-    runtime_bootstrap_api.reset_display_state();
+    reset_runtime_display_state();
     runtime_display_thread = new (std::nothrow) std::jthread([] { execute_script_commands(&runtime_display_context); });
     if(runtime_display_thread == nullptr)
-    {
-        return nullptr;
-    }
-    runtime_scene_control_flags |= 0x600;
-    return &graphics_host_state;
+        return false;
+    runtime_scene_control_flags |= RUNTIME_HOST_DISPLAY_READY;
+    return true;
 }
 
 void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32_t height)
 {
     DisplayRectangle rectangle{ x, y, x + width, y + height };
-    if(framebuffer_invalidate_api.acquire_lock(nullptr, nullptr, nullptr) == 0)
+    if(acquire_display_lock(nullptr, nullptr, nullptr) == 0)
     {
-        framebuffer_invalidate_api.dispatch_update(&rectangle, 0);
-        framebuffer_invalidate_api.release_lock();
+        dispatch_display_scene_update(&rectangle, 0);
+        release_display_lock();
     }
 }
 
-uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t)
+uint32_t initialize_sdl_presenter(int32_t width, int32_t height)
 {
     presenter.main_thread_id = std::this_thread::get_id();
     presenter.shutting_down = false;
@@ -303,7 +255,7 @@ uint32_t initialize_sdl_presenter(int32_t width, int32_t height, uint32_t)
     presenter.presenter_service_pending = false;
     presenter.repaint_pending = false;
     presenter.texture_has_frame = false;
-    display_palette_flags = 0x80000000;
+    display_palette_flags = DISPLAY_PRESENTER_INITIALIZED;
 
     if(!SDL_InitSubSystem(SDL_INIT_VIDEO))
     {
@@ -381,17 +333,11 @@ bool convert_sdl_presenter_event(SDL_Event *event)
 bool set_sdl_presenter_fullscreen(bool fullscreen)
 {
     if(presenter.window == nullptr || presenter.renderer == nullptr)
-    {
         return false;
-    }
     if(presenter.fullscreen_transition_pending && presenter.pending_fullscreen == fullscreen)
-    {
         return true;
-    }
     if(!presenter.fullscreen_transition_pending && ((SDL_GetWindowFlags(presenter.window) & SDL_WINDOW_FULLSCREEN) != 0) == fullscreen)
-    {
         return true;
-    }
 
     float window_x;
     float window_y;
@@ -418,9 +364,7 @@ bool set_sdl_presenter_fullscreen(bool fullscreen)
 void complete_sdl_presenter_fullscreen_transition(bool fullscreen)
 {
     if(!presenter.fullscreen_transition_pending || presenter.pending_fullscreen != fullscreen)
-    {
         return;
-    }
     presenter.fullscreen_transition_pending = false;
     if(!presenter.pending_mouse_warp || presenter.window == nullptr || presenter.renderer == nullptr)
     {
@@ -431,26 +375,20 @@ void complete_sdl_presenter_fullscreen_transition(bool fullscreen)
     float window_x;
     float window_y;
     if(SDL_RenderCoordinatesToWindow(presenter.renderer, presenter.pending_mouse_x, presenter.pending_mouse_y, &window_x, &window_y))
-    {
         SDL_WarpMouseInWindow(presenter.window, window_x, window_y);
-    }
     presenter.pending_mouse_warp = false;
 }
 
 bool get_sdl_presenter_window_rectangle(DisplayRectangle *rectangle)
 {
     if(presenter.window == nullptr || rectangle == nullptr)
-    {
         return false;
-    }
     int x;
     int y;
     int width;
     int height;
     if(!SDL_GetWindowPosition(presenter.window, &x, &y) || !SDL_GetWindowSize(presenter.window, &width, &height))
-    {
         return false;
-    }
     *rectangle = { x, y, x + width, y + height };
     return true;
 }
@@ -458,9 +396,7 @@ bool get_sdl_presenter_window_rectangle(DisplayRectangle *rectangle)
 bool set_sdl_presenter_window_rectangle(const DisplayRectangle &rectangle)
 {
     if(presenter.window == nullptr || rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
-    {
         return false;
-    }
     return SDL_SetWindowPosition(presenter.window, rectangle.left, rectangle.top) && SDL_SetWindowSize(presenter.window, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top);
 }
 
@@ -472,9 +408,7 @@ bool center_sdl_presenter_window()
 bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle)
 {
     if(rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top)
-    {
         return false;
-    }
     const SDL_Rect candidate{ rectangle.left, rectangle.top, rectangle.right - rectangle.left, rectangle.bottom - rectangle.top };
     return SDL_GetDisplayForRect(&candidate) != 0;
 }
@@ -482,18 +416,14 @@ bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle)
 bool get_sdl_presenter_mouse_position(int32_t *x, int32_t *y)
 {
     if(presenter.renderer == nullptr || x == nullptr || y == nullptr)
-    {
         return false;
-    }
     float window_x;
     float window_y;
     SDL_GetMouseState(&window_x, &window_y);
     float logical_x;
     float logical_y;
     if(!SDL_RenderCoordinatesFromWindow(presenter.renderer, window_x, window_y, &logical_x, &logical_y))
-    {
         return false;
-    }
     *x = static_cast<int32_t>(logical_x);
     *y = static_cast<int32_t>(logical_y);
     return true;
@@ -507,9 +437,7 @@ void operate_display_surface(int32_t x, int32_t y, int32_t width, int32_t height
 void synchronize_display_region(DisplayRectangle *rectangle, uint32_t mode)
 {
     if(rectangle != nullptr)
-    {
         queue_presentation(*rectangle, mode);
-    }
 }
 
 uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32_t *pitch)
@@ -517,7 +445,7 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
     uint32_t busy;
     do
     {
-        busy = (display_palette_flags & 0x40000000) >> 30;
+        busy = (display_palette_flags & DISPLAY_TARGET_LOCKED) >> 30;
         if(busy != 0)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -525,11 +453,9 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
         else
         {
             std::lock_guard lock(display_host_mutex);
-            busy = (display_palette_flags & 0x40000000) >> 30;
+            busy = (display_palette_flags & DISPLAY_TARGET_LOCKED) >> 30;
             if(busy == 0)
-            {
-                display_palette_flags |= 0x40000000;
-            }
+                display_palette_flags |= DISPLAY_TARGET_LOCKED;
         }
     } while(busy != 0);
 
@@ -537,27 +463,23 @@ uint32_t begin_display_target(void **pixels, DisplayRectangle *rectangle, uint32
     *pitch = static_cast<uint32_t>(presenter.width * sizeof(uint32_t));
     *rectangle = { 0, 0, presenter.width, presenter.height };
     if(!presenter.root_pixels.empty())
-    {
-        return 0;
-    }
+        return DISPLAY_TARGET_SUCCESS;
     {
         std::lock_guard lock(display_host_mutex);
-        display_palette_flags &= 0xbfffffff;
+        display_palette_flags &= ~DISPLAY_TARGET_LOCKED;
     }
-    return 0x200000;
+    return DISPLAY_TARGET_UNAVAILABLE;
 }
 
 uint32_t end_display_target()
 {
-    if((display_palette_flags & 0x40000000) == 0)
-    {
-        return 0x200000;
-    }
+    if((display_palette_flags & DISPLAY_TARGET_LOCKED) == 0)
+        return DISPLAY_TARGET_UNAVAILABLE;
     {
         std::lock_guard lock(display_host_mutex);
-        display_palette_flags &= 0xbfffffff;
+        display_palette_flags &= ~DISPLAY_TARGET_LOCKED;
     }
-    return 0;
+    return DISPLAY_TARGET_SUCCESS;
 }
 
 void *create_display_surface(int32_t width, int32_t height)
@@ -599,9 +521,7 @@ void teardown_display_palette_surface()
         presenter.root_pixels.clear();
         presenter.front_pixels.clear();
         for(auto &snapshot : presenter.snapshot_buffers)
-        {
             snapshot.clear();
-        }
         presenter.available_snapshots.clear();
         presenter.queued_snapshots.clear();
         presenter.presentation_wake_pending = false;
@@ -624,15 +544,9 @@ uint32_t apply_display_palette(const PaletteEntry *palette_entries, uint32_t)
 {
     std::lock_guard lock(display_host_mutex);
     if(palette_entries != nullptr)
-    {
         std::memcpy(display_palette_entries, palette_entries, sizeof(display_palette_entries));
-    }
     return palette_entries != nullptr ? 0xec : 0;
 }
-
-void enable_display_palette_mode() {}
-
-void disable_display_palette_mode() {}
 
 void drain_sdl_presenter_frames()
 {
@@ -661,16 +575,10 @@ void service_sdl_presenter()
 
     bool presented_frame = false;
     if(service_pending)
-    {
         while(present_next_queued_snapshot())
-        {
             presented_frame = true;
-        }
-    }
     if(repaint_pending && !presented_frame && !present_cached_texture())
-    {
         fail_runtime_presentation();
-    }
 }
 
-} // namespace gag
+} // namespace freegag

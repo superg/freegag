@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-namespace gag
+namespace freegag
 {
 
 struct ApplicationState;
@@ -13,7 +13,6 @@ struct ArchiveCommentEntry
 {
     char path[0x104];
     char comment[0x104];
-    uint64_t modification_time;
     int32_t numeric_identifier;
     char file_name[0x104];
 };
@@ -35,17 +34,15 @@ struct VirtualScriptResource
 
 enum class SaveLoadScreenMode
 {
-    load,
-    save
+    LOAD,
+    SAVE
 };
 
-struct ScriptedSaveLoadPersistenceApi
+enum ArchiveCommentEnumerationResult : uint32_t
 {
-    void *(*capture_state)(void *game_context, uint32_t *size, int mode);
-    uintptr_t (*get_script_state)();
-    void (*free_memory)(void *memory);
-    bool (*write_state)(char *path, char *name, void *bitmap, uintptr_t script_state);
-    bool (*file_exists)(const char *path);
+    ARCHIVE_COMMENT_ENUMERATION_SUCCESS = 0,
+    ARCHIVE_COMMENT_ENUMERATION_EMPTY = 2,
+    ARCHIVE_COMMENT_ENUMERATION_FAILED = 0x00010000
 };
 
 uint32_t enumerate_archive_comment_entries(const char *directory, const char *extension, ArchiveCommentCollection *collection);
@@ -57,4 +54,4 @@ bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *stat
 void on_scripted_save_load_tree_rebuilt(RuntimeTreeNode *tree);
 void on_scripted_save_load_tree_resources_destroyed(RuntimeTreeNode *tree);
 
-} // namespace gag
+} // namespace freegag

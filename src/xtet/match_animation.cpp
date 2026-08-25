@@ -2,8 +2,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 void transform_vector(int8_t orientation, int source_x, int source_y, int &x, int &y)
 {
@@ -55,13 +53,12 @@ void expand_component(int &value)
 
 void select_resource(int8_t orientation, bool man, MatchAnimationParticipant &participant)
 {
-    participant.resource = man ? ((orientation % 2) == 0 ? MatchAnimationResource::rotated_man : MatchAnimationResource::man)
-                               : ((orientation % 2) == 0 ? MatchAnimationResource::rotated_woman : MatchAnimationResource::woman);
+    participant.resource = man ? ((orientation % 2) == 0 ? MatchAnimationResource::ROTATED_MAN : MatchAnimationResource::MAN)
+                               : ((orientation % 2) == 0 ? MatchAnimationResource::ROTATED_WOMAN : MatchAnimationResource::WOMAN);
     participant.mirror_horizontal = orientation == 3 || orientation == 4 || orientation == -4 || orientation == -1;
     participant.mirror_vertical = orientation == 3 || orientation == 4 || orientation == -3 || orientation == -2;
 }
 
-} // namespace
 
 bool build_match_animation_plan(const FallingFigurine &first, const FallingFigurine &second, const ActionDefinition &action, bool expanded, MatchAnimationPlan &plan)
 {

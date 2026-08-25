@@ -3,8 +3,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 constexpr std::array<FigurineTemplate, 10> templates{
     FigurineTemplate{ 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0 },
@@ -96,7 +94,6 @@ std::array<FigurineOffset, 8> build_offsets(const FigurineTemplate &shape)
     return offsets;
 }
 
-} // namespace
 
 FigurineGeometryTables build_figurine_geometry_tables()
 {

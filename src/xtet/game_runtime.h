@@ -23,8 +23,7 @@ struct GameKeyDownCallbacks
     std::function<void()> drain_keyboard;
 };
 
-uint32_t dispatch_game_input(uint32_t gameplay_state, const gag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks);
-uint32_t calculate_result_input_deadline(uint32_t current_time);
+uint32_t dispatch_game_input(uint32_t gameplay_state, const freegag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks);
 void handle_game_key_down(uint32_t &gameplay_state, uint32_t key, uint32_t current_time, uint32_t result_input_deadline, uint32_t score, const GameKeyDownCallbacks &callbacks);
 bool set_game_paused(uint32_t &gameplay_state, bool paused, const std::function<bool(bool)> &loop_playing_callback);
 
@@ -39,14 +38,9 @@ public:
         const std::function<bool(const FallingFigurine &, const FallingFigurine &, const ActionDefinition &)> &match_callback, const std::function<void()> &drain_keyboard_callback,
         const FigurineBoardChangeCallback &board_change_callback, GameplayInputOutcome &outcome, CascadeResult &cascade_result, const ProgressUpdateCallback &progress_callback = {});
 
-    RuntimeTables &board();
-    const RuntimeTables &board() const;
     std::vector<FigurineBoardEntry> &entries();
-    const std::vector<FigurineBoardEntry> &entries() const;
     void *activeValue() const;
-    int32_t familyBalance() const;
     GameProgress &progress();
-    const GameProgress &progress() const;
     uint32_t resultInputDeadline() const;
     void stop();
 

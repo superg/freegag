@@ -5,8 +5,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 bool parse_line(std::string_view line, std::array<int, 10> &values)
 {
@@ -28,7 +26,6 @@ bool parse_line(std::string_view line, std::array<int, 10> &values)
     return position == end;
 }
 
-} // namespace
 
 bool parse_action_definitions(const std::vector<uint8_t> &bytes, std::vector<ActionDefinition> &definitions)
 {

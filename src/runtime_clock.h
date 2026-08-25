@@ -2,9 +2,9 @@
 
 #include <stdint.h>
 
-namespace gag
+namespace freegag
 {
 
 uint32_t runtime_milliseconds() noexcept;
 
-} // namespace gag
+} // namespace freegag

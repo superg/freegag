@@ -2,7 +2,7 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 int copy_string(char *destination, const char *source);
@@ -93,7 +93,7 @@ int32_t add_script_object_integer(const char *object_name, const void *field_nam
 
 bool compare_script_object_field(const char *object_name, const void *field_name, const void *value, int32_t value_type);
 
-uint32_t get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot);
+bool has_script_object_field(const char *object_name, const void *field_name);
 
 void destroy_script_object_states();
 
@@ -111,16 +111,14 @@ RuntimeFixedNameListNode *find_runtime_fixed_name_list_node(const void *name);
 
 void destroy_runtime_fixed_name_list_nodes();
 
-const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api();
-
 RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser);
 
 RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser);
 
 ScriptObjectState *find_script_object_by_name(const char *name);
 
-ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type);
+ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, ScriptValueType value_type);
 
 void copy_file_name_from_path(char *destination, const char *source);
 
-} // namespace gag
+} // namespace freegag

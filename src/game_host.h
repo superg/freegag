@@ -8,7 +8,7 @@ namespace xtet
 struct PcmFormat;
 }
 
-namespace gag
+namespace freegag
 {
 
 struct HostXtEtEvent;
@@ -27,10 +27,10 @@ uint32_t resume_runtime_game_dll();
 
 void handle_runtime_xtet_host_event(const HostXtEtEvent &event);
 
-bool handle_runtime_input_event(const RuntimeInputEvent &event);
+void handle_runtime_input_event(const RuntimeInputEvent &event);
 
 void use_portable_runtime_input(bool enabled);
 
 void update_runtime_pointer_position(int32_t x, int32_t y);
 
-} // namespace gag
+} // namespace freegag

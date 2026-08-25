@@ -2,7 +2,7 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 uint32_t end_display_target();
@@ -39,7 +39,7 @@ uint32_t wait_for_display_scene_ready(uint32_t timeout);
 
 uint32_t set_display_clip_rectangle(DisplayRectangle *rectangle);
 
-uint32_t release_display_lock_mode_1000();
+uint32_t release_pending_display_lock();
 
 DisplaySceneNode *lock_display_scene_node(intptr_t identifier);
 
@@ -119,4 +119,4 @@ uint32_t shutdown_display_scene_host();
 
 void run_display_scene_worker(uint32_t *flags);
 
-} // namespace gag
+} // namespace freegag

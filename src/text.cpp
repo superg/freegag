@@ -1,7 +1,7 @@
 #include "text.h"
 #include "runtime_internal.h"
 
-namespace gag
+namespace freegag
 {
 
 RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
@@ -10,77 +10,69 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
     {
         RuntimeGenericBackend *result = nullptr;
         uint32_t contended = 0;
-        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+        lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
         {
             if(backend->identity == identity)
             {
-                contended = (backend->flags & 0x10000) >> 16;
+                contended = (backend->flags & RUNTIME_GENERIC_BACKEND_LOCKED) >> 16;
                 if(contended == 0)
                 {
-                    backend->flags |= 0x10000;
+                    backend->flags |= RUNTIME_GENERIC_BACKEND_LOCKED;
                     result = backend;
                 }
                 break;
             }
         }
-        runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+        unlock_runtime_mutex(runtime_generic_backend_mutex);
         if(contended == 0)
-        {
             return result;
-        }
-        runtime_generic_backend_api.sleep(0);
+        runtime_sleep(0);
     }
 }
 
 RuntimeGenericBackend *create_runtime_generic_backend(uintptr_t text_address, uint32_t text_size)
 {
-    auto *backend = static_cast<RuntimeGenericBackend *>(
-        runtime_generic_backend_create_api.heap_alloc(runtime_generic_backend_create_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackend)));
+    auto *backend = static_cast<RuntimeGenericBackend *>(allocate_runtime_heap(runtime_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackend)));
     RuntimeGenericBackend *result = backend;
     if(backend != nullptr)
     {
         backend->identity = backend;
         backend->text_size = text_size;
         backend->text = reinterpret_cast<const char *>(text_address);
-        runtime_generic_backend_create_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+        lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
         if(runtime_generic_backend_enabled == 0)
         {
             result = nullptr;
-            runtime_generic_backend_create_api.heap_free(runtime_generic_backend_create_api.get_process_heap(), 0, backend);
+            free_runtime_heap(runtime_process_heap(), 0, backend);
         }
         else
         {
             backend->next = runtime_generic_backend_head;
             runtime_generic_backend_head = backend;
         }
-        runtime_generic_backend_create_api.release_mutex(runtime_generic_backend_mutex);
+        unlock_runtime_mutex(runtime_generic_backend_mutex);
     }
     return result;
-}
-
-void clear_runtime_generic_backend_ready(RuntimeGenericBackend *backend)
-{
-    backend->flags &= 0xfffeffff;
 }
 
 void *find_available_runtime_generic_child(uint32_t maximum_end_position)
 {
     void *result = nullptr;
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
     for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
     {
         for(RuntimeGenericBackendChild *child = backend->children; child != nullptr; child = child->next)
         {
-            if((child->flags & 0x300) == 0 && child->state_end_position <= maximum_end_position)
+            if((child->flags & (RUNTIME_GENERIC_CHILD_SELECTION_OVERRIDE | RUNTIME_GENERIC_CHILD_MODE_200)) == 0 && child->state_end_position <= maximum_end_position)
             {
                 result = child->identity;
-                runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+                unlock_runtime_mutex(runtime_generic_backend_mutex);
                 return result;
             }
         }
     }
-    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+    unlock_runtime_mutex(runtime_generic_backend_mutex);
     return result;
 }
 
@@ -96,67 +88,49 @@ int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t 
             found_category = 0;
             token[0] = '\0';
             while(position < backend->text_size && backend->text[position] != '=')
-            {
                 ++position;
-            }
             if(backend->text[position] == '=')
             {
                 while(backend->text[position] != '\t' && backend->text[position] != '\n' && backend->text[position] != '\r')
                 {
                     if(backend->text[position] == ':')
-                    {
                         break;
-                    }
                     --position;
                     if(backend->text[position] == ' ')
-                    {
                         break;
-                    }
                 }
                 uint32_t input = position + 1;
                 uint32_t length = 0;
                 while(backend->text[input] != '=' && length < 30)
-                {
                     token[length++] = backend->text[input++];
-                }
                 token[length] = '\0';
                 if(std::strcmp(token, "section") == 0)
-                {
                     found_category = 0x10;
-                }
                 if(std::strcmp(token, "entry") == 0)
-                {
                     found_category = 0x20;
-                }
                 if(std::strcmp(token, "control") == 0)
-                {
                     found_category = 0x30;
-                }
                 if(std::strcmp(token, "text") == 0)
-                {
                     found_category = 0x40;
-                }
                 position = input + 1;
             }
             else
             {
-                position = 0xffffffff;
+                position = RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND;
             }
-        } while(category != found_category && position != 0xffffffff);
+        } while(category != found_category && position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND);
 
-        if(position != 0xffffffff)
+        if(position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND)
         {
             uint32_t length = 0;
             while(backend->text[position] != ' ' && static_cast<uint8_t>(backend->text[position]) != 9 && static_cast<uint8_t>(backend->text[position]) != 0x3b && length < 30)
-            {
                 token[length++] = backend->text[position++];
-            }
             token[length] = '\0';
         }
-    } while(std::strcmp(token, name) != 0 && position != 0xffffffff);
+    } while(std::strcmp(token, name) != 0 && position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND);
 
     int32_t result = -1;
-    if(position != 0xffffffff)
+    if(position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND)
     {
         result = static_cast<int32_t>(position + 1);
         if(found_category != 0x20)
@@ -165,27 +139,17 @@ int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t 
             while(true)
             {
                 if(position < size)
-                {
                     while(position < size && backend->text[position] != '=' && backend->text[position] != '[')
-                    {
                         ++position;
-                    }
-                }
                 if(backend->text[position] == '=')
                 {
                     while(position < size && backend->text[position] != ';' && backend->text[position] != '[')
-                    {
                         ++position;
-                    }
                     if(backend->text[position] == ';')
-                    {
                         result = static_cast<int32_t>(position + 1);
-                    }
                 }
                 if(backend->text[position] == '[' || position == size)
-                {
                     break;
-                }
             }
         }
     }
@@ -195,10 +159,10 @@ int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t 
 RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const uintptr_t *context, uintptr_t selection, uint32_t flags)
 {
     RuntimeGenericBackendChild *child = nullptr;
-    RuntimeGenericBackend *backend = runtime_generic_child_create_api.acquire_backend(backend_identity);
+    RuntimeGenericBackend *backend = acquire_runtime_generic_backend(backend_identity);
     if(backend != nullptr)
     {
-        uint32_t default_selection = 0x7fffffff;
+        uint32_t default_selection = RUNTIME_GENERIC_TEXT_INTEGER_INVALID;
         uint32_t parser_position;
         uint32_t text_search_position;
         uint32_t additional_flags;
@@ -207,25 +171,24 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
             default_selection = selection & 0xffff;
             parser_position = 0;
             text_search_position = 0;
-            additional_flags = 0x1000;
+            additional_flags = RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER;
         }
         else
         {
             const char *name = reinterpret_cast<const char *>(selection);
-            int32_t entry_position = runtime_generic_child_create_api.find_text_entry(backend, 0x20, name);
+            int32_t entry_position = find_runtime_generic_text_entry(backend, 0x20, name);
             if(entry_position != -1)
             {
                 uint32_t position = static_cast<uint32_t>(entry_position);
-                default_selection = runtime_generic_child_create_api.parse_integer(backend->text, &position, backend->text_size, 0);
+                default_selection = parse_runtime_generic_integer(backend->text, &position, backend->text_size, 0);
             }
-            parser_position = runtime_generic_child_create_api.find_text_entry(backend, 0x30, name);
+            parser_position = find_runtime_generic_text_entry(backend, 0x30, name);
             additional_flags = 0;
-            text_search_position = runtime_generic_child_create_api.find_text_entry(backend, 0x40, name);
+            text_search_position = find_runtime_generic_text_entry(backend, 0x40, name);
         }
-        if(default_selection != 0x7fffffff && parser_position != 0xffffffff && text_search_position != 0xffffffff)
+        if(default_selection != RUNTIME_GENERIC_TEXT_INTEGER_INVALID && parser_position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND && text_search_position != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND)
         {
-            child = static_cast<RuntimeGenericBackendChild *>(
-                runtime_generic_child_create_api.heap_alloc(runtime_generic_child_create_api.get_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackendChild)));
+            child = static_cast<RuntimeGenericBackendChild *>(allocate_runtime_heap(runtime_process_heap(), runtime_heap_zero_memory, sizeof(RuntimeGenericBackendChild)));
             if(child != nullptr)
             {
                 child->identity = child;
@@ -237,15 +200,15 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
                 child->flags |= additional_flags | flags;
                 child->context[0] = context[0];
                 child->context[1] = context[1];
-                runtime_generic_child_create_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+                lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
                 child->next = backend->children;
                 backend->children = child;
                 ++backend->child_count;
-                runtime_generic_child_create_api.release_mutex(runtime_generic_backend_mutex);
-                runtime_generic_child_create_api.build_child_state(child->identity, 0, nullptr, nullptr, nullptr);
+                unlock_runtime_mutex(runtime_generic_backend_mutex);
+                build_runtime_generic_backend_child_state(child->identity, 0, nullptr, nullptr, nullptr);
             }
         }
-        runtime_generic_child_create_api.clear_backend_ready(backend);
+        backend->flags &= ~RUNTIME_GENERIC_BACKEND_LOCKED;
     }
     return child;
 }
@@ -253,13 +216,12 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
 
 void process_available_runtime_generic_children(uint32_t maximum_end_position)
 {
-    for(void *identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position); identity != nullptr;
-        identity = runtime_generic_child_scene_api.find_available_child(maximum_end_position))
+    for(void *identity = find_available_runtime_generic_child(maximum_end_position); identity != nullptr; identity = find_available_runtime_generic_child(maximum_end_position))
     {
         uintptr_t context[2];
         DisplaySceneDescriptor descriptor;
         RuntimeGenericChildState state;
-        if(runtime_generic_child_scene_api.build_child_state(identity, 0, state.words, &descriptor, context) != 0)
+        if(build_runtime_generic_backend_child_state(identity, 0, state.words, &descriptor, context) != 0)
         {
             DisplayRectangle *rectangle = &state.fields.rectangle;
             if(rectangle->right <= static_cast<uint16_t>(descriptor.width) && rectangle->bottom <= static_cast<uint16_t>(descriptor.height))
@@ -268,9 +230,7 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position)
                 rectangle->bottom = static_cast<uint16_t>(descriptor.height);
             }
             if(context[1] == 0)
-            {
-                context[1] = runtime_generic_child_scene_api.find_scene_index(0x80000);
-            }
+                context[1] = find_available_display_scene_index(0x80000);
             int32_t x = static_cast<int32_t>(state.words[5]);
             int32_t y = static_cast<int32_t>(state.words[6]);
             if((runtime_pointer_event_record[14] & 1) != 0)
@@ -278,31 +238,29 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position)
                 x = 10000;
                 y = 10000;
             }
-            DisplaySceneNode *scene = runtime_generic_child_scene_api.acquire_scene(static_cast<uint32_t>(context[1]), x, y, rectangle->right, rectangle->bottom, 0x20000,
-                static_cast<intptr_t>(context[0]), &descriptor, nullptr);
+            DisplaySceneNode *scene =
+                acquire_display_scene_node(static_cast<uint32_t>(context[1]), x, y, rectangle->right, rectangle->bottom, 0x20000, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
             const intptr_t scene_identifier = reinterpret_cast<intptr_t>(scene);
-            if(runtime_generic_child_scene_api.begin_scene_update(scene_identifier) == 0)
+            if(begin_display_scene_update(scene_identifier) == 0)
             {
-                runtime_generic_child_scene_api.publish_child_state(identity, state.words, &descriptor, static_cast<int32_t>(maximum_end_position));
+                publish_runtime_generic_backend_child_state(identity, state.words, &descriptor, static_cast<int32_t>(maximum_end_position));
                 const DisplayRectangleTransform transform = display_rectangle_transform(descriptor);
-                runtime_generic_child_scene_api.end_scene_update(scene_identifier, &transform, rectangle);
+                end_display_scene_update(scene_identifier, &transform, rectangle);
             }
-            runtime_generic_child_scene_api.set_child_context(identity, context);
+            set_runtime_generic_backend_child_context(identity, context);
         }
-        else if(runtime_generic_child_scene_api.get_child_context(identity, context))
+        else if(get_runtime_generic_backend_child_context(identity, context))
         {
             if(context[0] == 0x0047EF60)
             {
-                runtime_generic_child_scene_api.destroy_child(identity);
-                const intptr_t scene_identifier = runtime_generic_child_scene_api.query_scene(static_cast<int32_t>(context[1]), nullptr, nullptr);
+                destroy_runtime_generic_backend_child(identity);
+                const intptr_t scene_identifier = query_display_scene_by_index(static_cast<int32_t>(context[1]), nullptr, nullptr);
                 if(scene_identifier != 0)
-                {
-                    runtime_generic_child_scene_api.release_scene(scene_identifier, static_cast<int32_t>(context[0]));
-                }
+                    release_display_scene_node(scene_identifier, static_cast<int32_t>(context[0]));
             }
             else
             {
-                runtime_generic_child_scene_api.enable_child_mode_200(identity);
+                enable_runtime_generic_backend_child_mode_200(identity);
             }
         }
     }
@@ -316,7 +274,7 @@ RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity
     {
         RuntimeGenericBackendChild *result = nullptr;
         uint32_t contended = 0;
-        runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+        lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
         bool found = false;
         for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr && !found; backend = backend->next)
         {
@@ -324,10 +282,10 @@ RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity
             {
                 if(child->identity == identity)
                 {
-                    contended = (child->flags & 0x10000) >> 16;
+                    contended = (child->flags & RUNTIME_GENERIC_CHILD_LOCKED) >> 16;
                     if(contended == 0)
                     {
-                        child->flags |= 0x10000;
+                        child->flags |= RUNTIME_GENERIC_CHILD_LOCKED;
                         result = child;
                     }
                     found = true;
@@ -335,36 +293,26 @@ RuntimeGenericBackendChild *acquire_runtime_generic_backend_child(void *identity
                 }
             }
         }
-        runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
+        unlock_runtime_mutex(runtime_generic_backend_mutex);
         if(contended == 0)
-        {
             return result;
-        }
-        runtime_generic_backend_api.sleep(0);
+        runtime_sleep(0);
     }
 }
 
 int32_t parse_runtime_generic_integer(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
     uint32_t cursor = *position;
-    const char alternate_stop = (flags & 0x1000) == 0 ? ':' : '#';
+    const char alternate_stop = (flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) == 0 ? ':' : '#';
     while(cursor < end && text[cursor] != ';' && text[cursor] != '@' && text[cursor] != alternate_stop && (text[cursor] < '0' || text[cursor] > '9'))
-    {
         ++cursor;
-    }
     if(text[cursor] < '0' || text[cursor] > '9')
-    {
-        return 0x7fffffff;
-    }
+        return RUNTIME_GENERIC_TEXT_INTEGER_INVALID;
     if(text[cursor] == '+')
-    {
         ++cursor;
-    }
     const bool negative = text[cursor] == '-';
     if(negative)
-    {
         ++cursor;
-    }
     int32_t value = 0;
     while(text[cursor] >= '0' && text[cursor] <= '9')
     {
@@ -372,9 +320,7 @@ int32_t parse_runtime_generic_integer(const char *text, uint32_t *position, uint
         ++cursor;
     }
     if(negative)
-    {
         value = -value;
-    }
     *position = text[cursor] == ';' ? cursor : cursor + 1;
     return value;
 }
@@ -385,90 +331,60 @@ int32_t skip_runtime_generic_statement(const char *text, uint32_t *position, uin
     do
     {
         while(cursor < end && text[cursor] != ';' && text[cursor] != '@')
-        {
             ++cursor;
-        }
         if(text[cursor] == '@')
         {
-            if((flags & 0x1000) == 0)
+            if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) == 0)
             {
                 ++cursor;
                 while(cursor < end && text[cursor] != '@')
-                {
                     ++cursor;
-                }
                 if(cursor >= end)
-                {
                     break;
-                }
                 ++cursor;
             }
-            else if((flags & 0x1000) == 0x1000)
+            else if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) == RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER)
             {
                 if(cursor >= end)
-                {
                     break;
-                }
                 ++cursor;
             }
         }
         if(cursor >= end)
-        {
-            return -1;
-        }
+            return RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID;
     } while(text[cursor] != ';');
     if(cursor >= end)
-    {
-        return -1;
-    }
+        return RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID;
     *position = cursor + 1;
     return 0;
 }
 
 int32_t parse_runtime_generic_directive(const char *text, uint32_t *position, uint32_t end, uint32_t flags)
 {
-    if((flags & 0x1000) != 0)
-    {
-        return 0x10000;
-    }
+    if((flags & RUNTIME_MEDIA_CLOSE_REQUESTED) != 0)
+        return RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT;
     uint32_t cursor = *position;
     char name[32]{};
     while(cursor < end && text[cursor] != '@' && text[cursor] != '[')
-    {
         ++cursor;
-    }
     if(text[cursor] != '@')
-    {
-        return -1;
-    }
+        return RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID;
     ++cursor;
     uint32_t length = 0;
     while(cursor < end && length < 30 && text[cursor] != '@' && text[cursor] != ':' && text[cursor] != '[')
-    {
         name[length++] = text[cursor++];
-    }
     name[length] = '\0';
     if(cursor == end || text[cursor] == '[')
-    {
-        return -1;
-    }
-    int32_t result = -1;
+        return RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID;
+    int32_t result = RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID;
     if(length == 0 || std::strcmp(name, "THIS") == 0)
-    {
-        result = 0x10000;
-    }
+        result = RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT;
     if(std::strcmp(name, "TEXT") == 0)
-    {
-        result = 0x40000;
-    }
+        result = RUNTIME_GENERIC_TEXT_DIRECTIVE_REFERENCE;
     if(std::strcmp(name, "JMP") == 0)
-    {
-        result = 0x20000;
-    }
+        result = RUNTIME_GENERIC_TEXT_DIRECTIVE_JUMP;
     if(std::strcmp(name, "END") == 0)
-    {
-        result = 0x30000;
-    }
+        result = RUNTIME_GENERIC_TEXT_DIRECTIVE_END;
     *position = cursor + 1;
     return result;
 }
@@ -477,30 +393,24 @@ uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t sele
 {
     uint32_t result = 0;
     if(state != nullptr)
-    {
-        state[0] = 0xffffffff;
-    }
+        state[0] = RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND;
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
-    {
         return result;
-    }
 
     uint32_t flags = child->flags;
     uint32_t effective_selection = selection;
-    if((flags & 2) == 0)
+    if((flags & RUNTIME_GENERIC_CHILD_USE_CURRENT_SELECTION) == 0)
     {
-        if((flags & 0x100) == 0)
-        {
+        if((flags & RUNTIME_GENERIC_CHILD_SELECTION_OVERRIDE) == 0)
             effective_selection = child->default_selection;
-        }
     }
-    else if((flags & 0x100) == 0)
+    else if((flags & RUNTIME_GENERIC_CHILD_SELECTION_OVERRIDE) == 0)
     {
         effective_selection = child->state[10];
     }
 
-    if((flags & 1) == 0 || child->computed_state[9] != effective_selection)
+    if((flags & RUNTIME_GENERIC_CHILD_STATE_VALID) == 0 || child->computed_state[9] != effective_selection)
     {
         RuntimeGenericBackend *parent = child->parent;
         uint32_t cursor = child->parser_position;
@@ -510,10 +420,10 @@ uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t sele
         do
         {
             parsed_selection = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-            if(parsed_selection == effective_selection && parsed_selection != 0x7fffffff)
+            if(parsed_selection == effective_selection && parsed_selection != RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
             {
                 child->computed_state[0] = 0;
-                child->flags |= 1;
+                child->flags |= RUNTIME_GENERIC_CHILD_STATE_VALID;
                 child->computed_state[4] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(child->font_identity));
                 child->computed_state[3] = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(text));
 
@@ -535,44 +445,30 @@ uint32_t build_runtime_generic_backend_child_state(void *identity, uint32_t sele
                 child->computed_state[9] = parsed_selection;
                 child->computed_state[2] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
                 child->computed_state[10] = static_cast<uint32_t>(parse_runtime_generic_integer(text, &cursor, parent->text_size, flags));
-                if(child->computed_state[1] == 0xffffffff)
-                {
-                    child->computed_state[0] = 0xffffffff;
-                }
-                if(child->computed_state[5] == 0x7fffffff)
-                {
+                if(child->computed_state[1] == RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND)
+                    child->computed_state[0] = RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND;
+                if(child->computed_state[5] == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                     child->computed_state[5] = child->state[5];
-                }
-                if(child->computed_state[6] == 0x7fffffff)
-                {
+                if(child->computed_state[6] == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                     child->computed_state[6] = child->state[6];
-                }
-                if(child->computed_state[2] == 0x7fffffff)
-                {
+                if(child->computed_state[2] == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                     child->computed_state[2] = 0;
-                }
                 break;
             }
             skip_runtime_generic_statement(text, &cursor, parent->text_size, flags);
-        } while(parsed_selection != 0x7fffffff);
+        } while(parsed_selection != RUNTIME_GENERIC_TEXT_INTEGER_INVALID);
     }
 
-    if((child->flags & 1) != 0 && child->computed_state[9] == effective_selection)
+    if((child->flags & RUNTIME_GENERIC_CHILD_STATE_VALID) != 0 && child->computed_state[9] == effective_selection)
     {
         result = 1;
         if(state != nullptr)
-        {
             std::memcpy(state, child->computed_state, sizeof(child->computed_state));
-        }
     }
     if(descriptor != nullptr)
-    {
         *descriptor = child->descriptor;
-    }
     if(context != nullptr)
-    {
         std::memcpy(context, child->context, sizeof(child->context));
-    }
     release_runtime_generic_backend_child_lock(child);
     return result;
 }
@@ -581,21 +477,15 @@ void publish_runtime_generic_backend_child_state(void *identity, const uint32_t 
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
-    {
         return;
-    }
     if(state[0] == 0)
     {
         child->flags |= 2;
         child->state_end_position = state[2] + end_offset;
         if(descriptor != nullptr)
-        {
             child->descriptor = *descriptor;
-        }
         if(child->descriptor.pixels != 0)
-        {
             draw_runtime_generic_text(child->parent->text, child->parent->text_size, state, child->font_identity, &child->descriptor, child->flags);
-        }
     }
     std::memcpy(child->state, state, sizeof(child->state));
     child->flags &= ~1u;
@@ -627,15 +517,11 @@ uint32_t measure_runtime_font_glyph(uint8_t character, const RuntimeMediaBackend
         } while(columns_remaining != 0);
         pixels += atlas_stride - glyph_width;
         if(static_cast<int32_t>(maximum_width) < static_cast<int32_t>(row_width))
-        {
             maximum_width = row_width;
-        }
         --rows_remaining;
     } while(rows_remaining != 0);
     if(maximum_width == 0)
-    {
         maximum_width = atlas_stride >> 5;
-    }
     return maximum_width;
 }
 
@@ -670,9 +556,7 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
     {
         draw_width -= static_cast<uint32_t>(right_overflow);
         if(draw_width == 0 || static_cast<int32_t>(glyph_width) < right_overflow)
-        {
             return glyph_width;
-        }
         source_row_advance += right_overflow;
         destination_row_advance += right_overflow;
     }
@@ -683,9 +567,7 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
         const bool underflow = static_cast<int32_t>(draw_width) < bottom_overflow;
         draw_width = clipped_width;
         if(draw_width == 0 || underflow)
-        {
             return glyph_width;
-        }
     }
 
     const uint8_t *source = font->destination_pixels + (character >> 4) * rows_remaining * atlas_stride + (character & 0x0f) * glyph_width;
@@ -720,35 +602,25 @@ uint32_t draw_runtime_font_glyph(DisplaySceneDescriptor *destination, uint8_t ch
         source += source_row_advance;
         output += destination_row_advance;
         if(static_cast<int32_t>(maximum_width) < static_cast<int32_t>(row_width))
-        {
             maximum_width = row_width;
-        }
         --rows_remaining;
     } while(rows_remaining != 0);
     if(maximum_width == 0)
-    {
         maximum_width = draw_width >> 1;
-    }
     return maximum_width;
 }
 
 uint32_t initialize_runtime_standalone_text(const char *text, uint32_t x, uint32_t y, void *font_identity, uint32_t low_color, uint32_t high_color, RuntimeStandaloneTextState *state)
 {
     if(get_runtime_media_backend_type(font_identity) != 0xac)
-    {
         return 0;
-    }
 
     uint32_t text_length = 0;
     while(text[text_length] != '\0')
-    {
         ++text_length;
-    }
     const uint32_t end = text_length + 1;
     if(text_length == 0)
-    {
         return 0;
-    }
 
     std::memset(state, 0, sizeof(*state));
     uint32_t position = 0;
@@ -766,11 +638,9 @@ void draw_runtime_standalone_text(RuntimeStandaloneTextState *state, DisplayScen
 {
     uint32_t text_length = 0;
     while(state->text[text_length] != '\0')
-    {
         ++text_length;
-    }
     uint32_t generic_state[9]{};
-    generic_state[1] = state->unknown_0000[1];
+    generic_state[1] = state->layout_state[1];
     generic_state[7] = state->low_color;
     generic_state[8] = state->high_color;
     draw_runtime_generic_text(state->text, text_length + 1, generic_state, state->font_identity, destination, 0);
@@ -781,9 +651,7 @@ void draw_runtime_generic_text(const char *text, uint32_t end, const uint32_t *s
     uint32_t cursor = state[1];
     RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
     if(font == nullptr)
-    {
         return;
-    }
     const auto *format = static_cast<const RuntimeFontFormat *>(font->format_data);
     const uint32_t cell_width = static_cast<uint32_t>(format->fixed_cell_width >> 4);
     const int32_t signed_cell_height = format->fixed_cell_height;
@@ -804,59 +672,43 @@ void draw_runtime_generic_text(const char *text, uint32_t end, const uint32_t *s
             break;
         case '#':
         case ';':
-            if((flags & 0x1000) != 0)
-            {
+            if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) != 0)
                 goto release;
-            }
             x += static_cast<int32_t>(draw_runtime_font_glyph(destination, static_cast<uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
             break;
         case '@':
-            if((flags & 0x1000) != 0)
+            if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) != 0)
             {
                 x += static_cast<int32_t>(draw_runtime_font_glyph(destination, static_cast<uint8_t>(text[cursor]), x, y, font, state[7], state[8]));
                 break;
             }
             if(end - 10 <= cursor)
-            {
                 goto release;
-            }
             {
                 const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
-                if(directive == -1)
-                {
+                if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
                     break;
-                }
-                if(directive == 0x10000 || directive == 0x30000)
-                {
+                if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT || directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_END)
                     goto release;
-                }
-                if(directive == 0x20000)
+                if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_JUMP)
                 {
                     const int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
-                    if(target == 0x7fffffff)
-                    {
+                    if(target == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                         goto release;
-                    }
                     for(;;)
                     {
                         int32_t candidate_directive;
                         do
                         {
                             candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
-                            if(candidate_directive == -1)
-                            {
+                            if(candidate_directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
                                 goto release;
-                            }
-                        } while(candidate_directive != 0x10000);
+                        } while(candidate_directive != RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT);
                         const int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
-                        if(candidate == 0x7fffffff)
-                        {
+                        if(candidate == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                             goto release;
-                        }
                         if(candidate == target)
-                        {
                             break;
-                        }
                     }
                 }
             }
@@ -865,9 +717,7 @@ void draw_runtime_generic_text(const char *text, uint32_t end, const uint32_t *s
             goto release;
         case '\\':
             if(end - 1 <= cursor)
-            {
                 goto release;
-            }
             ++cursor;
             if(text[cursor] == 'n')
             {
@@ -910,9 +760,7 @@ void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *
     std::memset(bounds, 0, 4 * sizeof(*bounds));
     RuntimeMediaBackend *font = acquire_runtime_media_backend(font_identity);
     if(font == nullptr)
-    {
         return;
-    }
 
     const auto *format = static_cast<const RuntimeFontFormat *>(font->format_data);
     const uint32_t cell_width = static_cast<uint32_t>(format->fixed_cell_width >> 4);
@@ -938,7 +786,7 @@ void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *
             break;
         case '#':
         case ';':
-            if((flags & 0x1000) != 0)
+            if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) != 0)
             {
                 publish = true;
                 goto complete;
@@ -946,53 +794,43 @@ void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *
             current_width += measure_runtime_font_glyph(static_cast<uint8_t>(text[cursor]), font);
             break;
         case '@':
-            if((flags & 0x1000) != 0)
+            if((flags & RUNTIME_GENERIC_CHILD_ALTERNATE_DELIMITER) != 0)
             {
                 current_width += measure_runtime_font_glyph(static_cast<uint8_t>(text[cursor]), font);
                 break;
             }
             if(end - 10 <= cursor)
-            {
                 goto release;
-            }
             {
                 const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
                 next_cursor = cursor;
-                if(directive != -1)
+                if(directive != RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
                 {
-                    if(directive == 0x10000 || directive == 0x30000)
+                    if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT || directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_END)
                     {
                         publish = true;
                         goto complete;
                     }
-                    if(directive == 0x20000)
+                    if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_JUMP)
                     {
                         const int32_t target = parse_runtime_generic_integer(text, &cursor, end, flags);
-                        if(target == 0x7fffffff)
-                        {
+                        if(target == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                             goto release;
-                        }
                         for(;;)
                         {
                             int32_t candidate_directive;
                             do
                             {
                                 candidate_directive = parse_runtime_generic_directive(text, &cursor, end, flags);
-                                if(candidate_directive == -1)
-                                {
+                                if(candidate_directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
                                     goto release;
-                                }
-                            } while(candidate_directive != 0x10000);
+                            } while(candidate_directive != RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT);
                             const int32_t candidate = parse_runtime_generic_integer(text, &cursor, end, flags);
-                            if(candidate == 0x7fffffff)
-                            {
+                            if(candidate == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                                 goto release;
-                            }
                             next_cursor = cursor;
                             if(candidate == target)
-                            {
                                 break;
-                            }
                         }
                     }
                 }
@@ -1002,16 +840,12 @@ void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *
             goto release;
         case '\\':
             if(end - 10 <= cursor)
-            {
                 goto release;
-            }
             next_cursor = cursor + 1;
             if(text[next_cursor] == 'n')
             {
                 if(maximum_width < current_width)
-                {
                     maximum_width = current_width;
-                }
                 current_width = 0;
                 height += cell_height;
             }
@@ -1030,9 +864,7 @@ void measure_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *
                     while(text[cursor] >= '0')
                     {
                         if(text[cursor] > '9')
-                        {
                             break;
-                        }
                         tab_width = text[cursor] - '0' + tab_width * 10;
                         ++cursor;
                     }
@@ -1053,13 +885,9 @@ complete:
     if(publish)
     {
         if(maximum_width < current_width)
-        {
             maximum_width = current_width;
-        }
         if(height != 0)
-        {
             output_height = height;
-        }
         bounds[0] = 0;
         bounds[1] = 0;
         bounds[2] = maximum_width;
@@ -1073,21 +901,21 @@ release:
 uint32_t select_runtime_generic_text(uint32_t *bounds, const char *text, uint32_t *position, uint32_t end, uint32_t search_position, void *font_identity, uint32_t flags)
 {
     uint32_t cursor = *position;
-    uint32_t result = 0xffffffff;
+    uint32_t result = RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND;
     const int32_t directive = parse_runtime_generic_directive(text, &cursor, end, flags);
-    if(directive == -1)
+    if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
     {
         std::memset(bounds, 0, 4 * sizeof(*bounds));
     }
-    else if(directive == 0x10000)
+    else if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT)
     {
         result = cursor;
         measure_runtime_generic_text(bounds, text, &cursor, end, font_identity, flags);
     }
-    else if(directive == 0x40000)
+    else if(directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_REFERENCE)
     {
         const int32_t requested = parse_runtime_generic_integer(text, &cursor, end, flags);
-        if(requested != 0x7fffffff)
+        if(requested != RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
         {
             uint32_t candidate_cursor = search_position;
             for(;;)
@@ -1096,20 +924,14 @@ uint32_t select_runtime_generic_text(uint32_t *bounds, const char *text, uint32_
                 do
                 {
                     candidate_directive = parse_runtime_generic_directive(text, &candidate_cursor, end, flags);
-                    if(candidate_directive == -1)
-                    {
+                    if(candidate_directive == RUNTIME_GENERIC_TEXT_DIRECTIVE_INVALID)
                         goto finish;
-                    }
-                } while(candidate_directive != 0x10000);
+                } while(candidate_directive != RUNTIME_GENERIC_TEXT_DIRECTIVE_CURRENT);
                 const int32_t candidate = parse_runtime_generic_integer(text, &candidate_cursor, end, flags);
-                if(candidate == 0x7fffffff)
-                {
+                if(candidate == RUNTIME_GENERIC_TEXT_INTEGER_INVALID)
                     goto finish;
-                }
                 if(candidate == requested)
-                {
                     break;
-                }
             }
             result = candidate_cursor;
             measure_runtime_generic_text(bounds, text, &candidate_cursor, end, font_identity, flags);
@@ -1117,12 +939,10 @@ uint32_t select_runtime_generic_text(uint32_t *bounds, const char *text, uint32_
     }
 
 finish:
-    if(result != 0xffffffff)
+    if(result != RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND)
     {
         if(text[cursor] != ';')
-        {
             ++cursor;
-        }
         *position = cursor;
     }
     return result;
@@ -1130,21 +950,19 @@ finish:
 
 void release_runtime_generic_backend_child_lock(RuntimeGenericBackendChild *child)
 {
-    child->flags &= ~0x10000u;
+    child->flags &= ~RUNTIME_GENERIC_CHILD_LOCKED;
 }
 
 void release_runtime_media_backend_lock(RuntimeMediaBackend *backend)
 {
     if(backend != nullptr && backend->recursion_count != 0)
-    {
         --backend->recursion_count;
-    }
 }
 
 void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
-    if(resource->generic_backend_child != nullptr && (resource->type_flags & 1) != 0 && (resource->type_flags & 0x80) == 0)
+    if(resource->generic_backend_child != nullptr && (resource->type_flags & RUNTIME_RESOURCE_PRIMARY) != 0 && (resource->type_flags & RUNTIME_RESOURCE_INTERNAL_PRIMARY) == 0)
     {
         uintptr_t context[2];
         RuntimeGenericChildState state;
@@ -1152,9 +970,7 @@ void render_runtime_generic_backend_child(RuntimeMediaBackend *backend)
         {
             intptr_t source_identifier = 0;
             if(context[1] != 0)
-            {
                 source_identifier = query_display_scene_by_index(static_cast<int32_t>(context[1]), nullptr, nullptr);
-            }
             blit_display_scene(reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), static_cast<int32_t>(state.words[6]) - resource->x,
                 static_cast<int32_t>(state.words[7]) - resource->y, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(source_identifier)), &state.fields.rectangle, 0);
         }
@@ -1166,15 +982,13 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
     void *identity = resource->generic_backend_child;
     if(identity == nullptr)
-    {
         return;
-    }
 
     uintptr_t context[2];
     DisplaySceneDescriptor descriptor;
     DisplayRectangle destination_rectangle;
     RuntimeGenericChildState state;
-    if((resource->type_flags & 1) == 0 || (resource->type_flags & 0x80) != 0)
+    if((resource->type_flags & RUNTIME_RESOURCE_PRIMARY) == 0 || (resource->type_flags & RUNTIME_RESOURCE_INTERNAL_PRIMARY) != 0)
     {
         if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state.words, &descriptor, context) != 0)
         {
@@ -1185,9 +999,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
                 state_rectangle->bottom = static_cast<uint16_t>(descriptor.height);
             }
             if(context[1] == 0)
-            {
                 context[1] = find_available_display_scene_index(0x80000);
-            }
             if((runtime_pointer_event_record[14] & 1) != 0)
             {
                 state.words[5] = 10000;
@@ -1209,13 +1021,9 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
     if(build_runtime_generic_backend_child_state(identity, backend->frame_number, state.words, nullptr, context) != 0)
     {
         if(context[1] == 0)
-        {
             std::memset(&descriptor, 0, sizeof(descriptor));
-        }
         else
-        {
             query_display_scene_by_index(static_cast<int32_t>(context[1]), &descriptor, nullptr);
-        }
         DisplayRectangle *state_rectangle = &state.fields.rectangle;
         if(state_rectangle->right <= static_cast<uint16_t>(descriptor.width) && state_rectangle->bottom <= static_cast<uint16_t>(descriptor.height))
         {
@@ -1223,9 +1031,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             state_rectangle->bottom = static_cast<uint16_t>(descriptor.height);
         }
         if(context[1] == 0)
-        {
             context[1] = find_available_display_scene_index(0x80000);
-        }
         DisplaySceneNode *scene =
             acquire_display_scene_node(static_cast<uint32_t>(context[1]), 10000, 10000, state_rectangle->right, state_rectangle->bottom, 0, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
         if(begin_display_scene_update(resource->scene_identifier) == 0)
@@ -1237,15 +1043,11 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             blit_display_scene(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
             descriptor.width = resource->scene_descriptor.width;
             descriptor.height = resource->scene_descriptor.height;
-            descriptor.present = resource->scene_descriptor.present;
-            descriptor.reserved = resource->scene_descriptor.reserved;
             descriptor.pixels = resource->scene_descriptor.pixels;
             descriptor.y = static_cast<int16_t>(state.words[6]) - static_cast<int16_t>(resource->y);
             descriptor.x = static_cast<int16_t>(state.words[5]) - static_cast<int16_t>(resource->x);
             if((runtime_pointer_event_record[14] & 1) == 0)
-            {
                 publish_runtime_generic_backend_child_state(identity, state.words, &descriptor, 0);
-            }
             const DisplayRectangleTransform transform = display_rectangle_transform(resource->scene_descriptor);
             end_display_scene_update(resource->scene_identifier, &transform, &destination_rectangle);
         }
@@ -1257,9 +1059,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
     {
         DisplaySceneNode *scene = nullptr;
         if(context[1] != 0)
-        {
             scene = reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(query_display_scene_by_index(static_cast<int32_t>(context[1]), &descriptor, nullptr)));
-        }
         if(begin_display_scene_update(resource->scene_identifier) == 0)
         {
             DisplayRectangle *state_rectangle = &state.fields.rectangle;
@@ -1270,15 +1070,11 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             blit_display_scene(scene, 0, 0, reinterpret_cast<DisplaySceneNode *>(static_cast<uintptr_t>(resource->scene_identifier)), &destination_rectangle, 0);
             descriptor.width = resource->scene_descriptor.width;
             descriptor.height = resource->scene_descriptor.height;
-            descriptor.present = resource->scene_descriptor.present;
-            descriptor.reserved = resource->scene_descriptor.reserved;
             descriptor.pixels = resource->scene_descriptor.pixels;
             descriptor.y = static_cast<int16_t>(state.words[6]) - static_cast<int16_t>(resource->y);
             descriptor.x = static_cast<int16_t>(state.words[5]) - static_cast<int16_t>(resource->x);
             if((runtime_pointer_event_record[14] & 1) == 0)
-            {
                 publish_runtime_generic_backend_child_state(identity, state.words, &descriptor, 0);
-            }
             const DisplayRectangleTransform transform = display_rectangle_transform(resource->scene_descriptor);
             end_display_scene_update(resource->scene_identifier, &transform, &destination_rectangle);
         }
@@ -1289,19 +1085,17 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
 {
     auto *resource = static_cast<RuntimeResourceObject *>(backend->extension_data);
     uint32_t flags = backend->media_flags;
-    if((flags & 0x1000) != 0)
+    if((flags & RUNTIME_MEDIA_CLOSE_REQUESTED) != 0)
     {
         const uint32_t resource_flags = resource->type_flags;
         queue_runtime_resource_destruction(resource, (resource_flags & 2) == 0);
         return 1;
     }
-    if((flags & 0x80000000) != 0)
-    {
+    if((flags & RUNTIME_MEDIA_INITIALIZING) != 0)
         return 0;
-    }
-    if((flags & 0x10000000) != 0)
+    if((flags & RUNTIME_MEDIA_DECODE_STARTED) != 0)
     {
-        if(current_runtime_resource == resource && (flags & 0x100000) == 0 && static_cast<int32_t>(backend->frame_duration * 4) < backend->timing_correction)
+        if(current_runtime_resource == resource && (flags & RUNTIME_MEDIA_SYNCHRONIZED_TIMING) == 0 && static_cast<int32_t>(backend->frame_duration * 4) < backend->timing_correction)
         {
             resource->state_flags |= 1;
         }
@@ -1311,28 +1105,26 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
             resource->state_flags &= ~1u;
         }
         render_runtime_generic_backend_child(backend);
-        backend->media_flags &= ~0x10000000u;
+        backend->media_flags &= ~RUNTIME_MEDIA_DECODE_STARTED;
         return 1;
     }
-    if((flags & 0x2000) != 0)
+    if((flags & RUNTIME_MEDIA_PAUSE_NOTIFIED) != 0)
     {
-        if((resource->type_flags & 0x10) != 0 && (flags & 0x20) != 0)
+        if((resource->type_flags & RUNTIME_RESOURCE_DEFERRED_LOAD) != 0 && (flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
         {
-            backend->media_flags = flags & ~0x20u;
+            backend->media_flags = flags & ~RUNTIME_MEDIA_RESOURCE_PENDING;
             if((resource->type_flags & 2) == 0)
-            {
                 ++runtime_resource_count;
-            }
         }
         return 1;
     }
-    if((flags & 0x40000000) != 0)
+    if((flags & RUNTIME_MEDIA_LOOP_BOUNDARY) != 0)
     {
-        if(resource->frame_limit != 0xffffffff)
+        if(resource->frame_limit != RUNTIME_RESOURCE_FRAME_LIMIT_UNBOUNDED)
         {
             if(resource->frames_remaining == 0)
             {
-                backend->media_flags = flags | 1;
+                backend->media_flags = flags | RUNTIME_MEDIA_PAUSED;
                 resource->frames_remaining = resource->frame_limit;
             }
             else
@@ -1340,18 +1132,16 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
                 --resource->frames_remaining;
             }
         }
-        backend->media_flags &= ~0x40000000u;
+        backend->media_flags &= ~RUNTIME_MEDIA_LOOP_BOUNDARY;
         return 1;
     }
-    if((flags & 0x4000) != 0)
+    if((flags & RUNTIME_MEDIA_PALETTE_CHANGED) != 0)
     {
         configure_runtime_resource_palette(resource);
-        if((resource->type_flags & 1) != 0)
+        if((resource->type_flags & RUNTIME_RESOURCE_PRIMARY) != 0)
         {
-            if((backend->media_flags & 0x20) == 0)
-            {
+            if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) == 0)
                 apply_display_palette(backend->palette_entries, 0x20000);
-            }
             backend->dirty_left = 0;
             backend->dirty_top = 0;
             const auto *format = static_cast<const uint16_t *>(backend->format_data);
@@ -1359,23 +1149,21 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
             backend->dirty_bottom = static_cast<uint32_t>(format[5]) * resource->requested_height;
         }
     }
-    if((backend->media_flags & 0x20) != 0 && (resource->type_flags & 2) == 0)
-    {
+    if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0 && (resource->type_flags & 2) == 0)
         ++runtime_resource_count;
-    }
-    if((backend->media_flags & 0x20000000) != 0)
+    if((backend->media_flags & RUNTIME_MEDIA_FRAME_DECODED) != 0)
     {
         update_runtime_generic_backend_child(backend);
-        if((resource->state_flags & 1) == 0)
+        if((resource->state_flags & RUNTIME_RESOURCE_PRESENTATION_DEFERRED) == 0)
         {
             const DisplayRectangleTransform transform{ static_cast<int16_t>(backend->destination_x), static_cast<int16_t>(backend->destination_y), backend->destination_stride,
                 backend->destination_reserved };
             const DisplayRectangle dirty_rectangle{ backend->dirty_left, backend->dirty_top, backend->dirty_right, backend->dirty_bottom };
             end_display_scene_update(resource->scene_identifier, &transform, &dirty_rectangle);
         }
-        backend->media_flags &= ~0x20000000u;
+        backend->media_flags &= ~RUNTIME_MEDIA_FRAME_DECODED;
     }
-    backend->media_flags &= 0xbfff3fdfu;
+    backend->media_flags &= ~(RUNTIME_MEDIA_RESOURCE_PENDING | RUNTIME_MEDIA_PALETTE_CHANGED | RUNTIME_MEDIA_PIXELS_CHANGED | RUNTIME_MEDIA_LOOP_BOUNDARY);
     return 1;
 }
 
@@ -1383,9 +1171,7 @@ uint32_t get_runtime_generic_backend_child_flags(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
-    {
-        return 0x7fffffff;
-    }
+        return RUNTIME_GENERIC_CHILD_FLAGS_UNAVAILABLE;
     const uint32_t flags = child->flags;
     release_runtime_generic_backend_child_lock(child);
     return flags;
@@ -1406,7 +1192,7 @@ void enable_runtime_generic_backend_child_mode_200(void *identity)
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
     {
-        child->flags |= 0x200;
+        child->flags |= RUNTIME_GENERIC_CHILD_MODE_200;
         release_runtime_generic_backend_child_lock(child);
     }
 }
@@ -1416,7 +1202,7 @@ void disable_runtime_generic_backend_child_mode_200(void *identity)
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
     {
-        child->flags &= ~0x200u;
+        child->flags &= ~RUNTIME_GENERIC_CHILD_MODE_200;
         release_runtime_generic_backend_child_lock(child);
     }
 }
@@ -1449,26 +1235,18 @@ uint32_t query_runtime_generic_backend_child_state(void *identity, uint32_t *sta
 {
     uint32_t result = 0;
     if(state != nullptr)
-    {
-        state[0] = 0xffffffff;
-    }
+        state[0] = RUNTIME_GENERIC_TEXT_POSITION_NOT_FOUND;
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child != nullptr)
     {
         if((child->flags & 2) != 0)
         {
             if(descriptor != nullptr)
-            {
                 *descriptor = child->descriptor;
-            }
             if(context != nullptr)
-            {
                 std::memcpy(context, child->context, sizeof(child->context));
-            }
             if(state != nullptr)
-            {
                 std::memcpy(state, child->state, sizeof(child->state));
-            }
             result = 1;
         }
         release_runtime_generic_backend_child_lock(child);
@@ -1480,11 +1258,9 @@ void *destroy_runtime_generic_backend_child(void *identity)
 {
     RuntimeGenericBackendChild *child = acquire_runtime_generic_backend_child(identity);
     if(child == nullptr)
-    {
         return nullptr;
-    }
     RuntimeGenericBackend *parent = child->parent;
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
     RuntimeGenericBackendChild *previous = nullptr;
     RuntimeGenericBackendChild *current = parent->children;
     while(current != nullptr && current != child)
@@ -1493,16 +1269,12 @@ void *destroy_runtime_generic_backend_child(void *identity)
         current = current->next;
     }
     if(previous == nullptr)
-    {
         parent->children = child->next;
-    }
     else
-    {
         previous->next = child->next;
-    }
     --parent->child_count;
-    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
-    runtime_generic_backend_api.heap_free(runtime_generic_backend_api.get_process_heap(), 0, child);
+    unlock_runtime_mutex(runtime_generic_backend_mutex);
+    free_runtime_heap(runtime_process_heap(), 0, child);
     return reinterpret_cast<void *>(1);
 }
 
@@ -1510,14 +1282,10 @@ uint32_t destroy_runtime_generic_backend(void *identity)
 {
     RuntimeGenericBackend *backend = acquire_runtime_generic_backend(identity);
     if(backend == nullptr)
-    {
         return 0;
-    }
     while(backend->children != nullptr)
-    {
         destroy_runtime_generic_backend_child(backend->children->identity);
-    }
-    runtime_generic_backend_api.wait_for_single_object(runtime_generic_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
     RuntimeGenericBackend *previous = nullptr;
     RuntimeGenericBackend *current = runtime_generic_backend_head;
     while(current != nullptr && current != backend)
@@ -1532,10 +1300,10 @@ uint32_t destroy_runtime_generic_backend(void *identity)
         next = runtime_generic_backend_head;
     }
     runtime_generic_backend_head = next;
-    runtime_generic_backend_api.release_mutex(runtime_generic_backend_mutex);
-    runtime_generic_backend_api.heap_free(runtime_generic_backend_api.get_process_heap(), 0, backend);
+    unlock_runtime_mutex(runtime_generic_backend_mutex);
+    free_runtime_heap(runtime_process_heap(), 0, backend);
     return 1;
 }
 
 
-} // namespace gag
+} // namespace freegag

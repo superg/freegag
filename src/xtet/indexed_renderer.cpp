@@ -6,8 +6,6 @@
 
 namespace xtet
 {
-namespace
-{
 
 bool framebuffer_valid(XrgbFramebuffer framebuffer)
 {
@@ -78,7 +76,7 @@ bool blit_transparent_clipped(const IndexedBitmap &source, XrgbFramebuffer desti
 
 bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer, int32_t parent_x, int32_t parent_y)
 {
-    if(node.type == SceneNodeType::empty || node.type == SceneNodeType::bitmap || node.type == SceneNodeType::wave)
+    if(node.type == SceneNodeType::EMPTY || node.type == SceneNodeType::BITMAP || node.type == SceneNodeType::WAVE)
         return true;
     if(!node.shown.value_or(false))
         return true;
@@ -89,9 +87,9 @@ bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitma
     const int32_t x = (int32_t)x_64;
     const int32_t y = (int32_t)y_64;
 
-    if(node.type == SceneNodeType::sprite_bitmap)
+    if(node.type == SceneNodeType::SPRITE_BITMAP)
     {
-        if(node.children.size() != 1 || node.children[0].type != SceneNodeType::bitmap || node.children[0].loaded_path.empty())
+        if(node.children.size() != 1 || node.children[0].type != SceneNodeType::BITMAP || node.children[0].loaded_path.empty())
             return false;
         const auto bitmap = bitmaps.find(node.children[0].loaded_path);
         if(bitmap == bitmaps.end())
@@ -99,14 +97,11 @@ bool render_node(const SceneNode &node, const std::map<std::string, IndexedBitma
         return node.transparent.value_or(false) ? blit_transparent(bitmap->second, framebuffer, x, y) : blit_opaque(bitmap->second, framebuffer, x, y);
     }
     for(const SceneNode &child : node.children)
-    {
         if(!render_node(child, bitmaps, framebuffer, x, y))
             return false;
-    }
     return true;
 }
 
-} // namespace
 
 bool blit_opaque(const IndexedBitmap &source, XrgbFramebuffer destination, int32_t x, int32_t y)
 {
@@ -160,32 +155,6 @@ bool blit_transparent(const IndexedBitmap &source, XrgbFramebuffer destination, 
             const uint8_t pixel = source.pixels[source_y * source.width + source_x];
             if(pixel != 0)
                 destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = xrgb_pixel(pixel, source.palette);
-        }
-    }
-    return true;
-}
-
-bool blit_rli_frame(const RliFrameRecord &frame, XrgbFramebuffer destination, int32_t x, int32_t y)
-{
-    if(!framebuffer_valid(destination) || frame.right < frame.left || frame.bottom < frame.top)
-        return false;
-    const uint32_t width = (uint32_t)(frame.right - frame.left + 1);
-    const uint32_t height = (uint32_t)(frame.bottom - frame.top + 1);
-    if(frame.pixels.size() != (size_t)width * height || frame.coverage.size() != frame.pixels.size())
-        return false;
-    const int64_t origin_x = (int64_t)x + frame.left;
-    const int64_t origin_y = (int64_t)y + frame.top;
-    for(uint32_t source_y = 0; source_y < height; ++source_y)
-    {
-        const int64_t destination_y = origin_y + source_y;
-        if(destination_y < 0 || destination_y >= destination.height)
-            continue;
-        for(uint32_t source_x = 0; source_x < width; ++source_x)
-        {
-            const int64_t destination_x = origin_x + source_x;
-            const size_t source_index = (size_t)source_y * width + source_x;
-            if(destination_x >= 0 && destination_x < destination.width && frame.coverage[source_index] != 0)
-                destination.pixels[(size_t)destination_y * destination.stride + (size_t)destination_x] = rli_pixel(frame.pixels[source_index], frame, destination);
         }
     }
     return true;
@@ -261,20 +230,13 @@ bool render_initial_scene(const SceneDescription &scene, const std::map<std::str
     return homes.size() == 1 && render_node(*homes[0], bitmaps, framebuffer, 0, 0);
 }
 
-int32_t map_scaled_cursor_coordinate(int32_t value, int32_t client_extent, int32_t framebuffer_extent)
-{
-    if(value < 0 || value >= client_extent || client_extent <= 0 || framebuffer_extent <= 0 || client_extent == framebuffer_extent)
-        return value;
-    return (int32_t)((int64_t)value * framebuffer_extent / client_extent);
-}
-
 int hit_test_sprite_collection(const SceneNode &collection, const std::map<std::string, IndexedBitmap> &bitmaps, int32_t x, int32_t y)
 {
     for(size_t reverse_index = collection.children.size(); reverse_index != 0; --reverse_index)
     {
         const size_t index = reverse_index - 1;
         const SceneNode &sprite = collection.children[index];
-        if(sprite.type != SceneNodeType::sprite_bitmap || !sprite.position || sprite.children.size() != 1 || sprite.children[0].type != SceneNodeType::bitmap || sprite.children[0].loaded_path.empty())
+        if(sprite.type != SceneNodeType::SPRITE_BITMAP || !sprite.position || sprite.children.size() != 1 || sprite.children[0].type != SceneNodeType::BITMAP || sprite.children[0].loaded_path.empty())
             continue;
         const auto bitmap = bitmaps.find(sprite.children[0].loaded_path);
         if(bitmap == bitmaps.end())
@@ -295,12 +257,12 @@ bool render_figurine_sprite(const FigurineSpriteSelection &selection, const Scen
 {
     if(!framebuffer_valid(framebuffer))
         return false;
-    const char *link = selection.family == FigurineSpriteFamily::man ? "man" : "woman";
+    const char *link = selection.family == FigurineSpriteFamily::MAN ? "man" : "woman";
     const std::vector<const SceneNode *> collections = find_scene_links(scene, link);
     if(collections.size() != 1 || selection.frame_index >= collections[0]->children.size())
         return false;
     const SceneNode &sprite = collections[0]->children[selection.frame_index];
-    if(sprite.type != SceneNodeType::sprite_bitmap || sprite.transparent != true || sprite.children.size() != 1 || sprite.children[0].type != SceneNodeType::bitmap
+    if(sprite.type != SceneNodeType::SPRITE_BITMAP || sprite.transparent != true || sprite.children.size() != 1 || sprite.children[0].type != SceneNodeType::BITMAP
         || sprite.children[0].loaded_path.empty())
         return false;
     const auto bitmap = bitmaps.find(sprite.children[0].loaded_path);
@@ -379,20 +341,6 @@ FigurineBoardChangeCallback make_figurine_board_change_callback(uint32_t framebu
     };
 }
 
-FigurineBoardChangeCallback make_figurine_framebuffer_change_callback(XrgbFramebuffer framebuffer, const std::function<void(const FigurineRenderRegion &, bool)> &region_callback)
-{
-    if(!framebuffer_valid(framebuffer) || !region_callback)
-        return {};
-    return [framebuffer, region_callback](const FallingFigurine &figurine, bool adding)
-    {
-        std::vector<FigurineRenderRegion> regions;
-        if(!fill_figurine_board_regions(figurine, framebuffer, adding ? 0 : 0x13) || !collect_figurine_board_regions(figurine, framebuffer.width, framebuffer.height, regions))
-            return;
-        for(const FigurineRenderRegion &region : regions)
-            region_callback(region, adding);
-    };
-}
-
 bool render_figurine_board_change(const FallingFigurine &figurine, bool adding, const SceneDescription &scene, const std::map<std::string, IndexedBitmap> &bitmaps, XrgbFramebuffer framebuffer,
     const std::function<void(const FigurineRenderRegion &, bool)> &board_region_callback, const std::function<void(const FigurineRenderRegion &)> &sprite_region_callback)
 {
@@ -439,9 +387,9 @@ bool render_match_animation_plan(const MatchAnimationPlan &plan, const std::vect
     };
     const auto find_animation = [&animations](MatchAnimationResource resource) -> const RliAnimation *
     {
-        const char *path = resource == MatchAnimationResource::man         ? "m.rli"
-                         : resource == MatchAnimationResource::rotated_man ? "rm.rli"
-                         : resource == MatchAnimationResource::woman       ? "w.rli"
+        const char *path = resource == MatchAnimationResource::MAN         ? "m.rli"
+                         : resource == MatchAnimationResource::ROTATED_MAN ? "rm.rli"
+                         : resource == MatchAnimationResource::WOMAN       ? "w.rli"
                                                                            : "rw.rli";
         for(const RliAnimation &animation : animations)
             if(animation.path == path)

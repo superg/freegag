@@ -9,6 +9,12 @@
 
 namespace xtet
 {
+enum RliFrameFlag : uint16_t
+{
+    RLI_FRAME_RAW_PIXELS = 0x0001,
+    RLI_FRAME_RLE_PIXELS = 0x0002,
+    RLI_FRAME_PALETTE = 0x0004
+};
 
 struct RliFrameRecord
 {
@@ -30,7 +36,6 @@ struct RliFrameRecord
 struct RliAnimation
 {
     std::string path;
-    uint16_t flags{};
     int32_t width{};
     int32_t height{};
     std::vector<uint8_t> resident_bytes;

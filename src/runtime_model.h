@@ -2,7 +2,7 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 void serialize_script_object_states(ScriptTextBuffer *buffer);
@@ -101,10 +101,8 @@ void *find_runtime_tree_identity_by_name_recursive(void *start_identity, const v
 
 void *find_runtime_tree_descendant_identity_by_name(void *root_identity, const void *name);
 
-void *find_runtime_drag_cleanup_descendant();
-
 void *find_runtime_tree_root_identity_by_name(const void *name);
 
-uint32_t has_runtime_pointer_tree_flag_1000();
+bool has_runtime_pointer_inventory_pack();
 
-} // namespace gag
+} // namespace freegag

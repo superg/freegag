@@ -1,8 +1,8 @@
 #pragma once
 
-namespace gag
+namespace freegag
 {
 
 int run_startup(int argc, char *argv[]);
 
-} // namespace gag
+} // namespace freegag

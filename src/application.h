@@ -2,24 +2,22 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
-
-int validate_startup_environment(ApplicationState *state, const char *requested_archive, uint32_t stages);
 
 void dispatch_application_action(ApplicationState *state, ApplicationAction action);
 
 uint32_t application_host_event_type();
 
-GraphicsHostInitializationResult *initialize_graphics_host(int16_t width, uint16_t height, uint32_t flags);
+bool initialize_graphics_host(int16_t width, uint16_t height);
 
 uint32_t shutdown_graphics_host();
 
-void set_runtime_script_property(uint32_t property, void *context, void *value);
+void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericResourceNode *value);
 
-void get_runtime_script_property(uint32_t property, void **value, void *result);
+void get_runtime_script_property(ScriptRuntimeProperty property, void **value, void *result);
 
-ApplicationState *initialize_gag_application(int width, int height, bool start_xtet);
+ApplicationState *initialize_gag_application(int width, int height, bool use_xtet_startup_script);
 
 uint32_t initialize_runtime_media_backend();
 
@@ -43,9 +41,7 @@ void set_game_cursor_active(ApplicationState *state, int active);
 
 void finish_credits_state(ApplicationState *state, RuntimeTreeNode *tree);
 
-void update_desktop_windowed_viewport(ApplicationState *state);
-
-void update_application_window_layout(ApplicationState *state, SecondaryWindowLayout *secondary_layout);
+void update_application_window_layout(ApplicationState *state);
 
 void restore_application_display(ApplicationState *state);
 
@@ -55,27 +51,17 @@ void finish_application_state_load(ApplicationState *state, const char *path);
 
 bool write_synchronized_cdf_package(void *path, void *comment, void *unused, void *script_state);
 
-uint32_t load_local_preferences(ApplicationState *state);
-
-RuntimeMediaBackend *acquire_first_runtime_media_backend();
+void load_local_preferences(ApplicationState *state);
 
 uint32_t shutdown_runtime_media_backend();
 
 int append_string(char *destination, const char *source);
 
-uint32_t enable_borderless_fullscreen(ApplicationState *state);
-
 void set_runtime_paths_once(const char *first_path, const char *second_path);
 
-void *capture_save_game_bitmap(void *game_context, uint32_t *size, int half_resolution);
-
-void clear_credits_runtime_flag();
+void *capture_save_game_bitmap(uint32_t *size, int half_resolution);
 
 void clear_runtime_display();
-
-void set_application_lock_flag(ApplicationState *state);
-
-void set_application_inactive_flags(ApplicationState *state);
 
 void clear_runtime_active_flag(ApplicationState *state);
 
@@ -83,4 +69,4 @@ void clear_application_lock_flag(ApplicationState *state);
 
 void free_heap_memory(void *memory);
 
-} // namespace gag
+} // namespace freegag

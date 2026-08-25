@@ -3,9 +3,9 @@
 #include <memory>
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
-class SharedBinaryInputState;
+class SharedBinaryFile;
 
 RuntimeResourceConstructionPlan prepare_runtime_resource_construction(uint32_t scene_identifier, int32_t x, int32_t y, uint32_t flags);
 
@@ -22,10 +22,6 @@ void drain_runtime_resource_destructions();
 uint32_t query_runtime_resource_frame_limit(void *identity);
 
 uint32_t query_runtime_resource_playback_flags(void *identity);
-
-void set_runtime_property_value(uint32_t value);
-
-uint32_t get_runtime_property_value();
 
 uint16_t query_runtime_resource_frame_number(void *identity);
 
@@ -53,9 +49,9 @@ void set_runtime_resource_state(void *identity, uint32_t state);
 
 void apply_immediate_runtime_scene_transition(uint32_t unused, uint32_t flags);
 
-void apply_palette_runtime_scene_transition(uint32_t step, uint32_t flags);
+void apply_palette_runtime_scene_transition(uint32_t palette_step, uint32_t flags);
 
-void apply_rectangle_runtime_scene_transition(uint8_t size, uint32_t flags);
+void apply_rectangle_runtime_scene_transition(uint8_t step_size, uint32_t flags);
 
 void finalize_runtime_resource_destruction(void *identity);
 
@@ -130,7 +126,7 @@ uint32_t get_async_file_position(AsyncFileRecord *identity);
 uint32_t set_async_file_position(AsyncFileRecord *identity, uint32_t position);
 
 AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, const char *path, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
-AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, std::shared_ptr<SharedBinaryInputState> file, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
+AsyncFileRecord *open_async_file_record(AsyncFileHost *host_identity, std::shared_ptr<SharedBinaryFile> file, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
 
 AsyncFileRecord *duplicate_async_file_record(AsyncFileRecord *identity, uint32_t start_offset, uint32_t end_offset, uint32_t flags);
 
@@ -140,4 +136,4 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
 
 void reset_runtime_session();
 
-} // namespace gag
+} // namespace freegag

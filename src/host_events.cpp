@@ -6,7 +6,7 @@
 #include <thread>
 #include <utility>
 
-namespace gag
+namespace freegag
 {
 
 class HostEventCompletion
@@ -18,8 +18,6 @@ public:
     bool complete{};
 };
 
-namespace
-{
 struct PendingHostEvent
 {
     HostEvent event;
@@ -44,15 +42,11 @@ HostEventQueue queue;
 void complete_host_event(const std::shared_ptr<HostEventCompletion> &completion, HostEventResult result)
 {
     if(completion == nullptr)
-    {
         return;
-    }
     {
         std::lock_guard lock(completion->mutex);
         if(completion->complete)
-        {
             return;
-        }
         completion->result = std::move(result);
         completion->complete = true;
     }
@@ -69,12 +63,9 @@ HostEventResult dispatch_host_event(const HostEvent &event, HostEventCompletion 
         handler_context = queue.handler_context;
     }
     if(handler == nullptr)
-    {
         return {};
-    }
     return handler(event, completion, handler_context);
 }
-} // namespace
 
 void initialize_host_events(HostEventWake wake, void *wake_context, HostEventHandler handler, void *handler_context)
 {
@@ -104,9 +95,7 @@ void close_host_events()
         queue.handler_context = nullptr;
     }
     for(PendingHostEvent &event : pending)
-    {
         complete_host_event(event.completion, {});
-    }
 }
 
 void post_host_event(HostEvent event)
@@ -116,22 +105,16 @@ void post_host_event(HostEvent event)
     {
         std::lock_guard lock(queue.mutex);
         if(!queue.open)
-        {
             return;
-        }
         queue.events.push_back({ std::move(event), nullptr });
         if(queue.wake_pending)
-        {
             return;
-        }
         queue.wake_pending = true;
         wake = queue.wake;
         wake_context = queue.wake_context;
     }
     if(wake != nullptr && !wake(wake_context))
-    {
         close_host_events();
-    }
 }
 
 HostEventResult send_host_event(HostEvent event)
@@ -140,15 +123,11 @@ HostEventResult send_host_event(HostEvent event)
     {
         std::lock_guard lock(queue.mutex);
         if(!queue.open)
-        {
             return {};
-        }
         on_host_thread = queue.host_thread == std::this_thread::get_id();
     }
     if(on_host_thread)
-    {
         return dispatch_host_event(event, nullptr);
-    }
 
     auto completion = std::make_shared<HostEventCompletion>();
     HostEventWake wake;
@@ -156,9 +135,7 @@ HostEventResult send_host_event(HostEvent event)
     {
         std::lock_guard lock(queue.mutex);
         if(!queue.open)
-        {
             return {};
-        }
         queue.events.push_back({ std::move(event), completion });
         wake = nullptr;
         wake_context = nullptr;
@@ -170,9 +147,7 @@ HostEventResult send_host_event(HostEvent event)
         }
     }
     if(wake != nullptr && !wake(wake_context))
-    {
         close_host_events();
-    }
 
     std::unique_lock lock(completion->mutex);
     completion->changed.wait(lock, [&] { return completion->complete; });
@@ -202,15 +177,11 @@ HostEventResult send_application_event(HostApplicationCommand command, HostAppli
 void acknowledge_host_event(HostEventCompletion *completion, HostEventResult result)
 {
     if(completion == nullptr)
-    {
         return;
-    }
     {
         std::lock_guard lock(completion->mutex);
         if(completion->complete)
-        {
             return;
-        }
         completion->result = std::move(result);
         completion->complete = true;
     }
@@ -225,9 +196,7 @@ void drain_host_events()
         {
             std::lock_guard lock(queue.mutex);
             if(queue.host_thread != std::this_thread::get_id())
-            {
                 return;
-            }
             if(!queue.open || queue.events.empty())
             {
                 queue.wake_pending = false;
@@ -241,4 +210,4 @@ void drain_host_events()
     }
 }
 
-} // namespace gag
+} // namespace freegag

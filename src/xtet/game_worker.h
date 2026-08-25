@@ -17,7 +17,6 @@ public:
     bool start(const std::function<uint32_t()> &interval_callback, const std::function<void()> &tick_callback, const std::function<void()> &failure_callback = {});
     void setEnabled(bool enabled);
     void stop();
-    bool running() const;
 
 private:
     void run();

@@ -4,37 +4,34 @@
 namespace xtet
 {
 
-uint32_t dispatch_game_input(uint32_t gameplay_state, const gag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks)
+constexpr uint32_t RESULT_INPUT_DELAY_MILLISECONDS = 2000;
+
+uint32_t dispatch_game_input(uint32_t gameplay_state, const freegag::RuntimeInputEvent &event, const GameInputCallbacks &callbacks)
 {
     if(gameplay_state < 1 || gameplay_state > 4)
         return 1;
     switch(event.type)
     {
-    case gag::RuntimeInputType::close:
+    case freegag::RuntimeInputType::CLOSE:
         if(callbacks.destroy)
             callbacks.destroy();
         break;
-    case gag::RuntimeInputType::key_down:
+    case freegag::RuntimeInputType::KEY_DOWN:
         if(callbacks.key_down)
             callbacks.key_down(event.key);
         break;
-    case gag::RuntimeInputType::button_down:
-        if(event.button == gag::RuntimeMouseButton::left && callbacks.mouse_button)
+    case freegag::RuntimeInputType::BUTTON_DOWN:
+        if(event.button == freegag::RuntimeMouseButton::LEFT && callbacks.mouse_button)
             callbacks.mouse_button(true);
         break;
-    case gag::RuntimeInputType::button_up:
-        if(event.button == gag::RuntimeMouseButton::left && callbacks.mouse_button)
+    case freegag::RuntimeInputType::BUTTON_UP:
+        if(event.button == freegag::RuntimeMouseButton::LEFT && callbacks.mouse_button)
             callbacks.mouse_button(false);
         break;
     default:
         break;
     }
     return 0;
-}
-
-uint32_t calculate_result_input_deadline(uint32_t current_time)
-{
-    return current_time + 2000;
 }
 
 void handle_game_key_down(uint32_t &gameplay_state, uint32_t key, uint32_t current_time, uint32_t result_input_deadline, uint32_t score, const GameKeyDownCallbacks &callbacks)
@@ -120,7 +117,7 @@ bool GameplayRuntime::updateTick(uint32_t family_random, uint32_t shape_random, 
     if(!update_game_tick(geometry, definitions, board_, entries_, active_value_, progress_, spawn_callback, match_callback, tick_result, cascade_result, board_change_callback, progress_callback))
         return false;
     if(previous_state == 1 && (progress_.gameplay_state == 2 || progress_.gameplay_state == 3))
-        result_input_deadline_ = calculate_result_input_deadline(current_time);
+        result_input_deadline_ = current_time + RESULT_INPUT_DELAY_MILLISECONDS;
     discardRemovedFigurines();
     return true;
 }
@@ -136,22 +133,7 @@ bool GameplayRuntime::handleInput(GameplayInput input, const FigurineGeometryTab
     return true;
 }
 
-RuntimeTables &GameplayRuntime::board()
-{
-    return board_;
-}
-
-const RuntimeTables &GameplayRuntime::board() const
-{
-    return board_;
-}
-
 std::vector<FigurineBoardEntry> &GameplayRuntime::entries()
-{
-    return entries_;
-}
-
-const std::vector<FigurineBoardEntry> &GameplayRuntime::entries() const
 {
     return entries_;
 }
@@ -161,17 +143,7 @@ void *GameplayRuntime::activeValue() const
     return active_value_;
 }
 
-int32_t GameplayRuntime::familyBalance() const
-{
-    return family_balance_;
-}
-
 GameProgress &GameplayRuntime::progress()
-{
-    return progress_;
-}
-
-const GameProgress &GameplayRuntime::progress() const
 {
     return progress_;
 }

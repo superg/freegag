@@ -35,7 +35,7 @@ uint32_t current_time_milliseconds()
 struct GameState
 {
     xtet::GameHostContext *host_context{};
-    std::array<void *, xtet::kCallbackCount> callbacks{};
+    xtet::DirtyRegionCallback invalidate_region{};
     std::vector<uint8_t> sfs_bytes;
     xtet::ResourceView sfs{};
     xtet::SfsArchive archive;
@@ -71,7 +71,7 @@ bool render_gameplay_frame(const xtet::FallingFigurine *excluded_first = nullptr
 void send_result()
 {
     if(g_host_event_callback != nullptr)
-        g_host_event_callback(xtet::HostEventType::result, 2, &g_game.result, sizeof(g_game.result));
+        g_host_event_callback(xtet::HostEventType::RESULT, 2, &g_game.result, sizeof(g_game.result));
 }
 
 [[noreturn]] void throw_initialization_error(const std::string &message)
@@ -105,7 +105,7 @@ void post_game_result(uint32_t score)
 void post_game_termination()
 {
     if(g_host_event_callback != nullptr)
-        g_host_event_callback(xtet::HostEventType::terminate, 0, nullptr, 0);
+        g_host_event_callback(xtet::HostEventType::TERMINATE, 0, nullptr, 0);
 }
 
 bool get_framebuffer(xtet::XrgbFramebuffer &framebuffer)
@@ -120,10 +120,9 @@ bool get_framebuffer(xtet::XrgbFramebuffer &framebuffer)
 
 void present_dirty_region(const xtet::FigurineRenderRegion &region)
 {
-    if(!g_game.callbacks[0] || region.width == 0 || region.height == 0)
+    if(!g_game.invalidate_region || region.width == 0 || region.height == 0)
         return;
-    const xtet::DirtyRegionCallback dirty_region = (xtet::DirtyRegionCallback)g_game.callbacks[0];
-    dirty_region(region.x, region.y, (int32_t)region.width, (int32_t)region.height);
+    g_game.invalidate_region(region.x, region.y, (int32_t)region.width, (int32_t)region.height);
 }
 
 bool present_result_screen(const char *path)
@@ -263,7 +262,7 @@ void present_score(const xtet::GameProgress &progress, const xtet::ProgressUpdat
 bool present_match_effect(const xtet::FallingFigurine &first, const xtet::FallingFigurine &second, const xtet::ActionDefinition &action)
 {
     xtet::XrgbFramebuffer framebuffer;
-    if(!get_framebuffer(framebuffer) || !g_game.callbacks[0] || (g_game.audio_enabled && !g_game.audio.queueRandom("act", (uint32_t)std::rand())))
+    if(!get_framebuffer(framebuffer) || !g_game.invalidate_region || (g_game.audio_enabled && !g_game.audio.queueRandom("act", (uint32_t)std::rand())))
         return false;
     const std::vector<const xtet::SceneNode *> homes = xtet::find_scene_links(g_game.scene, "home_scr");
     std::array<xtet::FigurineRenderRegion, 4> sprite_regions{};
@@ -317,19 +316,15 @@ bool present_match_effect(const xtet::FallingFigurine &first, const xtet::Fallin
         homes[0]->children[1].position->x, homes[0]->children[1].position->y);
 }
 
-bool initialize_audio()
+bool initialize_audio(const xtet::GameHostServices &services)
 {
-    if(!g_game.callbacks[1] || !g_game.callbacks[2] || !g_game.callbacks[3] || !g_game.callbacks[4] || !g_game.callbacks[5])
+    if(!services.create_sound || !services.destroy_sound || !services.queue_sound || !services.pause_sound || !services.resume_sound)
         return false;
-    const xtet::SoundCreateCallback create_sound = (xtet::SoundCreateCallback)g_game.callbacks[1];
-    const xtet::SoundDestroyCallback destroy_sound = (xtet::SoundDestroyCallback)g_game.callbacks[2];
-    const xtet::SoundQueueCallback queue_sound = (xtet::SoundQueueCallback)g_game.callbacks[3];
-    const xtet::SoundControlCallback stop_sound = (xtet::SoundControlCallback)g_game.callbacks[4];
-    const xtet::SoundControlCallback start_sound = (xtet::SoundControlCallback)g_game.callbacks[5];
-    const xtet::AudioHostCallbacks callbacks{ [create_sound](const xtet::PcmFormat *format) { return create_sound(format); }, [destroy_sound](xtet::SoundHandle handle) { destroy_sound(handle); },
-        [queue_sound](xtet::SoundHandle handle, const void *samples, uint32_t size, bool replace) { return queue_sound(handle, samples, size, replace ? 1 : 0) != 0; },
-        [stop_sound](xtet::SoundHandle handle, bool reset) { return stop_sound(handle, reset ? 1 : 0) != 0; },
-        [start_sound](xtet::SoundHandle handle, bool restart) { return start_sound(handle, restart ? 1 : 0) != 0; } };
+    const xtet::AudioHostCallbacks callbacks{ [create_sound = services.create_sound](const xtet::PcmFormat *format) { return create_sound(format); },
+        [destroy_sound = services.destroy_sound](xtet::SoundHandle handle) { destroy_sound(handle); },
+        [queue_sound = services.queue_sound](xtet::SoundHandle handle, const void *samples, uint32_t size, bool replace) { return queue_sound(handle, samples, size, replace ? 1 : 0) != 0; },
+        [pause_sound = services.pause_sound](xtet::SoundHandle handle, bool reset) { return pause_sound(handle, reset ? 1 : 0) != 0; },
+        [resume_sound = services.resume_sound](xtet::SoundHandle handle, bool reset) { return resume_sound(handle, reset ? 1 : 0) != 0; } };
     if(!g_game.audio.initialize(g_game.scene, g_game.waves, callbacks) || !g_game.audio.initializeLoopQueue() || !g_game.audio.setLoopPlaying(true))
     {
         g_game.audio.destroy();
@@ -379,9 +374,9 @@ void run_game_tick()
     if(!g_game.gameplay_runtime.updateTick(family_random, shape_random, orientation_random, current_time, g_game.figurine_geometry, g_game.action_definitions, present_match_effect,
            make_presentation_callback(framebuffer), tick_result, cascade_result, present_score))
         throw std::runtime_error("XTET gameplay tick failed");
-    if(tick_result == xtet::GameTickResult::settled && g_game.audio_enabled)
+    if(tick_result == xtet::GameTickResult::SETTLED && g_game.audio_enabled)
         g_game.audio.queueRandom("stop", (uint32_t)std::rand());
-    else if(tick_result == xtet::GameTickResult::spawn_failed)
+    else if(tick_result == xtet::GameTickResult::SPAWN_FAILED)
     {
         present_result_screen("over.bmp");
         g_game.audio.setLoopPlaying(false);
@@ -439,15 +434,14 @@ bool load_declared_assets()
 bool render_initial_frame()
 {
     xtet::XrgbFramebuffer framebuffer;
-    if(!get_framebuffer(framebuffer) || !g_game.callbacks[0])
+    if(!get_framebuffer(framebuffer) || !g_game.invalidate_region)
         return false;
     if(!xtet::render_initial_scene(g_game.scene, g_game.bitmaps, framebuffer))
         return false;
     const auto digits = g_game.bitmaps.find("digit.bmp");
     if(digits == g_game.bitmaps.end() || !xtet::render_score(0, digits->second, framebuffer))
         return false;
-    const xtet::DirtyRegionCallback dirty_region = (xtet::DirtyRegionCallback)g_game.callbacks[0];
-    dirty_region(0, 0, g_game.host_context->width, g_game.host_context->height);
+    g_game.invalidate_region(0, 0, g_game.host_context->width, g_game.host_context->height);
     return true;
 }
 
@@ -477,7 +471,7 @@ bool present_control_overlay(size_t index, bool shown)
     if(index >= controls.children.size())
         return false;
     const xtet::SceneNode &control = controls.children[index];
-    if(control.type != xtet::SceneNodeType::sprite_bitmap || !control.position || control.children.size() != 1 || control.children[0].type != xtet::SceneNodeType::bitmap
+    if(control.type != xtet::SceneNodeType::SPRITE_BITMAP || !control.position || control.children.size() != 1 || control.children[0].type != xtet::SceneNodeType::BITMAP
         || control.children[0].loaded_path.empty())
         return false;
     const auto bitmap = g_game.bitmaps.find(control.children[0].loaded_path);
@@ -532,7 +526,7 @@ void handle_mouse_button(bool pressed)
                 throw std::runtime_error("XTET pause button release failed");
             g_game.worker.setEnabled(true);
             if(g_host_event_callback != nullptr)
-                g_host_event_callback(xtet::HostEventType::resume, 0, nullptr, 0);
+                g_host_event_callback(xtet::HostEventType::RESUME, 0, nullptr, 0);
         }
         else if(button == 7)
             dispatch_key_down(0x1b);
@@ -559,7 +553,7 @@ void handle_mouse_button(bool pressed)
             if(!present_control_overlay(3, true))
                 throw std::runtime_error("XTET pause button press failed");
             if(g_host_event_callback != nullptr)
-                g_host_event_callback(xtet::HostEventType::pause, 0, nullptr, 0);
+                g_host_event_callback(xtet::HostEventType::PAUSE, 0, nullptr, 0);
         }
         break;
     case 4:
@@ -588,17 +582,12 @@ void handle_mouse_button(bool pressed)
 
 } // namespace
 
-void xtet::initialize_game(GameHostContext *host_context, void **callback_table, const char *sfs_name)
+void xtet::initialize_game(GameHostContext *host_context, const GameHostServices &services, const char *sfs_name)
 {
     shutdown_game();
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     g_game.host_context = host_context;
-    g_game.callbacks.fill(nullptr);
-    if(callback_table)
-    {
-        for(size_t index = 0; index < g_game.callbacks.size(); ++index)
-            g_game.callbacks[index] = callback_table[index];
-    }
+    g_game.invalidate_region = services.invalidate_region;
     std::string resource_error;
     const std::string sfs_display_name = sfs_name != nullptr && *sfs_name != '\0' ? sfs_name : "XTET SFS";
     if(!load_sfs_from_working_directory(sfs_name, g_game.sfs_bytes, resource_error))
@@ -618,7 +607,7 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
     if(!g_game.archive.read("acts.txt", action_bytes) || !xtet::parse_action_definitions(action_bytes, g_game.action_definitions)
         || !xtet::load_asset_manifest(g_game.archive, { "base_scr.txt", "man.txt", "woman.txt" }, g_game.asset_manifest) || !load_declared_assets()
         || !xtet::load_scene_description(g_game.archive, { "base_scr.txt", "man.txt", "woman.txt" }, g_game.scene)
-        || !xtet::load_rli_animations(g_game.archive, { "m.rli", "rm.rli", "w.rli", "rw.rli" }, g_game.animations) || !initialize_audio() || !render_initial_frame())
+        || !xtet::load_rli_animations(g_game.archive, { "m.rli", "rm.rli", "w.rli", "rw.rli" }, g_game.animations) || !initialize_audio(services) || !render_initial_frame())
         throw_initialization_error(sfs_display_name + " does not contain the expected GAGBoy data.");
 
     g_game.figurine_geometry = xtet::build_figurine_geometry_tables();
@@ -631,17 +620,17 @@ void xtet::initialize_game(GameHostContext *host_context, void **callback_table,
     g_game.worker.setEnabled(true);
 }
 
-uint32_t xtet::dispatch_game_input(const gag::RuntimeInputEvent &event)
+uint32_t xtet::dispatch_game_input(const freegag::RuntimeInputEvent &event)
 {
     if(!g_game.initialized.load())
         return 1;
-    if(event.type == gag::RuntimeInputType::pointer_move || event.type == gag::RuntimeInputType::button_down || event.type == gag::RuntimeInputType::button_up)
+    if(event.type == freegag::RuntimeInputType::POINTER_MOVE || event.type == freegag::RuntimeInputType::BUTTON_DOWN || event.type == freegag::RuntimeInputType::BUTTON_UP)
     {
         g_game.pointer_x = event.x;
         g_game.pointer_y = event.y;
     }
-    if(event.type != gag::RuntimeInputType::close && event.type != gag::RuntimeInputType::key_down && event.type != gag::RuntimeInputType::button_down
-        && event.type != gag::RuntimeInputType::button_up)
+    if(event.type != freegag::RuntimeInputType::CLOSE && event.type != freegag::RuntimeInputType::KEY_DOWN && event.type != freegag::RuntimeInputType::BUTTON_DOWN
+        && event.type != freegag::RuntimeInputType::BUTTON_UP)
         return 0;
     std::unique_lock<std::recursive_mutex> lock(g_mutex, std::try_to_lock);
     if(!lock.owns_lock())
@@ -723,7 +712,7 @@ void xtet::shutdown_game()
     g_game.animations.clear();
     g_game.sfs = {};
     g_game.sfs_bytes.clear();
-    g_game.callbacks.fill(nullptr);
+    g_game.invalidate_region = nullptr;
     g_game.host_context = nullptr;
     g_game.result = 0;
     g_game.level_effect_active = false;

@@ -2,18 +2,18 @@
 
 #include "runtime_types.h"
 
-namespace gag
+namespace freegag
 {
 
 uint32_t create_runtime_sound_handle(const RuntimePcmFormat *source_format);
 
 void destroy_runtime_sound_handle(uint32_t handle);
 
-uint32_t queue_runtime_sound_data(uint32_t handle, void *data, uint32_t size, int32_t replace);
+uint32_t queue_runtime_sound_data(uint32_t handle, const void *data, uint32_t size, int32_t replace);
 
-uint32_t start_runtime_sound(uint32_t handle, int32_t reset_timing);
+uint32_t pause_runtime_sound(uint32_t handle, int32_t reset_timing);
 
-uint32_t stop_runtime_sound(uint32_t handle, int32_t reset_timing);
+uint32_t resume_runtime_sound(uint32_t handle, int32_t reset_timing);
 
 void set_runtime_sound_loop_value(uint32_t handle, uint32_t value);
 
@@ -41,4 +41,4 @@ uint32_t resume_runtime_sound_output();
 
 void initialize_runtime_sound();
 
-} // namespace gag
+} // namespace freegag

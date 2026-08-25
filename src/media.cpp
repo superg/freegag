@@ -5,20 +5,15 @@
 #include "host_events.h"
 #include "runtime_internal.h"
 
-namespace gag
+namespace freegag
 {
 RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_bytes, void *bitmap_data)
 {
-    auto *backend =
-        static_cast<RuntimeMediaBackend *>(runtime_bitmap_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeMediaBackend) + extension_bytes));
+    auto *backend = static_cast<RuntimeMediaBackend *>(allocate_runtime_heap(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeMediaBackend) + extension_bytes));
     if(backend == nullptr)
-    {
         return nullptr;
-    }
     if(extension_bytes != 0)
-    {
         backend->extension_data = backend + 1;
-    }
     backend->type = 0xac;
     backend->identity = backend;
     backend->source_data = bitmap_data;
@@ -27,13 +22,12 @@ RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_
     if(backend->bitmap_file.bfType != 0x4d42)
     {
         backend->error_state = 1;
-        backend->media_flags |= 0x80000000;
+        backend->media_flags |= RUNTIME_MEDIA_INITIALIZING;
     }
     backend->format_data = &backend->bitmap_format;
     backend->palette_version = 0x0300;
-    backend->palette_entry_count = 0x00ec;
-    backend->media_flags |= 0x20;
-    runtime_bitmap_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    backend->media_flags |= RUNTIME_MEDIA_RESOURCE_PENDING;
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     if(runtime_media_backend_head == nullptr)
     {
         runtime_media_backend_head = backend;
@@ -46,7 +40,7 @@ RuntimeMediaBackend *create_runtime_bitmap_backend(uint32_t, uint32_t extension_
     }
     backend->next = nullptr;
     runtime_media_backend_tail = backend;
-    runtime_bitmap_backend_create_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
     return backend;
 }
 
@@ -55,18 +49,13 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     RuntimeAnimationBackend *backend = nullptr;
     if(storage == 0x01000000)
     {
-        backend = static_cast<RuntimeAnimationBackend *>(
-            runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
+        backend = static_cast<RuntimeAnimationBackend *>(allocate_runtime_heap(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
-        {
             return nullptr;
-        }
         backend->base.stream_record = static_cast<AsyncFileRecord *>(data);
         backend->base.format_data = &backend->header;
         if(extension_bytes != 0)
-        {
             backend->base.extension_data = backend + 1;
-        }
         std::memcpy(&backend->header, data, sizeof(backend->header));
         const uint16_t signature = backend->header.signature;
         if(signature == 0xaf11)
@@ -87,30 +76,25 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
         else
         {
             backend->base.error_state = 1;
-            backend->base.media_flags |= 0x80000000;
+            backend->base.media_flags |= RUNTIME_MEDIA_INITIALIZING;
         }
         backend->source_cursor = backend->data_start;
     }
     else if(storage == 0x02000000)
     {
         auto *record = static_cast<AsyncFileRecord *>(data);
-        const uint32_t saved_position = runtime_animation_backend_create_api.get_position(record);
+        const uint32_t saved_position = get_async_file_position(record);
         RuntimeAnimationFileHeader header;
         uint32_t bytes_read;
-        runtime_animation_backend_create_api.read_record(record, &header, sizeof(header), &bytes_read, 0);
-        backend = static_cast<RuntimeAnimationBackend *>(
-            runtime_animation_backend_create_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
+        read_async_file_record(record, &header, sizeof(header), &bytes_read, 0);
+        backend = static_cast<RuntimeAnimationBackend *>(allocate_runtime_heap(runtime_media_backend_heap, runtime_heap_zero_memory, sizeof(RuntimeAnimationBackend) + extension_bytes));
         if(backend == nullptr)
-        {
             return nullptr;
-        }
         backend->base.format_data = &backend->header;
         backend->base.frame_header = &backend->streamed_headers.frame;
         backend->base.chunk_header = &backend->streamed_headers.chunk;
         if(extension_bytes != 0)
-        {
             backend->base.extension_data = backend + 1;
-        }
         backend->base.stream_record = record;
         backend->header = header;
         const uint16_t signature = backend->header.signature;
@@ -124,9 +108,9 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
         else if(signature != 0xaf11)
         {
             backend->base.error_state = 1;
-            backend->base.media_flags |= 0x80000000;
+            backend->base.media_flags |= RUNTIME_MEDIA_INITIALIZING;
         }
-        runtime_animation_backend_create_api.set_position(record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(backend->data_start)));
+        set_async_file_position(record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(backend->data_start)));
     }
     else
     {
@@ -134,13 +118,11 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     }
     backend->base.identity = backend;
     backend->base.type = 0xaa;
-    backend->base.media_flags |= storage | 0x21;
+    backend->base.media_flags |= storage | RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_RESOURCE_PENDING;
     backend->base.palette_version = 0x0300;
-    backend->base.palette_entry_count = 0x0100;
-    backend->base.sound_handle = 0xffffffff;
     backend->base.scale_x = 1;
     backend->base.scale_y = 1;
-    runtime_animation_backend_create_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     if(runtime_media_backend_head == nullptr)
     {
         runtime_media_backend_head = &backend->base;
@@ -153,18 +135,18 @@ RuntimeAnimationBackend *create_runtime_animation_backend(uint32_t, void *data, 
     }
     backend->base.next = nullptr;
     runtime_media_backend_tail = &backend->base;
-    runtime_animation_backend_create_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
     return backend;
 }
 
 RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
 {
     RuntimeMediaBackend *result = nullptr;
-    const RuntimeThreadId thread_id = runtime_media_backend_api.get_current_thread_id();
+    const RuntimeThreadId thread_id = runtime_thread_id();
     for(;;)
     {
         bool contended = false;
-        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+        lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
         for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
         {
             if(backend->identity == identity)
@@ -182,19 +164,17 @@ RuntimeMediaBackend *acquire_runtime_media_backend(void *identity)
                 break;
             }
         }
-        runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+        unlock_runtime_mutex(runtime_media_backend_mutex);
         if(!contended)
-        {
             return result;
-        }
-        runtime_media_backend_api.sleep(0);
+        runtime_sleep(0);
     }
 }
 
 uint32_t get_runtime_media_backend_type(void *identity)
 {
     uint32_t result = 0;
-    runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
     {
         if(backend->identity == identity)
@@ -203,7 +183,7 @@ uint32_t get_runtime_media_backend_type(void *identity)
             break;
         }
     }
-    runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
     return result;
 }
 
@@ -213,69 +193,14 @@ uint8_t classify_runtime_media_data(const void *data)
     uint16_t signature;
     std::memcpy(&signature, bytes + 4, sizeof(signature));
     if(signature == 0xaf12)
-    {
-        return 3;
-    }
+        return RUNTIME_MEDIA_DATA_ANIMATION;
     if(bytes[0] == 'B' && bytes[1] == 'M')
-    {
-        return 1;
-    }
+        return RUNTIME_MEDIA_DATA_BITMAP;
     static constexpr uint8_t wave_format_signature[7]{ 'W', 'A', 'V', 'E', 'f', 'm', 't' };
     if(std::memcmp(bytes + 8, wave_format_signature, sizeof(wave_format_signature)) == 0)
-    {
-        return 2;
-    }
+        return RUNTIME_MEDIA_DATA_WAVE;
     static constexpr uint8_t configuration_signature[5]{ '[', 'C', 'F', 'G', ']' };
-    return std::memcmp(bytes, configuration_signature, sizeof(configuration_signature)) == 0 ? 4 : 0;
-}
-
-uint32_t read_compressor_input(void *destination, uint32_t requested_size)
-{
-    if(compressor_input_position >= compressor_input_size)
-    {
-        return 0;
-    }
-    uint32_t copied_size = compressor_input_size - compressor_input_position;
-    if(requested_size < copied_size)
-    {
-        copied_size = requested_size;
-    }
-    std::memcpy(destination, compressor_input + compressor_input_position, copied_size);
-    compressor_input_position += copied_size;
-    return copied_size;
-}
-
-void set_runtime_media_backend_scale(void *identity, uint32_t scale_x, uint32_t scale_y)
-{
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
-    for(RuntimeMediaBackend *backend = runtime_media_backend_head; backend != nullptr; backend = backend->next)
-    {
-        if(backend->identity == identity)
-        {
-            backend->scale_x = scale_x;
-            backend->scale_y = scale_y;
-            break;
-        }
-    }
-    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
-}
-
-uint32_t stop_runtime_animation_backend(void *identity)
-{
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
-    RuntimeMediaBackend *backend = runtime_media_backend_head;
-    while(backend != nullptr && backend->identity != identity)
-    {
-        backend = backend->next;
-    }
-    if(backend == nullptr)
-    {
-        runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
-        return 0;
-    }
-    backend->media_flags |= 0x10000;
-    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
-    return 1;
+    return std::memcmp(bytes, configuration_signature, sizeof(configuration_signature)) == 0 ? RUNTIME_MEDIA_DATA_CONFIGURATION : RUNTIME_MEDIA_DATA_UNKNOWN;
 }
 
 void *get_locked_runtime_media_extension(void *identity)
@@ -286,29 +211,24 @@ void *get_locked_runtime_media_extension(void *identity)
 
 uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDescriptor *descriptor, void *callback, uint32_t flags)
 {
-    runtime_media_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr && backend->identity != identity)
-    {
         backend = backend->next;
-    }
     if(backend == nullptr)
     {
-        runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        unlock_runtime_mutex(runtime_media_backend_mutex);
         return 0;
     }
     backend->media_flags |= flags;
     if(callback == nullptr)
-    {
         callback = &backend->palette_version;
-    }
     backend->comparison_palette = callback;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
     backend->destination_y = static_cast<uint16_t>(descriptor->y);
     backend->destination_stride = static_cast<uint16_t>(descriptor->stride != 0 ? descriptor->stride : static_cast<uint16_t>(descriptor->width));
     backend->destination_reserved = static_cast<uint16_t>(descriptor->height);
     backend->destination_bits_per_pixel = descriptor->bits_per_pixel != 0 ? descriptor->bits_per_pixel : 8;
-    backend->descriptor_2 = descriptor->present;
     backend->destination_pixels = reinterpret_cast<uint8_t *>(descriptor->pixels);
     if(backend->destination_bits_per_pixel == 32 && descriptor->indexed_pixels != 0)
     {
@@ -317,27 +237,23 @@ uint32_t configure_runtime_bitmap_backend(void *identity, const DisplaySceneDesc
         backend->indexed_origin_x = backend->destination_x;
         backend->indexed_origin_y = backend->destination_y;
     }
-    runtime_media_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
     return 1;
 }
 
 uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneDescriptor *descriptor, const void *comparison_palette, uint32_t flags, RuntimeAnimationCallback callback)
 {
-    runtime_animation_backend_configure_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr && backend->identity != identity)
-    {
         backend = backend->next;
-    }
     if(backend == nullptr)
     {
-        runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        unlock_runtime_mutex(runtime_media_backend_mutex);
         return 0;
     }
     if(comparison_palette == nullptr)
-    {
         comparison_palette = &backend->palette_version;
-    }
     backend->comparison_palette = comparison_palette;
     backend->animation_callback = callback;
     backend->destination_x = static_cast<uint16_t>(descriptor->x);
@@ -345,7 +261,6 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
     backend->destination_stride = static_cast<uint16_t>(descriptor->stride != 0 ? descriptor->stride : static_cast<uint16_t>(descriptor->width));
     backend->destination_reserved = static_cast<uint16_t>(descriptor->height);
     backend->destination_bits_per_pixel = descriptor->bits_per_pixel != 0 ? descriptor->bits_per_pixel : 8;
-    backend->descriptor_2 = descriptor->present;
     backend->destination_pixels = reinterpret_cast<uint8_t *>(descriptor->pixels);
     if(backend->destination_bits_per_pixel == 32)
     {
@@ -361,13 +276,13 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
             backend->indexed_stride = resource != nullptr ? resource->output_width : descriptor->width;
             backend->indexed_origin_x = 0;
             backend->indexed_origin_y = 0;
-            backend->indexed_pixels = static_cast<uint8_t *>(
-                runtime_animation_backend_configure_api.heap_alloc(runtime_media_backend_heap, runtime_heap_zero_memory, static_cast<size_t>(backend->indexed_stride) * backend->indexed_height));
+            backend->indexed_pixels =
+                static_cast<uint8_t *>(allocate_runtime_heap(runtime_media_backend_heap, runtime_heap_zero_memory, static_cast<size_t>(backend->indexed_stride) * backend->indexed_height));
             backend->owns_indexed_pixels = backend->indexed_pixels != nullptr;
         }
         if(backend->indexed_pixels == nullptr)
         {
-            runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+            unlock_runtime_mutex(runtime_media_backend_mutex);
             return 0;
         }
     }
@@ -379,11 +294,11 @@ uint32_t configure_runtime_animation_backend(void *identity, const DisplaySceneD
     backend->worker_thread = new (std::nothrow) std::jthread([backend] { run_runtime_animation_thread(backend); });
     if(backend->worker_thread == nullptr)
     {
-        backend->media_flags |= 0x10000;
-        runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+        backend->media_flags |= RUNTIME_MEDIA_STOP_REQUESTED;
+        unlock_runtime_mutex(runtime_media_backend_mutex);
         return 0;
     }
-    runtime_animation_backend_configure_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
     return 1;
 }
 
@@ -395,20 +310,15 @@ void configure_runtime_resource_palette(RuntimeResourceObject *resource)
     const intptr_t owner = reinterpret_cast<intptr_t>(resource);
     if((resource->type_flags & 1) == 0)
     {
-        if(runtime_resource_palette_configure_api.set_primary_owner(resource->scene_identifier, owner, false)
-            && ((resource->backend_flags & 0x4000000) == 0 || runtime_resource_palette_bits_per_pixel > 8))
-        {
-            runtime_resource_palette_configure_api.configure_palette(scene, palette, 0x100);
-        }
+        if(set_display_scene_primary_owner(resource->scene_identifier, owner, false) && ((resource->backend_flags & RUNTIME_MEDIA_NO_PALETTE) == 0 || runtime_resource_palette_bits_per_pixel > 8))
+            configure_display_scene_palette(scene, palette, 0x100);
     }
     else
     {
-        runtime_resource_palette_configure_api.set_primary_owner(resource->scene_identifier, owner, false);
-        runtime_resource_palette_configure_api.configure_palette(nullptr, palette, 0xec);
-        if((resource->backend_flags & 0x4000000) == 0 || runtime_resource_palette_bits_per_pixel > 8)
-        {
-            runtime_resource_palette_configure_api.configure_palette(scene, palette, 0x100);
-        }
+        set_display_scene_primary_owner(resource->scene_identifier, owner, false);
+        configure_display_scene_palette(nullptr, palette, 0xec);
+        if((resource->backend_flags & RUNTIME_MEDIA_NO_PALETTE) == 0 || runtime_resource_palette_bits_per_pixel > 8)
+            configure_display_scene_palette(scene, palette, 0x100);
     }
 }
 
@@ -433,9 +343,7 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
     const int32_t signed_height = format->biHeight;
     int32_t height = signed_height;
     if(height < 0)
-    {
         height = -height;
-    }
     if(backend->destination_bits_per_pixel == 32)
     {
         const uint32_t source_stride = (static_cast<uint32_t>(width) + 3) & ~3u;
@@ -452,9 +360,7 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
                 const PaletteEntry color = backend->palette_entries[result];
                 destination_row[x] = (result == 0 ? 0u : 0xff000000u) | static_cast<uint32_t>(color.peRed) << 16 | static_cast<uint32_t>(color.peGreen) << 8 | color.peBlue;
                 if(backend->indexed_pixels != nullptr)
-                {
                     backend->indexed_pixels[static_cast<size_t>(backend->indexed_origin_y + y) * backend->indexed_stride + backend->indexed_origin_x + x] = result;
-                }
             }
         }
         return result;
@@ -484,7 +390,7 @@ uint8_t convert_runtime_bitmap_to_surface(RuntimeMediaBackend *backend)
 
 void finalize_runtime_media_backend(void *identity)
 {
-    runtime_media_backend_finalize_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+    lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
     RuntimeMediaBackend *backend = runtime_media_backend_head;
     while(backend != nullptr)
     {
@@ -492,61 +398,47 @@ void finalize_runtime_media_backend(void *identity)
         {
             if(backend->type == 0xaa)
             {
-                backend->media_flags &= 0xffffdffe;
+                backend->media_flags &= ~(RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_PAUSE_NOTIFIED);
                 break;
             }
             if(backend->type == 0xac)
             {
-                if((backend->media_flags & 0x20) != 0)
+                if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
                 {
-                    backend->media_flags &= ~0x20u;
-                    runtime_media_backend_finalize_api.convert_bitmap(backend);
+                    backend->media_flags &= ~RUNTIME_MEDIA_RESOURCE_PENDING;
+                    convert_runtime_bitmap_to_surface(backend);
                 }
                 break;
             }
         }
         backend = backend->next;
     }
-    runtime_media_backend_finalize_api.release_mutex(runtime_media_backend_mutex);
+    unlock_runtime_mutex(runtime_media_backend_mutex);
 }
 
 void fail_runtime_animation(RuntimeMediaBackend *backend, uint32_t error)
 {
     backend->error_state = error;
-    backend->media_flags |= 0x80000000;
+    backend->media_flags |= RUNTIME_MEDIA_INITIALIZING;
     if(backend->animation_callback(backend) == 0)
-    {
-        post_application_event(HostApplicationCommand::animation_failure);
-    }
-    backend->media_flags |= 1;
-}
-
-void pause_all_runtime_animations()
-{
-    runtime_animation_control_flags |= 0x1000000;
-}
-
-void resume_all_runtime_animations()
-{
-    runtime_animation_control_flags &= ~0x1000000u;
+        post_application_event(HostApplicationCommand::ANIMATION_FAILURE);
+    backend->media_flags |= RUNTIME_MEDIA_PAUSED;
 }
 
 RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimationBackend *animation, uint32_t current_time, uint32_t *wait_milliseconds)
 {
     RuntimeMediaBackend &backend = animation->base;
     *wait_milliseconds = 0;
-    if((backend.media_flags & 0x10000) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_STOP_REQUESTED) != 0)
     {
-        backend.media_flags |= 0x1000;
-        runtime_animation_control_api.destroy_sound(backend.sound_handle);
+        backend.media_flags |= RUNTIME_MEDIA_CLOSE_REQUESTED;
+        destroy_runtime_sound_handle(backend.sound_handle);
         backend.animation_callback(&backend);
-        return RuntimeAnimationControlResult::Exit;
+        return RuntimeAnimationControlResult::EXIT;
     }
-    if((backend.media_flags & 0x80000000) != 0)
-    {
-        return RuntimeAnimationControlResult::Wait;
-    }
-    if((backend.media_flags & 0x40) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_INITIALIZING) != 0)
+        return RuntimeAnimationControlResult::WAIT;
+    if((backend.media_flags & RUNTIME_MEDIA_FULL_REFRESH_PENDING) != 0)
     {
         const auto *header = static_cast<const uint8_t *>(backend.format_data);
         uint16_t width = 0;
@@ -557,96 +449,78 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
         backend.dirty_top = 0;
         backend.dirty_right = width;
         backend.dirty_bottom = height;
-        backend.media_flags |= 0x8000;
+        backend.media_flags |= RUNTIME_MEDIA_PIXELS_CHANGED;
         backend.animation_callback(&backend);
         backend.dirty_left = 32000;
         backend.dirty_top = 32000;
         backend.dirty_right = 0;
         backend.dirty_bottom = 0;
-        backend.media_flags &= ~0x40u;
+        backend.media_flags &= ~RUNTIME_MEDIA_FULL_REFRESH_PENDING;
     }
-    if((backend.media_flags & 0x20000) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_RESTART_REQUESTED) != 0)
     {
         backend.frame_number = 0;
-        const uint32_t storage = backend.media_flags & 0x3000000;
+        const uint32_t storage = backend.media_flags & RUNTIME_MEDIA_STORAGE_MASK;
         if(storage == 0x1000000)
-        {
             animation->source_cursor = animation->data_start;
-        }
         else if(storage == 0x2000000)
-        {
-            runtime_animation_control_api.set_stream_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_start)));
-        }
+            set_async_file_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_start)));
         if(backend.sound_handle != 0)
         {
-            runtime_animation_control_api.destroy_sound(backend.sound_handle);
+            destroy_runtime_sound_handle(backend.sound_handle);
             backend.sound_handle = 0;
         }
         backend.timing_correction = 0;
         const uint32_t old_flags = backend.media_flags;
-        backend.media_flags = old_flags & ~0x20000u;
-        if((old_flags & 0x2201) == 0x201)
-        {
-            backend.media_flags = old_flags & 0xfffdfffeu;
-        }
+        backend.media_flags = old_flags & ~RUNTIME_MEDIA_RESTART_REQUESTED;
+        if((old_flags & (RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_ONE_STEP | RUNTIME_MEDIA_PAUSE_NOTIFIED)) == (RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_ONE_STEP))
+            backend.media_flags = old_flags & ~(RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_RESTART_REQUESTED);
     }
-    if((backend.media_flags & 1) != 0 || (runtime_animation_control_flags & 0x1000000) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_PAUSED) != 0 || (runtime_animation_control_flags & RUNTIME_ANIMATION_PAUSED) != 0)
     {
-        if((backend.media_flags & 0x2000) == 0)
+        if((backend.media_flags & RUNTIME_MEDIA_PAUSE_NOTIFIED) == 0)
         {
             if(backend.sound_handle != 0)
-            {
-                runtime_animation_control_api.start_sound(backend.sound_handle, 0);
-            }
-            backend.media_flags |= 0x2000;
+                pause_runtime_sound(backend.sound_handle, 0);
+            backend.media_flags |= RUNTIME_MEDIA_PAUSE_NOTIFIED;
             backend.animation_callback(&backend);
         }
-        return RuntimeAnimationControlResult::Wait;
+        return RuntimeAnimationControlResult::WAIT;
     }
-    if((backend.media_flags & 0x2000) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_PAUSE_NOTIFIED) != 0)
     {
         if(backend.sound_handle != 0)
-        {
-            runtime_animation_control_api.stop_sound(backend.sound_handle, 0);
-        }
+            resume_runtime_sound(backend.sound_handle, 0);
         backend.next_frame_time = 0;
         backend.previous_frame_time = current_time - backend.frame_duration;
-        backend.media_flags &= ~0x2000u;
+        backend.media_flags &= ~RUNTIME_MEDIA_PAUSE_NOTIFIED;
     }
     if(static_cast<int32_t>(current_time) < static_cast<int32_t>(backend.next_frame_time))
     {
         *wait_milliseconds = backend.next_frame_time - current_time;
-        return RuntimeAnimationControlResult::Wait;
+        return RuntimeAnimationControlResult::WAIT;
     }
-    return RuntimeAnimationControlResult::DecodeFrame;
+    return RuntimeAnimationControlResult::DECODE_FRAME;
 }
 
 void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, uint32_t current_time)
 {
     if(backend->frame_number > 1)
-    {
         backend->timing_correction += (current_time - backend->previous_frame_time) - backend->frame_duration;
-    }
     backend->previous_frame_time = current_time;
     uint32_t next_frame_time = current_time;
     if(backend->timing_correction < static_cast<int32_t>(backend->frame_duration))
     {
         uint32_t duration = backend->frame_duration;
         if(backend->timing_correction < 0)
-        {
             duration = static_cast<uint32_t>(static_cast<int32_t>(duration << 2) / 3);
-        }
         else
-        {
             next_frame_time -= backend->timing_correction;
-        }
         next_frame_time += duration;
     }
     backend->next_frame_time = next_frame_time;
-    if((backend->media_flags & 0x100000) != 0)
-    {
+    if((backend->media_flags & RUNTIME_MEDIA_SYNCHRONIZED_TIMING) != 0)
         backend->next_frame_time = current_time + backend->frame_duration;
-    }
     backend->previous_frame_time += backend->timing_adjustment;
     backend->next_frame_time += backend->timing_adjustment;
 }
@@ -654,7 +528,7 @@ void schedule_runtime_animation_frame(RuntimeMediaBackend *backend, uint32_t cur
 bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
-    const uint32_t storage = backend.media_flags & 0x3000000;
+    const uint32_t storage = backend.media_flags & RUNTIME_MEDIA_STORAGE_MASK;
     if(storage == 0x1000000)
     {
         backend.frame_header = animation->source_cursor;
@@ -663,10 +537,10 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     else if(storage == 0x2000000)
     {
         uint32_t bytes_read = 0;
-        runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
+        read_async_file_record(backend.stream_record, backend.frame_header, 0x10, &bytes_read, 1);
         if(bytes_read != 0x10)
         {
-            runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
+            fail_runtime_animation(&backend, 100);
             return false;
         }
     }
@@ -674,42 +548,36 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
     const auto *frame_header = static_cast<const RuntimeAnimationFrameHeader *>(backend.frame_header);
     if(frame_header->signature != 0xf1fa)
     {
-        runtime_animation_frame_acquire_api.fail_animation(&backend, 1);
+        fail_runtime_animation(&backend, 1);
         return false;
     }
-    if((backend.media_flags & 0x2000000) != 0)
+    if((backend.media_flags & RUNTIME_MEDIA_STREAM_BACKED) != 0)
     {
         uint32_t payload_size = frame_header->size - sizeof(RuntimeAnimationFrameHeader);
         if(payload_size > 899999)
-        {
             payload_size = 0;
-        }
         if(payload_size != 0)
         {
             if(backend.allocation_2_active < payload_size)
             {
                 void *buffer = nullptr;
                 if(backend.allocation_2_active == 0)
-                {
-                    buffer = runtime_animation_frame_acquire_api.heap_alloc(runtime_media_backend_heap, 0, payload_size);
-                }
+                    buffer = allocate_runtime_heap(runtime_media_backend_heap, 0, payload_size);
                 else
-                {
-                    buffer = runtime_animation_frame_acquire_api.heap_realloc(runtime_media_backend_heap, 0, backend.frame_buffer, payload_size);
-                }
+                    buffer = reallocate_runtime_heap(runtime_media_backend_heap, 0, backend.frame_buffer, payload_size);
                 if(buffer == nullptr)
                 {
-                    runtime_animation_frame_acquire_api.fail_animation(&backend, 2);
+                    fail_runtime_animation(&backend, 2);
                     return false;
                 }
                 backend.allocation_2_active = payload_size;
                 backend.frame_buffer = buffer;
             }
             uint32_t bytes_read = 0;
-            runtime_animation_frame_acquire_api.read_record(backend.stream_record, backend.frame_buffer, payload_size, &bytes_read, 1);
+            read_async_file_record(backend.stream_record, backend.frame_buffer, payload_size, &bytes_read, 1);
             if(bytes_read != payload_size)
             {
-                runtime_animation_frame_acquire_api.fail_animation(&backend, 100);
+                fail_runtime_animation(&backend, 100);
                 return false;
             }
         }
@@ -721,14 +589,12 @@ bool acquire_runtime_animation_frame(RuntimeAnimationBackend *animation)
 void materialize_runtime_animation_xrgb(RuntimeMediaBackend *backend)
 {
     if(backend->indexed_pixels == nullptr || backend->destination_bits_per_pixel != 32)
-    {
         return;
-    }
     int32_t left = backend->dirty_left;
     int32_t top = backend->dirty_top;
     int32_t right = backend->dirty_right;
     int32_t bottom = backend->dirty_bottom;
-    if((backend->media_flags & 0x4000) != 0)
+    if((backend->media_flags & RUNTIME_MEDIA_PALETTE_CHANGED) != 0)
     {
         left = 0;
         top = 0;
@@ -742,9 +608,7 @@ void materialize_runtime_animation_xrgb(RuntimeMediaBackend *backend)
     right = std::clamp(right, 0, maximum_width);
     bottom = std::clamp(bottom, 0, maximum_height);
     if(left >= right || top >= bottom)
-    {
         return;
-    }
     auto *destination = reinterpret_cast<uint32_t *>(backend->destination_pixels);
     for(int32_t y = top; y < bottom; ++y)
     {
@@ -763,7 +627,7 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
     animation->source_cursor = backend.frame_buffer;
-    backend.media_flags |= 0x10000000;
+    backend.media_flags |= RUNTIME_MEDIA_DECODE_STARTED;
     backend.animation_callback(&backend);
     const uint16_t chunk_count = static_cast<const RuntimeAnimationFrameHeader *>(backend.frame_header)->chunk_count;
     for(uint32_t chunk_index = 0; chunk_index < chunk_count; ++chunk_index)
@@ -786,47 +650,42 @@ void decode_runtime_animation_frame_chunks(RuntimeAnimationBackend *animation)
         switch(chunk_type)
         {
         case 4:
-            runtime_animation_decode_api.decode_palette(&backend);
-            backend.media_flags |= 0x4000;
+            decode_runtime_animation_palette(&backend);
+            backend.media_flags |= RUNTIME_MEDIA_PALETTE_CHANGED;
             marks_pixels = false;
             break;
         case 5:
-            runtime_animation_decode_api.decode_mvz5(&backend);
+            decode_runtime_animation_mvz(&backend, false);
             break;
         case 7:
-            runtime_animation_decode_api.decode_delta_flc(&backend);
+            decode_runtime_animation_delta_flc(&backend);
             break;
         case 8:
-            runtime_animation_decode_api.decode_mvz8(&backend);
+            decode_runtime_animation_mvz(&backend, true);
             break;
         case 0xb:
-            runtime_animation_decode_api.ignore_chunk_11();
-            backend.media_flags |= 0x4000;
+            backend.media_flags |= RUNTIME_MEDIA_PALETTE_CHANGED;
             marks_pixels = false;
             break;
         case 0xc:
-            runtime_animation_decode_api.ignore_chunk_12();
             break;
         case 0xd:
-            runtime_animation_decode_api.ignore_chunk_13();
             break;
         case 0xf:
-            runtime_animation_decode_api.decode_byte_run(&backend);
+            decode_runtime_animation_byte_run(&backend);
             break;
         case 0x10:
-            runtime_animation_decode_api.decode_literal(&backend);
+            decode_runtime_animation_literal(&backend);
             break;
         default:
             marks_pixels = false;
             break;
         }
         if(marks_pixels)
-        {
-            backend.media_flags |= 0x8000;
-        }
+            backend.media_flags |= RUNTIME_MEDIA_PIXELS_CHANGED;
         animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
-    backend.media_flags |= 0x20000000;
+    backend.media_flags |= RUNTIME_MEDIA_FRAME_DECODED;
     materialize_runtime_animation_xrgb(&backend);
     backend.animation_callback(&backend);
 }
@@ -835,7 +694,7 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
 {
     RuntimeMediaBackend &backend = animation->base;
     const int32_t presentation_threshold = static_cast<int32_t>(backend.frame_duration * 4u);
-    if((backend.media_flags & 0x100) == 0 && (backend.timing_correction <= presentation_threshold || (backend.media_flags & 0x100000) != 0))
+    if((backend.media_flags & RUNTIME_MEDIA_SKIP_PRESENTATION) == 0 && (backend.timing_correction <= presentation_threshold || (backend.media_flags & RUNTIME_MEDIA_SYNCHRONIZED_TIMING) != 0))
     {
         if(backend.animation_callback(&backend) != 0)
         {
@@ -844,38 +703,30 @@ void complete_runtime_animation_frame(RuntimeAnimationBackend *animation)
             backend.dirty_right = 0;
             backend.dirty_bottom = 0;
         }
-        runtime_animation_completion_api.sleep(0);
+        runtime_sleep(0);
     }
-    if((backend.media_flags & 0x200) != 0)
-    {
-        backend.media_flags |= 1;
-    }
+    if((backend.media_flags & RUNTIME_MEDIA_ONE_STEP) != 0)
+        backend.media_flags |= RUNTIME_MEDIA_PAUSED;
     const uint16_t total_frames = static_cast<const RuntimeAnimationFileHeader *>(backend.format_data)->frame_count;
-    if((backend.media_flags & 0x400) == 0 && total_frames == backend.frame_number)
+    if((backend.media_flags & RUNTIME_MEDIA_LOOP) == 0 && total_frames == backend.frame_number)
     {
-        backend.media_flags |= 1;
+        backend.media_flags |= RUNTIME_MEDIA_PAUSED;
         backend.timing_correction = 0;
-        if((backend.media_flags & 0x800) != 0)
-        {
-            backend.media_flags |= 0x10000;
-        }
+        if((backend.media_flags & RUNTIME_MEDIA_CLOSE_AFTER_PLAYBACK) != 0)
+            backend.media_flags |= RUNTIME_MEDIA_STOP_REQUESTED;
     }
     if(total_frames < backend.frame_number)
     {
         backend.frame_number = 1;
         backend.timing_correction = 0;
         backend.timing_adjustment = 0;
-        backend.media_flags |= 0x40000000;
+        backend.media_flags |= RUNTIME_MEDIA_LOOP_BOUNDARY;
         backend.animation_callback(&backend);
-        const uint32_t storage = backend.media_flags & 0x3000000;
+        const uint32_t storage = backend.media_flags & RUNTIME_MEDIA_STORAGE_MASK;
         if(storage == 0x1000000)
-        {
             animation->source_cursor = animation->data_end;
-        }
         else if(storage == 0x2000000)
-        {
-            runtime_animation_completion_api.set_stream_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_end)));
-        }
+            set_async_file_position(backend.stream_record, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(animation->data_end)));
     }
 }
 
@@ -903,63 +754,61 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
         if(chunk_type == 0x300)
         {
             RuntimeSoundStatus sound_status{};
-            if(backend.sound_handle != 0 && runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & 0x800000) == 0)
+            if(backend.sound_handle != 0 && query_runtime_sound_status(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & RUNTIME_MEDIA_AUDIO_DISABLED) == 0)
             {
-                const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                const uint32_t wait_start = runtime_milliseconds();
                 bool sound_available = true;
-                while(sound_status.playback_marker == 0 && (backend.media_flags & 0x10000) == 0)
+                while(sound_status.playback_marker == 0 && (backend.media_flags & RUNTIME_MEDIA_STOP_REQUESTED) == 0)
                 {
-                    runtime_animation_audio_api.sleep(0);
-                    if(runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) == 0)
+                    runtime_sleep(0);
+                    if(query_runtime_sound_status(backend.sound_handle, &sound_status) == 0)
                     {
                         sound_available = false;
                         break;
                     }
                 }
                 if(sound_available && sound_status.playback_marker != 0)
-                {
                     backend.timing_adjustment = ((wait_start - backend.frame_duration * 5u) - sound_status.playback_marker) / (backend.synchronized_sound_frame - backend.frame_number);
-                }
-                const uint32_t wait_end = runtime_animation_audio_api.time_get_time();
+                const uint32_t wait_end = runtime_milliseconds();
                 backend.previous_frame_time += wait_end - wait_start;
                 backend.next_frame_time += wait_end - wait_start;
-                const uint32_t storage = backend.media_flags & 0x3000000;
+                const uint32_t storage = backend.media_flags & RUNTIME_MEDIA_STORAGE_MASK;
                 if(storage == 0x1000000)
                 {
-                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, animation->source_cursor, payload_size, 0);
+                    queue_runtime_sound_data(backend.sound_handle, animation->source_cursor, payload_size, 0);
                 }
                 else if(storage == 0x2000000)
                 {
                     uint8_t *destination = static_cast<uint8_t *>(backend.audio_buffer);
-                    if((backend.media_flags & 0x400000) == 0)
+                    if((backend.media_flags & RUNTIME_MEDIA_AUDIO_STARTED) == 0)
                     {
-                        backend.media_flags |= 0x400000;
+                        backend.media_flags |= RUNTIME_MEDIA_AUDIO_STARTED;
                         destination += payload_size;
                     }
                     else
                     {
-                        backend.media_flags &= ~0x400000u;
+                        backend.media_flags &= ~RUNTIME_MEDIA_AUDIO_STARTED;
                     }
                     std::memcpy(destination, animation->source_cursor, payload_size);
-                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, destination, payload_size, 0);
+                    queue_runtime_sound_data(backend.sound_handle, destination, payload_size, 0);
                 }
-                runtime_animation_audio_api.set_playback_marker(backend.sound_handle, 0);
+                set_runtime_sound_playback_marker(backend.sound_handle, 0);
                 backend.synchronized_sound_frame = backend.frame_number;
             }
         }
         else if(chunk_type == 0x200)
         {
             RuntimeSoundStatus sound_status{};
-            if(backend.sound_handle != 0 && runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & 0x800000) == 0)
+            if(backend.sound_handle != 0 && query_runtime_sound_status(backend.sound_handle, &sound_status) != 0 && (backend.media_flags & RUNTIME_MEDIA_AUDIO_DISABLED) == 0)
             {
-                runtime_animation_audio_api.set_schedule_marker(backend.sound_handle, 0);
-                runtime_animation_audio_api.set_playback_marker(backend.sound_handle, 0);
+                set_runtime_sound_schedule_marker(backend.sound_handle, 0);
+                set_runtime_sound_playback_marker(backend.sound_handle, 0);
                 sound_status.schedule_marker = 0;
                 sound_status.playback_marker = 0;
-                backend.media_flags |= 0x400000;
-                const uint32_t wait_start = runtime_animation_audio_api.time_get_time();
+                backend.media_flags |= RUNTIME_MEDIA_AUDIO_STARTED;
+                const uint32_t wait_start = runtime_milliseconds();
                 bool available = true;
-                const uint32_t storage = backend.media_flags & 0x3000000;
+                const uint32_t storage = backend.media_flags & RUNTIME_MEDIA_STORAGE_MASK;
                 if(storage == 0x1000000)
                 {
                     backend.audio_buffer = animation->source_cursor;
@@ -968,12 +817,12 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                 {
                     if(backend.allocation_1_active < payload_size)
                     {
-                        void *buffer = backend.allocation_1_active == 0 ? runtime_animation_audio_api.heap_alloc(runtime_media_backend_heap, 0, payload_size)
-                                                                        : runtime_animation_audio_api.heap_realloc(runtime_media_backend_heap, 0, backend.audio_buffer, payload_size);
+                        void *buffer = backend.allocation_1_active == 0 ? allocate_runtime_heap(runtime_media_backend_heap, 0, payload_size)
+                                                                        : reallocate_runtime_heap(runtime_media_backend_heap, 0, backend.audio_buffer, payload_size);
                         if(buffer == nullptr)
                         {
                             available = false;
-                            runtime_animation_audio_api.destroy_sound(backend.sound_handle);
+                            destroy_runtime_sound_handle(backend.sound_handle);
                             backend.sound_handle = 0;
                         }
                         else
@@ -983,21 +832,19 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
                         }
                     }
                     if(available)
-                    {
                         std::memcpy(backend.audio_buffer, animation->source_cursor, payload_size);
-                    }
                 }
                 if(available)
                 {
                     const uint32_t half_size = payload_size >> 1;
-                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, backend.audio_buffer, half_size, 1);
-                    runtime_animation_audio_api.queue_sound_data(backend.sound_handle, static_cast<uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
-                    runtime_animation_audio_api.stop_sound(backend.sound_handle, 0);
+                    queue_runtime_sound_data(backend.sound_handle, backend.audio_buffer, half_size, 1);
+                    queue_runtime_sound_data(backend.sound_handle, static_cast<uint8_t *>(backend.audio_buffer) + half_size, half_size, 0);
+                    resume_runtime_sound(backend.sound_handle, 0);
                     bool sound_available = true;
-                    while(sound_status.schedule_marker == 0 && (backend.media_flags & 0x10000) == 0)
+                    while(sound_status.schedule_marker == 0 && (backend.media_flags & RUNTIME_MEDIA_STOP_REQUESTED) == 0)
                     {
-                        runtime_animation_audio_api.sleep(0);
-                        if(runtime_animation_audio_api.query_sound(backend.sound_handle, &sound_status) == 0)
+                        runtime_sleep(0);
+                        if(query_runtime_sound_status(backend.sound_handle, &sound_status) == 0)
                         {
                             sound_available = false;
                             break;
@@ -1016,12 +863,12 @@ void process_runtime_animation_audio_chunks(RuntimeAnimationBackend *animation)
         else if(chunk_type == 0x400)
         {
             backend.timing_adjustment = 0;
-            runtime_animation_audio_api.start_sound(backend.sound_handle, 0);
+            pause_runtime_sound(backend.sound_handle, 0);
         }
-        else if(chunk_type == 0x600 && (backend.media_flags & 0x800000) == 0)
+        else if(chunk_type == 0x600 && (backend.media_flags & RUNTIME_MEDIA_AUDIO_DISABLED) == 0)
         {
             auto *sound_chunk = reinterpret_cast<RuntimeAnimationSoundFormatChunk *>(chunk);
-            backend.sound_handle = runtime_animation_audio_api.create_sound(&sound_chunk->format);
+            backend.sound_handle = create_runtime_sound_handle(&sound_chunk->format);
         }
         animation->source_cursor = static_cast<uint8_t *>(animation->source_cursor) + payload_size;
     }
@@ -1036,16 +883,12 @@ void run_runtime_animation_thread(void *backend_pointer)
         std::this_thread::sleep_for(std::chrono::milliseconds(wait_milliseconds));
         for(;;)
         {
-            const uint32_t current_time = runtime_animation_worker_api.time_get_time();
+            const uint32_t current_time = runtime_milliseconds();
             const RuntimeAnimationControlResult control = process_runtime_animation_control(animation, current_time, &wait_milliseconds);
-            if(control == RuntimeAnimationControlResult::Exit)
-            {
+            if(control == RuntimeAnimationControlResult::EXIT)
                 return;
-            }
-            if(control == RuntimeAnimationControlResult::Wait)
-            {
+            if(control == RuntimeAnimationControlResult::WAIT)
                 break;
-            }
             schedule_runtime_animation_frame(&animation->base, current_time);
             if(!acquire_runtime_animation_frame(animation))
             {
@@ -1071,13 +914,9 @@ void decode_runtime_animation_palette(RuntimeMediaBackend *backend)
         const uint8_t skip = *source++;
         uint16_t color_count = *source++;
         if(color_count == 0)
-        {
             color_count = 0x100;
-        }
         else
-        {
             palette_entries += skip * 4;
-        }
         do
         {
             const uint8_t red = *source++;
@@ -1136,9 +975,7 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
             packet_count = read_word(source);
             source += 2;
             if(packet_count == 0)
-            {
                 continue;
-            }
         }
         uint32_t x = 0;
         do
@@ -1201,24 +1038,12 @@ void decode_runtime_animation_mvz(RuntimeMediaBackend *backend, bool packet_coun
                     uint8_t *destination = destination_base + (destination_y + y * scale_y + repeat_y) * destination_stride + destination_x + x * scale_x;
                     const uint8_t *copy_source = destination_base + (destination_y + source_y * scale_y + repeat_y) * destination_stride + destination_x + source_x * scale_x;
                     for(uint32_t index = 0; index < count * scale_x; ++index)
-                    {
                         *destination++ = *copy_source++;
-                    }
                 }
             }
             x += count;
         } while(packet_counted ? packet_count != 0 : x < area_width);
     }
-}
-
-void decode_runtime_animation_mvz8(RuntimeMediaBackend *backend)
-{
-    decode_runtime_animation_mvz(backend, true);
-}
-
-void decode_runtime_animation_mvz5(RuntimeMediaBackend *backend)
-{
-    decode_runtime_animation_mvz(backend, false);
 }
 
 void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
@@ -1253,9 +1078,7 @@ void decode_runtime_animation_literal(RuntimeMediaBackend *backend)
             {
                 const uint8_t value = *source++;
                 for(uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
-                {
                     *destination++ = value;
-                }
             }
             destination += destination_row_adjustment;
         }
@@ -1301,18 +1124,14 @@ void decode_runtime_animation_byte_run(RuntimeMediaBackend *backend)
                     {
                         const uint8_t value = map_value(*source++);
                         for(uint32_t repeat_x = 0; repeat_x < effective_horizontal_scale; ++repeat_x)
-                        {
                             *destination++ = value;
-                        }
                     }
                 }
                 else
                 {
                     const uint8_t value = map_value(*source++);
                     for(uint32_t index = 0; index < count * effective_horizontal_scale; ++index)
-                    {
                         *destination++ = value;
-                    }
                 }
                 produced += count;
             } while(produced < source_width);
@@ -1351,9 +1170,7 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
         {
             const int16_t control = read_signed_word(source);
             if(control >= 0 || (static_cast<uint16_t>(control) & 0x4000) == 0)
-            {
                 break;
-            }
             source += 2;
             current_y += -static_cast<int32_t>(control) * static_cast<int32_t>(scale_y);
         }
@@ -1374,17 +1191,13 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
                 source += 2;
             }
             if(current_y < backend->dirty_top)
-            {
                 backend->dirty_top = current_y;
-            }
             int32_t current_x = 0;
             for(int16_t packet = 0; packet < packet_count; ++packet)
             {
                 current_x += static_cast<uint32_t>(*source++) * scale_x;
                 if(current_x < backend->dirty_left)
-                {
                     backend->dirty_left = current_x;
-                }
                 const int8_t encoded_count = static_cast<int8_t>(*source++);
                 if(encoded_count >= 0)
                 {
@@ -1411,9 +1224,7 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
                 }
             }
             if(backend->dirty_right < current_x)
-            {
                 backend->dirty_right = current_x;
-            }
             ++current_y;
             line_end = source;
         }
@@ -1421,16 +1232,8 @@ void decode_runtime_animation_delta_flc(RuntimeMediaBackend *backend)
         --remaining_lines;
     } while(remaining_lines != 0);
     if(backend->dirty_bottom < current_y)
-    {
         backend->dirty_bottom = current_y;
-    }
 }
-
-void ignore_runtime_animation_chunk_11() {}
-
-void ignore_runtime_animation_chunk_12() {}
-
-void ignore_runtime_animation_chunk_13() {}
 
 uint32_t destroy_runtime_media_backend(void *identity)
 {
@@ -1438,25 +1241,17 @@ uint32_t destroy_runtime_media_backend(void *identity)
     uint32_t result = 0;
     if(backend != nullptr)
     {
-        runtime_media_backend_api.wait_for_single_object(runtime_media_backend_mutex, runtime_infinite_wait);
+        lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
         if(backend->previous == nullptr)
-        {
             runtime_media_backend_head = backend->next;
-        }
         else
-        {
             backend->previous->next = backend->next;
-        }
         if(backend->next == nullptr)
-        {
             runtime_media_backend_tail = backend->previous;
-        }
         else
-        {
             backend->next->previous = backend->previous;
-        }
         result = 1;
-        runtime_media_backend_api.release_mutex(runtime_media_backend_mutex);
+        unlock_runtime_mutex(runtime_media_backend_mutex);
         if(backend->type == 0xaa)
         {
             if(backend->worker_thread != nullptr)
@@ -1466,22 +1261,16 @@ uint32_t destroy_runtime_media_backend(void *identity)
                 backend->worker_thread = nullptr;
             }
             if(backend->indexed_pixels != nullptr && backend->owns_indexed_pixels)
-            {
-                result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->indexed_pixels);
-            }
+                result = result != 0 && free_runtime_heap(runtime_media_backend_heap, 0, backend->indexed_pixels);
             if(backend->allocation_1_active != 0)
-            {
-                result = runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->audio_buffer) & 1;
-            }
+                result = free_runtime_heap(runtime_media_backend_heap, 0, backend->audio_buffer) & 1;
             if(backend->allocation_2_active != 0)
-            {
-                result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend->frame_buffer);
-            }
+                result = result != 0 && free_runtime_heap(runtime_media_backend_heap, 0, backend->frame_buffer);
         }
-        result = result != 0 && runtime_media_backend_api.heap_free(runtime_media_backend_heap, 0, backend);
+        result = result != 0 && free_runtime_heap(runtime_media_backend_heap, 0, backend);
     }
     return result;
 }
 
 
-} // namespace gag
+} // namespace freegag

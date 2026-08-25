@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-namespace gag
+namespace freegag
 {
 
 struct RuntimePcmFormat
@@ -15,4 +15,4 @@ struct RuntimePcmFormat
     uint16_t bits_per_sample;
 };
 
-} // namespace gag
+} // namespace freegag

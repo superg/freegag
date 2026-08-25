@@ -1,28 +1,22 @@
 #include "script.h"
 #include "runtime_internal.h"
 
-namespace gag
+namespace freegag
 {
 int32_t select_bounded_random_value(int32_t minimum, int32_t maximum)
 {
     if(!script_random_seeded)
     {
-        script_utility_api.seed_random(script_utility_api.get_tick_count());
+        std::srand(runtime_milliseconds());
         script_random_seeded = true;
     }
     if(minimum < -10000)
-    {
         minimum = -10000;
-    }
     if(maximum > 10000)
-    {
         maximum = 10000;
-    }
     if(maximum <= minimum)
-    {
         return minimum;
-    }
-    return minimum + script_utility_api.random() % (maximum - minimum);
+    return minimum + std::rand() % (maximum - minimum);
 }
 
 
@@ -43,9 +37,7 @@ ScriptTextBuffer *create_script_text_buffer()
     constexpr uint32_t allocation_size = 64000;
     auto *buffer = reinterpret_cast<ScriptTextBuffer *>(new (std::nothrow) uint8_t[allocation_size]{});
     if(buffer == nullptr)
-    {
         return nullptr;
-    }
     buffer->length = 0;
     buffer->capacity = allocation_size - sizeof(*buffer);
     buffer->data = reinterpret_cast<char *>(buffer + 1);
@@ -55,9 +47,7 @@ ScriptTextBuffer *create_script_text_buffer()
 void clear_script_text_buffer(ScriptTextBuffer *buffer)
 {
     if(buffer != nullptr)
-    {
         buffer->length = 0;
-    }
 }
 
 void begin_script_text_document(ScriptTextBuffer *buffer)
@@ -85,9 +75,7 @@ void end_script_text_document(ScriptTextBuffer *buffer)
 void append_script_text_property(ScriptTextBuffer *buffer, uint32_t property, const char *value)
 {
     if(buffer == nullptr)
-    {
         return;
-    }
     const char *name = nullptr;
     switch(property)
     {
@@ -168,9 +156,7 @@ void end_script_text_statement(ScriptTextBuffer *buffer)
     if(buffer != nullptr)
     {
         if(buffer->data[buffer->length - 1] == ' ')
-        {
             --buffer->length;
-        }
         buffer->data[buffer->length++] = ';';
         buffer->data[buffer->length++] = '\r';
         buffer->data[buffer->length++] = '\n';
@@ -188,33 +174,31 @@ static void append_script_text_scope_name(ScriptTextBuffer *buffer, const char *
 void append_script_text_scope(ScriptTextBuffer *buffer, uint32_t scope)
 {
     if(buffer == nullptr)
-    {
         return;
-    }
     switch(scope)
     {
-    case 0x01000000:
+    case SCRIPT_SCOPE_FILE:
         append_script_text_scope_name(buffer, "FILE");
         return;
-    case 0x0f000000:
+    case SCRIPT_SCOPE_ZONE:
         append_script_text_scope_name(buffer, "ZONE");
         return;
-    case 0x0b000000:
+    case SCRIPT_SCOPE_POSITION:
         append_script_text_scope_name(buffer, "POS");
         return;
-    case 0x0c000000:
+    case SCRIPT_SCOPE_COMMAND:
         append_script_text_scope_name(buffer, "COMM");
         return;
-    case 0x0d000000:
+    case SCRIPT_SCOPE_MOUSE:
         append_script_text_scope_name(buffer, "MOUSE");
         return;
-    case 0x20000000:
+    case SCRIPT_SCOPE_ALTERNATE_MOUSE:
         append_script_text_scope_name(buffer, "AMOUSE");
         return;
-    case 0x0a000000:
+    case SCRIPT_SCOPE_FLAGS:
         append_script_text_scope_name(buffer, "F");
         return;
-    case 0x00200000:
+    case SCRIPT_SCOPE_GLOBAL:
         append_script_text_scope_name(buffer, "GLOBAL");
         return;
     default:
@@ -224,18 +208,14 @@ void append_script_text_scope(ScriptTextBuffer *buffer, uint32_t scope)
 
 void append_script_text_preload_directive(ScriptTextBuffer *buffer, uint32_t scope)
 {
-    if(buffer != nullptr && scope == 0x50000000)
-    {
+    if(buffer != nullptr && scope == SCRIPT_SCOPE_PRELOAD)
         append_script_text_scope_name(buffer, "PRELOAD");
-    }
 }
 
 void append_script_text_scoped_tokens(ScriptTextBuffer *buffer, uint32_t scope, const char *text)
 {
     if(text[0] == '\0')
-    {
         return;
-    }
 
     int offset = 0;
     do
@@ -286,9 +266,7 @@ void append_script_text_delimiter(ScriptTextBuffer *buffer, const char *text, ch
     if(buffer != nullptr)
     {
         if(text != nullptr)
-        {
             buffer->length += copy_string(buffer->data + buffer->length, text);
-        }
         buffer->data[buffer->length++] = delimiter;
     }
 }
@@ -322,9 +300,7 @@ void append_script_text_integer(ScriptTextBuffer *buffer, uint32_t value, char d
 int find_script_property_value(char *value, const char *property_name, const char *text, uint32_t text_length, uint32_t start_offset)
 {
     if(value != nullptr)
-    {
         std::memset(value, 0, 32);
-    }
 
     uint32_t offset = start_offset;
     while(true)
@@ -335,9 +311,7 @@ int find_script_property_value(char *value, const char *property_name, const cha
             {
                 ++offset;
                 if(offset >= text_length)
-                {
                     return -1;
-                }
             }
 
             if(text[offset] != '[')
@@ -348,23 +322,17 @@ int find_script_property_value(char *value, const char *property_name, const cha
                     {
                         const char preceding = text[offset - 1];
                         if(preceding == ']' || preceding == '\n' || preceding == '\r' || preceding == ' ' || preceding == ';')
-                        {
                             break;
-                        }
                         --offset;
                         if(offset == 0)
-                        {
                             break;
-                        }
                     }
                 }
 
                 char candidate[32];
                 int candidate_length = 0;
                 while(text[offset] != '=' && candidate_length < 31)
-                {
                     candidate[candidate_length++] = text[offset++];
-                }
                 ++offset;
                 candidate[candidate_length] = '\0';
                 if(strings_equal(candidate, property_name))
@@ -376,15 +344,11 @@ int find_script_property_value(char *value, const char *property_name, const cha
                         {
                             const char character = text[offset];
                             if(character == '[' || character == ':' || character == ';' || character == ' ' || character == '\r')
-                            {
                                 break;
-                            }
                             value[value_length++] = character;
                             ++offset;
                             if(value_length >= 31)
-                            {
                                 break;
-                            }
                         }
                     }
                     return static_cast<int>(offset + 1);
@@ -393,9 +357,7 @@ int find_script_property_value(char *value, const char *property_name, const cha
         }
 
         if(offset >= text_length || text[offset] == '[')
-        {
             return -1;
-        }
     }
 }
 
@@ -411,14 +373,10 @@ int find_script_section(const char *section_name, const char *text, int text_len
             --remaining;
             found_opening_bracket = *cursor++ == '[';
             if(found_opening_bracket)
-            {
                 break;
-            }
         }
         if(!found_opening_bracket)
-        {
             return -1;
-        }
 
         const char *candidate = section_name;
         while(true)
@@ -427,25 +385,19 @@ int find_script_section(const char *section_name, const char *text, int text_len
             const char name_character = *candidate;
             --remaining;
             if(remaining == 0)
-            {
                 return -1;
-            }
             ++cursor;
             ++candidate;
             if(name_character == '\0' || text_character == ']')
             {
                 found_opening_bracket = false;
                 if(static_cast<char>(text_character + name_character) == ']')
-                {
                     return text_length - remaining;
-                }
                 break;
             }
             found_opening_bracket = false;
             if(text_character != name_character)
-            {
                 break;
-            }
         }
     }
 }
@@ -455,19 +407,13 @@ int32_t parse_path_numeric_identifier(const char *path)
     uint32_t offset = 0;
     int32_t result = -1;
     while(path[offset] != '\0' && path[offset] != '\\')
-    {
         ++offset;
-    }
     if(path[offset] == '\0')
     {
         if(offset != 0)
-        {
             offset = 0;
-        }
         if(path[offset] == '\0')
-        {
             return result;
-        }
     }
 
     do
@@ -476,31 +422,20 @@ int32_t parse_path_numeric_identifier(const char *path)
         if(character >= '0' && character <= '9')
         {
             if(result == -1)
-            {
                 result = character - '0';
-            }
             else
-            {
                 result = character - '0' + result * 10;
-            }
         }
         ++offset;
     } while(path[offset] != '\0');
     return result;
 }
 
-const ArchiveCommentEnumerationApi &get_archive_comment_enumeration_api()
-{
-    return archive_comment_enumeration_api;
-}
-
 uint32_t extract_script_property_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     const uint32_t text_length = parser->text_length;
     uint32_t token_start = parser->cursor;
@@ -525,48 +460,38 @@ uint32_t extract_script_property_name(ScriptParserState *parser, char *name)
             std::memset(name, 0, 32);
             uint32_t name_length = 0;
             while(token_start < text_length && name_length < 31 && parser->text[token_start] != '=')
-            {
                 name[name_length++] = parser->text[token_start++];
-            }
             name[name_length] = '\0';
             parser->cursor = token_start + 1;
             return name_length;
         }
         case '[':
-            return 0xffffffff;
+            return SCRIPT_PARSE_END;
         default:
             break;
         }
     }
-    return 0xffffffff;
+    return SCRIPT_PARSE_END;
 }
 
 uint32_t extract_script_scope_name(ScriptParserState *parser, char *name)
 {
     name[0] = '\0';
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     uint32_t offset = parser->cursor;
     while(offset < parser->text_length)
     {
         const char character = parser->text[offset];
         if(character == '/')
-        {
             break;
-        }
         if(character == ';' || character == '[')
-        {
-            return 0xffffffff;
-        }
+            return SCRIPT_PARSE_END;
         ++offset;
     }
     if(offset >= parser->text_length)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     std::memset(name, 0, 32);
     uint32_t name_length = 0;
@@ -601,9 +526,7 @@ uint32_t extract_script_parenthesized_text(ScriptParserState *parser, char *text
 {
     text[0] = '\0';
     if(parser == nullptr || parser->cursor >= parser->text_length || parser->text[parser->cursor] != '(')
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     std::memset(text, 0, text_capacity);
     uint32_t text_length = 0;
@@ -612,9 +535,7 @@ uint32_t extract_script_parenthesized_text(ScriptParserState *parser, char *text
     {
         const char character = parser->text[offset + 1];
         if(character == '[')
-        {
-            return 0xffffffff;
-        }
+            return SCRIPT_PARSE_END;
         text[text_length++] = character;
         ++offset;
     }
@@ -630,13 +551,9 @@ int find_whitespace_token_index(const char *text, const char *token)
     while(text[text_offset] != '\0')
     {
         while(text[text_offset] == '\t' || text[text_offset] == '\n' || text[text_offset] == '\r' || text[text_offset] == ' ')
-        {
             ++text_offset;
-        }
         if(text[text_offset] == '\0')
-        {
             return token[0] == '\0' ? token_index + 1 : -1;
-        }
 
         ++token_index;
         int candidate_offset = 0;
@@ -647,25 +564,17 @@ int find_whitespace_token_index(const char *text, const char *token)
             if(character == '\0' || character == '\t' || character == '\n' || character == '\r' || character == ' ')
             {
                 if(matches != 0 && token[candidate_offset] == '\0')
-                {
                     return token_index;
-                }
                 if(character == '\0')
-                {
                     return -1;
-                }
                 break;
             }
             if(matches != 0)
             {
                 if(token[candidate_offset] == character)
-                {
                     ++candidate_offset;
-                }
                 else
-                {
                     --matches;
-                }
             }
         }
     }
@@ -676,43 +585,31 @@ uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t t
 {
     token[0] = '\0';
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     uint32_t offset = parser->cursor;
     while(true)
     {
         if(offset >= parser->text_length)
-        {
-            return 0xffffffff;
-        }
+            return SCRIPT_PARSE_END;
         switch(parser->text[offset])
         {
         case '(':
         {
             if(parser->text_length - 1 <= offset)
-            {
-                return 0xffffffff;
-            }
+                return SCRIPT_PARSE_END;
             char character;
             do
             {
                 character = parser->text[offset + 1];
                 ++offset;
                 if(offset >= parser->text_length)
-                {
                     break;
-                }
                 if(character == ')')
-                {
                     break;
-                }
             } while(character != '[');
             if(character != ')')
-            {
-                return 0xffffffff;
-            }
+                return SCRIPT_PARSE_END;
         }
             [[fallthrough]];
         case '\t':
@@ -726,7 +623,7 @@ uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t t
         case '/':
         case ';':
         case '[':
-            return 0xffffffff;
+            return SCRIPT_PARSE_END;
         default:
         {
             std::memset(token, 0, token_capacity);
@@ -766,53 +663,49 @@ uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t t
 void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *value_type)
 {
     const uint32_t saved_cursor = parser->cursor;
-    const int32_t integer_value = script_typed_value_api.parse_integer_expression(parser);
+    const int32_t integer_value = parse_script_integer_expression(parser);
     *static_cast<int32_t *>(value) = integer_value;
-    if(integer_value != 0x7fffffff)
+    if(integer_value != SCRIPT_INTEGER_INVALID)
     {
-        *value_type = 2;
+        *value_type = SCRIPT_VALUE_TYPE_INTEGER;
         return;
     }
 
     parser->cursor = saved_cursor;
-    const uint32_t flag = script_typed_value_api.parse_image_flag(parser);
+    const uint32_t flag = parse_image_flag(parser);
     *static_cast<uint32_t *>(value) = flag;
     if(flag != 0)
     {
-        *value_type = 1;
+        *value_type = SCRIPT_VALUE_TYPE_BOOLEAN;
         return;
     }
 
     parser->cursor = saved_cursor;
-    if(script_typed_value_api.parse_value_token(parser, static_cast<char *>(value), 0x20) != 0xffffffff)
+    if(parse_script_value_token(parser, static_cast<char *>(value), 0x20) != SCRIPT_PARSE_END)
     {
-        *value_type = 4;
+        *value_type = SCRIPT_VALUE_TYPE_STRING;
         return;
     }
-    *value_type = 0x7fffffff;
+    *value_type = SCRIPT_VALUE_TYPE_INVALID;
 }
 
 void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer == nullptr)
-    {
         return;
-    }
     while(flags != 0)
     {
         uint32_t emitted = 0;
-        if((flags & 0x00010000) != 0)
+        if((flags & SCRIPT_IMAGE_NATURAL_MOUSE) != 0)
         {
             emitted = 1;
-            flags &= 0xfffeffff;
+            flags &= ~SCRIPT_IMAGE_NATURAL_MOUSE;
             append_script_text_scope(buffer, 0x0a000000);
             buffer->length += copy_string(buffer->data + buffer->length, "NATURALMOUSE");
             buffer->data[buffer->length++] = ' ';
         }
         if(emitted == 0)
-        {
             break;
-        }
     }
 }
 
@@ -821,35 +714,33 @@ void serialize_image_flag_overrides(ScriptTextBuffer *buffer, uint32_t flags)
     while(buffer != nullptr)
     {
         bool emitted = false;
-        if((flags & 1) != 0)
+        if((flags & SCRIPT_IMAGE_PRIMARY) != 0)
         {
             emitted = true;
-            flags &= 0xfffffffe;
+            flags &= ~SCRIPT_IMAGE_PRIMARY;
             append_script_text_scope(buffer, 0x0a000000);
             buffer->length += copy_string(buffer->data + buffer->length, "PRIMARY");
             buffer->data[buffer->length++] = ' ';
         }
-        if((flags & 0x04000000) != 0)
+        if((flags & SCRIPT_IMAGE_NO_PALETTE) != 0)
         {
             emitted = true;
-            flags &= 0xfbffffff;
-            if((script_runtime_root->flags & 0x04000000) == 0)
+            flags &= ~SCRIPT_IMAGE_NO_PALETTE;
+            if((script_runtime_root->flags & SCRIPT_RUNTIME_NO_PALETTE_ADJUSTMENT) == 0)
             {
                 append_script_text_scope(buffer, 0x0a000000);
                 buffer->length += copy_string(buffer->data + buffer->length, "NOPAL");
                 buffer->data[buffer->length++] = ' ';
             }
         }
-        else if((script_runtime_root->flags & 0x04000000) != 0)
+        else if((script_runtime_root->flags & SCRIPT_RUNTIME_NO_PALETTE_ADJUSTMENT) != 0)
         {
             buffer->data[buffer->length++] = '/';
             buffer->length += copy_string(buffer->data + buffer->length, "INVERT_NOPAL");
             buffer->data[buffer->length++] = ' ';
         }
         if(!emitted || flags == 0)
-        {
             return;
-        }
     }
 }
 
@@ -862,41 +753,29 @@ uint32_t parse_script_parameter_token(const char *text, int32_t token_index, voi
     while(text[offset] != '\0')
     {
         while(text[offset] == '\t' || text[offset] == '\n' || text[offset] == '\r' || text[offset] == ' ')
-        {
             ++offset;
-        }
         if(text[offset] == '\0')
-        {
             break;
-        }
         ++current_index;
         if(current_index == token_index)
         {
             uint32_t length = 0;
             while(text[offset] != '\0' && text[offset] != '\t' && text[offset] != '\n' && text[offset] != '\r' && text[offset] != ' ')
-            {
                 token[length++] = text[offset++];
-            }
             token[length] = '\0';
             break;
         }
         while(text[offset] != '\0' && text[offset] != '\t' && text[offset] != '\n' && text[offset] != '\r' && text[offset] != ' ')
-        {
             ++offset;
-        }
     }
 
     const uint32_t expected_type = *value_type;
     if(token[0] == '\0')
     {
-        if(expected_type == 1)
-        {
-            *static_cast<uint32_t *>(value) = 0x07000000;
-        }
-        else if(expected_type == 2 || expected_type == 4)
-        {
+        if(expected_type == SCRIPT_VALUE_TYPE_BOOLEAN)
+            *static_cast<uint32_t *>(value) = SCRIPT_BOOLEAN_FALSE;
+        else if(expected_type == SCRIPT_VALUE_TYPE_INTEGER || expected_type == SCRIPT_VALUE_TYPE_STRING)
             *static_cast<uint32_t *>(value) = 0;
-        }
         return 0;
     }
 
@@ -905,7 +784,7 @@ uint32_t parse_script_parameter_token(const char *text, int32_t token_index, voi
     token_parser.text_length = static_cast<uint32_t>(std::strlen(token));
     token_parser.cursor = 0;
     parse_script_typed_value(&token_parser, value, value_type);
-    return *value_type != 0x7fffffff && (expected_type == 0 || expected_type == *value_type) ? 1 : 0;
+    return *value_type != SCRIPT_VALUE_TYPE_INVALID && (expected_type == SCRIPT_VALUE_TYPE_NONE || expected_type == *value_type) ? 1 : 0;
 }
 
 uint32_t evaluate_script_parameter(ScriptParserState *parser, const char *name, void *value, uint32_t *value_type)
@@ -917,154 +796,136 @@ uint32_t evaluate_script_parameter(ScriptParserState *parser, const char *name, 
 int32_t parse_script_integer_expression(ScriptParserState *parser)
 {
     if(parser == nullptr)
-    {
-        return 0x7fffffff;
-    }
+        return SCRIPT_INTEGER_INVALID;
 
     const uint32_t saved_cursor = parser->cursor;
     int32_t result = parse_script_integer_literal(parser);
-    if(result != 0x7fffffff)
-    {
+    if(result != SCRIPT_INTEGER_INVALID)
         return result;
-    }
 
     char token[0x20];
-    if(extract_script_token(parser, token, sizeof(token)) == 0xffffffff)
+    if(extract_script_token(parser, token, sizeof(token)) == SCRIPT_PARSE_END)
     {
         parser->cursor = saved_cursor;
-        return 0x7fffffff;
+        return SCRIPT_INTEGER_INVALID;
     }
     if(fixed_dword_memory_equal(token, "PARAM", 4))
     {
         parse_script_value_token(parser, token, sizeof(token));
         // The evaluator materializes the parameter before checking its type, so reserve enough temporary storage for any typed value.
         uint32_t parameter_value[8];
-        uint32_t value_type = 2;
-        if(script_integer_expression_api.evaluate_parameter(parser, token, parameter_value, &value_type) == 0)
+        uint32_t value_type = SCRIPT_VALUE_TYPE_INTEGER;
+        if(evaluate_script_parameter(parser, token, parameter_value, &value_type) == 0)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
         return static_cast<int32_t>(parameter_value[0]);
     }
     if(fixed_dword_memory_equal(token, "RAND", 4))
     {
         int32_t minimum = parse_script_integer_expression(parser);
-        if(minimum == 0x7fffffff)
-        {
+        if(minimum == SCRIPT_INTEGER_INVALID)
             minimum = -10000;
-        }
         int32_t maximum = parse_script_integer_expression(parser);
-        if(maximum == 0x7fffffff)
-        {
+        if(maximum == SCRIPT_INTEGER_INVALID)
             maximum = 10000;
-        }
-        return script_integer_expression_api.select_random(minimum, maximum);
+        return select_bounded_random_value(minimum, maximum);
     }
     if(fixed_dword_memory_equal(token, "RELZ", 4))
     {
         char name[0x20];
-        if(parse_script_value_token(parser, name, sizeof(name)) == 0xffffffff)
+        if(parse_script_value_token(parser, name, sizeof(name)) == SCRIPT_PARSE_END)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
         int32_t offset = parse_script_integer_expression(parser);
-        if(offset == 0x7fffffff)
-        {
+        if(offset == SCRIPT_INTEGER_INVALID)
             offset = 0;
-        }
-        RuntimeTreeLink84 *link = script_integer_expression_api.find_link_0084(name);
+        RuntimeTreeLink84 *link = find_global_runtime_tree_link_0084_by_name(name);
         if(link == nullptr)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
         return offset + (token[4] == 'X' ? link->x : link->y);
     }
     if(fixed_dword_memory_equal(token, "RELI", 4))
     {
         char name[0x20];
-        if(parse_script_value_token(parser, name, sizeof(name)) == 0xffffffff)
+        if(parse_script_value_token(parser, name, sizeof(name)) == SCRIPT_PARSE_END)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
         int32_t offset = parse_script_integer_expression(parser);
-        if(offset == 0x7fffffff)
-        {
+        if(offset == SCRIPT_INTEGER_INVALID)
             offset = 0;
-        }
-        RuntimeTreePrimaryResourceLink *link = script_integer_expression_api.find_primary_link(name);
+        RuntimeTreePrimaryResourceLink *link = find_global_runtime_tree_primary_resource_link_by_name(name);
         if(link == nullptr)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
         return offset + (token[4] == 'X' ? link->x : link->y);
     }
     if(fixed_dword_memory_equal(token, "RELM", 4))
     {
         int32_t offset = parse_script_integer_expression(parser);
-        if(offset == 0x7fffffff)
-        {
+        if(offset == SCRIPT_INTEGER_INVALID)
             offset = 0;
-        }
         int32_t runtime_value;
-        script_integer_expression_api.query_runtime(token[4] == 'X' ? 9 : 10, nullptr, &runtime_value);
+        script_runtime_root->get_property(token[4] == 'X' ? ScriptRuntimeProperty::POINTER_X : ScriptRuntimeProperty::POINTER_Y, nullptr, &runtime_value);
         return runtime_value + offset;
     }
     if(fixed_dword_memory_equal(token, "VALUE", 4))
     {
         char object_name[0x20];
         char field_name[0x20];
-        if(parse_script_value_token(parser, object_name, sizeof(object_name)) == 0xffffffff || parse_script_value_token(parser, field_name, sizeof(field_name)) == 0xffffffff)
+        if(parse_script_value_token(parser, object_name, sizeof(object_name)) == SCRIPT_PARSE_END || parse_script_value_token(parser, field_name, sizeof(field_name)) == SCRIPT_PARSE_END)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
-        result = script_integer_expression_api.get_object_integer(object_name, field_name);
-        if(result == 0x7fffffff)
-        {
+        result = get_script_object_integer(object_name, field_name);
+        if(result == SCRIPT_INTEGER_INVALID)
             parser->cursor = saved_cursor;
-        }
         return result;
     }
     if(fixed_dword_memory_equal(token, "PHASE", 4))
     {
-        if(parse_script_value_token(parser, token, sizeof(token)) == 0xffffffff)
+        if(parse_script_value_token(parser, token, sizeof(token)) == SCRIPT_PARSE_END)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
-        RuntimeTreePrimaryResourceLink *link = script_integer_expression_api.find_primary_link(token);
+        RuntimeTreePrimaryResourceLink *link = find_global_runtime_tree_primary_resource_link_by_name(token);
         if(link == nullptr)
         {
             parser->cursor = saved_cursor;
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         }
-        script_integer_expression_api.query_runtime(0x0b, &link->resource_identity, &result);
+        script_runtime_root->get_property(ScriptRuntimeProperty::RESOURCE_FRAME, &link->resource_identity, &result);
         return result;
     }
 
     parser->cursor = saved_cursor;
-    return 0x7fffffff;
+    return SCRIPT_INTEGER_INVALID;
 }
 
 uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32_t value_capacity)
 {
     uint32_t result = extract_script_token(parser, value, value_capacity);
-    if(result == 0xffffffff)
-    {
+    if(result == SCRIPT_PARSE_END)
         return result;
-    }
 
     if(fixed_dword_memory_equal(value, "PARAM", 4))
     {
         char parameter_name[0x20];
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
-        uint32_t value_type = 4;
-        result = script_value_parse_api.evaluate_parameter(parser, parameter_name, value, &value_type) == 0 ? 0xffffffff : 0x20;
+        uint32_t value_type = SCRIPT_VALUE_TYPE_STRING;
+        result = evaluate_script_parameter(parser, parameter_name, value, &value_type) == 0 ? SCRIPT_PARSE_END : 0x20;
     }
     if(fixed_dword_memory_equal(value, "SVALUE", 4))
     {
@@ -1072,7 +933,7 @@ uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32
         char field_name[0x20];
         parse_script_value_token(parser, object_name, sizeof(object_name));
         parse_script_value_token(parser, field_name, sizeof(field_name));
-        result = get_script_object_string(object_name, field_name, value) == 0 ? 0xffffffff : 0x20;
+        result = get_script_object_string(object_name, field_name, value) == 0 ? SCRIPT_PARSE_END : 0x20;
     }
     return result;
 }
@@ -1080,22 +941,18 @@ uint32_t parse_script_value_token(ScriptParserState *parser, char *value, uint32
 uint32_t parse_image_flag(ScriptParserState *parser)
 {
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
 
     char token[0x20];
-    if(extract_script_token(parser, token, sizeof(token)) == 0xffffffff)
-    {
-        return 0xffffffff;
-    }
+    if(extract_script_token(parser, token, sizeof(token)) == SCRIPT_PARSE_END)
+        return SCRIPT_PARSE_END;
     if(fixed_dword_memory_equal(token, "BVALUE", 4))
     {
         char object_name[0x20];
         char field_name[0x20];
         parse_script_value_token(parser, object_name, sizeof(object_name));
         parse_script_value_token(parser, field_name, sizeof(field_name));
-        uint32_t value = 0x03000000;
+        uint32_t value = SCRIPT_BOOLEAN_TRUE;
         return query_or_create_script_object_field(object_name, field_name, &value, 1);
     }
     if(fixed_dword_memory_equal(token, "PARAM", 4))
@@ -1104,11 +961,9 @@ uint32_t parse_image_flag(ScriptParserState *parser)
         parse_script_value_token(parser, parameter_name, sizeof(parameter_name));
         // A mismatched parameter may be a string, and the evaluator writes it before reporting the mismatch.
         uint32_t parameter_value[8];
-        uint32_t value_type = 1;
-        if(script_value_parse_api.evaluate_parameter(parser, parameter_name, parameter_value, &value_type) == 0)
-        {
-            return 0xffffffff;
-        }
+        uint32_t value_type = SCRIPT_VALUE_TYPE_BOOLEAN;
+        if(evaluate_script_parameter(parser, parameter_name, parameter_value, &value_type) == 0)
+            return SCRIPT_PARSE_END;
         return parameter_value[0];
     }
 
@@ -1118,70 +973,64 @@ uint32_t parse_image_flag(ScriptParserState *parser)
         uint32_t value;
     };
     static constexpr ImageFlagMapping mappings[]{
-        { "PRIMARY",        0x00000001 },
-        { "CONTROL",        0x00000020 },
-        { "PERMANENT",      0x00000400 },
-        { "LOAD_ONLY",      0x00000200 },
-        { "DOUBLE",         0x00200000 },
-        { "SEPARATED",      0x00000040 },
-        { "STOPPED",        0x00000010 },
-        { "NOSKIP",         0x00100000 },
-        { "NOCLS",          0x01000000 },
-        { "NOPAL",          0x04000000 },
-        { "ON",             0x03000000 },
-        { "OFF",            0x07000000 },
-        { "NATURALMOUSE",   0x00010000 },
-        { "DUAL",           0x00200000 },
-        { "ONE_STEP",       0x00000200 },
-        { "RESTART",        0x00020000 },
-        { "NOFADE",         0x00000001 },
-        { "PALFADE",        0x00000002 },
-        { "FRAMEFADE",      0x00000004 },
-        { "COLORED",        0x00000001 },
-        { "LOWCASE",        0x00000010 },
-        { "UPPCASE",        0x00000020 },
-        { "NOINV",          0x00000010 },
-        { "NOSAVE",         0x00000100 },
-        { "RESIDENT",       0x00000400 },
-        { "COMMENT",        0x00000800 },
-        { "INVENTORY_PACK", 0x00001000 },
-        { "NOMOUSE",        0x00002000 },
-        { "NOCONTROL",      0x00004000 },
-        { "NONTRANSP",      0x00000020 },
-        { "STATIC",         0x00000002 },
-        { "FIXSIZE",        0x02000000 },
-        { "FIXPOS",         0x04000000 },
-        { "NOCOMMENT",      0x00000001 },
-        { "PAL_NOADJUST",   0x04000000 },
+        { "PRIMARY",        0x00000001           },
+        { "CONTROL",        0x00000020           },
+        { "PERMANENT",      0x00000400           },
+        { "LOAD_ONLY",      0x00000200           },
+        { "DOUBLE",         0x00200000           },
+        { "SEPARATED",      0x00000040           },
+        { "STOPPED",        0x00000010           },
+        { "NOSKIP",         0x00100000           },
+        { "NOCLS",          0x01000000           },
+        { "NOPAL",          0x04000000           },
+        { "ON",             SCRIPT_BOOLEAN_TRUE  },
+        { "OFF",            SCRIPT_BOOLEAN_FALSE },
+        { "NATURALMOUSE",   0x00010000           },
+        { "DUAL",           0x00200000           },
+        { "ONE_STEP",       0x00000200           },
+        { "RESTART",        0x00020000           },
+        { "NOFADE",         0x00000001           },
+        { "PALFADE",        0x00000002           },
+        { "FRAMEFADE",      0x00000004           },
+        { "COLORED",        0x00000001           },
+        { "LOWCASE",        0x00000010           },
+        { "UPPCASE",        0x00000020           },
+        { "NOINV",          0x00000010           },
+        { "NOSAVE",         0x00000100           },
+        { "RESIDENT",       0x00000400           },
+        { "COMMENT",        0x00000800           },
+        { "INVENTORY_PACK", 0x00001000           },
+        { "NOMOUSE",        0x00002000           },
+        { "NOCONTROL",      0x00004000           },
+        { "NONTRANSP",      0x00000020           },
+        { "STATIC",         0x00000002           },
+        { "FIXSIZE",        0x02000000           },
+        { "FIXPOS",         0x04000000           },
+        { "NOCOMMENT",      0x00000001           },
+        { "PAL_NOADJUST",   0x04000000           },
     };
     for(const ImageFlagMapping &mapping : mappings)
-    {
         if(strings_equal(token, mapping.name))
-        {
             return mapping.value;
-        }
-    }
     return 0;
 }
 
 uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *resource_name, char *tree_name, uint32_t *flags)
 {
     uint32_t saved_cursor = parser->cursor;
-    *flags = runtime_tree_command_target_api.parse_image_flag(parser);
+    *flags = parse_image_flag(parser);
     if(*flags != 0)
     {
-        if(*flags == 0xffffffff)
-        {
+        if(*flags == SCRIPT_PARSE_END)
             *flags = 0;
-        }
         return 0;
     }
 
     parser->cursor = saved_cursor;
-    runtime_tree_command_target_api.parse_value_token(parser, resource_name, 0x20);
+    parse_script_value_token(parser, resource_name, 0x20);
     saved_cursor = parser->cursor;
-    *flags = runtime_tree_command_target_api.parse_image_flag(parser);
-    if(*flags == 0xffffffff)
+    *flags = parse_image_flag(parser);
+    if(*flags == SCRIPT_PARSE_END)
     {
         std::memcpy(tree_name, resource_name, 0x20);
         std::memcpy(resource_name, parser->resource->name, 0x20);
@@ -1191,8 +1040,8 @@ uint32_t parse_runtime_tree_command_target(ScriptParserState *parser, char *reso
     if(*flags == 0)
     {
         parser->cursor = saved_cursor;
-        runtime_tree_command_target_api.parse_value_token(parser, tree_name, 0x20);
-        const uint32_t trailing_flags = runtime_tree_command_target_api.parse_image_flag(parser);
+        parse_script_value_token(parser, tree_name, 0x20);
+        const uint32_t trailing_flags = parse_image_flag(parser);
         if(static_cast<int32_t>(trailing_flags) > 0)
         {
             *flags = trailing_flags;
@@ -1214,22 +1063,14 @@ uint32_t apply_runtime_tree_image_flags(ScriptParserState *parser)
     while(true)
     {
         const uint32_t flag = parse_image_flag(parser);
-        if(flag == 0xffffffff)
-        {
+        if(flag == SCRIPT_PARSE_END)
             break;
-        }
         if(flag == 1)
-        {
             script_runtime_root->flags |= flag;
-        }
         else if(flag == 0x04000000)
-        {
             script_runtime_root->palette_flags |= flag;
-        }
         else
-        {
             owner->flags |= flag;
-        }
     }
     return 1;
 }
@@ -1239,62 +1080,54 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
     RuntimeTreeNode *owner = parser->owner;
     char resource_name[0x20];
     char tree_name[0x20];
-    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
-    {
+    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == SCRIPT_PARSE_END)
         return nullptr;
-    }
     const uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
     RuntimeGenericResourceNode *resource = nullptr;
-    if(tree_name_result == 0xffffffff)
+    if(tree_name_result == SCRIPT_PARSE_END)
     {
         std::memcpy(tree_name, resource_name, sizeof(tree_name));
         resource = parser->resource;
     }
 
-    RuntimeTreeNode *node = runtime_tree_conditional_create_api.find_descendant(owner, tree_name);
+    RuntimeTreeNode *node = reinterpret_cast<RuntimeTreeNode *(*)(void *, const void *)>(find_runtime_tree_descendant_identity_by_name)(owner, tree_name);
     bool saw_condition = false;
     uint8_t conditions_match = 1;
     void *parent_selector = owner;
     while(true)
     {
         uint32_t scope = parse_script_scope_code(parser);
-        if(scope == 0x00010000)
+        if(scope == SCRIPT_SCOPE_VALUE)
         {
             saw_condition = true;
             char object_name[0x20];
             char field_name[0x20];
             uint8_t value[0x80];
-            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
+            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != SCRIPT_PARSE_END && parse_script_value_token(parser, field_name, sizeof(field_name)) != SCRIPT_PARSE_END)
             {
                 parse_script_typed_value(parser, value, &scope);
-                if(scope != 0x7fffffff)
-                {
-                    conditions_match = static_cast<uint8_t>(conditions_match != 0 && runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<int32_t>(scope)));
-                }
+                if(scope != SCRIPT_INTEGER_INVALID)
+                    conditions_match = static_cast<uint8_t>(conditions_match != 0 && compare_script_object_field(object_name, field_name, value, static_cast<int32_t>(scope)));
             }
         }
-        else if(scope == 0x00200000)
+        else if(scope == SCRIPT_SCOPE_GLOBAL)
         {
             if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
-            {
                 return nullptr;
-            }
             parent_selector = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
-        else if(scope == 0x0e000000)
+        else if(scope == SCRIPT_SCOPE_CONTAINER_CONDITION)
         {
             saw_condition = true;
             char container_name[0x20];
             scope = parse_script_value_token(parser, container_name, sizeof(container_name));
-            if(scope != 0xffffffff)
-            {
-                conditions_match = static_cast<uint8_t>(conditions_match != 0 && runtime_tree_conditional_create_api.container_matches(container_name));
-            }
+            if(scope != SCRIPT_PARSE_END)
+                conditions_match = static_cast<uint8_t>(conditions_match != 0 && script_object_container_state_matches_by_name(container_name));
         }
 
-        if(scope == 0xffffffff)
+        if(scope == SCRIPT_PARSE_END)
         {
-            if(node != nullptr && (node->flags & 0x800) != 0)
+            if(node != nullptr && (node->flags & RUNTIME_TREE_COMMENT) != 0)
             {
                 saw_condition = true;
                 conditions_match = 0;
@@ -1305,16 +1138,14 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
                 {
                     if(conditions_match != 0)
                     {
-                        if(tree_name_result != 0xffffffff)
-                        {
-                            resource = runtime_tree_conditional_create_api.load_resource(resource_name);
-                        }
-                        node = runtime_tree_conditional_create_api.create_node(resource, parent_selector, tree_name, nullptr);
+                        if(tree_name_result != SCRIPT_PARSE_END)
+                            resource = find_or_load_runtime_generic_resource(resource_name);
+                        node = create_runtime_tree_node(resource, parent_selector, tree_name, nullptr);
                     }
                 }
                 else if(conditions_match == 0)
                 {
-                    runtime_tree_conditional_create_api.destroy_node(node, nullptr);
+                    destroy_runtime_tree_node(node, nullptr);
                     node = nullptr;
                 }
             }
@@ -1328,13 +1159,11 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
     RuntimeTreeNode *owner = parser->owner;
     char resource_name[0x20];
     char tree_name[0x20];
-    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == 0xffffffff)
-    {
+    if(parse_script_value_token(parser, resource_name, sizeof(resource_name)) == SCRIPT_PARSE_END)
         return nullptr;
-    }
     const uint32_t tree_name_result = parse_script_value_token(parser, tree_name, sizeof(tree_name));
     RuntimeGenericResourceNode *resource = nullptr;
-    if(tree_name_result == 0xffffffff)
+    if(tree_name_result == SCRIPT_PARSE_END)
     {
         std::memcpy(tree_name, resource_name, sizeof(tree_name));
         resource = parser->resource;
@@ -1344,45 +1173,37 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
     while(true)
     {
         uint32_t scope = parse_script_scope_code(parser);
-        if(scope == 0x00010000)
+        if(scope == SCRIPT_SCOPE_VALUE)
         {
             char object_name[0x20];
             char field_name[0x20];
             uint8_t value[0x80];
-            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != 0xffffffff && parse_script_value_token(parser, field_name, sizeof(field_name)) != 0xffffffff)
+            if(parse_script_value_token(parser, object_name, sizeof(object_name)) != SCRIPT_PARSE_END && parse_script_value_token(parser, field_name, sizeof(field_name)) != SCRIPT_PARSE_END)
             {
                 parse_script_typed_value(parser, value, &scope);
-                if(scope != 0x7fffffff && !runtime_tree_conditional_create_api.compare_field(object_name, field_name, value, static_cast<int32_t>(scope)))
-                {
+                if(scope != SCRIPT_INTEGER_INVALID && !compare_script_object_field(object_name, field_name, value, static_cast<int32_t>(scope)))
                     return nullptr;
-                }
             }
         }
-        else if(scope == 0x00200000)
+        else if(scope == SCRIPT_SCOPE_GLOBAL)
         {
             if(owner->parent == reinterpret_cast<RuntimeTreeNode *>(static_cast<intptr_t>(-1)))
-            {
                 return nullptr;
-            }
             parent_selector = reinterpret_cast<void *>(static_cast<intptr_t>(-1));
         }
-        else if(scope == 0x0e000000)
+        else if(scope == SCRIPT_SCOPE_CONTAINER_CONDITION)
         {
             char container_name[0x20];
             scope = parse_script_value_token(parser, container_name, sizeof(container_name));
-            if(scope != 0xffffffff && !runtime_tree_conditional_create_api.container_matches(container_name))
-            {
+            if(scope != SCRIPT_PARSE_END && !script_object_container_state_matches_by_name(container_name))
                 return nullptr;
-            }
         }
 
-        if(scope == 0xffffffff)
+        if(scope == SCRIPT_PARSE_END)
         {
-            if(tree_name_result != 0xffffffff)
-            {
-                resource = runtime_tree_conditional_create_api.load_resource(resource_name);
-            }
-            return runtime_tree_conditional_create_api.create_node(resource, parent_selector, tree_name, nullptr);
+            if(tree_name_result != SCRIPT_PARSE_END)
+                resource = find_or_load_runtime_generic_resource(resource_name);
+            return create_runtime_tree_node(resource, parent_selector, tree_name, nullptr);
         }
     }
 }
@@ -1394,35 +1215,25 @@ int32_t parse_script_integer_literal(ScriptParserState *parser)
     while(true)
     {
         if(offset >= parser->text_length)
-        {
-            return 0x7fffffff;
-        }
+            return SCRIPT_INTEGER_INVALID;
         switch(parser->text[offset])
         {
         case '(':
         {
             if(parser->text_length - 1 <= offset)
-            {
-                return 0x7fffffff;
-            }
+                return SCRIPT_INTEGER_INVALID;
             char character;
             do
             {
                 character = parser->text[offset + 1];
                 ++offset;
                 if(offset >= parser->text_length)
-                {
                     break;
-                }
                 if(character == ')')
-                {
                     break;
-                }
             } while(character != '[');
             if(character != ')')
-            {
-                return 0x7fffffff;
-            }
+                return SCRIPT_INTEGER_INVALID;
         }
             [[fallthrough]];
         case '\t':
@@ -1442,7 +1253,7 @@ int32_t parse_script_integer_literal(ScriptParserState *parser)
         case '/':
         case ';':
         case '[':
-            return 0x7fffffff;
+            return SCRIPT_INTEGER_INVALID;
         default:
             break;
         }
@@ -1455,17 +1266,13 @@ int32_t parse_script_integer_literal(ScriptParserState *parser)
     {
         const char character = parser->text[offset];
         if(character < '0' || character > '9')
-        {
             break;
-        }
         value = character - '0' + value * 10;
         ++offset;
         no_digits = false;
     }
     if(no_digits)
-    {
-        return 0x7fffffff;
-    }
+        return SCRIPT_INTEGER_INVALID;
     parser->cursor = offset;
     return negative ? -value : value;
 }
@@ -1473,14 +1280,10 @@ int32_t parse_script_integer_literal(ScriptParserState *parser)
 uint32_t parse_script_property_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
     char name[32];
-    if(extract_script_property_name(parser, name) == 0xffffffff)
-    {
-        return 0xffffffff;
-    }
+    if(extract_script_property_name(parser, name) == SCRIPT_PARSE_END)
+        return SCRIPT_PARSE_END;
 
     struct Mapping
     {
@@ -1520,26 +1323,18 @@ uint32_t parse_script_property_code(ScriptParserState *parser)
         { "layer",       0xf0 },
     };
     for(const Mapping &mapping : mappings)
-    {
         if(strings_equal(name, mapping.name))
-        {
             return mapping.code;
-        }
-    }
     return 0;
 }
 
 uint32_t parse_script_scope_code(ScriptParserState *parser)
 {
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
     char name[32];
-    if(extract_script_scope_name(parser, name) == 0xffffffff)
-    {
-        return 0xffffffff;
-    }
+    if(extract_script_scope_name(parser, name) == SCRIPT_PARSE_END)
+        return SCRIPT_PARSE_END;
 
     struct Mapping
     {
@@ -1547,62 +1342,54 @@ uint32_t parse_script_scope_code(ScriptParserState *parser)
         uint32_t code;
     };
     static constexpr Mapping mappings[]{
-        { "FILE",         0x01000000 },
-        { "LIST",         0x00100000 },
-        { "GLOBAL",       0x00200000 },
-        { "RECT",         0x02000000 },
-        { "F",            0x0a000000 },
-        { "POS",          0x0b000000 },
-        { "MOUSE",        0x0d000000 },
-        { "AMOUSE",       0x20000000 },
-        { "DEST",         0x06000000 },
-        { "SOUR",         0x05000000 },
-        { "ZONE",         0x0f000000 },
-        { "COMM",         0x0c000000 },
-        { "PCOMM",        0x10000000 },
-        { "OWNER",        0x30000000 },
-        { "C",            0x0e000000 },
-        { "RATIO",        0x00300000 },
-        { "RAD",          0x00400000 },
-        { "LINE",         0x00500000 },
-        { "TIME",         0x00600000 },
-        { "PATH",         0x00700000 },
-        { "IMAGE",        0x00800000 },
-        { "LOOP",         0x00900000 },
-        { "R",            0x00a00000 },
-        { "P",            0x00b00000 },
-        { "KEYUP",        0x00c00000 },
-        { "TRANSPARENT",  0x00d00000 },
-        { "TEXT",         0x00e00000 },
-        { "FONT",         0x00f00000 },
-        { "V",            0x00010000 },
-        { "UPDOWN",       0x00020000 },
-        { "NOMATCHES",    0x00030000 },
-        { "Z",            0x00040000 },
-        { "LAYER",        0x00050000 },
-        { "INVERT_NOPAL", 0x00060000 },
+        { "FILE",         SCRIPT_SCOPE_FILE                },
+        { "LIST",         SCRIPT_SCOPE_LIST                },
+        { "GLOBAL",       SCRIPT_SCOPE_GLOBAL              },
+        { "RECT",         SCRIPT_SCOPE_RECTANGLE           },
+        { "F",            SCRIPT_SCOPE_FLAGS               },
+        { "POS",          SCRIPT_SCOPE_POSITION            },
+        { "MOUSE",        SCRIPT_SCOPE_MOUSE               },
+        { "AMOUSE",       SCRIPT_SCOPE_ALTERNATE_MOUSE     },
+        { "DEST",         SCRIPT_SCOPE_DESTINATION         },
+        { "SOUR",         SCRIPT_SCOPE_SOURCE              },
+        { "ZONE",         SCRIPT_SCOPE_ZONE                },
+        { "COMM",         SCRIPT_SCOPE_COMMAND             },
+        { "PCOMM",        SCRIPT_SCOPE_PARENT_COMMAND      },
+        { "OWNER",        SCRIPT_SCOPE_OWNER               },
+        { "C",            SCRIPT_SCOPE_CONTAINER_CONDITION },
+        { "RATIO",        SCRIPT_SCOPE_RATIO               },
+        { "RAD",          SCRIPT_SCOPE_RADIUS              },
+        { "LINE",         SCRIPT_SCOPE_LINE                },
+        { "TIME",         SCRIPT_SCOPE_TIME                },
+        { "PATH",         SCRIPT_SCOPE_PATH                },
+        { "IMAGE",        SCRIPT_SCOPE_IMAGE               },
+        { "LOOP",         SCRIPT_SCOPE_LOOP                },
+        { "R",            SCRIPT_SCOPE_RANDOM              },
+        { "P",            SCRIPT_SCOPE_PRIORITY            },
+        { "KEYUP",        SCRIPT_SCOPE_KEY_UP              },
+        { "TRANSPARENT",  SCRIPT_SCOPE_TRANSPARENT         },
+        { "TEXT",         SCRIPT_SCOPE_TEXT                },
+        { "FONT",         SCRIPT_SCOPE_FONT                },
+        { "V",            SCRIPT_SCOPE_VALUE               },
+        { "UPDOWN",       SCRIPT_SCOPE_UP_DOWN             },
+        { "NOMATCHES",    SCRIPT_SCOPE_NO_MATCHES          },
+        { "Z",            SCRIPT_SCOPE_Z                   },
+        { "LAYER",        SCRIPT_SCOPE_LAYER               },
+        { "INVERT_NOPAL", SCRIPT_SCOPE_INVERT_NO_PALETTE   },
     };
     for(const Mapping &mapping : mappings)
-    {
         if(strings_equal(name, mapping.name))
-        {
             return mapping.code;
-        }
-    }
     return 0;
 }
 
 uint32_t parse_script_opcode(ScriptParserState *parser)
 {
     if(parser == nullptr)
-    {
-        return 0xffffffff;
-    }
+        return SCRIPT_PARSE_END;
     char name[32];
-    if(extract_script_scope_name(parser, name) == 0xffffffff)
-    {
-        return 0xffffffff;
-    }
+    if(extract_script_scope_name(parser, name) == SCRIPT_PARSE_END)
+        return SCRIPT_PARSE_END;
 
     struct Mapping
     {
@@ -1664,12 +1451,8 @@ uint32_t parse_script_opcode(ScriptParserState *parser)
         { "DISABLE_GLOBALS", 0x00000800 },
     };
     for(const Mapping &mapping : mappings)
-    {
         if(strings_equal(name, mapping.name))
-        {
             return mapping.code;
-        }
-    }
     return 0;
 }
 
@@ -1684,9 +1467,7 @@ bool fixed_dword_memory_equal(const void *left, const void *right, uint32_t byte
         --count;
         equal = true;
         if(*left_dwords != *right_dwords)
-        {
             return false;
-        }
         ++left_dwords;
         ++right_dwords;
     }
@@ -1697,13 +1478,9 @@ void copy_file_name_from_path(char *destination, const char *source)
 {
     int index = 0;
     while(source[index] != '\0')
-    {
         ++index;
-    }
     while(index >= 0 && source[index] != '\\')
-    {
         --index;
-    }
     int destination_index = 0;
     do
     {
@@ -1717,21 +1494,13 @@ void copy_runtime_tree_command_name(char *destination, uint32_t command)
 {
     const char *source = nullptr;
     if(command == 0x40000000)
-    {
         source = "PLOAD";
-    }
     else if(command == 0x40000001)
-    {
         source = "LOADNOFADE";
-    }
     else if(command == 0x50000000)
-    {
         source = "PRELOAD";
-    }
     else if(command == 0x50000001)
-    {
         source = "RELOADNOFADE";
-    }
     if(source == nullptr)
     {
         destination[0] = '\0';
@@ -1742,7 +1511,7 @@ void copy_runtime_tree_command_name(char *destination, uint32_t command)
 
 ScriptObjectState *create_script_object_state(const void *name)
 {
-    auto *object = static_cast<ScriptObjectState *>(script_object_memory_api.heap_alloc(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(ScriptObjectState)));
+    auto *object = static_cast<ScriptObjectState *>(allocate_runtime_heap(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(ScriptObjectState)));
     if(object != nullptr)
     {
         std::memcpy(object->name, name, sizeof(object->name));
@@ -1754,74 +1523,62 @@ ScriptObjectState *create_script_object_state(const void *name)
 uint32_t parse_script_object_state(ScriptParserState *parser)
 {
     char name[0x80];
-    if(script_object_parse_api.parse_value(parser, name, 0x20) == 0xffffffff)
-    {
+    if(parse_script_value_token(parser, name, 0x20) == SCRIPT_PARSE_END)
         return 0;
-    }
     ScriptObjectState *previous = nullptr;
     ScriptObjectState *object = script_runtime_root->objects;
-    while(object != nullptr && !script_object_parse_api.fixed_equal(name, object->name, 0x20))
+    while(object != nullptr && !fixed_dword_memory_equal(name, object->name, 0x20))
     {
         previous = object;
         object = object->next;
     }
     if(object == nullptr)
     {
-        object = script_object_parse_api.create_object(name);
+        object = create_script_object_state(name);
         if(object == nullptr)
-        {
             return 0;
-        }
         if(previous == nullptr)
-        {
             script_runtime_root->objects = object;
-        }
         else
-        {
             previous->next = object;
-        }
     }
     object->image_flags |= script_runtime_root->palette_flags;
 
     bool invert_no_palette = false;
     while(true)
     {
-        uint32_t code = script_object_parse_api.parse_value(parser, name, 0x20);
-        if(code != 0xffffffff)
+        uint32_t code = parse_script_value_token(parser, name, 0x20);
+        if(code != SCRIPT_PARSE_END)
         {
             if(object->field_count < 0x20)
             {
                 char string_value[0x80];
-                uint32_t value = static_cast<uint32_t>(script_object_parse_api.parse_integer(parser));
-                if(value == 0x7fffffff)
+                uint32_t value = static_cast<uint32_t>(parse_script_integer_expression(parser));
+                if(value == SCRIPT_INTEGER_INVALID)
                 {
                     const uint32_t cursor = parser->cursor;
-                    value = script_object_parse_api.parse_image_flag(parser);
+                    value = parse_image_flag(parser);
                     if(value == 0)
                     {
                         parser->cursor = cursor;
-                        if(script_object_parse_api.parse_value(parser, string_value, 0x20) == 0xffffffff)
-                        {
+                        if(parse_script_value_token(parser, string_value, 0x20) == SCRIPT_PARSE_END)
                             continue;
-                        }
-                        value = 0x7fffffff;
+                        value = SCRIPT_INTEGER_INVALID;
                     }
                 }
                 uint32_t index = 0;
-                while(index < object->field_count && !script_object_parse_api.fixed_equal(name, object->field_names[index], 0x20))
-                {
+                while(index < object->field_count && !fixed_dword_memory_equal(name, object->field_names[index], 0x20))
                     ++index;
-                }
                 const uint32_t bit = 1u << (index & 0x1f);
-                if(value == 0x03000000)
+                if(value == SCRIPT_BOOLEAN_TRUE)
                 {
                     object->active_field_mask |= bit;
                 }
-                else if(value == 0x07000000)
+                else if(value == SCRIPT_BOOLEAN_FALSE)
                 {
                     object->active_field_mask &= ~bit;
                 }
-                else if(value == 0x7fffffff)
+                else if(value == SCRIPT_INTEGER_INVALID)
                 {
                     std::memcpy(object->string_values[index], string_value, 0x20);
                     object->active_field_mask |= bit;
@@ -1830,13 +1587,9 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
                 {
                     object->integer_values[index] = static_cast<int32_t>(value);
                     if(static_cast<int32_t>(value) < 1)
-                    {
                         object->active_field_mask &= ~bit;
-                    }
                     else
-                    {
                         object->active_field_mask |= bit;
-                    }
                 }
                 if(index == object->field_count)
                 {
@@ -1847,30 +1600,26 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
             continue;
         }
 
-        code = script_object_parse_api.parse_scope(parser);
+        code = parse_script_scope_code(parser);
         if(code == 0x00060000)
         {
             invert_no_palette = true;
         }
         else if(code == 0x0a000000)
         {
-            code = script_object_parse_api.parse_image_flag(parser);
+            code = parse_image_flag(parser);
             if(code == 0x10000)
-            {
-                object->flags_042c |= 0x10000;
-            }
+                object->mouse_flags |= SCRIPT_IMAGE_NATURAL_MOUSE;
             else
-            {
                 object->image_flags |= code;
-            }
         }
         else if(code == 0x0c000000)
         {
-            if(script_object_parse_api.parse_value(parser, name, 0x20) != 0xffffffff)
+            if(parse_script_value_token(parser, name, 0x20) != SCRIPT_PARSE_END)
             {
                 for(uint32_t index = 0; index < script_runtime_root->command_definition_count; ++index)
                 {
-                    if(script_object_parse_api.fixed_equal(name, script_runtime_root->command_definitions[index].name, 0x20))
+                    if(fixed_dword_memory_equal(name, script_runtime_root->command_definitions[index].name, 0x20))
                     {
                         object->command_mask |= 1u << (index & 0x1f);
                         break;
@@ -1880,25 +1629,23 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
         }
         else if(code == 0x0d000000)
         {
-            script_object_parse_api.parse_value(parser, object->mouse_visual_name, 0x20);
+            parse_script_value_token(parser, object->mouse_visual_name, 0x20);
         }
         else if(code == 0x20000000)
         {
-            script_object_parse_api.parse_value(parser, object->alternate_mouse_visual_name, 0x20);
+            parse_script_value_token(parser, object->alternate_mouse_visual_name, 0x20);
         }
-        if(code == 0xffffffff)
+        if(code == SCRIPT_PARSE_END)
         {
-            if((object->flags_042c & 0x10000) == 0)
+            if((object->mouse_flags & SCRIPT_IMAGE_NATURAL_MOUSE) == 0)
             {
                 if(invert_no_palette)
-                {
-                    object->image_flags ^= 0x04000000;
-                }
+                    object->image_flags ^= SCRIPT_IMAGE_NO_PALETTE;
             }
             else
             {
-                object->visual_object = script_object_parse_api.find_visual(object->mouse_visual_name);
-                object->alternate_visual_object = script_object_parse_api.find_visual(object->alternate_mouse_visual_name);
+                object->visual_object = find_runtime_visual_object(object->mouse_visual_name);
+                object->alternate_visual_object = find_runtime_visual_object(object->alternate_mouse_visual_name);
             }
             return object->field_count;
         }
@@ -1910,21 +1657,15 @@ uint32_t parse_script_object_state(ScriptParserState *parser)
 ScriptObjectState *find_script_object_by_identity(void *identity)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
-    {
         if(object->identity == identity)
-        {
             return object;
-        }
-    }
     for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
     {
         for(uint32_t index = 0; index < container->slot_count; ++index)
         {
             ScriptObjectState *object = container->slots[index].object;
             if(object != nullptr && object->identity == identity)
-            {
                 return object;
-            }
         }
     }
     return nullptr;
@@ -1936,7 +1677,7 @@ int32_t query_or_create_script_object_field(const char *object_name, const void 
     if(object == nullptr)
     {
         *value = 0;
-        return 0x7fffffff;
+        return SCRIPT_INTEGER_INVALID;
     }
     for(uint32_t index = 0; index < object->field_count; ++index)
     {
@@ -1944,60 +1685,48 @@ int32_t query_or_create_script_object_field(const char *object_name, const void 
         {
             uint32_t bit = 1u << index;
             *value = bit;
-            return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
+            return (object->active_field_mask & bit) != 0 ? SCRIPT_BOOLEAN_TRUE : SCRIPT_BOOLEAN_FALSE;
         }
     }
     uint32_t index = object->field_count;
     if(index >= 32)
     {
         *value = 0;
-        return 0x7fffffff;
+        return SCRIPT_INTEGER_INVALID;
     }
     uint32_t bit = 1u << index;
-    if(value_type == 1)
+    if(value_type == SCRIPT_VALUE_TYPE_BOOLEAN)
     {
-        if(*value == 0x03000000)
-        {
+        if(*value == SCRIPT_BOOLEAN_TRUE)
             object->active_field_mask |= bit;
-        }
-        else if(*value == 0x07000000)
-        {
+        else if(*value == SCRIPT_BOOLEAN_FALSE)
             object->active_field_mask &= ~bit;
-        }
     }
-    else if(value_type == 2)
+    else if(value_type == SCRIPT_VALUE_TYPE_INTEGER)
     {
         object->integer_values[index] = static_cast<int32_t>(*value);
         if(static_cast<int32_t>(*value) < 1)
-        {
             object->active_field_mask &= ~bit;
-        }
         else
-        {
             object->active_field_mask |= bit;
-        }
     }
-    else if(value_type == 4)
+    else if(value_type == SCRIPT_VALUE_TYPE_STRING)
     {
         std::memcpy(object->string_values[index], value, 0x20);
         if(*reinterpret_cast<const char *>(value) == '\0')
-        {
             object->active_field_mask &= ~bit;
-        }
         else
-        {
             object->active_field_mask |= bit;
-        }
     }
     else
     {
         *value = 0;
-        return 0x7fffffff;
+        return SCRIPT_INTEGER_INVALID;
     }
     *value = bit;
     std::memcpy(object->field_names[index], field_name, 0x20);
     ++object->field_count;
-    return (object->active_field_mask & bit) != 0 ? 0x03000000 : 0x07000000;
+    return (object->active_field_mask & bit) != 0 ? SCRIPT_BOOLEAN_TRUE : SCRIPT_BOOLEAN_FALSE;
 }
 
 int32_t get_script_object_integer(const char *object_name, const void *field_name)
@@ -2006,14 +1735,10 @@ int32_t get_script_object_integer(const char *object_name, const void *field_nam
     if(object != nullptr)
     {
         for(uint32_t index = 0; index < object->field_count; ++index)
-        {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
-            {
                 return object->integer_values[index];
-            }
-        }
     }
-    return 0x7fffffff;
+    return SCRIPT_INTEGER_INVALID;
 }
 
 uint32_t get_script_object_string(const char *object_name, const void *field_name, void *destination)
@@ -2045,19 +1770,15 @@ int32_t add_script_object_integer(const char *object_name, const void *field_nam
                 int32_t value = object->integer_values[index] + delta;
                 uint32_t bit = 1u << index;
                 if(value < 1)
-                {
                     object->active_field_mask &= ~bit;
-                }
                 else
-                {
                     object->active_field_mask |= bit;
-                }
                 object->integer_values[index] = value;
                 return value;
             }
         }
     }
-    return 0x7fffffff;
+    return SCRIPT_INTEGER_INVALID;
 }
 
 bool compare_script_object_field(const char *object_name, const void *field_name, const void *value, int32_t value_type)
@@ -2069,45 +1790,31 @@ bool compare_script_object_field(const char *object_name, const void *field_name
         {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
             {
-                if(value_type == 1)
+                if(value_type == SCRIPT_VALUE_TYPE_BOOLEAN)
                 {
-                    uint32_t field_value = (object->active_field_mask & (1u << index)) != 0 ? 0x03000000 : 0x07000000;
+                    uint32_t field_value = (object->active_field_mask & (1u << index)) != 0 ? SCRIPT_BOOLEAN_TRUE : SCRIPT_BOOLEAN_FALSE;
                     return *static_cast<const uint32_t *>(value) == field_value;
                 }
-                if(value_type == 2)
-                {
+                if(value_type == SCRIPT_VALUE_TYPE_INTEGER)
                     return object->integer_values[index] == *static_cast<const int32_t *>(value);
-                }
-                if(value_type == 4)
-                {
+                if(value_type == SCRIPT_VALUE_TYPE_STRING)
                     return strings_equal(static_cast<const char *>(value), object->string_values[index]);
-                }
             }
         }
     }
     return true;
 }
 
-uint32_t get_script_object_field_snapshot(const char *object_name, const void *field_name, ScriptObjectFieldSnapshot *snapshot)
+bool has_script_object_field(const char *object_name, const void *field_name)
 {
-    std::memset(snapshot, 0, sizeof(*snapshot));
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object != nullptr)
     {
         for(uint32_t index = 0; index < object->field_count; ++index)
-        {
             if(fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
-            {
-                copy_string(snapshot->object_name, object_name);
-                copy_string(snapshot->field_name, static_cast<const char *>(field_name));
-                snapshot->active = (object->active_field_mask & (1u << index)) != 0;
-                snapshot->integer_value = object->integer_values[index];
-                copy_string(snapshot->string_value, object->string_values[index]);
-                return 1;
-            }
-        }
+                return true;
     }
-    return 0;
+    return false;
 }
 
 
@@ -2115,26 +1822,18 @@ uint32_t get_script_object_field_snapshot(const char *object_name, const void *f
 RuntimeFixedNameListNode *find_runtime_fixed_name_list_node(const void *name)
 {
     if(script_runtime_root == nullptr)
-    {
         return nullptr;
-    }
     for(RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes; node != nullptr; node = node->next)
-    {
         if(fixed_dword_memory_equal(name, node->name, 0x20))
-        {
             return node;
-        }
-    }
     return nullptr;
 }
 
 uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *serialized_value)
 {
     uint32_t result = parse_script_value_token(parser, value, 0x20);
-    if(result == 0xffffffff)
-    {
+    if(result == SCRIPT_PARSE_END)
         return result;
-    }
 
     const char *language_suffix = script_runtime_root->language;
     if(*language_suffix != '\0')
@@ -2149,9 +1848,7 @@ uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *s
             }
         }
         if(!has_extension)
-        {
             append_string(value, language_suffix);
-        }
     }
 
     if(serialized_value != nullptr)
@@ -2159,7 +1856,7 @@ uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *s
         append_string(serialized_value, value);
         const uint32_t saved_cursor = parser->cursor;
         char next_value[0x20];
-        if(parse_script_value_token(parser, next_value, sizeof(next_value)) != 0xffffffff)
+        if(parse_script_value_token(parser, next_value, sizeof(next_value)) != SCRIPT_PARSE_END)
         {
             append_string(serialized_value, ":");
             append_string(serialized_value, next_value);
@@ -2169,11 +1866,11 @@ uint32_t parse_script_file_value(ScriptParserState *parser, char *value, char *s
     }
 
     result = static_cast<uint32_t>(parse_script_integer_expression(parser));
-    const uint32_t required_value = script_runtime_root->state_value_0824;
-    if(result != 0x7fffffff && result != required_value)
+    const uint32_t required_value = script_runtime_root->resource_variant;
+    if(result != SCRIPT_INTEGER_INVALID && result != required_value)
     {
         value[0] = '\0';
-        return 0xffffffff;
+        return SCRIPT_PARSE_END;
     }
     return result;
 }
@@ -2182,9 +1879,7 @@ uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
 {
     char name[0x20];
     if(parse_script_value_token(parser, name, sizeof(name)) == 0)
-    {
         return 0;
-    }
 
     RuntimeFixedNameListNode *previous = nullptr;
     RuntimeFixedNameListNode *node = script_runtime_root->fixed_name_nodes;
@@ -2199,11 +1894,9 @@ uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
     {
         node = static_cast<RuntimeFixedNameListNode *>(allocate_runtime_heap(script_runtime_root->heap, runtime_heap_zero_memory, sizeof(RuntimeFixedNameListNode)));
         if(node == nullptr)
-        {
             return 0;
-        }
         node->identity = node;
-        node->resource_flags = 0x04000000;
+        node->resource_flags = SCRIPT_IMAGE_NO_PALETTE;
         std::memcpy(node->name, name, sizeof(name));
     }
 
@@ -2221,28 +1914,24 @@ uint32_t create_or_update_runtime_fixed_name_node(ScriptParserState *parser)
             code = parse_image_flag(parser);
             if(code == 1)
             {
-                node->resource_flags &= 0xfbffffff;
+                node->resource_flags &= ~SCRIPT_IMAGE_NO_PALETTE;
             }
             else if(code == 0x04000000)
             {
-                node->resource_flags |= 0x04000000;
+                node->resource_flags |= SCRIPT_IMAGE_NO_PALETTE;
                 continue;
             }
             node->flags |= code;
         }
 
-        if(code == 0xffffffff)
+        if(code == SCRIPT_PARSE_END)
         {
             if(created)
             {
                 if(previous == nullptr)
-                {
                     script_runtime_root->fixed_name_nodes = node;
-                }
                 else
-                {
                     previous->next = node;
-                }
             }
             return 1;
         }
@@ -2257,7 +1946,7 @@ void destroy_runtime_fixed_name_list_nodes()
         while(node != nullptr)
         {
             RuntimeFixedNameListNode *next = node->next;
-            script_object_release_api.heap_free(script_runtime_root->heap, 0, node);
+            free_runtime_heap(script_runtime_root->heap, 0, node);
             node = next;
         }
         script_runtime_root->fixed_name_nodes = nullptr;
@@ -2272,7 +1961,7 @@ void destroy_script_object_states()
         while(object != nullptr)
         {
             ScriptObjectState *next = object->next;
-            script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+            free_runtime_heap(script_runtime_root->heap, 0, object);
             object = next;
         }
         script_runtime_root->objects = nullptr;
@@ -2289,18 +1978,12 @@ bool remove_runtime_visual_object(void *identity)
         object = object->next;
     }
     if(object == nullptr)
-    {
         return false;
-    }
     if(previous == nullptr)
-    {
         script_runtime_root->visual_objects = object->next;
-    }
     else
-    {
         previous->next = object->next;
-    }
-    return script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+    return free_runtime_heap(script_runtime_root->heap, 0, object);
 }
 
 void destroy_runtime_visual_objects()
@@ -2309,7 +1992,7 @@ void destroy_runtime_visual_objects()
     while(object != nullptr)
     {
         RuntimeVisualObject *next = object->next;
-        script_object_release_api.heap_free(script_runtime_root->heap, 0, object);
+        free_runtime_heap(script_runtime_root->heap, 0, object);
         object = next;
     }
     script_runtime_root->visual_objects = nullptr;
@@ -2318,78 +2001,54 @@ void destroy_runtime_visual_objects()
 ScriptObjectState *find_script_object_by_name(const char *name)
 {
     for(ScriptObjectState *object = script_runtime_root->objects; object != nullptr; object = object->next)
-    {
         if(fixed_dword_memory_equal(name, object->name, 0x20))
-        {
             return object;
-        }
-    }
     for(ScriptObjectContainer *container = script_runtime_root->containers; container != nullptr; container = container->next)
     {
         for(uint32_t index = 0; index < container->slot_count; ++index)
         {
             ScriptObjectState *object = container->slots[index].object;
             if(object != nullptr && fixed_dword_memory_equal(name, object->name, 0x20))
-            {
                 return object;
-            }
         }
     }
     return nullptr;
 }
 
-ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, int value_type)
+ScriptObjectState *resolve_state_field_reference(const char *object_name, const char *field_name, const void *value, ScriptValueType value_type)
 {
     ScriptObjectState *object = find_script_object_by_name(object_name);
     if(object == nullptr)
-    {
         return nullptr;
-    }
     uint32_t index = 0;
     while(index < object->field_count && !fixed_dword_memory_equal(field_name, object->field_names[index], 0x20))
-    {
         ++index;
-    }
     if(index >= 32)
-    {
         return object;
-    }
     uint32_t bit = 1u << index;
-    if(value_type == 1)
+    if(value_type == SCRIPT_VALUE_TYPE_BOOLEAN)
     {
         uint32_t boolean_value = *static_cast<const uint32_t *>(value);
-        if(boolean_value == 0x03000000)
-        {
+        if(boolean_value == SCRIPT_BOOLEAN_TRUE)
             object->active_field_mask |= bit;
-        }
-        else if(boolean_value == 0x07000000)
-        {
+        else if(boolean_value == SCRIPT_BOOLEAN_FALSE)
             object->active_field_mask &= ~bit;
-        }
     }
-    else if(value_type == 2)
+    else if(value_type == SCRIPT_VALUE_TYPE_INTEGER)
     {
         object->integer_values[index] = *static_cast<const int32_t *>(value);
         if(object->integer_values[index] < 1)
-        {
             object->active_field_mask &= ~bit;
-        }
         else
-        {
             object->active_field_mask |= bit;
-        }
     }
-    else if(value_type == 4)
+    else if(value_type == SCRIPT_VALUE_TYPE_STRING)
     {
         std::memcpy(object->string_values[index], value, 0x20);
         if(*static_cast<const char *>(value) == 0)
-        {
             object->active_field_mask &= ~bit;
-        }
         else
-        {
             object->active_field_mask |= bit;
-        }
     }
     if(object->field_count == index)
     {
@@ -2401,4 +2060,4 @@ ScriptObjectState *resolve_state_field_reference(const char *object_name, const 
 
 
 
-} // namespace gag
+} // namespace freegag

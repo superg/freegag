@@ -4,18 +4,14 @@
 
 namespace xtet
 {
-namespace
-{
 
 int8_t rotate_orientation(int8_t orientation, int quarter_turns)
 {
     while(quarter_turns-- > 0)
-    {
         if(orientation > 0)
             orientation = orientation == 4 ? 1 : (int8_t)(orientation + 1);
         else
             orientation = orientation == -4 ? -1 : (int8_t)(orientation - 1);
-    }
     return orientation;
 }
 
@@ -96,7 +92,6 @@ bool path_crosses_matching_cells(const FallingFigurine &figurine, const RuntimeT
     return false;
 }
 
-} // namespace
 
 FallingFigurine select_falling_figurine(uint32_t family_random, uint32_t shape_random, uint32_t orientation_random, int32_t &family_balance, size_t board_width)
 {
@@ -185,7 +180,7 @@ bool select_figurine_sprite(const FallingFigurine &figurine, FigurineSpriteSelec
         return false;
 
     FigurineSpriteSelection result;
-    result.family = figurine.first_family ? FigurineSpriteFamily::man : FigurineSpriteFamily::woman;
+    result.family = figurine.first_family ? FigurineSpriteFamily::MAN : FigurineSpriteFamily::WOMAN;
     result.frame_index = figurine.shape_index;
     if(figurine.orientation % 2 == 0)
         result.frame_index += figurine.first_family ? 5 : 10;
@@ -247,7 +242,7 @@ bool try_move_falling_figurine(FallingFigurine &figurine, FigurineMove move, con
     const FallingFigurine original = figurine;
     switch(move)
     {
-    case FigurineMove::rotate:
+    case FigurineMove::ROTATE:
     {
         if(figurine.orientation == 4)
             figurine.orientation = 1;
@@ -263,16 +258,16 @@ bool try_move_falling_figurine(FallingFigurine &figurine, FigurineMove move, con
         figurine.row = (int8_t)(figurine.row + offset.y);
         break;
     }
-    case FigurineMove::up:
+    case FigurineMove::UP:
         figurine.row = (int8_t)(figurine.row - 1);
         break;
-    case FigurineMove::right:
+    case FigurineMove::RIGHT:
         figurine.column = (int8_t)(figurine.column + 1);
         break;
-    case FigurineMove::down:
+    case FigurineMove::DOWN:
         figurine.row = (int8_t)(figurine.row + 1);
         break;
-    case FigurineMove::left:
+    case FigurineMove::LEFT:
         figurine.column = (int8_t)(figurine.column - 1);
         break;
     }
@@ -352,7 +347,7 @@ const ActionDefinition *find_matching_action(const FallingFigurine &first, const
 FigurineMatch find_match_candidate(FallingFigurine &figurine, FigurineMove move, const std::vector<ActionDefinition> &definitions, const RuntimeTables &board, std::vector<FigurineBoardEntry> &entries,
     const void *value)
 {
-    if(move == FigurineMove::rotate || value == nullptr)
+    if(move == FigurineMove::ROTATE || value == nullptr)
         return {};
     int first_column = figurine.previous_column;
     int last_column = figurine.previous_column;
@@ -360,16 +355,16 @@ FigurineMatch find_match_candidate(FallingFigurine &figurine, FigurineMove move,
     int last_row = figurine.previous_row;
     switch(move)
     {
-    case FigurineMove::up:
+    case FigurineMove::UP:
         first_row -= 3;
         break;
-    case FigurineMove::right:
+    case FigurineMove::RIGHT:
         last_column += 3;
         break;
-    case FigurineMove::down:
+    case FigurineMove::DOWN:
         last_row += 3;
         break;
-    case FigurineMove::left:
+    case FigurineMove::LEFT:
         first_column -= 3;
         break;
     default:
@@ -407,14 +402,14 @@ GameplayMoveResult process_falling_move(FallingFigurine &figurine, FigurineMove 
 {
     match = {};
     if(try_move_falling_figurine(figurine, move, geometry, board, value, nullptr, board_change_callback))
-        return GameplayMoveResult::moved;
-    if(move != FigurineMove::rotate)
+        return GameplayMoveResult::MOVED;
+    if(move != FigurineMove::ROTATE)
     {
         match = find_match_candidate(figurine, move, definitions, board, entries, value);
         if(match.candidate != nullptr)
-            return GameplayMoveResult::matched;
+            return GameplayMoveResult::MATCHED;
     }
-    return GameplayMoveResult::rejected;
+    return GameplayMoveResult::REJECTED;
 }
 
 GameplayInput translate_gameplay_key(uint32_t virtual_key)
@@ -422,17 +417,17 @@ GameplayInput translate_gameplay_key(uint32_t virtual_key)
     switch(virtual_key)
     {
     case 0x20:
-        return GameplayInput::hard_drop;
+        return GameplayInput::HARD_DROP;
     case 0x25:
-        return GameplayInput::left;
+        return GameplayInput::LEFT;
     case 0x26:
-        return GameplayInput::rotate;
+        return GameplayInput::ROTATE;
     case 0x27:
-        return GameplayInput::right;
+        return GameplayInput::RIGHT;
     case 0x28:
-        return GameplayInput::down;
+        return GameplayInput::DOWN;
     default:
-        return GameplayInput::none;
+        return GameplayInput::NONE;
     }
 }
 
@@ -481,13 +476,13 @@ bool settle_board_after_match(const FigurineGeometryTables &geometry, const std:
                 while(true)
                 {
                     FigurineMatch match;
-                    const GameplayMoveResult move_result = process_falling_move(*entry->figurine, FigurineMove::down, geometry, definitions, board, entries, value, match, board_change_callback);
-                    if(move_result == GameplayMoveResult::moved)
+                    const GameplayMoveResult move_result = process_falling_move(*entry->figurine, FigurineMove::DOWN, geometry, definitions, board, entries, value, match, board_change_callback);
+                    if(move_result == GameplayMoveResult::MOVED)
                     {
                         ++result.moves;
                         continue;
                     }
-                    if(move_result == GameplayMoveResult::matched)
+                    if(move_result == GameplayMoveResult::MATCHED)
                     {
                         if(match.candidate == nullptr || match.candidate->figurine == nullptr || match.action == nullptr || !match_callback(*entry->figurine, *match.candidate->figurine, *match.action)
                             || !remove_matched_pair(value, match, board, entries, progress, progress_callback))
@@ -506,7 +501,7 @@ bool update_game_tick(const FigurineGeometryTables &geometry, const std::vector<
     GameProgress &progress, const std::function<void *()> &spawn_callback, const std::function<bool(const FallingFigurine &, const FallingFigurine &, const ActionDefinition &)> &match_callback,
     GameTickResult &tick_result, CascadeResult &cascade_result, const FigurineBoardChangeCallback &board_change_callback, const ProgressUpdateCallback &progress_callback)
 {
-    tick_result = GameTickResult::inactive;
+    tick_result = GameTickResult::INACTIVE;
     cascade_result = {};
     if(progress.gameplay_state != 1)
         return true;
@@ -518,7 +513,7 @@ bool update_game_tick(const FigurineGeometryTables &geometry, const std::vector<
         if(active_value == nullptr)
         {
             progress.gameplay_state = 2;
-            tick_result = GameTickResult::spawn_failed;
+            tick_result = GameTickResult::SPAWN_FAILED;
             return true;
         }
         FigurineBoardEntry *spawned_entry = find_board_entry(entries, active_value);
@@ -527,7 +522,7 @@ bool update_game_tick(const FigurineGeometryTables &geometry, const std::vector<
             active_value = nullptr;
             return false;
         }
-        tick_result = GameTickResult::spawned;
+        tick_result = GameTickResult::SPAWNED;
         return true;
     }
 
@@ -535,16 +530,16 @@ bool update_game_tick(const FigurineGeometryTables &geometry, const std::vector<
     if(active_entry == nullptr || active_entry->figurine == nullptr)
         return false;
     FigurineMatch match;
-    const GameplayMoveResult move_result = process_falling_move(*active_entry->figurine, FigurineMove::down, geometry, definitions, board, entries, active_value, match, board_change_callback);
-    if(move_result == GameplayMoveResult::moved)
+    const GameplayMoveResult move_result = process_falling_move(*active_entry->figurine, FigurineMove::DOWN, geometry, definitions, board, entries, active_value, match, board_change_callback);
+    if(move_result == GameplayMoveResult::MOVED)
     {
-        tick_result = GameTickResult::moved;
+        tick_result = GameTickResult::MOVED;
         return true;
     }
-    if(move_result == GameplayMoveResult::rejected)
+    if(move_result == GameplayMoveResult::REJECTED)
     {
         active_value = nullptr;
-        tick_result = GameTickResult::settled;
+        tick_result = GameTickResult::SETTLED;
         return true;
     }
     if(match.candidate == nullptr || match.candidate->figurine == nullptr || match.action == nullptr || !match_callback)
@@ -555,7 +550,7 @@ bool update_game_tick(const FigurineGeometryTables &geometry, const std::vector<
     active_value = nullptr;
     if(!settle_board_after_match(geometry, definitions, board, entries, progress, match_callback, cascade_result, board_change_callback, progress_callback))
         return false;
-    tick_result = GameTickResult::matched;
+    tick_result = GameTickResult::MATCHED;
     return true;
 }
 
@@ -566,7 +561,7 @@ bool handle_gameplay_input(GameplayInput input, const FigurineGeometryTables &ge
 {
     outcome = {};
     cascade_result = {};
-    if(input == GameplayInput::none || active_value == nullptr)
+    if(input == GameplayInput::NONE || active_value == nullptr)
         return true;
     FigurineBoardEntry *active_entry = find_board_entry(entries, active_value);
     if(active_entry == nullptr || active_entry->figurine == nullptr)
@@ -575,18 +570,18 @@ bool handle_gameplay_input(GameplayInput input, const FigurineGeometryTables &ge
     FigurineMove move;
     switch(input)
     {
-    case GameplayInput::rotate:
-        move = FigurineMove::rotate;
+    case GameplayInput::ROTATE:
+        move = FigurineMove::ROTATE;
         break;
-    case GameplayInput::left:
-        move = FigurineMove::left;
+    case GameplayInput::LEFT:
+        move = FigurineMove::LEFT;
         break;
-    case GameplayInput::right:
-        move = FigurineMove::right;
+    case GameplayInput::RIGHT:
+        move = FigurineMove::RIGHT;
         break;
-    case GameplayInput::down:
-    case GameplayInput::hard_drop:
-        move = FigurineMove::down;
+    case GameplayInput::DOWN:
+    case GameplayInput::HARD_DROP:
+        move = FigurineMove::DOWN;
         break;
     default:
         return true;
@@ -597,18 +592,18 @@ bool handle_gameplay_input(GameplayInput input, const FigurineGeometryTables &ge
     do
     {
         move_result = process_falling_move(*active_entry->figurine, move, geometry, definitions, board, entries, active_value, match, board_change_callback);
-        if(move_result == GameplayMoveResult::moved)
+        if(move_result == GameplayMoveResult::MOVED)
             ++outcome.moves;
-    } while(input == GameplayInput::hard_drop && move_result == GameplayMoveResult::moved);
+    } while(input == GameplayInput::HARD_DROP && move_result == GameplayMoveResult::MOVED);
 
-    if(move_result == GameplayMoveResult::moved)
+    if(move_result == GameplayMoveResult::MOVED)
     {
-        outcome.result = GameplayInputResult::moved;
+        outcome.result = GameplayInputResult::MOVED;
         return true;
     }
-    if(move_result == GameplayMoveResult::rejected)
+    if(move_result == GameplayMoveResult::REJECTED)
     {
-        outcome.result = GameplayInputResult::rejected;
+        outcome.result = GameplayInputResult::REJECTED;
         return true;
     }
     if(match.candidate == nullptr || match.candidate->figurine == nullptr || match.action == nullptr || !match_callback || !drain_keyboard_callback)
@@ -620,7 +615,7 @@ bool handle_gameplay_input(GameplayInput input, const FigurineGeometryTables &ge
     if(!settle_board_after_match(geometry, definitions, board, entries, progress, match_callback, cascade_result, board_change_callback, progress_callback))
         return false;
     drain_keyboard_callback();
-    outcome.result = GameplayInputResult::matched;
+    outcome.result = GameplayInputResult::MATCHED;
     return true;
 }
 
