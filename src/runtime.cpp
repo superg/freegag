@@ -1,5 +1,6 @@
 #include "runtime.h"
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include "host_events.h"
 #include "runtime_internal.h"
@@ -32,6 +33,7 @@ void set_runtime_resource_variant(uint32_t value)
 
 void suspend_runtime_state()
 {
+    std::lock_guard lock(runtime_pointer_scene_mutex);
     if((graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) == 0)
     {
         runtime_state_value = saved_runtime_state_value;
@@ -42,6 +44,7 @@ void suspend_runtime_state()
 
 void resume_runtime_state()
 {
+    std::lock_guard lock(runtime_pointer_scene_mutex);
     if((graphics_host_flags & RUNTIME_HOST_SCENE_TRANSITION_GUARDED) == 0 && (graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) != 0)
     {
         graphics_host_flags &= ~RUNTIME_HOST_SCENE_SWITCH_DEFERRED;

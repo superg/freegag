@@ -226,6 +226,7 @@ inline uint32_t &runtime_rectangle_transition_step_size = runtime_display_contex
 inline uint32_t &runtime_available_scene_transitions = runtime_display_context.available_scene_transitions;
 inline uint32_t &suspended_runtime_state_count = runtime_display_context.nested_runtime_state_count;
 inline uint32_t &runtime_state_4_count = runtime_display_context.nested_runtime_state_4_count;
+inline RuntimeMutex runtime_pointer_scene_mutex;
 inline int32_t &runtime_pointer_x = runtime_display_context.scene_x;
 inline int32_t &runtime_pointer_y = runtime_display_context.scene_y;
 inline void *&current_runtime_resource = runtime_display_context.current_runtime_resource;

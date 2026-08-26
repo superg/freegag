@@ -49,6 +49,7 @@ struct GameState
     xtet::FigurineGeometryTables figurine_geometry;
     xtet::GameplayRuntime gameplay_runtime;
     xtet::GameWorker worker;
+    xtet::AnimationDelayCallback delay_animation{};
     uint32_t result{};
     uint32_t selected_level{ 1 };
     uint32_t level_effect_deadline{};
@@ -312,7 +313,14 @@ bool present_match_effect(const xtet::FallingFigurine &first, const xtet::Fallin
         present_dirty_region({ (int32_t)left, (int32_t)top, (uint32_t)(right - left), (uint32_t)(bottom - top) });
     };
     return xtet::render_match_blink_sequence(
-        first, second, action, g_game.animations, framebuffer, present_animation_region, [](uint32_t delay) { std::this_thread::sleep_for(std::chrono::milliseconds(delay)); },
+        first, second, action, g_game.animations, framebuffer, present_animation_region,
+        [](uint32_t delay)
+        {
+            if(g_game.delay_animation != nullptr)
+                g_game.delay_animation(delay);
+            else
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        },
         homes[0]->children[1].position->x, homes[0]->children[1].position->y);
 }
 
@@ -374,6 +382,8 @@ void run_game_tick()
     if(!g_game.gameplay_runtime.updateTick(family_random, shape_random, orientation_random, current_time, g_game.figurine_geometry, g_game.action_definitions, present_match_effect,
            make_presentation_callback(framebuffer), tick_result, cascade_result, present_score))
         throw std::runtime_error("XTET gameplay tick failed");
+    if(tick_result == xtet::GameTickResult::MATCHED)
+        drain_keyboard_messages();
     if(tick_result == xtet::GameTickResult::SETTLED && g_game.audio_enabled)
         g_game.audio.queueRandom("stop", (uint32_t)std::rand());
     else if(tick_result == xtet::GameTickResult::SPAWN_FAILED)
@@ -588,6 +598,7 @@ void xtet::initialize_game(GameHostContext *host_context, const GameHostServices
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
     g_game.host_context = host_context;
     g_game.invalidate_region = services.invalidate_region;
+    g_game.delay_animation = services.delay_animation;
     std::string resource_error;
     const std::string sfs_display_name = sfs_name != nullptr && *sfs_name != '\0' ? sfs_name : "XTET SFS";
     if(!load_sfs_from_working_directory(sfs_name, g_game.sfs_bytes, resource_error))
@@ -713,6 +724,7 @@ void xtet::shutdown_game()
     g_game.sfs = {};
     g_game.sfs_bytes.clear();
     g_game.invalidate_region = nullptr;
+    g_game.delay_animation = nullptr;
     g_game.host_context = nullptr;
     g_game.result = 0;
     g_game.level_effect_active = false;

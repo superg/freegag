@@ -1,5 +1,7 @@
 #include "game_host.h"
 #include <SDL3/SDL.h>
+#include <atomic>
+#include <mutex>
 #include "host_events.h"
 #include "portable_string.h"
 #include "runtime_internal.h"
@@ -7,11 +9,72 @@
 
 namespace freegag
 {
+constexpr uint64_t runtime_animation_input_pump_interval_nanoseconds = 1'000'000;
+
 bool portable_runtime_input_enabled{};
+std::atomic_uint64_t runtime_keyboard_input_drain_timestamp{};
+std::atomic_uint64_t runtime_keyboard_input_drain_request{};
+std::atomic_uint64_t runtime_keyboard_input_drain_completion{};
+std::atomic_uint64_t runtime_keyboard_input_drain_release{};
+bool runtime_keyboard_input_drain_completion_pending{};
 
 void drain_runtime_keyboard_input()
 {
+    ++runtime_keyboard_input_drain_request;
+    if(SDL_IsMainThread())
+        complete_runtime_keyboard_input_drain();
+    else
+        post_host_event(HostKeyboardInputDrainEvent{});
+}
+
+void complete_runtime_keyboard_input_drain()
+{
+    SDL_PumpEvents();
+    runtime_keyboard_input_drain_timestamp = SDL_GetTicksNS();
     SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_TEXT_INPUT);
+    runtime_keyboard_input_drain_completion = runtime_keyboard_input_drain_request.load();
+    runtime_keyboard_input_drain_completion_pending = true;
+}
+
+void finish_runtime_keyboard_input_drain()
+{
+    if(!runtime_keyboard_input_drain_completion_pending)
+        return;
+    SDL_PumpEvents();
+    runtime_keyboard_input_drain_timestamp = SDL_GetTicksNS();
+    SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_TEXT_INPUT);
+    runtime_keyboard_input_drain_release = runtime_keyboard_input_drain_completion.load();
+    runtime_keyboard_input_drain_completion_pending = false;
+}
+
+bool should_discard_runtime_keyboard_input(uint64_t timestamp)
+{
+    const uint64_t drain_timestamp = runtime_keyboard_input_drain_timestamp.load();
+    const uint64_t request = runtime_keyboard_input_drain_request.load();
+    if(runtime_keyboard_input_drain_release.load() < request)
+        return true;
+    return drain_timestamp != 0 && timestamp <= drain_timestamp;
+}
+
+void wait_for_runtime_game_animation(uint32_t milliseconds)
+{
+    if(!SDL_IsMainThread())
+    {
+        SDL_Delay(milliseconds);
+        return;
+    }
+
+    const uint64_t deadline = SDL_GetTicksNS() + SDL_MS_TO_NS(milliseconds);
+    while(true)
+    {
+        SDL_PumpEvents();
+        SDL_FlushEvents(SDL_EVENT_KEY_DOWN, SDL_EVENT_TEXT_INPUT);
+        const uint64_t current_time = SDL_GetTicksNS();
+        if(current_time >= deadline)
+            return;
+        const uint64_t remaining = deadline - current_time;
+        SDL_DelayNS(remaining < runtime_animation_input_pump_interval_nanoseconds ? remaining : runtime_animation_input_pump_interval_nanoseconds);
+    }
 }
 
 void forward_xtet_host_event(xtet::HostEventType type, uint32_t result_type, const void *data, uint32_t size)
@@ -121,7 +184,7 @@ bool load_and_initialize_runtime_game_dll(const char *path)
             xtet::set_host_event_callback(forward_xtet_host_event);
             xtet::set_input_drain_callback(drain_runtime_keyboard_input);
             const xtet::GameHostServices services{ invalidate_game_framebuffer_rect, create_runtime_game_sound, destroy_runtime_sound_handle, queue_runtime_sound_data, pause_runtime_sound,
-                resume_runtime_sound };
+                resume_runtime_sound, wait_for_runtime_game_animation };
             xtet::initialize_game(&runtime_game_host_context, services, sfs_name.c_str());
         }
         catch(...)
@@ -173,6 +236,7 @@ uint32_t resume_runtime_game_dll()
 
 void update_runtime_pointer_position(int32_t x, int32_t y)
 {
+    std::lock_guard lock(runtime_pointer_scene_mutex);
     RuntimeResourceObject *record = nullptr;
     RuntimeNamedNode *node = nullptr;
     if((runtime_scene_control_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) == 0)

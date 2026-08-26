@@ -61,6 +61,10 @@ struct HostPresentPendingFramesEvent
 {
 };
 
+struct HostKeyboardInputDrainEvent
+{
+};
+
 enum class HostXtEtEventType
 {
     TERMINATE,
@@ -76,7 +80,7 @@ struct HostXtEtEvent
     std::vector<uint8_t> result_data;
 };
 
-using HostEvent = std::variant<HostApplicationEvent, HostPresentPendingFramesEvent, HostXtEtEvent>;
+using HostEvent = std::variant<HostApplicationEvent, HostPresentPendingFramesEvent, HostKeyboardInputDrainEvent, HostXtEtEvent>;
 using HostEventResult = std::variant<std::monostate, uint32_t, std::string>;
 
 class HostEventCompletion;

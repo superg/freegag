@@ -1265,7 +1265,7 @@ void set_runtime_resource_state(void *identity, uint32_t state)
     {
         auto *backend = static_cast<RuntimeMediaBackend *>(resource->backend);
         uint32_t transition_flag = backend->frame_number == 1 ? 0x20000000 : 0;
-        backend->media_flags = (backend->media_flags & ~(RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_ONE_STEP)) | (state != 0 ? RUNTIME_MEDIA_PAUSED : 0);
+        backend->media_flags = (backend->media_flags & ~(RUNTIME_MEDIA_PAUSED | RUNTIME_MEDIA_ONE_STEP)) | state;
         if(current_runtime_resource == identity)
         {
             if(state == 0)
@@ -1418,6 +1418,7 @@ void reset_runtime_session()
 
 void switch_runtime_scene(void *identity)
 {
+    std::lock_guard lock(runtime_pointer_scene_mutex);
     if((graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) != 0)
     {
         deferred_runtime_scene_identity = identity;

@@ -78,6 +78,9 @@ bool prepare_current_runtime_pointer_input(ApplicationState *state, RuntimeInput
 
 void dispatch_sdl_runtime_input(ApplicationState *state, const SDL_Event &source_event)
 {
+    if((source_event.type == SDL_EVENT_KEY_DOWN || source_event.type == SDL_EVENT_KEY_UP || source_event.type == SDL_EVENT_TEXT_EDITING || source_event.type == SDL_EVENT_TEXT_INPUT)
+        && should_discard_runtime_keyboard_input(source_event.common.timestamp))
+        return;
     SDL_Event event = source_event;
     convert_sdl_presenter_event(&event);
     RuntimeInputEvent input;
@@ -160,6 +163,7 @@ SDL_AppResult SDLCALL iterate_startup_callbacks(void *appstate)
 {
     auto *state = static_cast<ApplicationState *>(appstate);
     service_sdl_presenter();
+    finish_runtime_keyboard_input_drain();
     return startup_result(state);
 }
 

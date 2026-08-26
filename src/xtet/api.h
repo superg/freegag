@@ -29,6 +29,7 @@ using SoundCreateCallback = uint32_t (*)(const PcmFormat *);
 using SoundDestroyCallback = void (*)(uint32_t);
 using SoundQueueCallback = uint32_t (*)(uint32_t, const void *, uint32_t, int32_t);
 using SoundControlCallback = uint32_t (*)(uint32_t, int32_t);
+using AnimationDelayCallback = void (*)(uint32_t);
 
 struct GameHostServices
 {
@@ -38,6 +39,7 @@ struct GameHostServices
     SoundQueueCallback queue_sound;
     SoundControlCallback pause_sound;
     SoundControlCallback resume_sound;
+    AnimationDelayCallback delay_animation;
 };
 
 void initialize_game(GameHostContext *host_context, const GameHostServices &services, const char *sfs_name);

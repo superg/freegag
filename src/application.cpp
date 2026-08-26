@@ -241,6 +241,8 @@ HostEventResult handle_host_event(const HostEvent &event, HostEventCompletion *c
         return handle_application_host_event(*application_event, completion, state);
     if(std::holds_alternative<HostPresentPendingFramesEvent>(event))
         drain_sdl_presenter_frames();
+    else if(std::holds_alternative<HostKeyboardInputDrainEvent>(event))
+        complete_runtime_keyboard_input_drain();
     else if(const auto *xtet_event = std::get_if<HostXtEtEvent>(&event))
         handle_runtime_xtet_host_event(*xtet_event);
     return {};
