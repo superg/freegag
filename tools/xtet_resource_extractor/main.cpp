@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "../../src/portable_path.h"
 
 
 
@@ -113,7 +114,10 @@ struct ResourceDataEntry
 
 std::vector<uint8_t> extract_sfs(const std::string &source)
 {
-    std::ifstream ifs(source, std::ios::binary);
+    std::filesystem::path resolved_source;
+    if(!freegag::resolve_existing_host_path_case_insensitive(source, &resolved_source))
+        throw std::runtime_error("could not open input DLL");
+    std::ifstream ifs(resolved_source, std::ios::binary);
     if(!ifs)
         throw std::runtime_error("could not open input DLL");
 

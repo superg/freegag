@@ -71,7 +71,7 @@ RuntimeResourceCacheEntry *find_runtime_resource_cache_entry(void *parent_identi
             auto *sentinel = parent->cache_entry_sentinel;
             while(entry != nullptr)
             {
-                if(strings_equal(entry->name, name))
+                if(compare_ascii_case_insensitive(entry->name, name) == 0)
                     return entry;
                 if(entry == sentinel)
                     return nullptr;

@@ -25,6 +25,7 @@ add_executable(freegag
   "media.h"
   "media_types.h"
   "pcm_format.h"
+  "portable_path.h"
   "resource.cpp"
   "resource.h"
   "resource_types.h"

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <vector>
 #include "host_events.h"
+#include "portable_path.h"
 #include "runtime_internal.h"
 
 namespace freegag
@@ -1657,7 +1658,10 @@ uint32_t detect_runtime_resource_type(const char *path)
             update_runtime_resource_host(path, 0);
             char full_path[128];
             build_runtime_resource_path(full_path, path);
-            std::ifstream file(full_path, std::ios::binary);
+            std::filesystem::path resolved_path;
+            std::ifstream file;
+            if(resolve_existing_host_path_case_insensitive(full_path, &resolved_path))
+                file.open(resolved_path, std::ios::binary);
             if(!file)
             {
                 retry = 0;
@@ -1964,7 +1968,7 @@ uint32_t extract_runtime_drive_prefix(char *destination, const char *source)
     do
     {
         char value = source[index];
-        if(value == '\0' || value == ':' || value == '\\')
+        if(value == '\0' || value == ':' || value == '\\' || value == '/')
             break;
         destination[index] = value;
         ++index;

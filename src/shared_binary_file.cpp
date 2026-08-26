@@ -1,11 +1,15 @@
 #include "shared_binary_file.h"
 #include <limits>
+#include "portable_path.h"
 
 namespace freegag
 {
 SharedBinaryFile::SharedBinaryFile(const char *path)
-    : stream_(path, std::ios::binary)
 {
+    std::filesystem::path resolved_path;
+    if(path == nullptr || !resolve_existing_host_path_case_insensitive(path, &resolved_path))
+        return;
+    stream_.open(resolved_path, std::ios::binary);
     if(!stream_)
         return;
     stream_.seekg(0, std::ios::end);

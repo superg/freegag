@@ -202,6 +202,11 @@ void SDLCALL shutdown_startup_callbacks(void *appstate, SDL_AppResult)
 
 int run_startup(int argc, char *argv[])
 {
+#if defined(SDL_PLATFORM_LINUX)
+    // Wayland does not expose top-level window coordinates, so SDL can only report the display origin there. Prefer X11 when XWayland is available so framed window positions can be restored, while
+    // retaining Wayland as a fallback and allowing SDL_VIDEO_DRIVER to override this default.
+    SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "x11,wayland", SDL_HINT_DEFAULT);
+#endif
     SDL_SetHint(SDL_HINT_MAIN_CALLBACK_RATE, "waitevent");
     return SDL_EnterAppMainCallbacks(argc, argv, initialize_startup_callbacks, iterate_startup_callbacks, dispatch_startup_event, shutdown_startup_callbacks);
 }

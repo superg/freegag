@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include "host_events.h"
+#include "portable_path.h"
 #include "portable_string.h"
 #include "runtime_internal.h"
 #include "runtime_services.h"
@@ -472,7 +473,8 @@ void disable_unavailable_saved_game_actions(ApplicationState *state)
 {
     std::error_code error;
     const std::filesystem::path installation_path = state->installation_path[0] == '\0' ? std::filesystem::path(".") : std::filesystem::path(state->installation_path);
-    if(!std::filesystem::exists(installation_path / auto_save_file_name, error))
+    std::filesystem::path resolved_auto_save;
+    if(!resolve_existing_host_path_case_insensitive(installation_path / auto_save_file_name, &resolved_auto_save))
         state->flags |= APPLICATION_RESUME_DISABLED;
 
     bool found_save = false;
@@ -493,10 +495,10 @@ void disable_unavailable_saved_game_actions(ApplicationState *state)
 
 bool validate_and_select_application_archive(ApplicationState *state, const char *requested_archive, bool report_missing_archive)
 {
+    std::filesystem::path resolved_archive;
     if(state->archive_context == nullptr)
     {
-        std::error_code error;
-        if(!std::filesystem::exists(requested_archive, error))
+        if(!resolve_existing_host_path_case_insensitive(requested_archive, &resolved_archive))
         {
             if(report_missing_archive)
                 std::fputs("GAG: Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!\n", stderr);
@@ -506,7 +508,8 @@ bool validate_and_select_application_archive(ApplicationState *state, const char
     else
         state->installed_version[0] = '\0';
 
-    copy_string(state->installed_version, requested_archive);
+    const std::string selected_archive = resolved_archive.empty() ? requested_archive : resolved_archive.string();
+    copy_string(state->installed_version, selected_archive.c_str());
     return true;
 }
 
@@ -816,7 +819,10 @@ std::string trim_preference_text(std::string value)
 Preferences parse_preferences()
 {
     Preferences preferences;
-    std::ifstream stream(preferences_file_name);
+    std::filesystem::path preferences_path;
+    if(!resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path))
+        preferences_path = preferences_file_name;
+    std::ifstream stream(preferences_path);
     std::string section;
     std::string line;
     while(std::getline(stream, line))
@@ -891,7 +897,10 @@ ApplicationPreferences read_preferences()
 
 void write_preferences(const ApplicationPreferences &preferences)
 {
-    std::ofstream stream(preferences_file_name, std::ios::trunc);
+    std::filesystem::path preferences_path;
+    if(!resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path))
+        preferences_path = preferences_file_name;
+    std::ofstream stream(preferences_path, std::ios::trunc);
     if(!stream)
         return;
     stream << "[Game]\n";
@@ -1288,7 +1297,7 @@ void copy_directory_from_path(char *destination, const char *source)
     int index = 0;
     while(source[index] != '\0')
         ++index;
-    while(index >= 0 && source[index] != '\\')
+    while(index >= 0 && source[index] != '\\' && source[index] != '/')
         --index;
     destination[index + 1] = '\0';
     while(index >= 0)
@@ -1301,8 +1310,8 @@ void copy_directory_from_path(char *destination, const char *source)
 void load_local_preferences(ApplicationState *state)
 {
     state->installation_path[0] = '\0';
-    std::error_code error;
-    const bool preferences_missing = !std::filesystem::exists(preferences_file_name, error) && !error;
+    std::filesystem::path preferences_path;
+    const bool preferences_missing = !resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path);
     const ApplicationPreferences preferences = read_preferences();
     set_sdl_presenter_integer_scaling(preferences.integer_scaling);
     state->low_color_resources = preferences.low_color_resources;

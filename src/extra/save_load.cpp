@@ -12,6 +12,7 @@
 #include "display_host.h"
 #include "display_scene.h"
 #include "media.h"
+#include "portable_path.h"
 #include "portable_string.h"
 #include "resource.h"
 #include "runtime.h"
@@ -154,8 +155,11 @@ struct ScriptedSaveLoadController
 
 bool save_file_exists(const char *path)
 {
+    std::filesystem::path resolved_path;
+    if(!resolve_existing_host_path_case_insensitive(path, &resolved_path))
+        return false;
     std::error_code error;
-    return std::filesystem::is_regular_file(path, error);
+    return std::filesystem::is_regular_file(resolved_path, error);
 }
 
 ScriptedSaveLoadController controller{};
@@ -580,7 +584,10 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
     *collection = {};
     std::error_code error;
     std::vector<std::filesystem::path> files;
-    const std::filesystem::path enumeration_directory = *directory == '\0' ? std::filesystem::path(".") : std::filesystem::path(directory);
+    const std::filesystem::path requested_directory = *directory == '\0' ? std::filesystem::path(".") : std::filesystem::path(directory);
+    std::filesystem::path enumeration_directory;
+    if(!resolve_existing_host_path_case_insensitive(requested_directory, &enumeration_directory))
+        return ARCHIVE_COMMENT_ENUMERATION_FAILED;
     for(std::filesystem::directory_iterator entry(enumeration_directory, error), end; !error && entry != end; entry.increment(error))
     {
         if(!entry->is_regular_file(error))

@@ -1110,10 +1110,21 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
     }
     if((flags & RUNTIME_MEDIA_PAUSE_NOTIFIED) != 0)
     {
-        if((resource->type_flags & RUNTIME_RESOURCE_DEFERRED_LOAD) != 0 && (flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
+        // Win32 normally let a non-deferred secondary animation consume its initial pending state before the runtime-wide pause could notify it. Preserve that ordering invariant when standard-thread
+        // scheduling delivers the pause notification first. Serialize with finalization and change only the pending bit so a stale callback snapshot cannot restore the animation's initial paused
+        // state.
+        const bool registration_allowed = (resource->type_flags & (RUNTIME_RESOURCE_DEFERRED_LOAD | RUNTIME_RESOURCE_PRIMARY)) != RUNTIME_RESOURCE_PRIMARY;
+        if(registration_allowed && (flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
         {
-            backend->media_flags = flags & ~RUNTIME_MEDIA_RESOURCE_PENDING;
-            if((resource->type_flags & 2) == 0)
+            bool registered = false;
+            lock_runtime_mutex_forever(runtime_media_backend_mutex, runtime_infinite_wait);
+            if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
+            {
+                backend->media_flags &= ~RUNTIME_MEDIA_RESOURCE_PENDING;
+                registered = true;
+            }
+            unlock_runtime_mutex(runtime_media_backend_mutex);
+            if(registered && (resource->type_flags & RUNTIME_RESOURCE_HALF_SIZE) == 0)
                 ++runtime_resource_count;
         }
         return 1;
@@ -1149,7 +1160,7 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
             backend->dirty_bottom = static_cast<uint32_t>(format[5]) * resource->requested_height;
         }
     }
-    if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0 && (resource->type_flags & 2) == 0)
+    if((backend->media_flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0 && (resource->type_flags & RUNTIME_RESOURCE_HALF_SIZE) == 0)
         ++runtime_resource_count;
     if((backend->media_flags & RUNTIME_MEDIA_FRAME_DECODED) != 0)
     {

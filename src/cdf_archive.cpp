@@ -7,6 +7,7 @@
 #include <vector>
 #include <zlib.h>
 #include "media.h"
+#include "portable_path.h"
 #include "portable_string.h"
 #include "resource.h"
 #include "shared_binary_file.h"
@@ -663,7 +664,10 @@ CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
     if(archive == nullptr)
         return nullptr;
     cdf_last_error = CDF_ERROR_FILE_OPEN_FAILED;
-    archive->output.open(path, std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
+    std::filesystem::path output_path;
+    if(!resolve_existing_host_path_case_insensitive(path, &output_path))
+        output_path = normalize_host_path(path);
+    archive->output.open(output_path, std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
     if(!archive->output)
     {
         delete archive;

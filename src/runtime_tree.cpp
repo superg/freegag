@@ -164,7 +164,7 @@ RuntimeGenericResourceNode *find_or_load_runtime_generic_resource(const char *re
     for(RuntimeGenericResourceNode *node = script_runtime_root->generic_resources; node != nullptr; node = node->next)
     {
         last = node;
-        if(fixed_dword_memory_equal(name, node->name, 0x20))
+        if(compare_ascii_case_insensitive(name, node->name) == 0)
             return static_cast<RuntimeGenericResourceNode *>(node->identity);
     }
     void *resource_data = name;

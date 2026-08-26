@@ -3,6 +3,7 @@
 #include <fstream>
 #include <limits>
 #include <system_error>
+#include "../portable_path.h"
 
 namespace xtet
 {
@@ -18,7 +19,12 @@ bool load_sfs_from_working_directory(const char *sfs_name, std::vector<uint8_t> 
     }
     const std::string display_name(sfs_name);
 
-    const std::filesystem::path payload_path(sfs_name);
+    std::filesystem::path payload_path;
+    if(!freegag::resolve_existing_host_path_case_insensitive(sfs_name, &payload_path))
+    {
+        error = "Unable to open " + display_name + " in the working directory.";
+        return false;
+    }
     std::error_code size_error;
     const uintmax_t payload_size = std::filesystem::file_size(payload_path, size_error);
     if(size_error)

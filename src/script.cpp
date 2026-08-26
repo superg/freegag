@@ -1479,7 +1479,7 @@ void copy_file_name_from_path(char *destination, const char *source)
     int index = 0;
     while(source[index] != '\0')
         ++index;
-    while(index >= 0 && source[index] != '\\')
+    while(index >= 0 && source[index] != '\\' && source[index] != '/')
         --index;
     int destination_index = 0;
     do
