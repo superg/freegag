@@ -11,7 +11,7 @@ namespace freegag
 inline std::filesystem::path normalize_host_path(const std::filesystem::path &path)
 {
     std::string text = path.string();
-    std::replace(text.begin(), text.end(), '\\', std::filesystem::path::preferred_separator);
+    std::replace(text.begin(), text.end(), '\\', static_cast<char>(std::filesystem::path::preferred_separator));
     return std::filesystem::path(text);
 }
 
