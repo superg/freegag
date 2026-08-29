@@ -547,7 +547,11 @@ ApplicationState *initialize_gag_application(int width, int height)
     state->width = width;
     state->height = height;
     state->flags |= APPLICATION_CURSOR_OUTSIDE;
-    copy_string(state->executable_directory, "Gag01.cdf");
+    std::filesystem::path gary_archive;
+    if(resolve_existing_host_path_case_insensitive("GARY.CDF", &gary_archive))
+        copy_string(state->executable_directory, gary_archive.string().c_str());
+    else
+        copy_string(state->executable_directory, "Gag01.cdf");
     load_local_preferences(state);
     disable_unavailable_saved_game_actions(state);
     if(!validate_and_select_application_archive(state, state->executable_directory, true))
