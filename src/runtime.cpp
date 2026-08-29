@@ -615,7 +615,8 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             else
             {
                 const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
-                if(flags != 0 && (flags & (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP)) == 0
+                constexpr uint32_t pending_bitmap_flags = static_cast<uint32_t>(RUNTIME_MEDIA_INITIALIZING) | static_cast<uint32_t>(RUNTIME_RESOURCE_TYPE_BITMAP);
+                if(flags != 0 && (flags & pending_bitmap_flags) == 0
                     && ((flags & RUNTIME_RESOURCE_TYPE_ANIMATION) == 0 || (flags & RUNTIME_RESOURCE_PRIMARY) == 0 || (flags & RUNTIME_RESOURCE_INDEPENDENT_SCENE) != 0)
                     && ((flags & RUNTIME_RESOURCE_LOOP) == 0 || query_runtime_resource_frame_limit(primary->resource_identity) != RUNTIME_RESOURCE_FRAME_LIMIT_UNBOUNDED))
                 {
@@ -637,7 +638,9 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
             else
             {
                 const uint32_t flags = query_runtime_resource_playback_flags(primary->resource_identity);
-                if(flags != 0 && (flags & (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP | RUNTIME_RESOURCE_PRIMARY)) == 0 && (flags & RUNTIME_RESOURCE_TYPE_ANIMATION) != 0)
+                constexpr uint32_t pending_primary_bitmap_flags =
+                    static_cast<uint32_t>(RUNTIME_MEDIA_INITIALIZING) | static_cast<uint32_t>(RUNTIME_RESOURCE_TYPE_BITMAP) | static_cast<uint32_t>(RUNTIME_RESOURCE_PRIMARY);
+                if(flags != 0 && (flags & pending_primary_bitmap_flags) == 0 && (flags & RUNTIME_RESOURCE_TYPE_ANIMATION) != 0)
                     return RuntimeScriptOpcodeDisposition::PAUSE;
             }
         }

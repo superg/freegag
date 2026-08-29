@@ -387,7 +387,8 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
 uint32_t update_runtime_resource_visibility(DisplayTraversalState *state)
 {
     auto *context = static_cast<RuntimeResourceVisibilityCallbackContext *>(state->callback_context);
-    uint32_t visible = (context->resource_flags & (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP)) != (RUNTIME_MEDIA_INITIALIZING | RUNTIME_RESOURCE_TYPE_BITMAP);
+    constexpr uint32_t hidden_initializing_bitmap_flags = static_cast<uint32_t>(RUNTIME_MEDIA_INITIALIZING) | static_cast<uint32_t>(RUNTIME_RESOURCE_TYPE_BITMAP);
+    uint32_t visible = (context->resource_flags & hidden_initializing_bitmap_flags) != hidden_initializing_bitmap_flags;
     if(visible != 0 && (context->resource_flags & RUNTIME_RESOURCE_TYPE_ANIMATION) != 0)
     {
         const auto *rectangle = static_cast<const DisplayRectangle *>(state->data);

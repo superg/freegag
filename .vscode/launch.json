@@ -26,11 +26,11 @@
             ]
         },
         {
-            "name": "XTET [Linux, GDB]",
+            "name": "GAGBoy [Linux, GDB]",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/src/freegag",
-            "args": ["--xtet"],
+            "args": ["--gagboy"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/data",
             "environment": [],
@@ -50,6 +50,32 @@
             ]
         },
         {
+            "name": "GAG [Linux, LLDB]",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/freegag",
+            "args": [],
+            "stopOnEntry": false,
+            "cwd": "${workspaceFolder}/data",
+            "terminal": "integrated",
+            "initCommands": [
+                "settings set target.x86-disassembly-flavor intel"
+            ]
+        },
+        {
+            "name": "GAGBoy [Linux, LLDB]",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/freegag",
+            "args": ["--gagboy"],
+            "stopOnEntry": false,
+            "cwd": "${workspaceFolder}/data",
+            "terminal": "integrated",
+            "initCommands": [
+                "settings set target.x86-disassembly-flavor intel"
+            ]
+        },
+        {
             "name": "GAG [MSVC, Debug]",
             "type": "cppvsdbg",
             "request": "launch",
@@ -61,11 +87,11 @@
             "console": "internalConsole"
         },
         {
-            "name": "XTET [MSVC, Debug]",
+            "name": "GAGBoy [MSVC, Debug]",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/src/Debug/freegag.exe",
-            "args": ["--xtet"],
+            "args": ["--gagboy"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/data",
             "environment": [],

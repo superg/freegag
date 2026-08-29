@@ -147,7 +147,7 @@ SDL_AppResult SDLCALL initialize_startup_callbacks(void **appstate, int argc, ch
 
     if(argv != nullptr)
         for(int index = 1; index < argc; ++index)
-            if(argv[index] != nullptr && std::strcmp(argv[index], "--xtet") == 0)
+            if(argv[index] != nullptr && std::strcmp(argv[index], "--gagboy") == 0)
             {
                 copy_string(state->startup_config, "GAGBOY.CFG");
                 break;

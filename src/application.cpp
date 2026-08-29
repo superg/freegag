@@ -9,6 +9,7 @@
 #include <new>
 #include <optional>
 #include <string>
+#include "application_paths.h"
 #include "host_events.h"
 #include "portable_path.h"
 #include "portable_string.h"
@@ -195,8 +196,8 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         }
         if(state->script_state != 0)
         {
-            append_string(state->installation_path, get_save_file_naming_policy(state).auto_save_file_name);
-            const bool saved = write_synchronized_cdf_package(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
+            std::string auto_save_path = (std::filesystem::path(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name).string();
+            const bool saved = write_synchronized_cdf_package(auto_save_path.data(), nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
             (void)saved;
         }
         save_runtime_settings(state);
@@ -339,6 +340,11 @@ void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericR
     case ScriptRuntimeProperty::MISSING_SECTION:
         send_application_event(HostApplicationCommand::RUNTIME_FAILURE);
         break;
+    case ScriptRuntimeProperty::RESOURCE_DATA:
+    case ScriptRuntimeProperty::POINTER_X:
+    case ScriptRuntimeProperty::POINTER_Y:
+    case ScriptRuntimeProperty::RESOURCE_FRAME:
+        break;
     }
 }
 
@@ -387,6 +393,17 @@ void get_runtime_script_property(ScriptRuntimeProperty property, void **value, v
         break;
     case ScriptRuntimeProperty::RESOURCE_STREAM_RATE_BYTES_PER_MILLISECOND:
         *static_cast<int32_t *>(result) = runtime_resource_stream_rate_bytes_per_millisecond;
+        break;
+    case ScriptRuntimeProperty::RELEASE_RESOURCE:
+    case ScriptRuntimeProperty::BEGIN_SUSPENDED_TRANSITION:
+    case ScriptRuntimeProperty::END_SUSPENDED_TRANSITION:
+    case ScriptRuntimeProperty::BEGIN_PROPERTY_STATE:
+    case ScriptRuntimeProperty::END_PROPERTY_STATE:
+    case ScriptRuntimeProperty::DESTROY_TREE:
+    case ScriptRuntimeProperty::MISSING_SOURCE:
+    case ScriptRuntimeProperty::MISSING_SECTION:
+    case ScriptRuntimeProperty::BEGIN_NO_INVENTORY:
+    case ScriptRuntimeProperty::END_NO_INVENTORY:
         break;
     }
 }
@@ -521,10 +538,13 @@ void disable_unavailable_saved_game_actions(ApplicationState *state)
 
 bool validate_and_select_application_archive(ApplicationState *state, const char *requested_archive, bool report_missing_archive)
 {
+    std::filesystem::path requested_path = requested_archive;
+    if(requested_path.is_relative() && state->installation_path[0] != '\0')
+        requested_path = std::filesystem::path(state->installation_path) / requested_path;
     std::filesystem::path resolved_archive;
     if(state->archive_context == nullptr)
     {
-        if(!resolve_existing_host_path_case_insensitive(requested_archive, &resolved_archive))
+        if(!resolve_existing_host_path_case_insensitive(requested_path, &resolved_archive))
         {
             if(report_missing_archive)
                 std::fputs("GAG: Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!\n", stderr);
@@ -534,8 +554,38 @@ bool validate_and_select_application_archive(ApplicationState *state, const char
     else
         state->installed_version[0] = '\0';
 
-    const std::string selected_archive = resolved_archive.empty() ? requested_archive : resolved_archive.string();
+    const std::string selected_archive = resolved_archive.empty() ? requested_path.string() : resolved_archive.string();
+    if(selected_archive.size() >= sizeof(state->installed_version))
+        return false;
     copy_string(state->installed_version, selected_archive.c_str());
+    return true;
+}
+
+bool initialize_application_file_root(ApplicationState *state)
+{
+    const char *base_path = SDL_GetBasePath();
+    std::error_code error;
+    const std::filesystem::path working_directory = std::filesystem::current_path(error);
+    ApplicationFileRootSelection selection;
+    if(!select_application_file_root(base_path == nullptr ? std::filesystem::path{} : std::filesystem::path(base_path), error ? std::filesystem::path{} : working_directory, &selection))
+    {
+        std::fputs("GAG: Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!\n", stderr);
+        return false;
+    }
+
+    std::string directory = selection.directory.string();
+    if(directory.empty() || directory.back() != std::filesystem::path::preferred_separator)
+        directory.push_back(std::filesystem::path::preferred_separator);
+    const std::string archive = selection.archive.string();
+    if(directory.size() + 0x1f >= sizeof(state->installation_path) || archive.size() >= sizeof(state->executable_directory))
+    {
+        std::fputs("GAG: The selected data directory path is too long.\n", stderr);
+        return false;
+    }
+
+    copy_string(state->installation_path, directory.c_str());
+    copy_string(state->executable_directory, archive.c_str());
+    state->gary = selection.gary;
     return true;
 }
 
@@ -552,12 +602,8 @@ ApplicationState *initialize_gag_application(int width, int height)
     state->width = width;
     state->height = height;
     state->flags |= APPLICATION_CURSOR_OUTSIDE;
-    std::filesystem::path gary_archive;
-    state->gary = resolve_existing_host_path_case_insensitive("GARY.CDF", &gary_archive);
-    if(state->gary)
-        copy_string(state->executable_directory, gary_archive.string().c_str());
-    else
-        copy_string(state->executable_directory, "Gag01.cdf");
+    if(!initialize_application_file_root(state))
+        return nullptr;
     load_local_preferences(state);
     disable_unavailable_saved_game_actions(state);
     if(!validate_and_select_application_archive(state, state->executable_directory, true))
@@ -569,7 +615,7 @@ ApplicationState *initialize_gag_application(int width, int height)
         return nullptr;
     }
     PortableRectangle saved_rectangle{};
-    if(load_saved_window_rectangle(width, height, &saved_rectangle))
+    if(load_saved_window_rectangle(state, width, height, &saved_rectangle))
         set_sdl_presenter_window_rectangle({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
     else
         center_sdl_presenter_window();
@@ -745,8 +791,8 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
         {
         }
         copy_string(state->startup_config, "START.CFG");
-        copy_string(state->installed_version, state->installation_path);
-        append_string(state->installed_version, get_save_file_naming_policy(state).auto_save_file_name);
+        const std::string auto_save_path = (std::filesystem::path(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name).string();
+        copy_string(state->installed_version, auto_save_path.c_str());
         graphics_host_flags |= RUNTIME_HOST_COMMAND_STOP_REQUESTED;
         return;
     }
@@ -802,6 +848,13 @@ constexpr char preferences_file_name[] = "freegag.ini";
 constexpr char game_preferences_section[] = "Game";
 constexpr char window_preferences_section[] = "Window";
 
+std::filesystem::path get_application_file_path(const ApplicationState *state, const char *file_name)
+{
+    if(state == nullptr || state->installation_path[0] == '\0')
+        return file_name;
+    return std::filesystem::path(state->installation_path) / file_name;
+}
+
 using PreferenceKey = std::pair<std::string, std::string>;
 using Preferences = std::map<PreferenceKey, std::string>;
 
@@ -824,12 +877,13 @@ std::string trim_preference_text(std::string value)
     return value.substr(first, last - first + 1);
 }
 
-Preferences parse_preferences()
+Preferences parse_preferences(const ApplicationState *state)
 {
     Preferences preferences;
     std::filesystem::path preferences_path;
-    if(!resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path))
-        preferences_path = preferences_file_name;
+    const std::filesystem::path requested_path = get_application_file_path(state, preferences_file_name);
+    if(!resolve_existing_host_path_case_insensitive(requested_path, &preferences_path))
+        preferences_path = requested_path;
     std::ifstream stream(preferences_path);
     std::string section;
     std::string line;
@@ -880,9 +934,9 @@ bool read_preference_number(const Preferences &preferences, const char *section,
     return true;
 }
 
-ApplicationPreferences read_preferences()
+ApplicationPreferences read_preferences(const ApplicationState *state)
 {
-    const Preferences parsed = parse_preferences();
+    const Preferences parsed = parse_preferences(state);
     ApplicationPreferences preferences;
     preferences.fullscreen = read_preference_bool(parsed, "Fullscreen");
     preferences.integer_scaling = read_preference_bool(parsed, "IntegerScaling", true);
@@ -903,11 +957,12 @@ ApplicationPreferences read_preferences()
     return preferences;
 }
 
-void write_preferences(const ApplicationPreferences &preferences)
+void write_preferences(const ApplicationState *state, const ApplicationPreferences &preferences)
 {
     std::filesystem::path preferences_path;
-    if(!resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path))
-        preferences_path = preferences_file_name;
+    const std::filesystem::path requested_path = get_application_file_path(state, preferences_file_name);
+    if(!resolve_existing_host_path_case_insensitive(requested_path, &preferences_path))
+        preferences_path = requested_path;
     std::ofstream stream(preferences_path, std::ios::trunc);
     if(!stream)
         return;
@@ -928,9 +983,9 @@ void write_preferences(const ApplicationPreferences &preferences)
     }
 }
 
-bool read_saved_window_rectangle(PortableRectangle *rectangle)
+bool read_saved_window_rectangle(const ApplicationState *state, PortableRectangle *rectangle)
 {
-    const ApplicationPreferences preferences = read_preferences();
+    const ApplicationPreferences preferences = read_preferences(state);
     if(!preferences.window_rectangle.has_value())
         return false;
     *rectangle = *preferences.window_rectangle;
@@ -954,7 +1009,7 @@ bool window_rectangle_is_valid(const PortableRectangle &rectangle, int32_t minim
 
 void save_runtime_settings(ApplicationState *state)
 {
-    ApplicationPreferences preferences = read_preferences();
+    ApplicationPreferences preferences = read_preferences(state);
     update_preferences_from_state(&preferences, state);
     if((state->flags & APPLICATION_WINDOWED) != 0)
     {
@@ -967,16 +1022,16 @@ void save_runtime_settings(ApplicationState *state)
         preferences.window_rectangle.reset();
     }
     if(state->archive_context == nullptr)
-        write_preferences(preferences);
+        write_preferences(state, preferences);
 }
 
-bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, PortableRectangle *rectangle)
+bool load_saved_window_rectangle(const ApplicationState *state, int32_t minimum_width, int32_t minimum_height, PortableRectangle *rectangle)
 {
     if(rectangle == nullptr)
         return false;
 
     PortableRectangle saved_rectangle{};
-    const bool loaded = read_saved_window_rectangle(&saved_rectangle);
+    const bool loaded = read_saved_window_rectangle(state, &saved_rectangle);
     const bool valid = loaded && window_rectangle_is_valid(saved_rectangle, minimum_width, minimum_height);
     if(valid)
         *rectangle = saved_rectangle;
@@ -991,10 +1046,10 @@ void save_window_position(ApplicationState *state)
     if(!get_sdl_presenter_window_rectangle(&rectangle))
         return;
 
-    ApplicationPreferences preferences = read_preferences();
+    ApplicationPreferences preferences = read_preferences(state);
     update_preferences_from_state(&preferences, state);
     preferences.window_rectangle = PortableRectangle{ rectangle.left, rectangle.top, rectangle.right, rectangle.bottom };
-    write_preferences(preferences);
+    write_preferences(state, preferences);
 }
 
 void set_game_cursor_active(ApplicationState *state, int active)
@@ -1329,10 +1384,9 @@ void copy_directory_from_path(char *destination, const char *source)
 
 void load_local_preferences(ApplicationState *state)
 {
-    state->installation_path[0] = '\0';
     std::filesystem::path preferences_path;
-    const bool preferences_missing = !resolve_existing_host_path_case_insensitive(preferences_file_name, &preferences_path);
-    const ApplicationPreferences preferences = read_preferences();
+    const bool preferences_missing = !resolve_existing_host_path_case_insensitive(get_application_file_path(state, preferences_file_name), &preferences_path);
+    const ApplicationPreferences preferences = read_preferences(state);
     set_sdl_presenter_integer_scaling(preferences.integer_scaling);
     state->low_color_resources = preferences.low_color_resources;
     if(preferences.fullscreen)
@@ -1342,7 +1396,7 @@ void load_local_preferences(ApplicationState *state)
     if(preferences.subtitles)
         state->flags |= APPLICATION_SUBTITLES_ENABLED;
     if(preferences_missing)
-        write_preferences(preferences);
+        write_preferences(state, preferences);
 
     if((state->flags & APPLICATION_FULLSCREEN_PREFERENCE) == 0)
         state->flags |= APPLICATION_WINDOWED;

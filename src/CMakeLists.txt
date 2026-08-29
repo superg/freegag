@@ -1,6 +1,8 @@
 add_executable(freegag
   "application.cpp"
   "application.h"
+  "application_paths.cpp"
+  "application_paths.h"
   "application_types.h"
   "audio.cpp"
   "audio.h"

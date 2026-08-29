@@ -33,7 +33,7 @@ void set_runtime_named_node_enabled(void *identity, int enabled);
 
 void save_runtime_settings(ApplicationState *state);
 
-bool load_saved_window_rectangle(int32_t minimum_width, int32_t minimum_height, PortableRectangle *rectangle);
+bool load_saved_window_rectangle(const ApplicationState *state, int32_t minimum_width, int32_t minimum_height, PortableRectangle *rectangle);
 
 void save_window_position(ApplicationState *state);
 
