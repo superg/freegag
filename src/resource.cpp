@@ -271,18 +271,21 @@ void *construct_runtime_resource(char *path, uint32_t scene_identifier, int32_t 
                         resource->callback_position = resource->scene_descriptor.pixels;
                         if((flags & RUNTIME_RESOURCE_PRIMARY) != 0)
                         {
-                            configure_runtime_animation_backend(backend, &resource->scene_descriptor, nullptr, high_flags | RUNTIME_MEDIA_NO_PALETTE | RUNTIME_MEDIA_ONE_STEP,
-                                update_runtime_resource_animation_backend);
+                            // A std::jthread starts immediately, so release the construction-time pause before configuration creates the worker. Compute the primary wait target first because that
+                            // worker may publish its first frame as soon as it starts.
                             const uint32_t count = runtime_resource_count + 1;
                             finalize_runtime_media_backend(backend);
+                            configure_runtime_animation_backend(backend, &resource->scene_descriptor, nullptr, high_flags | RUNTIME_MEDIA_NO_PALETTE | RUNTIME_MEDIA_ONE_STEP,
+                                update_runtime_resource_animation_backend);
                             wait_for_runtime_resource_count(count);
                             current_runtime_resource = resource;
                         }
                         else
                         {
-                            configure_runtime_animation_backend(backend, &resource->scene_descriptor, nullptr, high_flags | RUNTIME_MEDIA_NO_PALETTE, update_runtime_resource_animation_backend);
+                            // Explicitly stopped resources retain their initial pause until a script starts them; immediate resources must release it before their worker exists.
                             if((flags & RUNTIME_RESOURCE_DEFERRED_LOAD) == 0)
                                 finalize_runtime_media_backend(backend);
+                            configure_runtime_animation_backend(backend, &resource->scene_descriptor, nullptr, high_flags | RUNTIME_MEDIA_NO_PALETTE, update_runtime_resource_animation_backend);
                         }
                         constructed = true;
                         result = resource;

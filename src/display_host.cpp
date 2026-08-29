@@ -227,7 +227,7 @@ bool initialize_runtime_graphics()
     }
     operate_display_surface(0, 0, runtime_game_host_context.width, runtime_game_host_context.height, 2);
     reset_runtime_display_state();
-    set_runtime_pointer_window_active(false);
+    initialize_runtime_pointer_state();
     runtime_display_thread = new (std::nothrow) std::jthread([] { execute_script_commands(&runtime_display_context); });
     if(runtime_display_thread == nullptr)
         return false;

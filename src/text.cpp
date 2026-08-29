@@ -1150,9 +1150,8 @@ int32_t update_runtime_resource_animation_backend(RuntimeMediaBackend *backend)
     }
     if((flags & RUNTIME_MEDIA_PAUSE_NOTIFIED) != 0)
     {
-        // Win32 normally let a non-deferred secondary animation consume its initial pending state before the runtime-wide pause could notify it. Preserve that ordering invariant when standard-thread
-        // scheduling delivers the pause notification first. Serialize with finalization and change only the pending bit so a stale callback snapshot cannot restore the animation's initial paused
-        // state.
+        // An explicitly stopped secondary or an immediate secondary created during a runtime-wide pause can be notified before its first frame. Consume its pending registration so a tree rebuild
+        // cannot deadlock while playback is intentionally paused. Immediate animations release their construction-time pause before their worker starts, so that setup state cannot reach this path.
         const bool registration_allowed = (resource->type_flags & (RUNTIME_RESOURCE_DEFERRED_LOAD | RUNTIME_RESOURCE_PRIMARY)) != RUNTIME_RESOURCE_PRIMARY;
         if(registration_allowed && (flags & RUNTIME_MEDIA_RESOURCE_PENDING) != 0)
         {

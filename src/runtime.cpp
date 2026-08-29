@@ -8,6 +8,7 @@
 namespace freegag
 {
 bool runtime_pointer_window_active;
+bool runtime_pointer_startup_pending;
 
 void enable_runtime_subsystem()
 {
@@ -47,15 +48,31 @@ void suspend_runtime_state()
 void resume_runtime_state()
 {
     std::lock_guard lock(runtime_pointer_scene_mutex);
-    // Window entry must not override a guarded cursor transition or expose a cursor scene before its initial tree is ready.
-    const bool allowed = runtime_pointer_window_active
-                      && (graphics_host_flags & (RUNTIME_HOST_SCENE_TRANSITION_GUARDED | RUNTIME_HOST_SCRIPT_TREE_ACTIVE | RUNTIME_HOST_SCENE_SWITCH_DEFERRED))
-                             == (RUNTIME_HOST_SCRIPT_TREE_ACTIVE | RUNTIME_HOST_SCENE_SWITCH_DEFERRED);
+    // Window entry must not override a guarded cursor transition or expose a cursor scene before the initial presentation selects one.
+    const bool allowed = !runtime_pointer_startup_pending && runtime_pointer_window_active
+                      && (graphics_host_flags & (RUNTIME_HOST_SCENE_TRANSITION_GUARDED | RUNTIME_HOST_SCENE_SWITCH_DEFERRED)) == RUNTIME_HOST_SCENE_SWITCH_DEFERRED;
     if(allowed)
     {
         graphics_host_flags &= ~RUNTIME_HOST_SCENE_SWITCH_DEFERRED;
         switch_runtime_scene(reinterpret_cast<void *>(runtime_state_value));
     }
+}
+
+void initialize_runtime_pointer_state()
+{
+    std::lock_guard lock(runtime_pointer_scene_mutex);
+    runtime_pointer_window_active = false;
+    runtime_pointer_startup_pending = true;
+    suspend_runtime_state();
+}
+
+void complete_runtime_pointer_startup()
+{
+    std::lock_guard lock(runtime_pointer_scene_mutex);
+    if(!runtime_pointer_startup_pending || query_runtime_scene_flags(current_runtime_resource) == 0)
+        return;
+    runtime_pointer_startup_pending = false;
+    resume_runtime_state();
 }
 
 void set_runtime_pointer_window_active(bool active)

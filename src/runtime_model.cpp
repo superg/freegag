@@ -1483,7 +1483,9 @@ uint32_t update_runtime_pointer_region(int32_t x, int32_t y)
 uint32_t refresh_runtime_pointer_region()
 {
     active_runtime_pointer_region = nullptr;
-    return update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+    const uint32_t result = update_runtime_pointer_region(runtime_scene_x, runtime_scene_y);
+    complete_runtime_pointer_startup();
+    return result;
 }
 
 bool has_runtime_pointer_inventory_pack()

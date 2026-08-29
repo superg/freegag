@@ -15,6 +15,10 @@ void suspend_runtime_state();
 
 void resume_runtime_state();
 
+void initialize_runtime_pointer_state();
+
+void complete_runtime_pointer_startup();
+
 void set_runtime_pointer_window_active(bool active);
 
 void reset_runtime_input_queue();
