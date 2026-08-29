@@ -1,7 +1,5 @@
 #include "application.h"
 #include <SDL3/SDL.h>
-#include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -197,7 +195,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         }
         if(state->script_state != 0)
         {
-            append_string(state->installation_path, auto_save_file_name);
+            append_string(state->installation_path, get_save_file_naming_policy(state).auto_save_file_name);
             const bool saved = write_synchronized_cdf_package(state->installation_path, nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
             (void)saved;
         }
@@ -393,7 +391,7 @@ void get_runtime_script_property(ScriptRuntimeProperty property, void **value, v
     }
 }
 
-bool initialize_graphics_host(int16_t width, uint16_t height)
+bool initialize_graphics_host(int16_t width, uint16_t height, const char *window_title)
 {
     if((runtime_scene_control_flags & RUNTIME_HOST_INITIALIZED) != 0)
         return true;
@@ -425,7 +423,7 @@ bool initialize_graphics_host(int16_t width, uint16_t height)
     {
         runtime_pointer_x = 0;
         runtime_pointer_y = 0;
-        initialized = initialize_sdl_presenter(runtime_game_host_context.width, runtime_game_host_context.height) == 0;
+        initialized = initialize_sdl_presenter(runtime_game_host_context.width, runtime_game_host_context.height, window_title) == 0;
     }
 
     runtime_target_flags = RUNTIME_TARGET_ACTIVE;
@@ -500,18 +498,18 @@ void clear_runtime_display()
 void disable_unavailable_saved_game_actions(ApplicationState *state)
 {
     std::error_code error;
+    const SaveFileNamingPolicy &naming = get_save_file_naming_policy(state);
     const std::filesystem::path installation_path = state->installation_path[0] == '\0' ? std::filesystem::path(".") : std::filesystem::path(state->installation_path);
     std::filesystem::path resolved_auto_save;
-    if(!resolve_existing_host_path_case_insensitive(installation_path / auto_save_file_name, &resolved_auto_save))
+    if(!resolve_existing_host_path_case_insensitive(installation_path / naming.auto_save_file_name, &resolved_auto_save))
         state->flags |= APPLICATION_RESUME_DISABLED;
 
     bool found_save = false;
     error.clear();
     for(std::filesystem::directory_iterator entry(installation_path, error), end; !error && entry != end; entry.increment(error))
     {
-        std::string extension = entry->path().extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-        if(entry->is_regular_file(error) && extension == ".gsf")
+        const std::string file_name = entry->path().filename().string();
+        if(entry->is_regular_file(error) && parse_manual_save_file_name(file_name.c_str(), naming, nullptr))
         {
             found_save = true;
             break;
@@ -555,7 +553,8 @@ ApplicationState *initialize_gag_application(int width, int height)
     state->height = height;
     state->flags |= APPLICATION_CURSOR_OUTSIDE;
     std::filesystem::path gary_archive;
-    if(resolve_existing_host_path_case_insensitive("GARY.CDF", &gary_archive))
+    state->gary = resolve_existing_host_path_case_insensitive("GARY.CDF", &gary_archive);
+    if(state->gary)
         copy_string(state->executable_directory, gary_archive.string().c_str());
     else
         copy_string(state->executable_directory, "Gag01.cdf");
@@ -564,7 +563,7 @@ ApplicationState *initialize_gag_application(int width, int height)
     if(!validate_and_select_application_archive(state, state->executable_directory, true))
         return nullptr;
 
-    if(!initialize_graphics_host(static_cast<int16_t>(width), static_cast<uint16_t>(height)))
+    if(!initialize_graphics_host(static_cast<int16_t>(width), static_cast<uint16_t>(height), state->gary ? "Gary" : "GAG"))
     {
         close_host_events();
         return nullptr;
@@ -747,7 +746,7 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
         }
         copy_string(state->startup_config, "START.CFG");
         copy_string(state->installed_version, state->installation_path);
-        append_string(state->installed_version, auto_save_file_name);
+        append_string(state->installed_version, get_save_file_naming_policy(state).auto_save_file_name);
         graphics_host_flags |= RUNTIME_HOST_COMMAND_STOP_REQUESTED;
         return;
     }

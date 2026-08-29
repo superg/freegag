@@ -245,7 +245,7 @@ void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32
     }
 }
 
-uint32_t initialize_sdl_presenter(int32_t width, int32_t height)
+uint32_t initialize_sdl_presenter(int32_t width, int32_t height, const char *window_title)
 {
     presenter.main_thread_id = std::this_thread::get_id();
     presenter.shutting_down = false;
@@ -266,7 +266,7 @@ uint32_t initialize_sdl_presenter(int32_t width, int32_t height)
     }
     SDL_HideCursor();
 
-    presenter.window = SDL_CreateWindow("GAG", width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
+    presenter.window = SDL_CreateWindow(window_title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
     if(presenter.window != nullptr)
     {
         SDL_SetWindowMinimumSize(presenter.window, width, height);

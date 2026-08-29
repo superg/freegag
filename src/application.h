@@ -9,7 +9,7 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
 
 uint32_t application_host_event_type();
 
-bool initialize_graphics_host(int16_t width, uint16_t height);
+bool initialize_graphics_host(int16_t width, uint16_t height, const char *window_title);
 
 uint32_t shutdown_graphics_host();
 

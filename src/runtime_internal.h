@@ -264,6 +264,4 @@ inline int begin_runtime_target_from_bounds_fields(uint32_t pixels, uint32_t rec
 inline uint32_t runtime_session_reset_storage[0x1d3]{};
 inline const DisplayPixelFormatDescriptor default_display_pixel_format{ 0, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0, nullptr, nullptr };
 inline const DisplayPixelFormatDescriptor indexed_source_pixel_format{ 0, 8, 0, 0, 0, 0, nullptr, nullptr };
-
-constexpr char auto_save_file_name[] = "AutoSave.cdf";
 } // namespace freegag

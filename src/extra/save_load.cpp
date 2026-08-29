@@ -50,6 +50,7 @@ struct ScriptedSaveLoadController
 
     SaveLoadScreenMode mode;
     bool pending;
+    SaveFileNamingPolicy naming;
     RuntimeTreeNode *tree;
     RuntimeTreeSceneLink *preview_layer;
     RuntimeTreeSceneLink *caption_layer;
@@ -76,6 +77,41 @@ bool save_file_exists(const char *path)
 }
 
 ScriptedSaveLoadController controller{};
+
+const SaveFileNamingPolicy &get_save_file_naming_policy(const ApplicationState *state)
+{
+    static constexpr SaveFileNamingPolicy gag{ "AutoSave.cdf", "GAG", ".GSF" };
+    static constexpr SaveFileNamingPolicy gary{ "Auto.gsv", "GARY", ".GSV" };
+    return state != nullptr && state->gary ? gary : gag;
+}
+
+bool parse_manual_save_file_name(const char *file_name, const SaveFileNamingPolicy &policy, uint32_t *identifier)
+{
+    if(file_name == nullptr || policy.manual_save_prefix == nullptr || policy.manual_save_extension == nullptr)
+        return false;
+    const size_t file_name_length = std::strlen(file_name);
+    const size_t prefix_length = std::strlen(policy.manual_save_prefix);
+    const size_t extension_length = std::strlen(policy.manual_save_extension);
+    if(file_name_length <= prefix_length + extension_length || compare_ascii_case_insensitive(file_name, policy.manual_save_prefix, prefix_length) != 0
+        || compare_ascii_case_insensitive(file_name + file_name_length - extension_length, policy.manual_save_extension) != 0)
+    {
+        return false;
+    }
+
+    uint32_t value = 0;
+    for(size_t index = prefix_length; index < file_name_length - extension_length; ++index)
+    {
+        if(file_name[index] < '0' || file_name[index] > '9')
+            return false;
+        const uint32_t digit = static_cast<uint32_t>(file_name[index] - '0');
+        if(value > (std::numeric_limits<uint32_t>::max() - digit) / 10)
+            return false;
+        value = value * 10 + digit;
+    }
+    if(identifier != nullptr)
+        *identifier = value;
+    return true;
+}
 
 RuntimeTreeSceneLink *find_tree_scene_link(RuntimeTreeNode *tree, const char *name)
 {
@@ -419,7 +455,7 @@ bool prepare_new_save_path(char *path)
     for(;;)
     {
         char file_name[0x20];
-        const int file_length = std::snprintf(file_name, sizeof(file_name), "GAG%03u.GSF", identifier);
+        const int file_length = std::snprintf(file_name, sizeof(file_name), "%s%03u%s", controller.naming.manual_save_prefix, identifier, controller.naming.manual_save_extension);
         const int path_length = std::snprintf(path, 0x104, "%s%s", controller.directory, file_name);
         if(file_length <= 0 || file_length >= static_cast<int>(sizeof(file_name)) || path_length <= 0 || path_length >= 0x104)
             return false;
@@ -490,9 +526,9 @@ void finish_save_name_input(const char *input, ApplicationState *state)
     controller.input_completion = ScriptedSaveLoadController::InputCompletion::submit;
 }
 
-uint32_t enumerate_archive_comment_entries(const char *directory, const char *extension, ArchiveCommentCollection *collection)
+uint32_t enumerate_archive_comment_entries(const char *directory, const SaveFileNamingPolicy &policy, ArchiveCommentCollection *collection)
 {
-    if(directory == nullptr || extension == nullptr || collection == nullptr)
+    if(directory == nullptr || collection == nullptr)
         return ARCHIVE_COMMENT_ENUMERATION_FAILED;
     *collection = {};
     std::error_code error;
@@ -508,8 +544,8 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
             error.clear();
             continue;
         }
-        const std::string entry_extension = entry->path().extension().string();
-        if(compare_ascii_case_insensitive(entry_extension.c_str(), extension) == 0)
+        const std::string file_name = entry->path().filename().string();
+        if(parse_manual_save_file_name(file_name.c_str(), policy, nullptr))
             files.push_back(entry->path());
     }
     if(files.empty())
@@ -530,8 +566,6 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
     for(const std::filesystem::path &file : files)
     {
         const std::string file_name = file.filename().string();
-        if(compare_ascii_case_insensitive(file_name.c_str(), "AutoSave.cdf") == 0)
-            continue;
         const std::string path = file.string();
         CdfArchive *archive = open_cdf_archive(path.c_str(), 0);
         if(archive == nullptr)
@@ -568,12 +602,11 @@ uint32_t enumerate_archive_comment_entries(const char *directory, const char *ex
             copy_string(entry.path, path.c_str());
             copy_string(entry.comment, comment);
             copy_string(entry.file_name, file_name.c_str());
-            entry.numeric_identifier = parse_path_numeric_identifier(file_name.c_str());
-            const uint32_t identifier_limit = static_cast<uint32_t>(entry.numeric_identifier + 1);
-            if(static_cast<int32_t>(collection->next_identifier) < static_cast<int32_t>(identifier_limit))
-                collection->next_identifier = identifier_limit;
-            else if(collection->count > collection->next_identifier)
-                collection->next_identifier = collection->count;
+            parse_manual_save_file_name(file_name.c_str(), policy, &entry.numeric_identifier);
+            if(entry.numeric_identifier == std::numeric_limits<uint32_t>::max())
+                collection->next_identifier = entry.numeric_identifier;
+            else if(entry.numeric_identifier >= collection->next_identifier)
+                collection->next_identifier = entry.numeric_identifier + 1;
         }
         close_cdf_archive(archive);
     }
@@ -608,9 +641,10 @@ bool request_scripted_save_load_screen(SaveLoadScreenMode mode, ApplicationState
     controller.mode = mode;
     controller.pending = true;
     controller.input_completion = ScriptedSaveLoadController::InputCompletion::submit;
+    controller.naming = get_save_file_naming_policy(state);
     if(state != nullptr)
         copy_string(controller.directory, state->installation_path);
-    const uint32_t enumeration_result = enumerate_archive_comment_entries(controller.directory, ".GSF", &controller.saves);
+    const uint32_t enumeration_result = enumerate_archive_comment_entries(controller.directory, controller.naming, &controller.saves);
     if(mode == SaveLoadScreenMode::LOAD && enumeration_result != ARCHIVE_COMMENT_ENUMERATION_SUCCESS)
     {
         controller.pending = false;

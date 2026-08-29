@@ -8,7 +8,7 @@ namespace freegag
 
 bool initialize_runtime_graphics();
 
-uint32_t initialize_sdl_presenter(int32_t width, int32_t height);
+uint32_t initialize_sdl_presenter(int32_t width, int32_t height, const char *window_title);
 
 void set_sdl_presenter_integer_scaling(bool enabled);
 
