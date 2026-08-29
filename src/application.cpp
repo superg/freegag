@@ -23,6 +23,11 @@ RuntimeHeap save_capture_heap;
 
 bool validate_and_select_application_archive(ApplicationState *state, const char *requested_archive, bool report_missing_archive);
 
+void synchronize_runtime_subtitle_preference(const ApplicationState *state)
+{
+    set_script_runtime_flags(SCRIPT_RUNTIME_COMMENTS_SUPPRESSED, (state->flags & APPLICATION_SUBTITLES_ENABLED) == 0);
+}
+
 bool wake_host_event_loop(void *)
 {
     SDL_Event event{};
@@ -182,9 +187,9 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         {
             clear_runtime_display();
             construct_runtime_resource(state->installed_version, 0, 0, 0, 0, 0, 0, 0x200);
-            set_script_runtime_flags(SCRIPT_RUNTIME_COMMENTS_SUPPRESSED, (state->flags & APPLICATION_SUBTITLES_ENABLED) == 0);
+            synchronize_runtime_subtitle_preference(state);
             construct_runtime_resource(state->startup_config, 0, 0, 0, 0, 0, 0, 0);
-            set_script_runtime_flags(SCRIPT_RUNTIME_COMMENTS_SUPPRESSED, (state->flags & APPLICATION_SUBTITLES_ENABLED) == 0);
+            synchronize_runtime_subtitle_preference(state);
             state->flags &= ~APPLICATION_SNAPSHOT_ACTIVE;
             runtime_command_state = 0;
             break;
@@ -757,7 +762,7 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
             state->flags &= ~APPLICATION_SUBTITLES_ENABLED;
         else
             state->flags |= APPLICATION_SUBTITLES_ENABLED;
-        set_script_runtime_flags(SCRIPT_RUNTIME_COMMENTS_SUPPRESSED, subtitles_enabled);
+        synchronize_runtime_subtitle_preference(state);
         state->flags |= APPLICATION_PREFERENCES_CHANGED;
         return;
     }
@@ -1046,6 +1051,7 @@ void process_state_activation(ApplicationState *state, RuntimeTreeNode *tree)
     // Process the RuntimeTreeNode directly; treating its prefix as a separate state record is unsafe when pointers widen.
     if(tree->parent != nullptr || runtime_display_context.runtime_tree_identity != tree)
         return;
+    synchronize_runtime_subtitle_preference(state);
     if(current_runtime_scene_identity != nullptr)
     {
         clear_application_lock_flag(state);

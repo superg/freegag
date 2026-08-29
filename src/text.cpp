@@ -1044,9 +1044,8 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             }
             if(context[1] == 0)
                 context[1] = find_available_display_scene_index(0x80000);
-            if(are_runtime_generic_comments_suppressed())
-                state.words[6] = 10000;
-            DisplaySceneNode *scene = acquire_display_scene_node(static_cast<uint32_t>(context[1]), static_cast<int32_t>(state.words[5]), static_cast<int32_t>(state.words[6]), state_rectangle->right,
+            const int32_t presentation_y = are_runtime_generic_comments_suppressed() ? 10000 : static_cast<int32_t>(state.words[6]);
+            DisplaySceneNode *scene = acquire_display_scene_node(static_cast<uint32_t>(context[1]), static_cast<int32_t>(state.words[5]), presentation_y, state_rectangle->right,
                 state_rectangle->bottom, 0x20000, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
             if(begin_display_scene_update(reinterpret_cast<intptr_t>(scene)) == 0)
             {

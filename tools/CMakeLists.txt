@@ -1,2 +1,1 @@
 add_subdirectory(xtet_resource_extractor)
-add_subdirectory(cdf_script_audit)
