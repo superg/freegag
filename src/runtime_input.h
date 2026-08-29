@@ -55,5 +55,4 @@ struct RuntimeQueuedInput
 inline constexpr size_t runtime_input_text_capacity = 0x20;
 using RuntimeInputText = std::array<char, runtime_input_text_capacity>;
 
-inline constexpr uint32_t RUNTIME_POINTER_POSITION_OUTSIDE = 0xffffffff;
 } // namespace freegag

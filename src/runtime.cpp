@@ -7,6 +7,8 @@
 
 namespace freegag
 {
+bool runtime_pointer_window_active;
+
 void enable_runtime_subsystem()
 {
     if((graphics_host_flags & RUNTIME_HOST_AUDIO_ENABLED) == 0)
@@ -45,11 +47,25 @@ void suspend_runtime_state()
 void resume_runtime_state()
 {
     std::lock_guard lock(runtime_pointer_scene_mutex);
-    if((graphics_host_flags & RUNTIME_HOST_SCENE_TRANSITION_GUARDED) == 0 && (graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) != 0)
+    // Window entry must not override a guarded cursor transition or expose a cursor scene before its initial tree is ready.
+    const bool allowed = runtime_pointer_window_active
+                      && (graphics_host_flags & (RUNTIME_HOST_SCENE_TRANSITION_GUARDED | RUNTIME_HOST_SCRIPT_TREE_ACTIVE | RUNTIME_HOST_SCENE_SWITCH_DEFERRED))
+                             == (RUNTIME_HOST_SCRIPT_TREE_ACTIVE | RUNTIME_HOST_SCENE_SWITCH_DEFERRED);
+    if(allowed)
     {
         graphics_host_flags &= ~RUNTIME_HOST_SCENE_SWITCH_DEFERRED;
         switch_runtime_scene(reinterpret_cast<void *>(runtime_state_value));
     }
+}
+
+void set_runtime_pointer_window_active(bool active)
+{
+    std::lock_guard lock(runtime_pointer_scene_mutex);
+    runtime_pointer_window_active = active;
+    if(active)
+        resume_runtime_state();
+    else
+        suspend_runtime_state();
 }
 
 void reset_runtime_input_queue()
@@ -1027,15 +1043,20 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xe000:
+    {
+        std::lock_guard lock(runtime_pointer_scene_mutex);
         if(state->nested_runtime_state_count == 0)
         {
             state->flags |= RUNTIME_COMMAND_NESTED_STATE_ACTIVE;
             suspend_runtime_state();
         }
         ++state->nested_runtime_state_count;
+    }
         return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0xf000:
+    {
+        std::lock_guard lock(runtime_pointer_scene_mutex);
         if(state->nested_runtime_state_count == 1)
         {
             state->flags &= ~RUNTIME_COMMAND_NESTED_STATE_ACTIVE;
@@ -1043,6 +1064,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         }
         if(state->nested_runtime_state_count != 0)
             --state->nested_runtime_state_count;
+    }
         return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x7000:

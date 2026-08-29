@@ -7,6 +7,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <optional>
 #include <string>
@@ -286,14 +287,19 @@ void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericR
         runtime_resource_stream_rate_bytes_per_millisecond = static_cast<int32_t>(reinterpret_cast<intptr_t>(value));
         break;
     case ScriptRuntimeProperty::BEGIN_SUSPENDED_TRANSITION:
+    {
+        std::lock_guard lock(runtime_pointer_scene_mutex);
         if(suspended_runtime_state_count == 0)
         {
             suspend_runtime_state();
             runtime_scene_control_flags |= RUNTIME_HOST_SCENE_TRANSITION_GUARDED;
         }
         ++suspended_runtime_state_count;
-        break;
+    }
+    break;
     case ScriptRuntimeProperty::END_SUSPENDED_TRANSITION:
+    {
+        std::lock_guard lock(runtime_pointer_scene_mutex);
         if(suspended_runtime_state_count == 1)
         {
             runtime_scene_control_flags &= ~RUNTIME_HOST_SCENE_TRANSITION_GUARDED;
@@ -301,7 +307,8 @@ void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericR
         }
         if(suspended_runtime_state_count != 0)
             --suspended_runtime_state_count;
-        break;
+    }
+    break;
     case ScriptRuntimeProperty::BEGIN_PROPERTY_STATE:
         if(runtime_state_4_count == 0)
             runtime_scene_control_flags |= RUNTIME_HOST_PROPERTY_STATE_ACTIVE;
@@ -998,15 +1005,26 @@ void set_game_cursor_active(ApplicationState *state, int active)
         if((state->flags & APPLICATION_CURSOR_HIDDEN) == 0)
         {
             SDL_HideCursor();
-            resume_runtime_state();
             state->flags |= APPLICATION_CURSOR_HIDDEN;
         }
+        if(!state->pointer_inside_window)
+        {
+            state->pointer_inside_window = true;
+            set_runtime_pointer_window_active(true);
+        }
     }
-    else if((state->flags & APPLICATION_CURSOR_HIDDEN) != 0)
+    else
     {
-        SDL_ShowCursor();
-        suspend_runtime_state();
-        state->flags &= ~APPLICATION_CURSOR_HIDDEN;
+        if(state->pointer_inside_window)
+        {
+            state->pointer_inside_window = false;
+            set_runtime_pointer_window_active(false);
+        }
+        if((state->flags & APPLICATION_CURSOR_HIDDEN) != 0)
+        {
+            SDL_ShowCursor();
+            state->flags &= ~APPLICATION_CURSOR_HIDDEN;
+        }
     }
 }
 

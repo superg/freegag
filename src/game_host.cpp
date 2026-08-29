@@ -300,7 +300,6 @@ void handle_runtime_input_event(const RuntimeInputEvent &event)
         break;
     case RuntimeInputType::POINTER_LEAVE:
         suspend_runtime_state();
-        enqueue_runtime_input(RuntimeQueuedInputType::POINTER_MOVE, RUNTIME_POINTER_POSITION_OUTSIDE);
         break;
     case RuntimeInputType::BUTTON_DOWN:
         if(event.button == RuntimeMouseButton::LEFT)

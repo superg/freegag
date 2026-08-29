@@ -95,6 +95,7 @@ struct ApplicationState
     int32_t height;
     bool shutdown_complete;
     bool low_color_resources;
+    bool pointer_inside_window;
     void *archive_context;
     uint32_t saved_flags;
     void *saved_memory;

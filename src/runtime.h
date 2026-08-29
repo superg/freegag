@@ -15,6 +15,8 @@ void suspend_runtime_state();
 
 void resume_runtime_state();
 
+void set_runtime_pointer_window_active(bool active);
+
 void reset_runtime_input_queue();
 
 void enqueue_runtime_byte(uint8_t value);
