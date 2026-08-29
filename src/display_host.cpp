@@ -41,10 +41,7 @@ struct PresenterState
     bool texture_has_frame{};
     bool fullscreen_transition_pending{};
     bool pending_fullscreen{};
-    bool pending_mouse_warp{};
     bool integer_scaling{ true };
-    float pending_mouse_x{};
-    float pending_mouse_y{};
 };
 
 PresenterState presenter;
@@ -255,6 +252,8 @@ uint32_t initialize_sdl_presenter(int32_t width, int32_t height)
     presenter.presenter_service_pending = false;
     presenter.repaint_pending = false;
     presenter.texture_has_frame = false;
+    presenter.fullscreen_transition_pending = false;
+    presenter.pending_fullscreen = false;
     display_palette_flags = DISPLAY_PRESENTER_INITIALIZED;
 
     if(!SDL_InitSubSystem(SDL_INIT_VIDEO))
@@ -321,6 +320,8 @@ void begin_sdl_presenter_shutdown()
         presenter.presentation_wake_pending = false;
         presenter.presenter_service_pending = false;
         presenter.repaint_pending = false;
+        presenter.fullscreen_transition_pending = false;
+        presenter.pending_fullscreen = false;
     }
     presenter.queue_changed.notify_all();
 }
@@ -339,23 +340,8 @@ bool set_sdl_presenter_fullscreen(bool fullscreen)
     if(!presenter.fullscreen_transition_pending && ((SDL_GetWindowFlags(presenter.window) & SDL_WINDOW_FULLSCREEN) != 0) == fullscreen)
         return true;
 
-    float window_x;
-    float window_y;
-    SDL_GetMouseState(&window_x, &window_y);
-    float logical_x;
-    float logical_y;
-    presenter.pending_mouse_warp = SDL_RenderCoordinatesFromWindow(presenter.renderer, window_x, window_y, &logical_x, &logical_y) && logical_x >= 0.0f && logical_y >= 0.0f
-                                && logical_x < static_cast<float>(presenter.width) && logical_y < static_cast<float>(presenter.height);
-    if(presenter.pending_mouse_warp)
-    {
-        presenter.pending_mouse_x = logical_x;
-        presenter.pending_mouse_y = logical_y;
-    }
     if(!SDL_SetWindowFullscreen(presenter.window, fullscreen))
-    {
-        presenter.pending_mouse_warp = false;
         return false;
-    }
     presenter.fullscreen_transition_pending = true;
     presenter.pending_fullscreen = fullscreen;
     return true;
@@ -366,17 +352,6 @@ void complete_sdl_presenter_fullscreen_transition(bool fullscreen)
     if(!presenter.fullscreen_transition_pending || presenter.pending_fullscreen != fullscreen)
         return;
     presenter.fullscreen_transition_pending = false;
-    if(!presenter.pending_mouse_warp || presenter.window == nullptr || presenter.renderer == nullptr)
-    {
-        presenter.pending_mouse_warp = false;
-        return;
-    }
-
-    float window_x;
-    float window_y;
-    if(SDL_RenderCoordinatesToWindow(presenter.renderer, presenter.pending_mouse_x, presenter.pending_mouse_y, &window_x, &window_y))
-        SDL_WarpMouseInWindow(presenter.window, window_x, window_y);
-    presenter.pending_mouse_warp = false;
 }
 
 bool get_sdl_presenter_window_rectangle(DisplayRectangle *rectangle)
@@ -415,11 +390,24 @@ bool is_sdl_presenter_rectangle_visible(const DisplayRectangle &rectangle)
 
 bool get_sdl_presenter_mouse_position(int32_t *x, int32_t *y)
 {
-    if(presenter.renderer == nullptr || x == nullptr || y == nullptr)
+    if(presenter.window == nullptr || presenter.renderer == nullptr || x == nullptr || y == nullptr)
         return false;
     float window_x;
     float window_y;
-    SDL_GetMouseState(&window_x, &window_y);
+    float global_x;
+    float global_y;
+    SDL_GetGlobalMouseState(&global_x, &global_y);
+    int window_origin_x;
+    int window_origin_y;
+    if(SDL_GetWindowPosition(presenter.window, &window_origin_x, &window_origin_y))
+    {
+        window_x = global_x - static_cast<float>(window_origin_x);
+        window_y = global_y - static_cast<float>(window_origin_y);
+    }
+    else
+    {
+        SDL_GetMouseState(&window_x, &window_y);
+    }
     float logical_x;
     float logical_y;
     if(!SDL_RenderCoordinatesFromWindow(presenter.renderer, window_x, window_y, &logical_x, &logical_y))

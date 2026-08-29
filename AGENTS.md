@@ -5,7 +5,7 @@ This repository is a decompiled videogame "GAG: The Impotent Mystery" (ГЭГ: �
 ## Core technology
 
 - C++23 and the Win32 API.
-- CMake 4.2 or newer.
+- CMake 3.28 or newer.
 
 ## C++ formatting
 

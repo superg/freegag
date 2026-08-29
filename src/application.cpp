@@ -562,18 +562,13 @@ ApplicationState *initialize_gag_application(int width, int height)
         close_host_events();
         return nullptr;
     }
-    if((state->flags & APPLICATION_WINDOWED) != 0)
-    {
-        PortableRectangle saved_rectangle{};
-        if(load_saved_window_rectangle(width, height, &saved_rectangle))
-            set_sdl_presenter_window_rectangle({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
-        else
-            center_sdl_presenter_window();
-    }
+    PortableRectangle saved_rectangle{};
+    if(load_saved_window_rectangle(width, height, &saved_rectangle))
+        set_sdl_presenter_window_rectangle({ saved_rectangle.left, saved_rectangle.top, saved_rectangle.right, saved_rectangle.bottom });
     else
-    {
+        center_sdl_presenter_window();
+    if((state->flags & APPLICATION_WINDOWED) == 0)
         set_sdl_presenter_fullscreen(true);
-    }
     if(!show_sdl_presenter())
     {
         shutdown_graphics_host();

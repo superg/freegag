@@ -1,2 +1,6 @@
 # Keep repository text deterministic across Windows, Linux, and macOS.
 * text=auto eol=lf
+
+# Agent-memory files accumulate updates from parallel lines of development.
+docs/agent-memory/active_context.md merge=union
+docs/agent-memory/learned_patterns.md merge=union

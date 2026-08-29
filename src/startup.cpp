@@ -183,7 +183,14 @@ SDL_AppResult SDLCALL dispatch_startup_event(void *appstate, SDL_Event *event)
         graphics_host_flags &= ~RUNTIME_HOST_PAUSED;
     else if(event->type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN || event->type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN)
         complete_sdl_presenter_fullscreen_transition(event->type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN);
-    else if(event->type == SDL_EVENT_WINDOW_RESIZED || event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || event->type == SDL_EVENT_WINDOW_EXPOSED)
+    else if(event->type == SDL_EVENT_WINDOW_RESIZED || event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+    {
+        request_sdl_presenter_repaint();
+        RuntimeInputEvent input;
+        if(prepare_current_runtime_pointer_input(state, &input))
+            handle_runtime_input_event(input);
+    }
+    else if(event->type == SDL_EVENT_WINDOW_EXPOSED)
         request_sdl_presenter_repaint();
     else
         dispatch_sdl_runtime_input(state, *event);
