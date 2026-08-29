@@ -1278,9 +1278,9 @@ uint32_t handle_runtime_left_button_down()
         }
     }
     if(set_flag_4)
-        set_script_runtime_flags(4, 1);
+        set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_CLOSE, 1);
     if(set_flag_2)
-        set_script_runtime_flags(2, 1);
+        set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_OPEN, 1);
     return 0;
 }
 
@@ -1663,8 +1663,8 @@ intptr_t deactivate_runtime_tree_and_visuals(void *identity, void *second)
         }
         if((node->flags & RUNTIME_TREE_INVENTORY_PACK) != 0 || node->name[0] == 0)
         {
-            set_script_runtime_flags(2, 0);
-            set_script_runtime_flags(4, 0);
+            set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_OPEN, 0);
+            set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_CLOSE, 0);
         }
         if((node->flags & RUNTIME_TREE_COMMENT) != 0)
             deactivate_runtime_tree_node_comment(node);

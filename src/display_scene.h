@@ -53,6 +53,8 @@ uint32_t blit_display_scene(DisplaySceneNode *destination, int32_t destination_x
 
 uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t y_delta);
 
+uint32_t set_display_scene_node_position(intptr_t identifier, int32_t x, int32_t y);
+
 uint32_t begin_display_scene_update(intptr_t identifier);
 
 bool activate_display_scene_node(intptr_t identifier);

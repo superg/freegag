@@ -4,6 +4,13 @@
 namespace freegag
 {
 
+uint32_t runtime_generic_comments_suppressed_cache;
+
+bool are_runtime_generic_comments_suppressed()
+{
+    return script_runtime_root != nullptr && (script_runtime_root->flags & SCRIPT_RUNTIME_COMMENTS_SUPPRESSED) != 0;
+}
+
 RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity)
 {
     for(;;)
@@ -70,6 +77,29 @@ void *find_available_runtime_generic_child(uint32_t maximum_end_position)
                 unlock_runtime_mutex(runtime_generic_backend_mutex);
                 return result;
             }
+        }
+    }
+    unlock_runtime_mutex(runtime_generic_backend_mutex);
+    return result;
+}
+
+void *find_next_runtime_generic_backend_child(void *previous_identity)
+{
+    void *result = nullptr;
+    bool return_next = previous_identity == nullptr;
+    lock_runtime_mutex_forever(runtime_generic_backend_mutex, runtime_infinite_wait);
+    for(RuntimeGenericBackend *backend = runtime_generic_backend_head; backend != nullptr; backend = backend->next)
+    {
+        for(RuntimeGenericBackendChild *child = backend->children; child != nullptr; child = child->next)
+        {
+            if(return_next)
+            {
+                result = child->identity;
+                unlock_runtime_mutex(runtime_generic_backend_mutex);
+                return result;
+            }
+            if(child->identity == previous_identity)
+                return_next = true;
         }
     }
     unlock_runtime_mutex(runtime_generic_backend_mutex);
@@ -216,6 +246,23 @@ RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_i
 
 void process_available_runtime_generic_children(uint32_t maximum_end_position)
 {
+    const bool comments_suppressed = are_runtime_generic_comments_suppressed();
+    if(runtime_generic_comments_suppressed_cache != static_cast<uint32_t>(comments_suppressed))
+    {
+        for(void *identity = find_next_runtime_generic_backend_child(nullptr); identity != nullptr; identity = find_next_runtime_generic_backend_child(identity))
+        {
+            uintptr_t context[2];
+            RuntimeGenericChildState state;
+            if(query_runtime_generic_backend_child_state(identity, state.words, nullptr, context) != 0 && context[1] != 0)
+            {
+                const intptr_t scene_identifier = query_display_scene_by_index(static_cast<int32_t>(context[1]), nullptr, nullptr);
+                if(scene_identifier != 0)
+                    set_display_scene_node_position(scene_identifier, static_cast<int32_t>(state.words[5]), comments_suppressed ? 10000 : static_cast<int32_t>(state.words[6]));
+            }
+        }
+        runtime_generic_comments_suppressed_cache = comments_suppressed;
+    }
+
     for(void *identity = find_available_runtime_generic_child(maximum_end_position); identity != nullptr; identity = find_available_runtime_generic_child(maximum_end_position))
     {
         uintptr_t context[2];
@@ -233,11 +280,8 @@ void process_available_runtime_generic_children(uint32_t maximum_end_position)
                 context[1] = find_available_display_scene_index(0x80000);
             int32_t x = static_cast<int32_t>(state.words[5]);
             int32_t y = static_cast<int32_t>(state.words[6]);
-            if((runtime_pointer_event_record[14] & 1) != 0)
-            {
-                x = 10000;
+            if(comments_suppressed)
                 y = 10000;
-            }
             DisplaySceneNode *scene =
                 acquire_display_scene_node(static_cast<uint32_t>(context[1]), x, y, rectangle->right, rectangle->bottom, 0x20000, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
             const intptr_t scene_identifier = reinterpret_cast<intptr_t>(scene);
@@ -1000,11 +1044,8 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             }
             if(context[1] == 0)
                 context[1] = find_available_display_scene_index(0x80000);
-            if((runtime_pointer_event_record[14] & 1) != 0)
-            {
-                state.words[5] = 10000;
+            if(are_runtime_generic_comments_suppressed())
                 state.words[6] = 10000;
-            }
             DisplaySceneNode *scene = acquire_display_scene_node(static_cast<uint32_t>(context[1]), static_cast<int32_t>(state.words[5]), static_cast<int32_t>(state.words[6]), state_rectangle->right,
                 state_rectangle->bottom, 0x20000, static_cast<intptr_t>(context[0]), &descriptor, nullptr);
             if(begin_display_scene_update(reinterpret_cast<intptr_t>(scene)) == 0)
@@ -1046,7 +1087,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             descriptor.pixels = resource->scene_descriptor.pixels;
             descriptor.y = static_cast<int16_t>(state.words[6]) - static_cast<int16_t>(resource->y);
             descriptor.x = static_cast<int16_t>(state.words[5]) - static_cast<int16_t>(resource->x);
-            if((runtime_pointer_event_record[14] & 1) == 0)
+            if(!are_runtime_generic_comments_suppressed())
                 publish_runtime_generic_backend_child_state(identity, state.words, &descriptor, 0);
             const DisplayRectangleTransform transform = display_rectangle_transform(resource->scene_descriptor);
             end_display_scene_update(resource->scene_identifier, &transform, &destination_rectangle);
@@ -1073,7 +1114,7 @@ void update_runtime_generic_backend_child(RuntimeMediaBackend *backend)
             descriptor.pixels = resource->scene_descriptor.pixels;
             descriptor.y = static_cast<int16_t>(state.words[6]) - static_cast<int16_t>(resource->y);
             descriptor.x = static_cast<int16_t>(state.words[5]) - static_cast<int16_t>(resource->x);
-            if((runtime_pointer_event_record[14] & 1) == 0)
+            if(!are_runtime_generic_comments_suppressed())
                 publish_runtime_generic_backend_child_state(identity, state.words, &descriptor, 0);
             const DisplayRectangleTransform transform = display_rectangle_transform(resource->scene_descriptor);
             end_display_scene_update(resource->scene_identifier, &transform, &destination_rectangle);

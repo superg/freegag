@@ -25,13 +25,6 @@ struct ArchiveCommentCollection
     uint32_t next_identifier;
 };
 
-struct VirtualScriptResource
-{
-    const char *data;
-    uint32_t size;
-    uint32_t resource_type;
-};
-
 enum class SaveLoadScreenMode
 {
     LOAD,
@@ -47,7 +40,6 @@ enum ArchiveCommentEnumerationResult : uint32_t
 
 uint32_t enumerate_archive_comment_entries(const char *directory, const char *extension, ArchiveCommentCollection *collection);
 void destroy_archive_comment_collection(ArchiveCommentCollection *collection);
-bool find_save_load_virtual_script(const char *name, VirtualScriptResource *resource);
 const char *save_load_screen_section(SaveLoadScreenMode mode);
 bool request_scripted_save_load_screen(SaveLoadScreenMode mode, ApplicationState *state);
 bool handle_scripted_save_load_message(uintptr_t message, ApplicationState *state);

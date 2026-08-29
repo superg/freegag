@@ -55,6 +55,10 @@ uint32_t extract_script_token(ScriptParserState *parser, char *token, uint32_t t
 
 void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *value_type);
 
+uint32_t evaluate_runtime_boolean_expression(ScriptParserState *parser, bool allow_initial_group);
+
+bool evaluate_runtime_condition_by_identity(void *identity);
+
 void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags);
 
 void serialize_image_flag_overrides(ScriptTextBuffer *buffer, uint32_t flags);

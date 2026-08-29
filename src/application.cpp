@@ -308,6 +308,20 @@ void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericR
         if(runtime_state_4_count != 0)
             --runtime_state_4_count;
         break;
+    case ScriptRuntimeProperty::BEGIN_NO_INVENTORY:
+        if(no_inventory_runtime_state_count == 0)
+        {
+            runtime_scene_control_flags |= RUNTIME_HOST_NO_INVENTORY;
+            set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_OPEN, 0);
+        }
+        ++no_inventory_runtime_state_count;
+        break;
+    case ScriptRuntimeProperty::END_NO_INVENTORY:
+        if(no_inventory_runtime_state_count == 1)
+            runtime_scene_control_flags &= ~RUNTIME_HOST_NO_INVENTORY;
+        if(no_inventory_runtime_state_count != 0)
+            --no_inventory_runtime_state_count;
+        break;
     case ScriptRuntimeProperty::DESTROY_TREE:
         destroy_runtime_tree_resources(value);
         break;
@@ -516,18 +530,7 @@ bool validate_and_select_application_archive(ApplicationState *state, const char
 }
 
 
-bool find_virtual_runtime_script(const char *path, VirtualScriptResource *resource)
-{
-    if(path == nullptr || resource == nullptr)
-        return false;
-    const char *name = path;
-    for(const char *cursor = path; *cursor != '\0'; ++cursor)
-        if(*cursor == '\\' || *cursor == '/')
-            name = cursor + 1;
-    return find_save_load_virtual_script(name, resource);
-}
-
-ApplicationState *initialize_gag_application(int width, int height, bool use_xtet_startup_script)
+ApplicationState *initialize_gag_application(int width, int height)
 {
     std::unique_ptr<ApplicationState> owned_state(new (std::nothrow) ApplicationState{});
     ApplicationState *state = owned_state.get();
@@ -583,16 +586,9 @@ ApplicationState *initialize_gag_application(int width, int height, bool use_xte
         enable_runtime_subsystem();
     if(!state->low_color_resources)
         set_runtime_resource_variant(1);
-    if(use_xtet_startup_script)
-    {
-        copy_string(state->startup_config, "FGGAGBOY.CFG");
-    }
-    else
-    {
-        copy_string(state->startup_config, "Start.cfg");
-        if(state->archive_context != nullptr && detect_runtime_resource_type(state->installed_version) == RUNTIME_MEDIA_DATA_CONFIGURATION)
-            copy_string(state->startup_config, state->installed_version);
-    }
+    copy_string(state->startup_config, "Start.cfg");
+    if(state->archive_context != nullptr && detect_runtime_resource_type(state->installed_version) == RUNTIME_MEDIA_DATA_CONFIGURATION)
+        copy_string(state->startup_config, state->installed_version);
     return owned_state.release();
 }
 

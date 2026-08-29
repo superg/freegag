@@ -441,6 +441,8 @@ dispatch_property_0b_value:;
         property_cursor = context->cursor;
     }
 
+    if((owner->flags & RUNTIME_TREE_NO_INVENTORY) != 0)
+        dispatch_root_operation(ScriptRuntimeProperty::BEGIN_NO_INVENTORY, nullptr);
     if((owner->flags & RUNTIME_TREE_SOURCE_DEFINED) != 0)
         dispatch_root_operation(ScriptRuntimeProperty::BEGIN_SUSPENDED_TRANSITION, nullptr);
     if((owner->flags & RUNTIME_TREE_NO_CONTROL) != 0)
@@ -1090,6 +1092,8 @@ RuntimeTreeNode *destroy_runtime_tree_node(void *identity, void *replacement_ide
     }
     release_runtime_tree_auxiliary_nodes(node);
     release_runtime_tree_parser_contexts(node);
+    if((node->flags & RUNTIME_TREE_NO_INVENTORY) != 0)
+        script_runtime_root->set_property(ScriptRuntimeProperty::END_NO_INVENTORY, nullptr);
     if((node->flags & RUNTIME_TREE_SOURCE_DEFINED) != 0)
         script_runtime_root->set_property(ScriptRuntimeProperty::END_SUSPENDED_TRANSITION, nullptr);
     if((node->flags & RUNTIME_TREE_NO_CONTROL) != 0)
@@ -3091,9 +3095,9 @@ uint32_t parse_script_object_container(ScriptParserState *parser)
             if(strings_equal(field_name, "NOCOMMENT"))
                 append_system_slot(1);
             if(strings_equal(field_name, "INVENTORY_OPEN"))
-                append_system_slot(2);
+                append_system_slot(SCRIPT_RUNTIME_INVENTORY_OPEN);
             if(strings_equal(field_name, "INVENTORY_CLOSE"))
-                append_system_slot(4);
+                append_system_slot(SCRIPT_RUNTIME_INVENTORY_CLOSE);
             next_truth_value = parsed_value;
         }
         truth_value = next_truth_value;

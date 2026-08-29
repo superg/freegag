@@ -587,6 +587,29 @@ uint32_t offset_display_scene_node(intptr_t identifier, int32_t x_delta, int32_t
     return result;
 }
 
+uint32_t set_display_scene_node_position(intptr_t identifier, int32_t x, int32_t y)
+{
+    if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)
+        return DISPLAY_OPERATION_FAILED;
+    uint32_t result = DISPLAY_OPERATION_FAILED;
+    lock_runtime_mutex(display_lock_mutex);
+    for(DisplaySceneNode *node = display_scene_head; node != nullptr; node = node->next)
+    {
+        if(node->identifier == identifier)
+        {
+            if((node->flags & (DISPLAY_SCENE_FIXED_POSITION | DISPLAY_SCENE_STATIC)) == 0)
+            {
+                node->x_offset = x - node->x;
+                node->y_offset = y - node->y;
+            }
+            result = DISPLAY_OPERATION_SUCCESS;
+            break;
+        }
+    }
+    unlock_runtime_mutex(display_lock_mutex);
+    return result;
+}
+
 uint32_t begin_display_scene_update(intptr_t identifier)
 {
     if((display_lock_flags & DISPLAY_SCENE_HOST_INITIALIZED) == 0)

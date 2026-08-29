@@ -17,7 +17,7 @@ void set_runtime_script_property(ScriptRuntimeProperty property, RuntimeGenericR
 
 void get_runtime_script_property(ScriptRuntimeProperty property, void **value, void *result);
 
-ApplicationState *initialize_gag_application(int width, int height, bool use_xtet_startup_script);
+ApplicationState *initialize_gag_application(int width, int height);
 
 uint32_t initialize_runtime_media_backend();
 

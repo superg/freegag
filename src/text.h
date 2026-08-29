@@ -17,6 +17,8 @@ RuntimeGenericBackend *acquire_runtime_generic_backend(void *identity);
 
 void *find_available_runtime_generic_child(uint32_t maximum_end_position);
 
+void *find_next_runtime_generic_backend_child(void *previous_identity);
+
 int32_t find_runtime_generic_text_entry(RuntimeGenericBackend *backend, int32_t category, const char *name);
 
 RuntimeGenericBackendChild *create_runtime_generic_backend_child(void *backend_identity, void *font_identity, const uintptr_t *context, uintptr_t selection, uint32_t flags);

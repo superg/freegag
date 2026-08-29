@@ -40,6 +40,7 @@ enum RuntimeHostFlag : uint32_t
     RUNTIME_HOST_POINTER_MODE_PRIMARY = 0x00010000,
     RUNTIME_HOST_POINTER_MODE_SECONDARY = 0x00020000,
     RUNTIME_HOST_FORCE_PALETTE_REFRESH = 0x00040000,
+    RUNTIME_HOST_NO_INVENTORY = 0x00080000,
     RUNTIME_HOST_SCRIPT_TREE_ACTIVE = 0x00100000,
     RUNTIME_HOST_EXTERNAL_COMMAND_PENDING = 0x00200000,
     RUNTIME_HOST_PAUSED = 0x01000000,
@@ -201,6 +202,7 @@ struct RuntimeCommandLoopState
     uint32_t available_scene_transitions;
     uint32_t nested_runtime_state_count;
     uint32_t nested_runtime_state_4_count;
+    uint32_t nested_no_inventory_state_count;
     uint32_t resource_count;
     uint32_t external_command_pending;
     uint32_t target_flags;

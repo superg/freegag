@@ -689,6 +689,139 @@ void parse_script_typed_value(ScriptParserState *parser, void *value, uint32_t *
     *value_type = SCRIPT_VALUE_TYPE_INVALID;
 }
 
+uint32_t evaluate_runtime_boolean_expression(ScriptParserState *parser, bool allow_initial_group)
+{
+    if(parser == nullptr)
+        return SCRIPT_INTEGER_INVALID;
+
+    uint32_t result = SCRIPT_INTEGER_INVALID;
+    bool combine_with_and = false;
+    while(parser->cursor < parser->text_length)
+    {
+        char token[0x20];
+        uint32_t token_length = 0;
+        bool token_started = false;
+        bool grouped_value_ready = false;
+        uint32_t grouped_value = SCRIPT_INTEGER_INVALID;
+
+        while(parser->cursor < parser->text_length)
+        {
+            const char character = parser->text[parser->cursor];
+            switch(character)
+            {
+            case '\t':
+            case '\n':
+            case '\r':
+            case ' ':
+            case ',':
+            case ':':
+                if(token_started)
+                    goto evaluate_token;
+                ++parser->cursor;
+                break;
+            case '(':
+                if(token_started)
+                    goto evaluate_token;
+                ++parser->cursor;
+                if(allow_initial_group)
+                {
+                    allow_initial_group = false;
+                    break;
+                }
+                grouped_value = evaluate_runtime_boolean_expression(parser, false);
+                if(grouped_value == SCRIPT_INTEGER_INVALID)
+                    return result;
+                grouped_value_ready = true;
+                goto apply_value;
+            case ')':
+                if(token_started)
+                    goto evaluate_token;
+                ++parser->cursor;
+                return result;
+            case '/':
+            case ';':
+            case '[':
+                return SCRIPT_INTEGER_INVALID;
+            default:
+                token_started = true;
+                if(token_length < sizeof(token) - 1)
+                    token[token_length++] = character;
+                ++parser->cursor;
+                break;
+            }
+        }
+        return SCRIPT_INTEGER_INVALID;
+
+evaluate_token:
+        token[token_length] = '\0';
+        if(strings_equal(token, "AND"))
+        {
+            combine_with_and = true;
+            continue;
+        }
+
+        if(strings_equal(token, "ON"))
+        {
+            grouped_value = 1;
+        }
+        else if(strings_equal(token, "OFF"))
+        {
+            grouped_value = 0;
+        }
+        else if(strings_equal(token, "EQ"))
+        {
+            ++parser->cursor;
+            uint32_t left[8];
+            uint32_t right[8];
+            uint32_t left_type;
+            uint32_t right_type;
+            parse_script_typed_value(parser, left, &left_type);
+            parse_script_typed_value(parser, right, &right_type);
+            grouped_value = 0;
+            if(left_type != SCRIPT_VALUE_TYPE_INVALID && left_type == right_type && left_type != SCRIPT_VALUE_TYPE_NONE)
+            {
+                if(left_type == SCRIPT_VALUE_TYPE_BOOLEAN || left_type == SCRIPT_VALUE_TYPE_INTEGER)
+                    grouped_value = left[0] == right[0];
+                else if(left_type == SCRIPT_VALUE_TYPE_STRING)
+                    grouped_value = strings_equal(reinterpret_cast<const char *>(left), reinterpret_cast<const char *>(right));
+            }
+        }
+        else
+        {
+            continue;
+        }
+        grouped_value_ready = true;
+
+apply_value:
+        if(grouped_value_ready)
+        {
+            if(combine_with_and)
+            {
+                result = result != 0 && grouped_value != 0;
+                combine_with_and = false;
+            }
+            else
+            {
+                result = grouped_value;
+            }
+        }
+    }
+    return SCRIPT_INTEGER_INVALID;
+}
+
+bool evaluate_runtime_condition_by_identity(void *identity)
+{
+    if(script_runtime_root == nullptr)
+        return false;
+    RuntimeTreeLink7C *link = script_runtime_root->global_link_007c_head;
+    while(link != nullptr && link->identity != identity)
+        link = link->next;
+    if(link == nullptr)
+        return false;
+    const uint32_t result = evaluate_runtime_boolean_expression(&link->parser, true);
+    return result != SCRIPT_INTEGER_INVALID && result != 0;
+}
+
 void append_natural_mouse_image_flag(ScriptTextBuffer *buffer, uint32_t flags)
 {
     if(buffer == nullptr)
@@ -973,41 +1106,42 @@ uint32_t parse_image_flag(ScriptParserState *parser)
         uint32_t value;
     };
     static constexpr ImageFlagMapping mappings[]{
-        { "PRIMARY",        0x00000001           },
-        { "CONTROL",        0x00000020           },
-        { "PERMANENT",      0x00000400           },
-        { "LOAD_ONLY",      0x00000200           },
-        { "DOUBLE",         0x00200000           },
-        { "SEPARATED",      0x00000040           },
-        { "STOPPED",        0x00000010           },
-        { "NOSKIP",         0x00100000           },
-        { "NOCLS",          0x01000000           },
-        { "NOPAL",          0x04000000           },
-        { "ON",             SCRIPT_BOOLEAN_TRUE  },
-        { "OFF",            SCRIPT_BOOLEAN_FALSE },
-        { "NATURALMOUSE",   0x00010000           },
-        { "DUAL",           0x00200000           },
-        { "ONE_STEP",       0x00000200           },
-        { "RESTART",        0x00020000           },
-        { "NOFADE",         0x00000001           },
-        { "PALFADE",        0x00000002           },
-        { "FRAMEFADE",      0x00000004           },
-        { "COLORED",        0x00000001           },
-        { "LOWCASE",        0x00000010           },
-        { "UPPCASE",        0x00000020           },
-        { "NOINV",          0x00000010           },
-        { "NOSAVE",         0x00000100           },
-        { "RESIDENT",       0x00000400           },
-        { "COMMENT",        0x00000800           },
-        { "INVENTORY_PACK", 0x00001000           },
-        { "NOMOUSE",        0x00002000           },
-        { "NOCONTROL",      0x00004000           },
-        { "NONTRANSP",      0x00000020           },
-        { "STATIC",         0x00000002           },
-        { "FIXSIZE",        0x02000000           },
-        { "FIXPOS",         0x04000000           },
-        { "NOCOMMENT",      0x00000001           },
-        { "PAL_NOADJUST",   0x04000000           },
+        { "PRIMARY",        0x00000001                },
+        { "CONTROL",        0x00000020                },
+        { "PERMANENT",      0x00000400                },
+        { "LOAD_ONLY",      0x00000200                },
+        { "DOUBLE",         0x00200000                },
+        { "SEPARATED",      0x00000040                },
+        { "STOPPED",        0x00000010                },
+        { "NOSKIP",         0x00100000                },
+        { "NOCLS",          0x01000000                },
+        { "NOPAL",          0x04000000                },
+        { "ON",             SCRIPT_BOOLEAN_TRUE       },
+        { "OFF",            SCRIPT_BOOLEAN_FALSE      },
+        { "NATURALMOUSE",   0x00010000                },
+        { "DUAL",           0x00200000                },
+        { "ONE_STEP",       0x00000200                },
+        { "RESTART",        0x00020000                },
+        { "NOFADE",         0x00000001                },
+        { "PALFADE",        0x00000002                },
+        { "FRAMEFADE",      0x00000004                },
+        { "COLORED",        0x00000001                },
+        { "LOWCASE",        0x00000010                },
+        { "UPPCASE",        0x00000020                },
+        { "NOINV",          RUNTIME_TREE_NO_INVENTORY },
+        { "NOSAVE",         0x00000100                },
+        { "RESIDENT",       0x00000400                },
+        { "COMMENT",        0x00000800                },
+        { "INVENTORY_PACK", 0x00001000                },
+        { "NOMOUSE",        0x00002000                },
+        { "NOCONTROL",      0x00004000                },
+        { "AUTOCONTROL",    RUNTIME_TREE_AUTO_CONTROL },
+        { "NONTRANSP",      0x00000020                },
+        { "STATIC",         0x00000002                },
+        { "FIXSIZE",        0x02000000                },
+        { "FIXPOS",         0x04000000                },
+        { "NOCOMMENT",      0x00000001                },
+        { "PAL_NOADJUST",   0x04000000                },
     };
     for(const ImageFlagMapping &mapping : mappings)
         if(strings_equal(token, mapping.name))
@@ -1129,8 +1263,8 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
         {
             if(node != nullptr && (node->flags & RUNTIME_TREE_COMMENT) != 0)
             {
-                saw_condition = true;
-                conditions_match = 0;
+                destroy_runtime_tree_node(node, nullptr);
+                return nullptr;
             }
             if(saw_condition)
             {
@@ -1141,9 +1275,11 @@ RuntimeTreeNode *update_conditional_runtime_tree(ScriptParserState *parser)
                         if(tree_name_result != SCRIPT_PARSE_END)
                             resource = find_or_load_runtime_generic_resource(resource_name);
                         node = create_runtime_tree_node(resource, parent_selector, tree_name, nullptr);
+                        if(node != nullptr && parent_selector != reinterpret_cast<void *>(static_cast<intptr_t>(-1)))
+                            node->flags |= RUNTIME_TREE_AUTO_CONTROL;
                     }
                 }
-                else if(conditions_match == 0)
+                else if(conditions_match == 0 && (node->flags & RUNTIME_TREE_AUTO_CONTROL) != 0)
                 {
                     destroy_runtime_tree_node(node, nullptr);
                     node = nullptr;
@@ -1169,12 +1305,14 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
         resource = parser->resource;
     }
 
+    bool saw_condition = false;
     void *parent_selector = owner;
     while(true)
     {
         uint32_t scope = parse_script_scope_code(parser);
         if(scope == SCRIPT_SCOPE_VALUE)
         {
+            saw_condition = true;
             char object_name[0x20];
             char field_name[0x20];
             uint8_t value[0x80];
@@ -1193,6 +1331,7 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
         }
         else if(scope == SCRIPT_SCOPE_CONTAINER_CONDITION)
         {
+            saw_condition = true;
             char container_name[0x20];
             scope = parse_script_value_token(parser, container_name, sizeof(container_name));
             if(scope != SCRIPT_PARSE_END && !script_object_container_state_matches_by_name(container_name))
@@ -1203,7 +1342,10 @@ RuntimeTreeNode *create_conditional_runtime_tree(ScriptParserState *parser)
         {
             if(tree_name_result != SCRIPT_PARSE_END)
                 resource = find_or_load_runtime_generic_resource(resource_name);
-            return create_runtime_tree_node(resource, parent_selector, tree_name, nullptr);
+            RuntimeTreeNode *node = create_runtime_tree_node(resource, parent_selector, tree_name, nullptr);
+            if(saw_condition && node != nullptr && parent_selector != reinterpret_cast<void *>(static_cast<intptr_t>(-1)))
+                node->flags |= RUNTIME_TREE_AUTO_CONTROL;
+            return node;
         }
     }
 }
@@ -1449,6 +1591,10 @@ uint32_t parse_script_opcode(ScriptParserState *parser)
         { "FADE",            0x00000600 },
         { "CATCH",           0x00000700 },
         { "DISABLE_GLOBALS", 0x00000800 },
+        { "SUB",             0x00000900 },
+        { "MUL",             0x00000a00 },
+        { "DIV",             0x00000b00 },
+        { "IF",              0x00000c00 },
     };
     for(const Mapping &mapping : mappings)
         if(strings_equal(name, mapping.name))

@@ -352,8 +352,8 @@ RuntimeTreeNode *activate_runtime_tree_with_notifications(const char *resource_n
     {
         if((node->flags & RUNTIME_TREE_INVENTORY_PACK) != 0 || node->name[0] == 0)
         {
-            set_script_runtime_flags(2, 0);
-            set_script_runtime_flags(4, 0);
+            set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_OPEN, 0);
+            set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_CLOSE, 0);
         }
         if((node->flags & RUNTIME_TREE_COMMENT) != 0)
             activate_runtime_tree_node_comment(node);
@@ -905,6 +905,17 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                 }
             }
         }
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
+
+    case 0x900:
+    case 0xa00:
+    case 0xb00:
+        // The later executables recognize these opcodes but contain no execution branches for them.
+        return RuntimeScriptOpcodeDisposition::COMPLETE;
+
+    case 0xc00:
+        if(!evaluate_runtime_condition_by_identity(link->identity))
+            scan_runtime_tree_link_007c_control_boundary(link, 0x6000);
         return RuntimeScriptOpcodeDisposition::COMPLETE;
 
     case 0x1000:

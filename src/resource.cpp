@@ -1464,8 +1464,8 @@ void reset_runtime_display_state()
 {
     switch_runtime_scene(nullptr);
     graphics_host_flags &= ~RUNTIME_HOST_DISPLAY_RESET_MASK;
-    set_script_runtime_flags(2, 0);
-    set_script_runtime_flags(4, 0);
+    set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_OPEN, 0);
+    set_script_runtime_flags(SCRIPT_RUNTIME_INVENTORY_CLOSE, 0);
     reset_script_runtime_transient_indices();
     reset_runtime_byte_queue();
     reset_runtime_input_queue();
@@ -1649,11 +1649,6 @@ uint32_t detect_runtime_resource_type(const char *path)
         {
             type = entry->flags_and_references >> 16;
         }
-        else if(VirtualScriptResource virtual_script{}; find_virtual_runtime_script(path, &virtual_script))
-        {
-            // Fixes-owned virtual content must be classified before archive/file probing. Resource construction dispatches configuration parsing from this result and only loads its bytes afterward.
-            type = virtual_script.resource_type;
-        }
         else if((runtime_scene_control_flags & RUNTIME_HOST_RESOURCE_ARCHIVE_OPEN) == 0)
         {
             update_runtime_resource_host(path, 0);
@@ -1729,24 +1724,6 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
             resource_data = entry->data;
             resource_storage = 0x01000000;
             ++entry->flags_and_references;
-        }
-        else if(VirtualScriptResource virtual_script{}; find_virtual_runtime_script(name, &virtual_script))
-        {
-            resource_size = virtual_script.size;
-            resource_data = allocate_runtime_heap(runtime_resource_heap, runtime_heap_zero_memory, resource_size + 1);
-            if(resource_data != nullptr)
-            {
-                std::memcpy(resource_data, virtual_script.data, resource_size);
-                resource_storage = 0x01000000;
-                RuntimeResourceCacheEntry *new_entry = get_or_create_runtime_resource_cache_entry(runtime_resource_cache_parent_identity, name);
-                if(new_entry != nullptr)
-                {
-                    new_entry->size = resource_size;
-                    new_entry->data = resource_data;
-                    new_entry->flags_and_references = (4u << 16) | 1;
-                }
-                goto resource_loaded;
-            }
         }
         else if((runtime_scene_control_flags & RUNTIME_HOST_RESOURCE_ARCHIVE_OPEN) == 0)
         {
@@ -1874,22 +1851,18 @@ void load_runtime_resource(const char *path, void **data, uint32_t *size, int32_
             }
             if(archive_size == 0)
             {
-                SynthesizedResource synthesized;
-                if(synthesize_resource(runtime_resource_archive, path, &synthesized))
+                const auto [synthesized_data, synthesized_size] = synthesize_resource(runtime_resource_heap, path);
+                if(synthesized_size != 0)
                 {
-                    resource_size = static_cast<uint32_t>(synthesized.data.size());
-                    resource_data = allocate_runtime_heap(runtime_resource_heap, 0, resource_size);
-                    if(resource_data != nullptr)
+                    resource_size = synthesized_size;
+                    resource_data = synthesized_data;
+                    resource_storage = 0x01000000;
+                    RuntimeResourceCacheEntry *new_entry = get_or_create_runtime_resource_cache_entry(runtime_resource_cache_parent_identity, name);
+                    if(new_entry != nullptr)
                     {
-                        std::memcpy(resource_data, synthesized.data.data(), resource_size);
-                        resource_storage = 0x01000000;
-                        RuntimeResourceCacheEntry *new_entry = get_or_create_runtime_resource_cache_entry(runtime_resource_cache_parent_identity, name);
-                        if(new_entry != nullptr)
-                        {
-                            new_entry->size = resource_size;
-                            new_entry->data = resource_data;
-                            new_entry->flags_and_references = (synthesized.resource_type << 16) | 1;
-                        }
+                        new_entry->size = resource_size;
+                        new_entry->data = resource_data;
+                        new_entry->flags_and_references = (get_synthesized_resource_type(path) << 16) | 1;
                     }
                 }
             }

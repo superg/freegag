@@ -141,17 +141,17 @@ SDL_AppResult startup_result(ApplicationState *state)
 
 SDL_AppResult SDLCALL initialize_startup_callbacks(void **appstate, int argc, char *argv[])
 {
-    bool use_xtet_startup_script = false;
+    ApplicationState *state = initialize_gag_application(640, 480);
+    if(state == nullptr)
+        return SDL_APP_FAILURE;
+
     if(argv != nullptr)
         for(int index = 1; index < argc; ++index)
             if(argv[index] != nullptr && std::strcmp(argv[index], "--xtet") == 0)
             {
-                use_xtet_startup_script = true;
+                copy_string(state->startup_config, "GAGBOY.CFG");
                 break;
             }
-    ApplicationState *state = initialize_gag_application(640, 480, use_xtet_startup_script);
-    if(state == nullptr)
-        return SDL_APP_FAILURE;
 
     graphics_host_flags |= RUNTIME_HOST_COMMAND_STOP_REQUESTED;
     use_portable_runtime_input(true);

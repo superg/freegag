@@ -35,95 +35,8 @@ constexpr uint32_t preview_height = 240;
 constexpr uint32_t caption_width = 304;
 constexpr uint32_t caption_height = 28;
 constexpr uint32_t max_save_name_characters = 15;
-constexpr uint32_t save_name_text_color = 51;
-constexpr uint32_t save_name_frame_color = 1;
-
-constexpr char save_load_script[] = R"([CFG]
-fademask=0;
-flags=NOSAVE;
-mouse=CM /FILE:K_Ukaz.bmp /F:NOPAL;
-mouse=NM /FILE:K_None.bmp /F:NOPAL;
-mouse=EXM /FILE:K_None.bmp /F:NOPAL;
-command=Comment /MOUSE:CM;
-command=Go;
-object=MM EXIT::OFF SEL::0;
-object=SL INIT::OFF EDITING::OFF EMPTY::OFF CLOSE::OFF;
-object=INPUT NAME::X;
-
-[LOAD]
-flags=NOSAVE NOCOMMENT;
-sublocation=COMMON;
-zone=z_PREVIEW /POS::294,120,320,240 /COMM:Comment /MOUSE:CM /P:100;
-sublocation=TAG_LOAD;
-image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;
-image=i_dSAVE /FILE::Fscr0014.bmp /POS::18,146 /F:SEPARATED /F:NOPAL;
-event=e_LOAD /ZONE::z_LOAD /COMM:Comment /MESSAGE::2102;
-event=e_PREVIEW_CLEAR /ZONE::z_PREVIEW /TRANSPARENT /SWVALUE::MM::SEL /VALUE::0 /GOTO::e_PREVIEW_CLEAR /BREAK /CSEND /CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70 /LABEL::e_PREVIEW_CLEAR /SET::MM::SEL::0;
-event=e_PREVIEW /ZONE::z_PREVIEW /COMM:Comment /MESSAGE::2102;
-event=e_EXIT_LOAD /ZONE::z_EXIT /COMM:Comment /PEXIT:NOFADE;
-
-[SAVE]
-flags=NOSAVE NOCOMMENT;
-sublocation=COMMON;
-sublocation=TAG_SAVE;
-local=l_INIT SL::INIT::OFF;
-local=l_SAVE_NOT_EDITING SL::EDITING::OFF;
-image=HW_1 /FILE::FGSL0000.bmp /F:PRIMARY;
-image=i_dLOAD /FILE::Fscr0015.bmp /POS::7,171 /F:SEPARATED /F:NOPAL;
-zone=z_NAME /POS::302,366,304,28 /C:l_SAVE_NOT_EDITING /COMM:Comment /MOUSE:CM /P:100;
-event=e_SAVE /ZONE::z_SAVE /COMM:Comment /MESSAGE::2102 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;
-event=e_NAME /ZONE::z_NAME /COMM:Comment /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:302:366:SaveCaption:51:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;
-event=e_INIT /C:l_INIT /SET::SL:INIT:ON /MESSAGE::2105 /SWVALUE::SL::EMPTY /VALUE::ON /GOTO::e_INIT_INPUT /BREAK /CSEND /GOTO::e_INIT_DONE /LABEL::e_INIT_INPUT /SET::SL:EDITING:ON /MESSAGE::2103 /INPSTR:302:366:SaveCaption:51:1:INPUT:NAME:16 /MESSAGE::2104 /SET::SL:EDITING:OFF /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND /LABEL::e_INIT_DONE;
-event=e_EXIT_SAVE /ZONE::z_EXIT /COMM:Comment /MESSAGE::2106 /SWVALUE::SL::CLOSE /VALUE::ON /PEXIT:NOFADE /BREAK /CSEND;
-
-[COMMON]
-zone=z_MAIN /RECT::0,0,640,480 /MOUSE:NM /COMM:Go;
-sublocation=TAG_NEXT;
-sublocation=TAG_BACK;
-sublocation=TAG_EXIT;
-image=i_dNEW /FILE::Fscr0011.bmp /POS::98,41 /F:SEPARATED /F:NOPAL;
-image=i_dEXIT /FILE::Fscr0012.bmp /POS::89,70 /F:SEPARATED /F:NOPAL;
-image=i_dCONT /FILE::Fscr0013.bmp /POS::63,100 /F:SEPARATED /F:NOPAL;
-image=i_dHELP /FILE::Fscr0016.bmp /POS::59,196 /F:SEPARATED /F:NOPAL;
-image=i_dCRED /FILE::Fscr0017.bmp /POS::57,244 /F:SEPARATED /F:NOPAL;
-font=SaveCaption /FILE:Font2.rus;
-layer=SavePreview /POS:294,120,320,240 /Z:458752;
-layer=SaveCaption /POS:302,366,304,28 /Z:458753;
-event=e_BACK /ZONE::z_BACK /COMM:Comment /MESSAGE::2100;
-event=e_NEXT /ZONE::z_NEXT /COMM:Comment /MESSAGE::2101;
-
-[TAG_NEXT]
-template=MENU_3S( z_NEXT 536 420 100 60 Comment CM i_sNEXT Helpnext.bmp 536 420 l_ISSet l_ISnSet i_dNEXT Helpnext.bmp 536 420 l_ISDis l_ISnDis MM EXIT EXIT SEL 100 e_SEL100 211 410 429 70 z_MAIN);
-
-[TAG_LOAD]
-template=MENU_3S( z_LOAD 7 171 266 25 Comment CM i_sLOAD Fscr0005.bmp 7 171 l_ISLoadSet l_ISnLoadSet i_dLOAD Fscr0005.bmp 7 171 l_ISLoadDis l_ISnLoadDis MM EXIT EXIT SEL 400 e_SEL400 0 50 280 220 z_MAIN);
-
-[TAG_SAVE]
-template=MENU_3S( z_SAVE 18 146 246 25 Comment CM i_sSAVE Fscr0004.bmp 18 146 l_ISSaveSet l_ISnSaveSet i_dSAVE Fscr0004.bmp 18 146 l_ISSaveDis l_ISnSaveDis MM EXIT EXIT SEL 500 e_SEL500 0 50 280 220 z_MAIN);
-
-[TAG_BACK]
-template=MENU_3S( z_BACK 297 414 100 60 Comment CM i_sBACK Helpback.bmp 297 414 l_ISBSet l_ISnBSet i_dBACK Helpback.bmp 297 414 l_ISBDis l_ISnBDis MM EXIT EXIT SEL 200 e_SEL200 211 410 429 70 z_MAIN);
-
-[TAG_EXIT]
-template=MENU_3S( z_EXIT 211 416 100 60 Comment CM i_sEXIT Helpexit.bmp 211 416 l_ISESet l_ISnESet i_dEXIT Helpexit.bmp 211 416 l_ISEDis l_ISnEDis MM EXIT EXIT SEL 300 e_SEL300 211 410 429 70);
-
-[MENU_3S]
-class=TEMPLATE;
-params=p_Zn p_ZpX p_ZpY p_ZpW p_ZpH p_ZComm p_ZMouse  p_ISn p_ISFn p_ISIpX p_ISIpY p_LSssN p_LSdsN  p_IDn p_IDFn p_IDIpX p_IDIpY p_LDssN p_LDdsN  p_On p_OSel p_ODis p_OCurrIndx  p_nOurIndx  p_En  p_clsX p_clsY p_clsW p_clsH p_clsZ;
-local=PARAM:p_LSssN  PARAM:p_On::PARAM:p_OSel::ON  PARAM:p_On::PARAM:p_ODis::OFF;
-local=PARAM:p_LSdsN  PARAM:p_On::PARAM:p_OSel::OFF  PARAM:p_On::PARAM:p_ODis::OFF;
-local=PARAM:p_LDssN  PARAM:p_On::PARAM:p_ODis::ON  PARAM:p_On::PARAM:p_OSel::OFF;
-local=PARAM:p_LDdsN  PARAM:p_On::PARAM:p_ODis::OFF;
-zone=PARAM:p_Zn  /C::PARAM:p_LDdsN /POS::PARAM:p_ZpX,PARAM:p_ZpY,PARAM:p_ZpW,PARAM:p_ZpH  /COMM::PARAM:p_ZComm  /MOUSE::PARAM:p_ZMouse /P:100;
-zone=PARAM:p_Zn  /C::PARAM:p_LDssN /POS::PARAM:p_ZpX,PARAM:p_ZpY,PARAM:p_ZpW,PARAM:p_ZpH  /COMM::PARAM:p_ZComm  /MOUSE::PARAM:p_ZMouse;
-image=PARAM:p_ISn  /C::PARAM:p_LSssN  /FILE::PARAM:p_ISFn  /POS::PARAM:p_ISIpX,PARAM:p_ISIpY;
-image=PARAM:p_ISn  /C::PARAM:p_LSdsN  /FILE::PARAM:p_ISFn  /POS::PARAM:p_ISIpX,PARAM:p_ISIpY  /F:STOPPED;
-image=PARAM:p_IDn  /C::PARAM:p_LDssN  /FILE::PARAM:p_IDFn  /POS::PARAM:p_IDIpX,PARAM:p_IDIpY  /F:SEPARATED /F:NOPAL;
-event=PARAM:p_En /ZONE::PARAM:p_Zn /C::PARAM:p_LDdsN /TRANSPARENT /SWVALUE::PARAM:p_On::PARAM:p_OCurrIndx /VALUE::PARAM:p_nOurIndx /GOTO::PARAM:p_En /BREAK /CSEND /DRAW_BEGIN /CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70 /PLAY::PARAM:p_ISn::RESTART /DRAW_END /LABEL::PARAM:p_En /SET::PARAM:p_On::PARAM:p_OCurrIndx::PARAM:p_nOurIndx;
-event=PARAM:p_clsZ /ZONE::PARAM:p_clsZ /SWVALUE::PARAM:p_On::PARAM:p_OCurrIndx /VALUE::0 /GOTO::PARAM:p_clsZ /BREAK /CSEND /CLS::BACKGND::0,50,280,220 /CLS::BACKGND::211,410,429,70 /LABEL::PARAM:p_clsZ /SET::PARAM:p_On::PARAM:p_OCurrIndx::0;
-
-[END]
-)";
+constexpr uint32_t save_name_text_color = 208;
+constexpr uint32_t save_name_frame_color = 96;
 
 struct ScriptedSaveLoadController
 {
@@ -682,18 +595,6 @@ void destroy_archive_comment_collection(ArchiveCommentCollection *collection)
     if(collection->entries != nullptr)
         delete[] collection->entries;
     *collection = {};
-}
-
-bool find_save_load_virtual_script(const char *name, VirtualScriptResource *resource)
-{
-    if(name != nullptr && resource != nullptr && compare_ascii_case_insensitive(name, "SAVELOAD.CFG") == 0)
-    {
-        resource->data = save_load_script;
-        resource->size = static_cast<uint32_t>(sizeof(save_load_script) - 1);
-        resource->resource_type = RUNTIME_MEDIA_DATA_CONFIGURATION;
-        return true;
-    }
-    return false;
 }
 
 const char *save_load_screen_section(SaveLoadScreenMode mode)
