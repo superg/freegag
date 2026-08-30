@@ -67,8 +67,8 @@ jobs:
           -G "Visual Studio 18 2026"
           -A x64
           -DCMAKE_BUILD_TYPE=Release
-          -DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}
-          -DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-windows-x64
+          "-DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}"
+          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-windows-x64"
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -81,7 +81,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: freegag-windows-x64
-          path: build/freegag-*.zip
+          path: build/${{ needs.metadata.outputs.package-name }}-windows-x64.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -141,8 +141,8 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCLANG_FORMAT=/usr/bin/clang-format-22
-          -DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}
-          -DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-linux-x64
+          "-DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}"
+          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-linux-x64"
 
       - name: Build
         run: cmake --build build --parallel
@@ -158,7 +158,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: freegag-linux-x64
-          path: build/freegag-*.zip
+          path: build/${{ needs.metadata.outputs.package-name }}-linux-x64.zip
           if-no-files-found: error
           compression-level: 0
 
