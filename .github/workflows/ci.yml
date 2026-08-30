@@ -28,7 +28,7 @@ jobs:
         id: metadata
         shell: bash
         run: |
-          version="0.8.0"
+          version="0.8.1"
           revision="${GITHUB_SHA::7}"
           release="false"
 
@@ -52,10 +52,29 @@ jobs:
           echo "package-name=${package_name}" >> "${GITHUB_OUTPUT}"
           echo "release=${release}" >> "${GITHUB_OUTPUT}"
 
-  windows-x64:
-    name: Windows x64
+  windows:
+    name: Windows ${{ matrix.name }}
     needs: metadata
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64
+            runner: windows-2025
+            cmake-architecture: x64
+            package-architecture: x64
+            pe-machine: "8664"
+          - name: x86
+            runner: windows-2025
+            cmake-architecture: Win32
+            package-architecture: x86
+            pe-machine: "014c"
+          - name: ARM64
+            runner: windows-11-vs2026-arm
+            cmake-architecture: ARM64
+            package-architecture: arm64
+            pe-machine: "aa64"
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -65,30 +84,72 @@ jobs:
         run: >-
           cmake -S . -B build
           -G "Visual Studio 18 2026"
-          -A x64
+          -A ${{ matrix.cmake-architecture }}
           -DCMAKE_BUILD_TYPE=Release
           "-DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}"
-          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-windows-x64"
+          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}"
 
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      - name: Verify architecture
+        shell: pwsh
+        run: |
+          $expected = [Convert]::ToUInt16("${{ matrix.pe-machine }}", 16)
+          $executables = @(
+              "build/src/Release/freegag.exe",
+              "build/tools/xtet_resource_extractor/Release/xtet_resource_extractor.exe"
+          )
+
+          foreach ($executable in $executables) {
+              $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($executable))
+              try {
+                  $reader.BaseStream.Seek(0x3c, [IO.SeekOrigin]::Begin) | Out-Null
+                  $peOffset = $reader.ReadInt32()
+                  $reader.BaseStream.Seek($peOffset + 4, [IO.SeekOrigin]::Begin) | Out-Null
+                  $machine = $reader.ReadUInt16()
+              }
+              finally {
+                  $reader.Dispose()
+              }
+
+              if ($machine -ne $expected) {
+                  throw "$executable has PE machine 0x$($machine.ToString('x4')); expected 0x$($expected.ToString('x4'))."
+              }
+          }
 
       - name: Package
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
 
-      - name: Upload Windows artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: freegag-windows-x64
-          path: build/${{ needs.metadata.outputs.package-name }}-windows-x64.zip
+          name: freegag-windows-${{ matrix.package-architecture }}
+          path: build/${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}.zip
           if-no-files-found: error
           compression-level: 0
 
-  linux-x64:
-    name: Linux x64
+  linux:
+    name: Linux ${{ matrix.name }}
     needs: metadata
-    runs-on: ubuntu-26.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64
+            runner: ubuntu-26.04
+            package-architecture: x64
+            elf-machine: Advanced Micro Devices X86-64
+          - name: x86
+            runner: ubuntu-26.04
+            package-architecture: x86
+            elf-machine: Intel 80386
+          - name: ARM64
+            runner: ubuntu-26.04-arm
+            package-architecture: arm64
+            elf-machine: AArch64
     env:
       CC: /usr/bin/clang-22
       CXX: /usr/bin/clang++-22
@@ -96,7 +157,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Install Linux build dependencies
+      - name: Install native build dependencies
+        if: matrix.package-architecture != 'x86'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
@@ -136,29 +198,84 @@ jobs:
             libwayland-dev \
             libdecor-0-dev
 
+      - name: Install 32-bit build dependencies
+        if: matrix.package-architecture == 'x86'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            gcc-15-multilib \
+            g++-15-multilib \
+            git \
+            make \
+            pkg-config \
+            cmake \
+            ninja-build \
+            gnome-desktop-testing \
+            libasound2-dev:i386 \
+            libpulse-dev:i386 \
+            libaudio-dev:i386 \
+            libfribidi-dev:i386 \
+            libjack-dev:i386 \
+            libsndio-dev:i386 \
+            libx11-dev:i386 \
+            libxext-dev:i386 \
+            libxrandr-dev:i386 \
+            libxcursor-dev:i386 \
+            libxfixes-dev:i386 \
+            libxi-dev:i386 \
+            libxss-dev:i386 \
+            libxtst-dev:i386 \
+            libxkbcommon-dev:i386 \
+            libdrm-dev:i386 \
+            libgbm-dev:i386 \
+            libgl1-mesa-dev:i386 \
+            libgles2-mesa-dev:i386 \
+            libegl1-mesa-dev:i386 \
+            libdbus-1-dev:i386 \
+            libibus-1.0-dev:i386 \
+            libudev-dev:i386 \
+            libthai-dev:i386 \
+            libusb-1.0-0-dev:i386 \
+            libpipewire-0.3-dev:i386 \
+            libwayland-dev:i386 \
+            libdecor-0-dev:i386
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
+          echo "CFLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15 -m32" >> "${GITHUB_ENV}"
+          echo "CXXFLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15 -m32" >> "${GITHUB_ENV}"
+          echo "LDFLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15 -m32" >> "${GITHUB_ENV}"
+
       - name: Configure
         run: >-
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCLANG_FORMAT=/usr/bin/clang-format-22
           "-DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}"
-          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-linux-x64"
+          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}"
 
       - name: Build
         run: cmake --build build --parallel
 
       - name: Check formatting
+        if: matrix.package-architecture == 'x64'
         run: cmake --build build --target check-format
+
+      - name: Verify architecture
+        shell: bash
+        run: |
+          readelf --file-header build/src/freegag | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
+          readelf --file-header build/tools/xtet_resource_extractor/xtet_resource_extractor | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
 
       - name: Package
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
 
-      - name: Upload Linux artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: freegag-linux-x64
-          path: build/${{ needs.metadata.outputs.package-name }}-linux-x64.zip
+          name: freegag-linux-${{ matrix.package-architecture }}
+          path: build/${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}.zip
           if-no-files-found: error
           compression-level: 0
 
@@ -167,8 +284,8 @@ jobs:
     if: needs.metadata.outputs.release == 'true'
     needs:
       - metadata
-      - windows-x64
-      - linux-x64
+      - windows
+      - linux
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -176,17 +293,12 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Download Windows artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
-          name: freegag-windows-x64
+          pattern: freegag-*
           path: release-assets
-
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: freegag-linux-x64
-          path: release-assets
+          merge-multiple: true
 
       - name: Publish GitHub Release
         env:
@@ -194,8 +306,8 @@ jobs:
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -name 'freegag-*.zip' -print | sort)
-          if [[ "${#assets[@]}" -ne 2 ]]; then
-              echo "Expected exactly two release archives, found ${#assets[@]}." >&2
+          if [[ "${#assets[@]}" -ne 6 ]]; then
+              echo "Expected exactly six release archives, found ${#assets[@]}." >&2
               exit 1
           fi
 
