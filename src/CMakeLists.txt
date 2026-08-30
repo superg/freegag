@@ -71,4 +71,6 @@ target_link_libraries(freegag PRIVATE
   ZLIB::ZLIBSTATIC
 )
 
+install(TARGETS freegag DESTINATION ".")
+
 add_subdirectory("xtet")

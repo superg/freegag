@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  metadata:
+    name: Build metadata
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      package-name: ${{ steps.metadata.outputs.package-name }}
+      release: ${{ steps.metadata.outputs.release }}
+    steps:
+      - name: Resolve version
+        id: metadata
+        shell: bash
+        run: |
+          version="0.8.0"
+          revision="${GITHUB_SHA::7}"
+          release="false"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+                  echo "Release tags must use the form vMAJOR.MINOR.PATCH." >&2
+                  exit 1
+              fi
+
+              version="${GITHUB_REF_NAME#v}"
+              revision=""
+              release="true"
+          fi
+
+          package_name="freegag-${version}"
+          if [[ -n "${revision}" ]]; then
+              package_name="${package_name}-${revision}"
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "package-name=${package_name}" >> "${GITHUB_OUTPUT}"
+          echo "release=${release}" >> "${GITHUB_OUTPUT}"
+
+  windows-x64:
+    name: Windows x64
+    needs: metadata
+    runs-on: windows-2025
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 18 2026"
+          -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}
+          -DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-windows-x64
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        working-directory: build
+        run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: freegag-windows-x64
+          path: build/freegag-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  linux-x64:
+    name: Linux x64
+    needs: metadata
+    runs-on: ubuntu-26.04
+    env:
+      CC: /usr/bin/clang-22
+      CXX: /usr/bin/clang++-22
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCLANG_FORMAT=/usr/bin/clang-format-22
+          -DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}
+          -DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-linux-x64
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Check formatting
+        run: cmake --build build --target check-format
+
+      - name: Package
+        working-directory: build
+        run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: freegag-linux-x64
+          path: build/freegag-*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    name: Publish release
+    if: needs.metadata.outputs.release == 'true'
+    needs:
+      - metadata
+      - windows-x64
+      - linux-x64
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: freegag-windows-x64
+          path: release-assets
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: freegag-linux-x64
+          path: release-assets
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -name 'freegag-*.zip' -print | sort)
+          if [[ "${#assets[@]}" -ne 2 ]]; then
+              echo "Expected exactly two release archives, found ${#assets[@]}." >&2
+              exit 1
+          fi
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+              gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
+          else
+              gh release create "${GITHUB_REF_NAME}" "${assets[@]}" --verify-tag --title "${GITHUB_REF_NAME}" --generate-notes
+          fi
