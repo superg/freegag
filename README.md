@@ -13,8 +13,7 @@ FreeGAG has been tested on:
 - Windows x64
 - Linux x64
 - Linux ARM64
-
-A macOS build is planned and will be available in a future release.
+- macOS Universal
 
 Both supported games and all available language builds have been tested. The original game can be played from beginning to end, and the known engine bugs found during testing have been fixed.
 
@@ -37,8 +36,6 @@ xtet_resource_extractor "<absolute path to XTETDLL.DLL>"
 ```
 
 The command extracts the asset archive as `XTETDLL.SFS` into the current directory. Keep this file beside the FreeGAG executable and the `.CDF` files. FreeGAG does not use `XTETDLL.DLL` itself, so you do not need to copy the DLL from the disc.
-
-After setup, the directory should look like one of these examples. Windows executables have the `.exe` suffix shown below; Linux executables use the same names without `.exe`.
 
 For GAG: The Impotent Mystery:
 
