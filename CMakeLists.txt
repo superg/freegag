@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 set(FREEGAG_PROJECT_NAME "freegag" CACHE STRING "Project name")
-set(FREEGAG_VERSION "0.8.1" CACHE STRING "Project version")
+set(FREEGAG_VERSION "0.8.2" CACHE STRING "Project version")
 project(${FREEGAG_PROJECT_NAME} VERSION ${FREEGAG_VERSION} LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE)
