@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include "audio_types.h"
 #include "runtime_services.h"
 #include "shared_binary_file.h"
@@ -134,7 +135,7 @@ struct AsyncFileHost
     uint32_t current_offset;
     void *buffer_start_cursor;
     uint32_t buffered_bytes;
-    uint32_t available_bytes;
+    std::atomic<uint32_t> available_bytes;
     uint32_t buffer_size;
     void *read_cursor;
     void *write_cursor;

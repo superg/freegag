@@ -1965,7 +1965,7 @@ void advance_async_host_read(AsyncFileHost *host, uint32_t bytes)
 {
     const uint32_t sector_size = host->bytes_per_sector;
     const uint32_t aligned = (static_cast<uint32_t>(static_cast<uint8_t *>(host->secondary_cursor) - static_cast<uint8_t *>(host->buffer)) % sector_size + bytes);
-    host->available_bytes += aligned - aligned % sector_size;
+    host->available_bytes.fetch_add(aligned - aligned % sector_size, std::memory_order_release);
     host->secondary_cursor = static_cast<uint8_t *>(host->secondary_cursor) + bytes;
     host->current_offset += bytes;
     if(static_cast<uint8_t *>(host->buffer) + host->buffer_size <= host->secondary_cursor)
@@ -1977,7 +1977,7 @@ void advance_async_host_write(AsyncFileHost *host, uint32_t bytes)
     host->buffered_bytes += bytes;
     host->file_offset += bytes;
     host->write_cursor = static_cast<uint8_t *>(host->write_cursor) + bytes;
-    host->available_bytes -= bytes;
+    host->available_bytes.fetch_sub(bytes, std::memory_order_release);
     if(static_cast<uint8_t *>(host->buffer) + host->buffer_size <= host->write_cursor)
         host->write_cursor = host->buffer;
 }
@@ -2016,7 +2016,7 @@ void position_async_host(AsyncFileHost *host, uint32_t offset)
         host->secondary_cursor = static_cast<uint8_t *>(host->buffer) + offset % sector_size;
         host->buffer_start_cursor = host->secondary_cursor;
         host->buffered_bytes = 0;
-        host->available_bytes = host->buffer_size;
+        host->available_bytes.store(host->buffer_size, std::memory_order_release);
         runtime_sleep(0);
     }
     else
@@ -2033,8 +2033,8 @@ void position_async_host(AsyncFileHost *host, uint32_t offset)
         host->buffer_start_cursor = buffer + skipped_prefix;
         host->buffered_bytes = copied_bytes;
         host->write_cursor = buffer + copied_bytes;
-        host->available_bytes = host->buffer_size - copied_bytes + consumed_bytes / host->bytes_per_sector * host->bytes_per_sector;
         std::memcpy(buffer, record->buffer, copied_bytes);
+        host->available_bytes.store(host->buffer_size - copied_bytes + consumed_bytes / host->bytes_per_sector * host->bytes_per_sector, std::memory_order_release);
         record->flags &= ~ASYNC_FILE_RECORD_BUFFER_INVALID;
     }
     host->flags &= ~(ASYNC_FILE_HOST_REPOSITION_PENDING | ASYNC_FILE_HOST_END_REACHED);
@@ -2094,11 +2094,11 @@ uint32_t copy_async_host_bytes(AsyncFileHost *host, void *destination, uint32_t 
         return 0;
     if((host->flags & ASYNC_FILE_HOST_END_REACHED) == 0)
     {
-        uint32_t used_bytes = host->buffer_size - host->available_bytes;
+        uint32_t used_bytes = host->buffer_size - host->available_bytes.load(std::memory_order_acquire);
         while(used_bytes <= bytes + sector_size * 2)
         {
             runtime_sleep(0);
-            used_bytes = host->buffer_size - host->available_bytes;
+            used_bytes = host->buffer_size - host->available_bytes.load(std::memory_order_acquire);
         }
     }
     auto *source = static_cast<uint8_t *>(host->secondary_cursor);
@@ -2215,7 +2215,8 @@ void run_async_file_worker(AsyncFileHost *host)
             }
             uint32_t next_target = target_time;
             lock_runtime_mutex(host->primary_lock);
-            if(host->active_file == nullptr || host->available_bytes < minimum_available)
+            const uint32_t available_bytes = host->available_bytes.load(std::memory_order_acquire);
+            if(host->active_file == nullptr || available_bytes < minimum_available)
             {
                 unlock_runtime_mutex(host->primary_lock);
                 runtime_sleep(0);
@@ -2223,8 +2224,8 @@ void run_async_file_worker(AsyncFileHost *host)
             else
             {
                 uint32_t bytes_to_read = maximum_read;
-                if(host->available_bytes <= maximum_read)
-                    bytes_to_read = host->available_bytes;
+                if(available_bytes <= maximum_read)
+                    bytes_to_read = available_bytes;
                 next_target = bytes_to_read / rate + target_time;
                 if(buffer_end < static_cast<uint8_t *>(host->write_cursor) + bytes_to_read)
                 {
@@ -2304,7 +2305,7 @@ AsyncFileHost *create_async_file_host(const char *root, uint32_t requested_bytes
         return nullptr;
     }
     host->buffer_size = requested_bytes / 0xffff * 0xffff / host->bytes_per_sector * host->bytes_per_sector;
-    host->available_bytes = host->buffer_size;
+    host->available_bytes.store(host->buffer_size, std::memory_order_relaxed);
     host->buffer = new (std::nothrow) uint8_t[host->buffer_size]{};
     if(host->buffer == nullptr)
     {
