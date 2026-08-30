@@ -2,7 +2,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <print>
 #include <stddef.h>
 #include <stdexcept>
 #include <stdint.h>
@@ -293,7 +292,7 @@ int main(int argc, char **argv)
 {
     if(argc != 2)
     {
-        std::println(stderr, "usage: xtet_resource_extractor XTETDLL.DLL");
+        std::fputs("usage: xtet_resource_extractor XTETDLL.DLL\n", stderr);
 
         return 2;
     }
@@ -306,7 +305,7 @@ int main(int argc, char **argv)
     }
     catch(const std::exception &e)
     {
-        std::println(stderr, "error: {}", e.what());
+        std::fprintf(stderr, "error: %s\n", e.what());
 
         return 1;
     }

@@ -279,6 +279,72 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  macos:
+    name: macOS Universal
+    needs: metadata
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          "-DFREEGAG_VERSION=${{ needs.metadata.outputs.version }}"
+          "-DCPACK_PACKAGE_FILE_NAME=${{ needs.metadata.outputs.package-name }}-macos-universal"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify architectures and deployment target
+        shell: bash
+        run: |
+          executables=(
+              build/src/freegag
+              build/tools/xtet_resource_extractor/xtet_resource_extractor
+          )
+
+          for executable in "${executables[@]}"; do
+              lipo "${executable}" -verify_arch x86_64 arm64
+
+              for architecture in x86_64 arm64; do
+                  minimum_version="$(otool -l -arch "${architecture}" "${executable}" | awk '$1 == "minos" { print $2 }')"
+                  if [[ "${minimum_version}" != "11.0" ]]; then
+                      echo "${executable} (${architecture}) targets macOS ${minimum_version}; expected 11.0." >&2
+                      exit 1
+                  fi
+              done
+          done
+
+      - name: Package
+        working-directory: build
+        run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          archive="build/${{ needs.metadata.outputs.package-name }}-macos-universal.zip"
+          package_root="${{ needs.metadata.outputs.package-name }}-macos-universal"
+          actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
+          expected_files="$(printf '%s\n' "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
+
+          if [[ "${actual_files}" != "${expected_files}" ]]; then
+              echo "Unexpected macOS package contents:" >&2
+              printf '%s\n' "${actual_files}" >&2
+              exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: freegag-macos-universal
+          path: build/${{ needs.metadata.outputs.package-name }}-macos-universal.zip
+          if-no-files-found: error
+          compression-level: 0
+
   release:
     name: Publish release
     if: needs.metadata.outputs.release == 'true'
@@ -286,6 +352,7 @@ jobs:
       - metadata
       - windows
       - linux
+      - macos
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -306,8 +373,8 @@ jobs:
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -name 'freegag-*.zip' -print | sort)
-          if [[ "${#assets[@]}" -ne 6 ]]; then
-              echo "Expected exactly six release archives, found ${#assets[@]}." >&2
+          if [[ "${#assets[@]}" -ne 7 ]]; then
+              echo "Expected exactly seven release archives, found ${#assets[@]}." >&2
               exit 1
           fi
 
