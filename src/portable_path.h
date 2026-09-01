@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -8,10 +9,24 @@
 
 namespace freegag
 {
+inline std::filesystem::path host_path_from_utf8(const char *text)
+{
+    if(text == nullptr)
+        return {};
+    const auto *begin = reinterpret_cast<const char8_t *>(text);
+    return std::filesystem::path(std::u8string(begin, begin + std::strlen(text)));
+}
+
+inline std::string host_path_to_utf8(const std::filesystem::path &path)
+{
+    const std::u8string text = path.u8string();
+    return { reinterpret_cast<const char *>(text.data()), text.size() };
+}
+
 inline std::filesystem::path normalize_host_path(const std::filesystem::path &path)
 {
-    std::string text = path.string();
-    std::replace(text.begin(), text.end(), '\\', static_cast<char>(std::filesystem::path::preferred_separator));
+    std::u8string text = path.u8string();
+    std::replace(text.begin(), text.end(), u8'\\', static_cast<char8_t>(std::filesystem::path::preferred_separator));
     return std::filesystem::path(text);
 }
 
@@ -53,9 +68,9 @@ inline bool resolve_existing_host_path_case_insensitive(const std::filesystem::p
         error.clear();
         for(std::filesystem::directory_iterator entry(current, error), end; !error && entry != end; entry.increment(error))
         {
-            const std::string entry_name = entry->path().filename().string();
-            const std::string component_name = component.string();
-            if(compare_ascii_case_insensitive(entry_name.c_str(), component_name.c_str()) == 0 && (matched_path.empty() || entry_name < matched_path.filename().string()))
+            const std::string entry_name = host_path_to_utf8(entry->path().filename());
+            const std::string component_name = host_path_to_utf8(component);
+            if(compare_ascii_case_insensitive(entry_name.c_str(), component_name.c_str()) == 0 && (matched_path.empty() || entry_name < host_path_to_utf8(matched_path.filename())))
                 matched_path = entry->path();
         }
         if(error || matched_path.empty())
@@ -71,5 +86,10 @@ inline bool resolve_existing_host_path_case_insensitive(const std::filesystem::p
     }
     *resolved_path = current;
     return true;
+}
+
+inline bool resolve_existing_host_path_case_insensitive(const char *requested_path, std::filesystem::path *resolved_path)
+{
+    return resolve_existing_host_path_case_insensitive(host_path_from_utf8(requested_path), resolved_path);
 }
 } // namespace freegag

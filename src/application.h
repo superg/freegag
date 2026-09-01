@@ -19,6 +19,8 @@ void get_runtime_script_property(ScriptRuntimeProperty property, void **value, v
 
 ApplicationState *initialize_gag_application(int width, int height);
 
+ApplicationState *initialize_gag_application(int width, int height, const char *data_directory);
+
 uint32_t initialize_runtime_media_backend();
 
 uint32_t initialize_runtime_generic_backend();

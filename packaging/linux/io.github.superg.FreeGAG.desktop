@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FreeGAG
+Comment=Open-source engine for GAG and GAG+
+Exec=freegag
+Icon=io.github.superg.FreeGAG
+Categories=Game;AdventureGame;
+Terminal=false
+Keywords=GAG;Adventure;Game;

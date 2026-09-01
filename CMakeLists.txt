@@ -16,6 +16,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(FREEGAG_TARGET_WINDOWS 1)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(FREEGAG_TARGET_MACOS 1)
+    enable_language(OBJCXX)
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -69,7 +70,7 @@ set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
+set(SDL_DIALOG ON CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
 set(SDL_UNINSTALL OFF CACHE BOOL "" FORCE)
@@ -78,6 +79,35 @@ FetchContent_Declare(SDL3
   URL_HASH SHA256=12b34280415ec8418c864408b93d008a20a6530687ee613d60bfbd20411f2785
 )
 FetchContent_MakeAvailable(SDL3)
+
+FetchContent_Declare(imgui
+  URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
+  URL_HASH SHA256=21d8a0a565e85dce943e375db00812c2f3f0ab21f3f0f7964e364a63422d7f99
+)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui STATIC
+  "${imgui_SOURCE_DIR}/imgui.cpp"
+  "${imgui_SOURCE_DIR}/imgui_demo.cpp"
+  "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+  "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+  "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+  "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp"
+  "${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp"
+)
+target_include_directories(imgui PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+target_link_libraries(imgui PUBLIC SDL3::SDL3-static)
+
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+FetchContent_Declare(nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+  URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+add_library(freegag_xtet_resource STATIC "tools/xtet_resource_extractor/main.cpp")
+target_compile_definitions(freegag_xtet_resource PRIVATE FREEGAG_EXTRACTOR_LIBRARY=1)
+target_include_directories(freegag_xtet_resource PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/tools/xtet_resource_extractor")
 
 find_program(CLANG_FORMAT "clang-format")
 if(CLANG_FORMAT)
@@ -96,6 +126,26 @@ endif()
 
 add_subdirectory("src")
 add_subdirectory("tools")
+
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+  "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+  "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+  DESTINATION "."
+)
+install(FILES "${imgui_SOURCE_DIR}/LICENSE.txt" DESTINATION "licenses" RENAME "Dear-ImGui-LICENSE.txt")
+install(FILES "${nlohmann_json_SOURCE_DIR}/LICENSE.MIT" DESTINATION "licenses" RENAME "nlohmann-json-LICENSE.MIT")
+
+if(FREEGAG_TARGET_LINUX)
+  foreach(FREEGAG_ICON_SIZE 16 32 48 64 128 256 512 1024)
+    install(
+      FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/icons/FreeGAG-${FREEGAG_ICON_SIZE}.png"
+      DESTINATION "share/icons/hicolor/${FREEGAG_ICON_SIZE}x${FREEGAG_ICON_SIZE}/apps"
+      RENAME "io.github.superg.FreeGAG.png"
+    )
+  endforeach()
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/io.github.superg.FreeGAG.desktop" DESTINATION "share/applications")
+endif()
 
 set(CPACK_GENERATOR "ZIP")
 include(CPack)

@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include "application_paths.h"
+#include "audio.h"
 #include "host_events.h"
 #include "portable_path.h"
 #include "portable_string.h"
@@ -196,7 +197,7 @@ HostEventResult handle_application_host_event(const HostApplicationEvent &event,
         }
         if(state->script_state != 0)
         {
-            std::string auto_save_path = (std::filesystem::path(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name).string();
+            std::string auto_save_path = host_path_to_utf8(host_path_from_utf8(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name);
             const bool saved = write_synchronized_cdf_package(auto_save_path.data(), nullptr, nullptr, reinterpret_cast<void *>(state->script_state));
             (void)saved;
         }
@@ -516,7 +517,7 @@ void disable_unavailable_saved_game_actions(ApplicationState *state)
 {
     std::error_code error;
     const SaveFileNamingPolicy &naming = get_save_file_naming_policy(state);
-    const std::filesystem::path installation_path = state->installation_path[0] == '\0' ? std::filesystem::path(".") : std::filesystem::path(state->installation_path);
+    const std::filesystem::path installation_path = state->installation_path[0] == '\0' ? std::filesystem::path(".") : host_path_from_utf8(state->installation_path);
     std::filesystem::path resolved_auto_save;
     if(!resolve_existing_host_path_case_insensitive(installation_path / naming.auto_save_file_name, &resolved_auto_save))
         state->flags |= APPLICATION_RESUME_DISABLED;
@@ -538,9 +539,9 @@ void disable_unavailable_saved_game_actions(ApplicationState *state)
 
 bool validate_and_select_application_archive(ApplicationState *state, const char *requested_archive, bool report_missing_archive)
 {
-    std::filesystem::path requested_path = requested_archive;
+    std::filesystem::path requested_path = host_path_from_utf8(requested_archive);
     if(requested_path.is_relative() && state->installation_path[0] != '\0')
-        requested_path = std::filesystem::path(state->installation_path) / requested_path;
+        requested_path = host_path_from_utf8(state->installation_path) / requested_path;
     std::filesystem::path resolved_archive;
     if(state->archive_context == nullptr)
     {
@@ -554,29 +555,36 @@ bool validate_and_select_application_archive(ApplicationState *state, const char
     else
         state->installed_version[0] = '\0';
 
-    const std::string selected_archive = resolved_archive.empty() ? requested_path.string() : resolved_archive.string();
+    const std::string selected_archive = host_path_to_utf8(resolved_archive.empty() ? requested_path : resolved_archive);
     if(selected_archive.size() >= sizeof(state->installed_version))
         return false;
     copy_string(state->installed_version, selected_archive.c_str());
     return true;
 }
 
-bool initialize_application_file_root(ApplicationState *state)
+bool initialize_application_file_root(ApplicationState *state, const char *data_directory)
 {
-    const char *base_path = SDL_GetBasePath();
-    std::error_code error;
-    const std::filesystem::path working_directory = std::filesystem::current_path(error);
     ApplicationFileRootSelection selection;
-    if(!select_application_file_root(base_path == nullptr ? std::filesystem::path{} : std::filesystem::path(base_path), error ? std::filesystem::path{} : working_directory, &selection))
+    bool selected = false;
+    if(data_directory != nullptr && data_directory[0] != '\0')
+        selected = select_application_file_root(host_path_from_utf8(data_directory), &selection);
+    else
+    {
+        const char *base_path = SDL_GetBasePath();
+        std::error_code error;
+        const std::filesystem::path working_directory = std::filesystem::current_path(error);
+        selected = select_application_file_root(base_path == nullptr ? std::filesystem::path{} : std::filesystem::path(base_path), error ? std::filesystem::path{} : working_directory, &selection);
+    }
+    if(!selected)
     {
         std::fputs("GAG: Unable to open data file...\n\nMake sure you insert one of the CD's\ninto your CD drive!\n", stderr);
         return false;
     }
 
-    std::string directory = selection.directory.string();
+    std::string directory = host_path_to_utf8(selection.directory);
     if(directory.empty() || directory.back() != std::filesystem::path::preferred_separator)
         directory.push_back(std::filesystem::path::preferred_separator);
-    const std::string archive = selection.archive.string();
+    const std::string archive = host_path_to_utf8(selection.archive);
     if(directory.size() + 0x1f >= sizeof(state->installation_path) || archive.size() >= sizeof(state->executable_directory))
     {
         std::fputs("GAG: The selected data directory path is too long.\n", stderr);
@@ -590,7 +598,7 @@ bool initialize_application_file_root(ApplicationState *state)
 }
 
 
-ApplicationState *initialize_gag_application(int width, int height)
+ApplicationState *initialize_gag_application(int width, int height, const char *data_directory)
 {
     std::unique_ptr<ApplicationState> owned_state(new (std::nothrow) ApplicationState{});
     ApplicationState *state = owned_state.get();
@@ -602,7 +610,7 @@ ApplicationState *initialize_gag_application(int width, int height)
     state->width = width;
     state->height = height;
     state->flags |= APPLICATION_CURSOR_OUTSIDE;
-    if(!initialize_application_file_root(state))
+    if(!initialize_application_file_root(state, data_directory))
         return nullptr;
     load_local_preferences(state);
     disable_unavailable_saved_game_actions(state);
@@ -646,6 +654,11 @@ ApplicationState *initialize_gag_application(int width, int height)
     if(state->archive_context != nullptr && detect_runtime_resource_type(state->installed_version) == RUNTIME_MEDIA_DATA_CONFIGURATION)
         copy_string(state->startup_config, state->installed_version);
     return owned_state.release();
+}
+
+ApplicationState *initialize_gag_application(int width, int height)
+{
+    return initialize_gag_application(width, height, nullptr);
 }
 
 
@@ -746,18 +759,46 @@ void set_runtime_named_node_enabled(void *identity, int enabled)
 
 void dispatch_application_action(ApplicationState *state, ApplicationAction action)
 {
+    if(state == nullptr)
+        return;
     if(action == ApplicationAction::PAUSE)
     {
+        if((graphics_host_flags & RUNTIME_HOST_PAUSED) != 0)
+            return;
         graphics_host_flags |= RUNTIME_HOST_PAUSED;
+        state->host_pause_deferred_scene = (graphics_host_flags & RUNTIME_HOST_SCENE_SWITCH_DEFERRED) == 0;
+        if(state->host_pause_deferred_scene)
+            suspend_runtime_state();
+        state->host_pause_animation = (runtime_animation_control_flags & RUNTIME_ANIMATION_PAUSED) == 0;
+        if(state->host_pause_animation)
+        {
+            runtime_animation_control_flags |= RUNTIME_ANIMATION_PAUSED;
+            pause_runtime_sound_output(0);
+        }
+        state->host_pause_gagboy = xtet::game_active() && !xtet::game_paused();
+        if(state->host_pause_gagboy)
+            xtet::execute_game_command(2);
         return;
     }
     if(action == ApplicationAction::RESUME)
     {
+        if((graphics_host_flags & RUNTIME_HOST_PAUSED) == 0)
+            return;
+        if(state->host_pause_gagboy && xtet::game_active())
+            xtet::execute_game_command(4);
+        if(state->host_pause_animation)
+        {
+            resume_runtime_sound_output();
+            runtime_animation_control_flags &= ~RUNTIME_ANIMATION_PAUSED;
+        }
+        if(state->host_pause_deferred_scene)
+            resume_runtime_state();
+        state->host_pause_deferred_scene = false;
+        state->host_pause_animation = false;
+        state->host_pause_gagboy = false;
         graphics_host_flags &= ~RUNTIME_HOST_PAUSED;
         return;
     }
-    if(state == nullptr)
-        return;
     if(action == ApplicationAction::EXIT)
     {
         state->flags |= APPLICATION_CURSOR_OUTSIDE | APPLICATION_RUNTIME_ACTIVE | APPLICATION_INACTIVE;
@@ -791,7 +832,7 @@ void dispatch_application_action(ApplicationState *state, ApplicationAction acti
         {
         }
         copy_string(state->startup_config, "START.CFG");
-        const std::string auto_save_path = (std::filesystem::path(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name).string();
+        const std::string auto_save_path = host_path_to_utf8(host_path_from_utf8(state->installation_path) / get_save_file_naming_policy(state).auto_save_file_name);
         copy_string(state->installed_version, auto_save_path.c_str());
         graphics_host_flags |= RUNTIME_HOST_COMMAND_STOP_REQUESTED;
         return;
@@ -852,7 +893,7 @@ std::filesystem::path get_application_file_path(const ApplicationState *state, c
 {
     if(state == nullptr || state->installation_path[0] == '\0')
         return file_name;
-    return std::filesystem::path(state->installation_path) / file_name;
+    return host_path_from_utf8(state->installation_path) / file_name;
 }
 
 using PreferenceKey = std::pair<std::string, std::string>;
@@ -861,7 +902,7 @@ using Preferences = std::map<PreferenceKey, std::string>;
 struct ApplicationPreferences
 {
     bool fullscreen{};
-    bool integer_scaling{ true };
+    bool integer_scaling{};
     bool low_color_resources{};
     bool sound{ true };
     bool subtitles{};
@@ -939,7 +980,7 @@ ApplicationPreferences read_preferences(const ApplicationState *state)
     const Preferences parsed = parse_preferences(state);
     ApplicationPreferences preferences;
     preferences.fullscreen = read_preference_bool(parsed, "Fullscreen");
-    preferences.integer_scaling = read_preference_bool(parsed, "IntegerScaling", true);
+    preferences.integer_scaling = read_preference_bool(parsed, "IntegerScaling");
     preferences.low_color_resources = read_preference_bool(parsed, "LowColorResources");
     preferences.sound = read_preference_bool(parsed, "Sound", true);
     preferences.subtitles = read_preference_bool(parsed, "Subtitles");

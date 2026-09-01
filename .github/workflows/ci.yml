@@ -97,7 +97,7 @@ jobs:
         run: |
           $expected = [Convert]::ToUInt16("${{ matrix.pe-machine }}", 16)
           $executables = @(
-              "build/src/Release/freegag.exe",
+              "build/src/Release/FreeGAG.exe",
               "build/tools/xtet_resource_extractor/Release/xtet_resource_extractor.exe"
           )
 
@@ -121,6 +121,25 @@ jobs:
       - name: Package
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $archive = "build/${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}.zip"
+          $destination = Join-Path $env:RUNNER_TEMP "freegag-package"
+          Expand-Archive -Path $archive -DestinationPath $destination
+          $root = Join-Path $destination "${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}"
+          @(
+              "FreeGAG.exe",
+              "xtet_resource_extractor.exe",
+              "README.md",
+              "LICENSE",
+              "THIRD_PARTY_NOTICES.md",
+              "licenses/Dear-ImGui-LICENSE.txt",
+              "licenses/nlohmann-json-LICENSE.MIT"
+          ) | ForEach-Object {
+              if (-not (Test-Path (Join-Path $root $_) -PathType Leaf)) { throw "Package is missing $_" }
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -271,6 +290,33 @@ jobs:
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
 
+      - name: Verify package contents
+        shell: bash
+        run: |
+          archive="build/${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}.zip"
+          package_root="${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}"
+          required=(
+              "freegag"
+              "xtet_resource_extractor"
+              "README.md"
+              "LICENSE"
+              "THIRD_PARTY_NOTICES.md"
+              "licenses/Dear-ImGui-LICENSE.txt"
+              "licenses/nlohmann-json-LICENSE.MIT"
+              "share/applications/io.github.superg.FreeGAG.desktop"
+              "share/icons/hicolor/16x16/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/32x32/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/48x48/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/64x64/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/128x128/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/256x256/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/512x512/apps/io.github.superg.FreeGAG.png"
+              "share/icons/hicolor/1024x1024/apps/io.github.superg.FreeGAG.png"
+          )
+          for file in "${required[@]}"; do
+              unzip -Z1 "${archive}" | grep --fixed-strings --line-regexp "${package_root}/${file}"
+          done
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -310,7 +356,7 @@ jobs:
         shell: bash
         run: |
           executables=(
-              build/src/freegag
+              build/src/FreeGAG.app/Contents/MacOS/FreeGAG
               build/tools/xtet_resource_extractor/xtet_resource_extractor
           )
 
@@ -335,14 +381,20 @@ jobs:
         run: |
           archive="build/${{ needs.metadata.outputs.package-name }}-macos-universal.zip"
           package_root="${{ needs.metadata.outputs.package-name }}-macos-universal"
-          actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
-          expected_files="$(printf '%s\n' "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
-
-          if [[ "${actual_files}" != "${expected_files}" ]]; then
-              echo "Unexpected macOS package contents:" >&2
-              printf '%s\n' "${actual_files}" >&2
-              exit 1
-          fi
+          required=(
+              "FreeGAG.app/Contents/Info.plist"
+              "FreeGAG.app/Contents/MacOS/FreeGAG"
+              "FreeGAG.app/Contents/Resources/FreeGAG.icns"
+              "xtet_resource_extractor"
+              "README.md"
+              "LICENSE"
+              "THIRD_PARTY_NOTICES.md"
+              "licenses/Dear-ImGui-LICENSE.txt"
+              "licenses/nlohmann-json-LICENSE.MIT"
+          )
+          for file in "${required[@]}"; do
+              unzip -Z1 "${archive}" | grep --fixed-strings --line-regexp "${package_root}/${file}"
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

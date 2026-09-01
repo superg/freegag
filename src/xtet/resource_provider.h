@@ -14,6 +14,6 @@ struct ResourceView
     size_t size{};
 };
 
-bool load_sfs_from_working_directory(const char *sfs_name, std::vector<uint8_t> &bytes, std::string &error);
+bool load_sfs_file(const char *sfs_name, std::vector<uint8_t> &bytes, std::string &error);
 
 } // namespace xtet

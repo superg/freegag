@@ -8,10 +8,11 @@
 #include <string>
 #include <vector>
 #include "../../src/portable_path.h"
+#include "extractor.h"
 
 
 
-namespace
+namespace freegag
 {
 
 struct CoffHeader
@@ -111,10 +112,10 @@ struct ResourceDataEntry
 };
 
 
-std::vector<uint8_t> extract_sfs(const std::string &source)
+std::vector<uint8_t> extract_xtet_sfs(const std::filesystem::path &source)
 {
     std::filesystem::path resolved_source;
-    if(!freegag::resolve_existing_host_path_case_insensitive(source, &resolved_source))
+    if(!resolve_existing_host_path_case_insensitive(source, &resolved_source))
         throw std::runtime_error("could not open input DLL");
     std::ifstream ifs(resolved_source, std::ios::binary);
     if(!ifs)
@@ -275,19 +276,19 @@ std::vector<uint8_t> extract_sfs(const std::string &source)
 }
 
 
-void extract(const std::string &destination, const std::string &source)
+void extract_xtet_resource(const std::filesystem::path &destination, const std::filesystem::path &source)
 {
-    const std::vector<uint8_t> payload = extract_sfs(source);
+    const std::vector<uint8_t> payload = extract_xtet_sfs(source);
 
     std::ofstream ofs(destination, std::ios::binary);
     ofs.write((const char *)payload.data(), payload.size());
     if(!ofs)
-        throw std::runtime_error("could not write " + destination);
+        throw std::runtime_error("could not write " + destination.string());
 }
 
 }
 
-
+#if !defined(FREEGAG_EXTRACTOR_LIBRARY)
 int main(int argc, char **argv)
 {
     if(argc != 2)
@@ -299,7 +300,7 @@ int main(int argc, char **argv)
 
     try
     {
-        extract(std::filesystem::path(argv[1]).stem().string() + ".SFS", argv[1]);
+        freegag::extract_xtet_resource(std::filesystem::path(argv[1]).stem().string() + ".SFS", argv[1]);
 
         return 0;
     }
@@ -310,3 +311,4 @@ int main(int argc, char **argv)
         return 1;
     }
 }
+#endif

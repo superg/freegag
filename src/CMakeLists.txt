@@ -29,6 +29,9 @@ add_executable(freegag
   "extra/sl_save_bmp.h"
   "extra/synthesized_resources.cpp"
   "extra/synthesized_resources.h"
+  "frontend.cpp"
+  "frontend.h"
+  "frontend_types.h"
   "game_host.cpp"
   "game_host.h"
   "host_events.cpp"
@@ -38,6 +41,8 @@ add_executable(freegag
   "media.h"
   "media_types.h"
   "pcm_format.h"
+  "platform_menu.cpp"
+  "platform_menu.h"
   "portable_path.h"
   "resource.cpp"
   "resource.h"
@@ -66,11 +71,33 @@ add_executable(freegag
 )
 target_include_directories(freegag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(freegag PRIVATE
+  freegag_xtet_resource
+  imgui
+  nlohmann_json::nlohmann_json
   xtet
   SDL3::SDL3-static
   ZLIB::ZLIBSTATIC
 )
 
-install(TARGETS freegag DESTINATION ".")
+if(FREEGAG_TARGET_WINDOWS)
+  configure_file("${CMAKE_SOURCE_DIR}/packaging/windows/freegag.rc.in" "${CMAKE_CURRENT_BINARY_DIR}/freegag.rc" @ONLY)
+  target_sources(freegag PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/freegag.rc")
+  set_target_properties(freegag PROPERTIES WIN32_EXECUTABLE TRUE OUTPUT_NAME "FreeGAG")
+elseif(FREEGAG_TARGET_MACOS)
+  configure_file("${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
+  target_sources(freegag PRIVATE
+    "${CMAKE_SOURCE_DIR}/packaging/macos/FreeGAG.icns"
+    "platform_menu_macos.mm"
+  )
+  target_link_libraries(freegag PRIVATE "-framework AppKit")
+  set_source_files_properties("${CMAKE_SOURCE_DIR}/packaging/macos/FreeGAG.icns" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+  set_target_properties(freegag PROPERTIES
+    MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
+    OUTPUT_NAME "FreeGAG"
+  )
+endif()
+
+install(TARGETS freegag BUNDLE DESTINATION "." RUNTIME DESTINATION ".")
 
 add_subdirectory("xtet")

@@ -16,7 +16,7 @@ static bool find_application_archive(const std::filesystem::path &directory, con
     return true;
 }
 
-static bool select_application_file_root(const std::filesystem::path &directory, ApplicationFileRootSelection *selection)
+bool select_application_file_root(const std::filesystem::path &directory, ApplicationFileRootSelection *selection)
 {
     std::filesystem::path archive;
     bool gary = find_application_archive(directory, "GARY.CDF", &archive);

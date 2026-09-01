@@ -8,7 +8,7 @@
 namespace xtet
 {
 
-bool load_sfs_from_working_directory(const char *sfs_name, std::vector<uint8_t> &bytes, std::string &error)
+bool load_sfs_file(const char *sfs_name, std::vector<uint8_t> &bytes, std::string &error)
 {
     bytes.clear();
     error.clear();
@@ -22,19 +22,19 @@ bool load_sfs_from_working_directory(const char *sfs_name, std::vector<uint8_t> 
     std::filesystem::path payload_path;
     if(!freegag::resolve_existing_host_path_case_insensitive(sfs_name, &payload_path))
     {
-        error = "Unable to open " + display_name + " in the working directory.";
+        error = "Unable to open " + display_name + ".";
         return false;
     }
     std::error_code size_error;
     const uintmax_t payload_size = std::filesystem::file_size(payload_path, size_error);
     if(size_error)
     {
-        error = "Unable to open " + display_name + " in the working directory.";
+        error = "Unable to open " + display_name + ".";
         return false;
     }
     if(payload_size == 0)
     {
-        error = display_name + " in the working directory is empty.";
+        error = display_name + " is empty.";
         return false;
     }
     if(payload_size > bytes.max_size() || payload_size > static_cast<uintmax_t>((std::numeric_limits<std::streamsize>::max)()))
@@ -48,7 +48,7 @@ bool load_sfs_from_working_directory(const char *sfs_name, std::vector<uint8_t> 
     if(!stream || !stream.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
     {
         bytes.clear();
-        error = "Unable to read " + display_name + " in the working directory.";
+        error = "Unable to read " + display_name + ".";
         return false;
     }
     return true;

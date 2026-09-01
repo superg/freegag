@@ -8,9 +8,25 @@ namespace freegag
 
 bool initialize_runtime_graphics();
 
+uint32_t initialize_sdl_shell(int32_t width, int32_t height, const char *window_title);
+
+void shutdown_sdl_shell();
+
+SDL_Window *get_sdl_presenter_window();
+
+SDL_Renderer *get_sdl_presenter_renderer();
+
+bool configure_sdl_presenter_logical_size(int32_t width, int32_t height);
+
+bool begin_sdl_presenter_frame();
+
+bool present_sdl_presenter_frame();
+
 uint32_t initialize_sdl_presenter(int32_t width, int32_t height, const char *window_title);
 
 void set_sdl_presenter_integer_scaling(bool enabled);
+
+bool get_sdl_presenter_integer_scaling();
 
 bool show_sdl_presenter();
 
