@@ -7,7 +7,7 @@ namespace freegag
 SharedBinaryFile::SharedBinaryFile(const char *path)
 {
     std::filesystem::path resolved_path;
-    if(path == nullptr || !resolve_existing_host_path_case_insensitive(path, &resolved_path))
+    if(path == nullptr || !resolve_existing_host_path_case_insensitive(host_path_from_utf8(path), &resolved_path))
         return;
     stream_.open(resolved_path, std::ios::binary);
     if(!stream_)

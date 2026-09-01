@@ -26,7 +26,6 @@ struct CdfEntry
 struct CdfArchive
 {
     char signature[7];
-    char path[0x104];
     uint32_t index_size;
     void *entry_storage;
     uint32_t entry_count;
@@ -227,8 +226,6 @@ CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
     }
 
     std::memcpy(archive->signature, signature, 7);
-    size_t path_length = std::strlen(path) + 1;
-    std::memcpy(archive->path, path, path_length);
     if(initialize_cdf_index(archive) == 0)
     {
         cdf_last_error = archive->error;

@@ -97,6 +97,9 @@ struct ApplicationState
     bool low_color_resources;
     bool pointer_inside_window;
     bool gary;
+    bool host_pause_deferred_scene;
+    bool host_pause_animation;
+    bool host_pause_gagboy;
     void *archive_context;
     uint32_t saved_flags;
     void *saved_memory;

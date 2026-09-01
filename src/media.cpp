@@ -495,7 +495,7 @@ RuntimeAnimationControlResult process_runtime_animation_control(RuntimeAnimation
         backend.previous_frame_time = current_time - backend.frame_duration;
         backend.media_flags &= ~RUNTIME_MEDIA_PAUSE_NOTIFIED;
     }
-    if(static_cast<int32_t>(current_time) < static_cast<int32_t>(backend.next_frame_time))
+    if(backend.next_frame_time != 0 && static_cast<int32_t>(current_time - backend.next_frame_time) < 0)
     {
         *wait_milliseconds = backend.next_frame_time - current_time;
         return RuntimeAnimationControlResult::WAIT;

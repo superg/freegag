@@ -48,5 +48,7 @@ void set_input_drain_callback(InputDrainCallback callback);
 uint32_t dispatch_game_input(const freegag::RuntimeInputEvent &event);
 void execute_game_command(uint32_t command);
 void shutdown_game();
+bool game_active();
+bool game_paused();
 
 } // namespace xtet

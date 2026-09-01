@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include "frontend.h"
 #include "game_host.h"
 #include "host_events.h"
 #include "runtime_internal.h"
@@ -132,83 +133,28 @@ void dispatch_sdl_runtime_input(ApplicationState *state, const SDL_Event &source
     handle_runtime_input_event(input);
 }
 
-SDL_AppResult startup_result(ApplicationState *state)
-{
-    if(state == nullptr)
-        return SDL_APP_FAILURE;
-    return state->shutdown_complete ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
-}
-
 SDL_AppResult SDLCALL initialize_startup_callbacks(void **appstate, int argc, char *argv[])
 {
-    ApplicationState *state = initialize_gag_application(640, 480);
-    if(state == nullptr)
+    FrontendState *frontend = initialize_frontend(argc, argv);
+    if(frontend == nullptr)
         return SDL_APP_FAILURE;
-
-    if(argv != nullptr)
-        for(int index = 1; index < argc; ++index)
-            if(argv[index] != nullptr && std::strcmp(argv[index], "--gagboy") == 0)
-            {
-                copy_string(state->startup_config, "GAGBOY.CFG");
-                break;
-            }
-
-    graphics_host_flags |= RUNTIME_HOST_COMMAND_STOP_REQUESTED;
-    use_portable_runtime_input(true);
-    *appstate = state;
+    *appstate = frontend;
     return SDL_APP_CONTINUE;
 }
 
 SDL_AppResult SDLCALL iterate_startup_callbacks(void *appstate)
 {
-    auto *state = static_cast<ApplicationState *>(appstate);
-    service_sdl_presenter();
-    finish_runtime_keyboard_input_drain();
-    return startup_result(state);
+    return iterate_frontend(static_cast<FrontendState *>(appstate));
 }
 
 SDL_AppResult SDLCALL dispatch_startup_event(void *appstate, SDL_Event *event)
 {
-    auto *state = static_cast<ApplicationState *>(appstate);
-    if(state == nullptr || event == nullptr)
-        return SDL_APP_FAILURE;
-
-    if(event->type == application_host_event_type())
-        drain_host_events();
-    else if(event->type == SDL_EVENT_QUIT || event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
-        dispatch_application_action(state, ApplicationAction::EXIT);
-    else if(event->type == SDL_EVENT_WINDOW_MINIMIZED)
-        graphics_host_flags |= RUNTIME_HOST_PAUSED;
-    else if(event->type == SDL_EVENT_WINDOW_RESTORED)
-        graphics_host_flags &= ~RUNTIME_HOST_PAUSED;
-    else if(event->type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN || event->type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN)
-        complete_sdl_presenter_fullscreen_transition(event->type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN);
-    else if(event->type == SDL_EVENT_WINDOW_RESIZED || event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
-    {
-        request_sdl_presenter_repaint();
-        RuntimeInputEvent input;
-        if(prepare_current_runtime_pointer_input(state, &input))
-            handle_runtime_input_event(input);
-    }
-    else if(event->type == SDL_EVENT_WINDOW_EXPOSED)
-        request_sdl_presenter_repaint();
-    else
-        dispatch_sdl_runtime_input(state, *event);
-    return startup_result(state);
+    return dispatch_frontend_event(static_cast<FrontendState *>(appstate), event);
 }
 
 void SDLCALL shutdown_startup_callbacks(void *appstate, SDL_AppResult)
 {
-    auto *state = static_cast<ApplicationState *>(appstate);
-    if(state == nullptr)
-        return;
-    use_portable_runtime_input(false);
-    if((state->flags & APPLICATION_FATAL_ERROR) != 0)
-    {
-        SDL_ShowCursor();
-        std::fputs("GAG: Internal application error...\n\nMake sure your CD disk is inserted into the drive\nis clean enough and not scratched!\n", stderr);
-    }
-    delete state;
+    shutdown_frontend(static_cast<FrontendState *>(appstate));
 }
 
 int run_startup(int argc, char *argv[])

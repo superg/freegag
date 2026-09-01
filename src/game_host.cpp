@@ -1,8 +1,10 @@
 #include "game_host.h"
 #include <SDL3/SDL.h>
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 #include "host_events.h"
+#include "portable_path.h"
 #include "portable_string.h"
 #include "runtime_internal.h"
 #include "xtet/asset_decoders.h"
@@ -167,6 +169,10 @@ bool load_and_initialize_runtime_game_dll(const char *path)
         throw std::invalid_argument(std::string("Unsupported /GAME library: ") + path);
     std::string sfs_name(file_name);
     sfs_name.replace(sfs_name.size() - 4, 4, ".SFS");
+    std::filesystem::path sfs_path = host_path_from_utf8(sfs_name.c_str());
+    if(sfs_path.is_relative() && runtime_graphics_resource_directory[0] != '\0')
+        sfs_path = host_path_from_utf8(runtime_graphics_resource_directory).parent_path() / sfs_path;
+    const std::string resolved_sfs_name = host_path_to_utf8(sfs_path);
 
     bool result = false;
     lock_runtime_mutex(&runtime_game_dll_mutex);
@@ -185,7 +191,7 @@ bool load_and_initialize_runtime_game_dll(const char *path)
             xtet::set_input_drain_callback(drain_runtime_keyboard_input);
             const xtet::GameHostServices services{ invalidate_game_framebuffer_rect, create_runtime_game_sound, destroy_runtime_sound_handle, queue_runtime_sound_data, pause_runtime_sound,
                 resume_runtime_sound, wait_for_runtime_game_animation };
-            xtet::initialize_game(&runtime_game_host_context, services, sfs_name.c_str());
+            xtet::initialize_game(&runtime_game_host_context, services, resolved_sfs_name.c_str());
         }
         catch(...)
         {

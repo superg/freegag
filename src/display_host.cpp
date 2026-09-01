@@ -83,7 +83,37 @@ bool create_presenter_texture()
     return presenter.texture != nullptr;
 }
 
-bool upload_and_present(const std::vector<uint32_t> &snapshot)
+void set_project_window_icon(SDL_Window *window)
+{
+    SDL_Surface *icon = SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_RGBA32);
+    if(icon == nullptr)
+        return;
+    const uint32_t background = SDL_MapSurfaceRGBA(icon, 9, 16, 25, 255);
+    const uint32_t panel = SDL_MapSurfaceRGBA(icon, 22, 61, 85, 255);
+    const uint32_t foreground = SDL_MapSurfaceRGBA(icon, 242, 246, 248, 255);
+    const uint32_t accent = SDL_MapSurfaceRGBA(icon, 62, 209, 155, 255);
+    SDL_FillSurfaceRect(icon, nullptr, background);
+    SDL_Rect inset{ 4, 4, 56, 56 };
+    SDL_FillSurfaceRect(icon, &inset, panel);
+    const std::array<SDL_Rect, 3> f_shape{
+        SDL_Rect{ 14, 15, 8,  35 },
+        SDL_Rect{ 20, 15, 22, 8  },
+        SDL_Rect{ 20, 29, 16, 7  }
+    };
+    for(const SDL_Rect &rectangle : f_shape)
+        SDL_FillSurfaceRect(icon, &rectangle, foreground);
+    const std::array<SDL_Rect, 3> g_shape{
+        SDL_Rect{ 38, 31, 12, 7  },
+        SDL_Rect{ 44, 34, 7,  16 },
+        SDL_Rect{ 36, 44, 14, 7  }
+    };
+    for(const SDL_Rect &rectangle : g_shape)
+        SDL_FillSurfaceRect(icon, &rectangle, accent);
+    SDL_SetWindowIcon(window, icon);
+    SDL_DestroySurface(icon);
+}
+
+bool upload_snapshot(const std::vector<uint32_t> &snapshot)
 {
     const auto attempt = [&]()
     {
@@ -98,21 +128,12 @@ bool upload_and_present(const std::vector<uint32_t> &snapshot)
         }
         SDL_UnlockTexture(presenter.texture);
         presenter.texture_has_frame = true;
-        return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
-            && SDL_RenderPresent(presenter.renderer);
+        return true;
     };
 
     if(attempt())
         return true;
     return create_presenter_texture() && attempt();
-}
-
-bool present_cached_texture()
-{
-    if(presenter.renderer == nullptr || presenter.texture == nullptr || !presenter.texture_has_frame)
-        return true;
-    return SDL_SetRenderDrawColor(presenter.renderer, 0, 0, 0, 0xff) && SDL_RenderClear(presenter.renderer) && SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr)
-        && SDL_RenderPresent(presenter.renderer);
 }
 
 void fail_runtime_presentation()
@@ -126,7 +147,7 @@ void fail_runtime_presentation()
 
 void present_snapshot(const std::vector<uint32_t> &snapshot)
 {
-    if(!snapshot.empty() && !upload_and_present(snapshot))
+    if(!snapshot.empty() && !upload_snapshot(snapshot))
         fail_runtime_presentation();
 }
 
@@ -247,6 +268,8 @@ void invalidate_game_framebuffer_rect(int32_t x, int32_t y, int32_t width, int32
 
 uint32_t initialize_sdl_presenter(int32_t width, int32_t height, const char *window_title)
 {
+    if(presenter.window == nullptr && initialize_sdl_shell(width, height, window_title) != 0)
+        return 1;
     presenter.main_thread_id = std::this_thread::get_id();
     presenter.shutting_down = false;
     presenter.runtime_failure_reported = false;
@@ -258,46 +281,41 @@ uint32_t initialize_sdl_presenter(int32_t width, int32_t height, const char *win
     presenter.pending_fullscreen = false;
     display_palette_flags = DISPLAY_PRESENTER_INITIALIZED;
 
-    if(!SDL_InitSubSystem(SDL_INIT_VIDEO))
+    SDL_SetWindowTitle(presenter.window, window_title);
+    SDL_SetWindowMinimumSize(presenter.window, width, height);
+    return configure_sdl_presenter_logical_size(width, height) ? 0 : 1;
+}
+
+uint32_t initialize_sdl_shell(int32_t width, int32_t height, const char *window_title)
+{
+    if(presenter.window != nullptr && presenter.renderer != nullptr)
+        return 0;
+    presenter.main_thread_id = std::this_thread::get_id();
+    if(!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
-        std::fprintf(stderr, "Unable to initialize SDL video: %s\n", SDL_GetError());
-        display_palette_flags = 0;
+        std::fprintf(stderr, "Unable to initialize SDL: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_HideCursor();
-
-    presenter.window = SDL_CreateWindow(window_title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
+    presenter.window = SDL_CreateWindow(window_title, width, height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if(presenter.window != nullptr)
     {
-        SDL_SetWindowMinimumSize(presenter.window, width, height);
+        set_project_window_icon(presenter.window);
         presenter.renderer = SDL_CreateRenderer(presenter.window, nullptr);
     }
     if(presenter.renderer == nullptr)
     {
-        std::fprintf(stderr, "Unable to initialize SDL presenter: %s\n", SDL_GetError());
-        shutdown_sdl_presenter();
+        std::fprintf(stderr, "Unable to initialize SDL shell: %s\n", SDL_GetError());
+        shutdown_sdl_shell();
         return 1;
     }
     SDL_StartTextInput(presenter.window);
-    SDL_SetRenderVSync(presenter.renderer, SDL_RENDERER_VSYNC_DISABLED);
-    SDL_SetRenderLogicalPresentation(presenter.renderer, width, height, presenter.integer_scaling ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE : SDL_LOGICAL_PRESENTATION_LETTERBOX);
-    return 0;
+    SDL_SetRenderVSync(presenter.renderer, SDL_RENDERER_VSYNC_ADAPTIVE);
+    return configure_sdl_presenter_logical_size(width, height) ? 0 : 1;
 }
 
-void set_sdl_presenter_integer_scaling(bool enabled)
+void shutdown_sdl_shell()
 {
-    presenter.integer_scaling = enabled;
-}
-
-bool show_sdl_presenter()
-{
-    return presenter.window != nullptr && SDL_ShowWindow(presenter.window);
-}
-
-void shutdown_sdl_presenter()
-{
-    begin_sdl_presenter_shutdown();
-    teardown_display_palette_surface();
+    shutdown_sdl_presenter();
     if(presenter.renderer != nullptr)
     {
         SDL_DestroyRenderer(presenter.renderer);
@@ -309,8 +327,62 @@ void shutdown_sdl_presenter()
         SDL_DestroyWindow(presenter.window);
         presenter.window = nullptr;
     }
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_VIDEO);
+}
+
+SDL_Window *get_sdl_presenter_window()
+{
+    return presenter.window;
+}
+
+SDL_Renderer *get_sdl_presenter_renderer()
+{
+    return presenter.renderer;
+}
+
+bool configure_sdl_presenter_logical_size(int32_t width, int32_t height)
+{
+    if(presenter.renderer == nullptr)
+        return false;
+    presenter.width = width;
+    presenter.height = height;
+    return SDL_SetRenderLogicalPresentation(presenter.renderer, width, height, presenter.integer_scaling ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE : SDL_LOGICAL_PRESENTATION_LETTERBOX);
+}
+
+bool begin_sdl_presenter_frame()
+{
+    if(presenter.renderer == nullptr || !SDL_SetRenderDrawColor(presenter.renderer, 10, 13, 18, 0xff) || !SDL_RenderClear(presenter.renderer))
+        return false;
+    return presenter.texture == nullptr || !presenter.texture_has_frame || SDL_RenderTexture(presenter.renderer, presenter.texture, nullptr, nullptr);
+}
+
+bool present_sdl_presenter_frame()
+{
+    return presenter.renderer != nullptr && SDL_RenderPresent(presenter.renderer);
+}
+
+void set_sdl_presenter_integer_scaling(bool enabled)
+{
+    presenter.integer_scaling = enabled;
+    if(presenter.renderer != nullptr)
+        configure_sdl_presenter_logical_size(presenter.width, presenter.height);
+}
+
+bool get_sdl_presenter_integer_scaling()
+{
+    return presenter.integer_scaling;
+}
+
+bool show_sdl_presenter()
+{
+    return presenter.window != nullptr && SDL_ShowWindow(presenter.window);
+}
+
+void shutdown_sdl_presenter()
+{
+    begin_sdl_presenter_shutdown();
+    teardown_display_palette_surface();
     display_palette_flags = 0;
-    SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
 
 void begin_sdl_presenter_shutdown()
@@ -563,12 +635,11 @@ void service_sdl_presenter()
         presenter.repaint_pending = false;
     }
 
-    bool presented_frame = false;
     if(service_pending)
         while(present_next_queued_snapshot())
-            presented_frame = true;
-    if(repaint_pending && !presented_frame && !present_cached_texture())
-        fail_runtime_presentation();
+        {
+        }
+    (void)repaint_pending;
 }
 
 } // namespace freegag

@@ -601,11 +601,11 @@ void xtet::initialize_game(GameHostContext *host_context, const GameHostServices
     g_game.delay_animation = services.delay_animation;
     std::string resource_error;
     const std::string sfs_display_name = sfs_name != nullptr && *sfs_name != '\0' ? sfs_name : "XTET SFS";
-    if(!load_sfs_from_working_directory(sfs_name, g_game.sfs_bytes, resource_error))
+    if(!load_sfs_file(sfs_name, g_game.sfs_bytes, resource_error))
         throw_initialization_error(resource_error);
     g_game.sfs = { g_game.sfs_bytes.data(), g_game.sfs_bytes.size() };
     if(!g_game.archive.mount(g_game.sfs))
-        throw_initialization_error(sfs_display_name + " in the working directory is malformed or unsupported.");
+        throw_initialization_error(sfs_display_name + " is malformed or unsupported.");
     g_game.action_definitions.clear();
     g_game.asset_manifest = {};
     g_game.bitmaps.clear();
@@ -728,4 +728,16 @@ void xtet::shutdown_game()
     g_game.host_context = nullptr;
     g_game.result = 0;
     g_game.level_effect_active = false;
+}
+
+bool xtet::game_active()
+{
+    return g_game.initialized.load();
+}
+
+bool xtet::game_paused()
+{
+    std::lock_guard<std::recursive_mutex> lock(g_mutex);
+    const uint32_t state = g_game.gameplay_runtime.progress().gameplay_state;
+    return g_game.initialized.load() && (state == 4 || state == 5);
 }
