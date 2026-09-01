@@ -1,5 +1,11 @@
 # FreeGAG
 
+<p align="center">
+  <img width="845" height="1052" alt="FreeGAG cover" src="https://github.com/user-attachments/assets/001f101e-01dc-4b96-97dc-3c028e3255f8">
+</p>
+
+This is an open source engine implementation of ГЭГ: Отвязное приключение (GAG: The Impotent Mystery) and ГЭГ+: Гарри в отпуске (GAG+: Harry on Vacation)
+
 FreeGAG is an open-source engine implementation for the point-and-click adventure games [ГЭГ: Отвязное приключение](https://en.wikipedia.org/wiki/GAG_The_Impotent_Mystery) (GAG: The Impotent Mystery) and ГЭГ+: Гарри в отпуске (GAG+: Harry on Vacation).
 
 FreeGAG was created by reverse engineering the original game engine and reimplementing its behavior as portable, open-source code.
