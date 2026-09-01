@@ -32,8 +32,8 @@
 namespace freegag
 {
 
-constexpr int frontend_width = 960;
-constexpr int frontend_height = 600;
+constexpr int frontend_width = 480;
+constexpr int frontend_height = 180;
 constexpr int settings_width = 660;
 constexpr int settings_height = 620;
 
@@ -88,24 +88,6 @@ static ImFont *add_system_ui_font(ImGuiIO &io, float size_pixels, float rasteriz
     return io.Fonts->AddFontDefault(&font_config);
 }
 
-static std::string file_url(const std::filesystem::path &path)
-{
-    const std::string source = path_text(path);
-    std::ostringstream result;
-    result << "file://";
-#if defined(SDL_PLATFORM_WINDOWS)
-    result << '/';
-#endif
-    for(unsigned char character : source)
-        if(std::isalnum(character) != 0 || character == '/' || character == ':' || character == '-' || character == '_' || character == '.' || character == '~')
-            result << static_cast<char>(character);
-        else if(character == '\\')
-            result << '/';
-        else
-            result << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(character) << std::nouppercase << std::dec;
-    return result.str();
-}
-
 static std::string lowercase_ascii(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
@@ -140,7 +122,7 @@ static const char *binding_action_name(BindingAction action)
     case BindingAction::OPEN_SETTINGS:
         return "Open Settings";
     case BindingAction::RETURN_TO_LAUNCHER:
-        return "Return to Launcher";
+        return "Stop Game";
     }
     return "Unknown";
 }
@@ -285,11 +267,10 @@ static DataInstallation validate_installation(const std::filesystem::path &reque
         installation.validation_message = "This folder mixes GAG and GAG+ data. Put each game in a separate folder.";
         return installation;
     }
-    installation.gary = !gary.empty();
-    installation.title = installation.gary ? "GAG+: Harry on Vacation" : "GAG: The Impotent Mystery";
-    if((installation.gary && gary.empty()) || (!installation.gary && (gag01.empty() || gag02.empty())))
+    const bool gary_installation = !gary.empty();
+    if(!gary_installation && (gag01.empty() || gag02.empty()))
     {
-        installation.validation_message = installation.gary ? "GARY.CDF is missing." : "GAG01.CDF and GAG02.CDF are required.";
+        installation.validation_message = gary_installation ? "GARY.CDF is missing." : "GAG01.CDF and GAG02.CDF are required.";
         return installation;
     }
     if(sfs.empty())
@@ -412,7 +393,6 @@ static nlohmann::json preferences_json(const FrontendPreferences &preferences)
     result["lastSelection"] = preferences.last_selection;
     result["pointerSpeed"] = preferences.pointer_speed;
     result["analogDeadZone"] = preferences.analog_dead_zone;
-    result["firstRunNoticeSeen"] = preferences.first_run_notice_seen;
     result["installations"] = nlohmann::json::array();
     for(const DataInstallation &installation : preferences.installations)
         result["installations"].push_back({
@@ -487,12 +467,20 @@ static void load_preferences(FrontendState *frontend)
         frontend->preferences.last_selection = source.value("lastSelection", "");
         frontend->preferences.pointer_speed = std::clamp(source.value("pointerSpeed", 350.0f), 80.0f, 1200.0f);
         frontend->preferences.analog_dead_zone = std::clamp(source.value("analogDeadZone", 0.22f), 0.05f, 0.9f);
-        frontend->preferences.first_run_notice_seen = source.value("firstRunNoticeSeen", false);
         for(const nlohmann::json &item : source.value("installations", nlohmann::json::array()))
         {
             const std::string directory = item.value("directory", "");
             if(!directory.empty())
                 frontend->preferences.installations.push_back(validate_installation(host_path_from_utf8(directory.c_str())));
+        }
+        if(!frontend->preferences.installations.empty())
+        {
+            const auto selected = std::find_if(frontend->preferences.installations.begin(), frontend->preferences.installations.end(),
+                [frontend](const DataInstallation &installation) { return installation.id == frontend->preferences.last_selection; });
+            DataInstallation installation = selected == frontend->preferences.installations.end() ? std::move(frontend->preferences.installations.front()) : std::move(*selected);
+            frontend->preferences.installations.clear();
+            frontend->preferences.installations.push_back(std::move(installation));
+            frontend->preferences.last_selection = frontend->preferences.installations.front().id;
         }
         for(const nlohmann::json &item : source.value("bindings", nlohmann::json::array()))
         {
@@ -519,12 +507,8 @@ static void add_installation(FrontendState *frontend, const std::filesystem::pat
 {
     DataInstallation candidate = validate_installation(directory);
     const std::string candidate_id = candidate.id;
-    const auto existing =
-        std::find_if(frontend->preferences.installations.begin(), frontend->preferences.installations.end(), [&candidate](const DataInstallation &entry) { return entry.id == candidate.id; });
-    if(existing == frontend->preferences.installations.end())
-        frontend->preferences.installations.push_back(std::move(candidate));
-    else
-        *existing = std::move(candidate);
+    frontend->preferences.installations.clear();
+    frontend->preferences.installations.push_back(std::move(candidate));
     frontend->selected_installation = candidate_id;
     frontend->preferences.last_selection = frontend->selected_installation;
     save_preferences(frontend);
@@ -544,11 +528,6 @@ static bool begin_game(FrontendState *frontend, DataInstallation &installation, 
     {
         frontend->warning = installation.validation_message;
         return false;
-    }
-    if(frontend->mode == FrontendMode::LAUNCHER)
-    {
-        SDL_GetWindowSize(get_sdl_presenter_window(), &frontend->launcher_window_width, &frontend->launcher_window_height);
-        frontend->launcher_window_maximized = (SDL_GetWindowFlags(get_sdl_presenter_window()) & SDL_WINDOW_MAXIMIZED) != 0;
     }
     set_sdl_presenter_integer_scaling(false);
     configure_sdl_presenter_logical_size(640, 480);
@@ -641,10 +620,9 @@ static void finish_game_shutdown(FrontendState *frontend)
     if(!frontend->restart_requested)
         set_sdl_presenter_fullscreen(false);
     configure_sdl_presenter_logical_size(frontend_width, frontend_height);
-    SDL_SetWindowMinimumSize(get_sdl_presenter_window(), 720, 450);
-    SDL_SetWindowSize(get_sdl_presenter_window(), std::max(720, frontend->launcher_window_width), std::max(450, frontend->launcher_window_height));
-    if(frontend->launcher_window_maximized)
-        SDL_MaximizeWindow(get_sdl_presenter_window());
+    SDL_RestoreWindow(get_sdl_presenter_window());
+    SDL_SetWindowMinimumSize(get_sdl_presenter_window(), 420, 160);
+    SDL_SetWindowSize(get_sdl_presenter_window(), frontend_width, frontend_height);
     SDL_SetWindowTitle(get_sdl_presenter_window(), "FreeGAG");
     SDL_ShowCursor();
     if(fatal_error)
@@ -674,9 +652,9 @@ static void show_dialog(FrontendState *frontend, FrontendDialog dialog)
         return;
     frontend->active_dialog = dialog;
     frontend->dialog_completed = false;
-    if(dialog == FrontendDialog::ADD_FOLDER || dialog == FrontendDialog::CHANGE_FOLDER || dialog == FrontendDialog::IMPORT_DESTINATION)
+    SDL_Window *parent = frontend->settings_open && frontend->settings_window != nullptr ? frontend->settings_window : get_sdl_presenter_window();
+    if(dialog == FrontendDialog::CHANGE_FOLDER || dialog == FrontendDialog::IMPORT_DESTINATION)
     {
-        SDL_Window *parent = dialog == FrontendDialog::CHANGE_FOLDER && frontend->settings_window != nullptr ? frontend->settings_window : get_sdl_presenter_window();
         SDL_ShowOpenFolderDialog(dialog_callback, frontend, parent, nullptr, false);
         return;
     }
@@ -686,7 +664,7 @@ static void show_dialog(FrontendState *frontend, FrontendDialog dialog)
     const SDL_DialogFileFilter dll_filter[] = {
         { "XTETDLL.DLL", "dll;DLL" }
     };
-    SDL_ShowOpenFileDialog(dialog_callback, frontend, get_sdl_presenter_window(), dialog == FrontendDialog::IMPORT_CDFS ? cdf_filter : dll_filter, 1, nullptr, dialog == FrontendDialog::IMPORT_CDFS);
+    SDL_ShowOpenFileDialog(dialog_callback, frontend, parent, dialog == FrontendDialog::IMPORT_CDFS ? cdf_filter : dll_filter, 1, nullptr, dialog == FrontendDialog::IMPORT_CDFS);
 }
 
 static void consume_dialog(FrontendState *frontend)
@@ -704,9 +682,7 @@ static void consume_dialog(FrontendState *frontend)
     }
     if(paths.empty())
         return;
-    if(completed_dialog == FrontendDialog::ADD_FOLDER)
-        add_installation(frontend, paths.front());
-    else if(completed_dialog == FrontendDialog::CHANGE_FOLDER)
+    if(completed_dialog == FrontendDialog::CHANGE_FOLDER)
     {
         add_installation(frontend, paths.front());
         DataInstallation *installation = selected_installation(frontend);
@@ -716,6 +692,8 @@ static void consume_dialog(FrontendState *frontend)
             frontend->restart_gagboy = xtet::game_active();
             request_game_shutdown(frontend, false);
         }
+        else if(installation != nullptr && installation->valid)
+            frontend->launch_configured_game_requested = true;
     }
     else if(completed_dialog == FrontendDialog::IMPORT_DESTINATION)
     {
@@ -839,7 +817,7 @@ static void run_import(FrontendState *frontend)
             committed_files.push_back(destination);
         }
         import->succeeded = true;
-        message = "Import completed and the game was added to the library.";
+        message = "Import completed and the game assets are configured.";
     }
     catch(const std::exception &exception)
     {
@@ -871,29 +849,9 @@ static void refresh_finished_import(FrontendState *frontend)
     if(frontend->import.step != 5 || frontend->import.running || !frontend->import.succeeded)
         return;
     add_installation(frontend, frontend->import.destination);
+    if(DataInstallation *installation = selected_installation(frontend); installation != nullptr && installation->valid && frontend->game == nullptr)
+        frontend->launch_configured_game_requested = true;
     frontend->import.step = 6;
-}
-
-static void render_notice(FrontendState *frontend)
-{
-    if(frontend->preferences.first_run_notice_seen)
-        return;
-    ImGui::OpenPopup("Game data notice");
-    ImGui::SetNextWindowSize(ImVec2(560, 190), ImGuiCond_Appearing);
-    if(ImGui::BeginPopupModal("Game data notice", nullptr, ImGuiWindowFlags_NoResize))
-    {
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 520.0f);
-        ImGui::TextWrapped("FreeGAG contains no game data. Select game data you are entitled to use, or import it from your original discs. FreeGAG does not download game assets.");
-        ImGui::PopTextWrapPos();
-        ImGui::Spacing();
-        if(ImGui::Button("I understand", ImVec2(180, 0)))
-        {
-            frontend->preferences.first_run_notice_seen = true;
-            save_preferences(frontend);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
 }
 
 static std::string detect_import_game(const std::vector<std::filesystem::path> &sources, bool *ready)
@@ -920,62 +878,6 @@ static std::string detect_import_game(const std::vector<std::filesystem::path> &
     }
     *ready = gag01 && gag02;
     return *ready ? "GAG: The Impotent Mystery" : "Incomplete GAG selection (GAG01.CDF and GAG02.CDF are required)";
-}
-
-static void render_library(FrontendState *frontend)
-{
-    ImGui::TextUnformatted("Your games");
-    ImGui::SameLine();
-    if(ImGui::Button("Add prepared folder"))
-        show_dialog(frontend, FrontendDialog::ADD_FOLDER);
-    ImGui::SameLine();
-    if(ImGui::Button("Import from discs"))
-        ImGui::OpenPopup("Disc import");
-    ImGui::Separator();
-    if(frontend->preferences.installations.empty())
-    {
-        ImGui::Spacing();
-        ImGui::TextWrapped("No installations yet. Add a prepared data folder or use the guided disc importer.");
-    }
-    for(size_t index = 0; index < frontend->preferences.installations.size(); ++index)
-    {
-        DataInstallation &installation = frontend->preferences.installations[index];
-        ImGui::PushID(static_cast<int>(index));
-        ImGui::BeginChild("installation", ImVec2(0, 126), ImGuiChildFlags_Borders);
-        ImGui::TextUnformatted(installation.title.empty() ? "Unrecognized game data" : installation.title.c_str());
-        ImGui::TextDisabled("%s", path_text(installation.directory).c_str());
-        if(installation.valid)
-            ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.55f, 1.0f), "Ready");
-        else
-            ImGui::TextColored(ImVec4(1.0f, 0.48f, 0.38f, 1.0f), "%s", installation.validation_message.c_str());
-        ImGui::BeginDisabled(!installation.valid);
-        if(ImGui::Button("Play"))
-            begin_game(frontend, installation, false);
-        ImGui::SameLine();
-        if(ImGui::Button("GAGBoy"))
-            begin_game(frontend, installation, true);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if(ImGui::Button("Settings"))
-        {
-            frontend->selected_installation = installation.id;
-            show_frontend_settings(frontend);
-        }
-        ImGui::SameLine();
-        if(ImGui::Button("Reveal Folder"))
-            SDL_OpenURL(file_url(installation.directory).c_str());
-        ImGui::SameLine();
-        if(ImGui::Button("Remove from Library"))
-        {
-            frontend->preferences.installations.erase(frontend->preferences.installations.begin() + static_cast<std::ptrdiff_t>(index));
-            save_preferences(frontend);
-            ImGui::EndChild();
-            ImGui::PopID();
-            break;
-        }
-        ImGui::EndChild();
-        ImGui::PopID();
-    }
 }
 
 static void render_import(FrontendState *frontend)
@@ -1234,10 +1136,21 @@ static void render_game_data_settings(FrontendState *frontend)
             show_dialog(frontend, FrontendDialog::CHANGE_FOLDER);
         ImGui::SameLine();
         if(ImGui::Button("Revalidate"))
+        {
             *installation = validate_installation(installation->directory);
+            if(frontend->game == nullptr && installation->valid)
+                frontend->launch_configured_game_requested = true;
+        }
     }
     else
-        ImGui::TextWrapped("Choose a library entry to edit its per-installation settings.");
+    {
+        ImGui::TextDisabled("No game assets configured.");
+        if(ImGui::Button("Choose…"))
+            show_dialog(frontend, FrontendDialog::CHANGE_FOLDER);
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Import from discs…"))
+        ImGui::OpenPopup("Disc import");
 }
 
 static void render_display_settings(FrontendState *frontend)
@@ -1297,7 +1210,7 @@ static void render_display_settings(FrontendState *frontend)
         ImGui::TextDisabled("These values apply the next time this installation starts.");
     }
     else
-        ImGui::TextWrapped("Choose a library entry to edit its display settings.");
+        ImGui::TextWrapped("Choose a game asset folder to configure display settings.");
 }
 
 static void render_audio_text_settings(FrontendState *frontend)
@@ -1321,7 +1234,7 @@ static void render_audio_text_settings(FrontendState *frontend)
             save_game_settings(installation->directory, settings);
     }
     else
-        ImGui::TextWrapped("Choose a library entry to edit sound and subtitle settings.");
+        ImGui::TextWrapped("Choose a game asset folder to configure sound and subtitle settings.");
 }
 
 static void render_combined_settings(FrontendState *frontend)
@@ -1360,11 +1273,22 @@ static void render_settings(FrontendState *frontend)
         }
         frontend->settings_tab_change_requested = false;
         ImGui::Spacing();
+        if(!frontend->warning.empty())
+        {
+            ImGui::TextColored(ui_color(224, 154, 94), "%s", frontend->warning.c_str());
+            ImGui::SameLine();
+            if(ImGui::SmallButton("Dismiss"))
+                frontend->warning.clear();
+            ImGui::Spacing();
+        }
         const char *content_id = frontend->settings_tab == SettingsTab::SETTINGS ? "settings-content" : "controls-content";
         if(ImGui::BeginChild(content_id, ImVec2(0, 0), ImGuiChildFlags_None))
         {
             if(frontend->settings_tab == SettingsTab::SETTINGS)
+            {
                 render_combined_settings(frontend);
+                render_import(frontend);
+            }
             else
                 render_input_settings(frontend);
         }
@@ -1407,22 +1331,18 @@ static void render_frontend(FrontendState *frontend)
         const ImGuiIO &io = ImGui::GetIO();
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::Begin("FreeGAG Launcher", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-        ImGui::SetWindowFontScale(1.35f);
-        ImGui::TextUnformatted("FreeGAG");
-        ImGui::SetWindowFontScale(1.0f);
-        ImGui::TextDisabled("Choose an installation to play");
-        if(!frontend->warning.empty())
-        {
-            ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.35f, 1.0f), "%s", frontend->warning.c_str());
-            ImGui::SameLine();
-            if(ImGui::SmallButton("Dismiss"))
-                frontend->warning.clear();
-        }
-        render_library(frontend);
+        ImGui::Begin("FreeGAG", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        constexpr const char *message = "Open Settings for configuration.";
+        const float message_width = ImGui::CalcTextSize(message).x;
+        const float button_width = ImGui::CalcTextSize("Open Settings").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        const float content_width = std::max(message_width, button_width);
+        const float content_height = ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeight();
+        ImGui::SetCursorPos(ImVec2(std::max(12.0f, (io.DisplaySize.x - content_width) * 0.5f), std::max(12.0f, (io.DisplaySize.y - content_height) * 0.5f)));
+        ImGui::TextUnformatted(message);
+        ImGui::SetCursorPosX((io.DisplaySize.x - button_width) * 0.5f);
+        if(ImGui::Button("Open Settings"))
+            show_frontend_settings(frontend);
         ImGui::End();
-        render_notice(frontend);
-        render_import(frontend);
     }
     ImGui::Render();
     begin_sdl_presenter_frame();
@@ -1750,16 +1670,18 @@ FrontendState *initialize_frontend(int argc, char *argv[])
     style.FrameRounding = 5.0f;
     style.FramePadding = ImVec2(10.0f, 6.0f);
     style.ItemSpacing = ImVec2(10.0f, 8.0f);
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.045f, 0.055f, 0.075f, 1.0f);
-    style.Colors[ImGuiCol_Header] = ImVec4(0.12f, 0.24f, 0.34f, 1.0f);
-    style.Colors[ImGuiCol_Button] = ImVec4(0.12f, 0.31f, 0.43f, 1.0f);
+    style.Colors[ImGuiCol_WindowBg] = ui_color(30, 30, 32);
+    style.Colors[ImGuiCol_Header] = ui_color(46, 46, 48);
+    style.Colors[ImGuiCol_Button] = ui_color(46, 46, 48);
+    style.Colors[ImGuiCol_ButtonHovered] = ui_color(58, 58, 60);
+    style.Colors[ImGuiCol_ButtonActive] = ui_color(68, 68, 70);
     ImGui_ImplSDL3_InitForSDLRenderer(get_sdl_presenter_window(), get_sdl_presenter_renderer());
     ImGui_ImplSDLRenderer3_Init(get_sdl_presenter_renderer());
     if(!initialize_settings_window(frontend))
         frontend->warning = "The settings window could not be initialized.";
     if(!initialize_platform_menu())
         frontend->warning = "The native application menu could not be initialized.";
-    SDL_SetWindowMinimumSize(get_sdl_presenter_window(), 720, 450);
+    SDL_SetWindowMinimumSize(get_sdl_presenter_window(), 420, 160);
     show_sdl_presenter();
     use_portable_runtime_input(true);
 
@@ -1796,6 +1718,8 @@ FrontendState *initialize_frontend(int argc, char *argv[])
         else
             frontend->warning = "--gagboy needs a valid --data-dir or game data beside the executable/current directory.";
     }
+    else if(DataInstallation *installation = selected_installation(frontend); installation != nullptr && installation->valid)
+        begin_game(frontend, *installation, false);
     return frontend;
 }
 
@@ -1808,6 +1732,15 @@ SDL_AppResult iterate_frontend(FrontendState *frontend)
     consume_dialog(frontend);
     refresh_finished_import(frontend);
     finish_game_shutdown(frontend);
+    if(frontend->launch_configured_game_requested && frontend->game == nullptr)
+    {
+        frontend->launch_configured_game_requested = false;
+        if(DataInstallation *installation = selected_installation(frontend); installation != nullptr && installation->valid)
+        {
+            close_frontend_settings(frontend);
+            begin_game(frontend, *installation, false);
+        }
+    }
     if(frontend->quit_requested && frontend->game == nullptr)
         return SDL_APP_SUCCESS;
     update_controller_pointer(frontend);
@@ -1911,6 +1844,18 @@ SDL_AppResult dispatch_frontend_event(FrontendState *frontend, SDL_Event *event)
     {
         frontend->suppressed_host_key = event->key.scancode;
         close_frontend_settings(frontend);
+    }
+    else if(frontend->mode == FrontendMode::LAUNCHER && event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && is_settings_key(frontend, event->key))
+    {
+        frontend->suppressed_host_key = event->key.scancode;
+        show_frontend_settings(frontend);
+    }
+    else if(frontend->mode == FrontendMode::LAUNCHER && event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+    {
+        const SDL_GamepadButton button = static_cast<SDL_GamepadButton>(event->gbutton.button);
+        SDL_Gamepad *gamepad = SDL_GetGamepadFromID(event->gbutton.which);
+        if(is_settings_button(frontend, button, gamepad))
+            show_frontend_settings(frontend);
     }
     else if(frontend->mode == FrontendMode::SETTINGS && event->type == SDL_EVENT_KEY_DOWN)
     {

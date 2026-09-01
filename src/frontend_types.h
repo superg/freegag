@@ -61,11 +61,9 @@ struct InputBinding
 struct DataInstallation
 {
     std::string id;
-    std::string title;
     std::filesystem::path directory;
     std::string validation_message;
     bool valid{};
-    bool gary{};
 };
 
 struct FrontendPreferences
@@ -76,13 +74,11 @@ struct FrontendPreferences
     std::vector<InputBinding> bindings;
     float pointer_speed{ 350.0f };
     float analog_dead_zone{ 0.22f };
-    bool first_run_notice_seen{};
 };
 
 enum class FrontendDialog
 {
     NONE,
-    ADD_FOLDER,
     CHANGE_FOLDER,
     IMPORT_DESTINATION,
     IMPORT_CDFS,
@@ -126,6 +122,7 @@ struct FrontendState
     bool low_color_restart_required{};
     bool restart_requested{};
     bool restart_gagboy{};
+    bool launch_configured_game_requested{};
     FrontendDialog active_dialog{ FrontendDialog::NONE };
     std::mutex dialog_mutex;
     bool dialog_completed{};
@@ -141,9 +138,6 @@ struct FrontendState
     float pointer_x{ 320.0f };
     float pointer_y{ 240.0f };
     uint64_t last_frame_ticks{};
-    int launcher_window_width{ 960 };
-    int launcher_window_height{ 600 };
-    bool launcher_window_maximized{};
     SDL_Window *settings_window{};
     SDL_Renderer *settings_renderer{};
     ImGuiContext *main_imgui_context{};

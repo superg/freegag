@@ -72,7 +72,7 @@ bool install_native_platform_menu()
 
         NSMenuItem *game_root = [[NSMenuItem alloc] initWithTitle:@"Game" action:nil keyEquivalent:@""];
         NSMenu *game_menu = [[NSMenu alloc] initWithTitle:@"Game"];
-        [game_menu addItem:menu_item(@"Return to Launcher", @selector(returnToLauncher:), @"", platform_menu_target)];
+        [game_menu addItem:menu_item(@"Stop Game", @selector(returnToLauncher:), @"", platform_menu_target)];
         game_root.submenu = game_menu;
         [main_menu addItem:game_root];
 

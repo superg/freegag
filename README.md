@@ -27,20 +27,20 @@ Although the engine is functionally complete, development is ongoing. The source
 
 ## Playing the games
 
-Download the archive for your platform from [GitHub Releases](https://github.com/superg/freegag/releases) and extract it. Windows and Linux packages include the launcher and `xtet_resource_extractor`; the macOS ZIP contains `FreeGAG.app` and the extractor CLI beside it.
+Download the archive for your platform from [GitHub Releases](https://github.com/superg/freegag/releases) and extract it. Windows and Linux packages include FreeGAG and `xtet_resource_extractor`; the macOS ZIP contains `FreeGAG.app` and the extractor CLI beside it.
 
-FreeGAG does not include, download, or delete original game data. On first launch, choose a prepared folder containing data you are entitled to use or import the data from your original discs.
+FreeGAG does not include, download, or delete original game data. On first launch, open **Settings** and choose a prepared folder containing data you are entitled to use or import the data from your original discs. A valid configured folder starts automatically on later launches.
 
 ### Guided disc import
 
-Choose **Import from discs** in the launcher, then:
+Choose **Import from discs…** under **Settings → Game assets**, then:
 
 1. Choose a destination folder.
 2. Select all `.CDF` files from the game discs.
 3. Select the original `XTETDLL.DLL`.
 4. Review the detected game and start the import.
 
-FreeGAG copies source files asynchronously and extracts `XTETDLL.SFS`. It stages and validates the complete result before adding it to the library. A different existing destination file is never overwritten, and cancellation removes only temporary files created by that import.
+FreeGAG copies source files asynchronously and extracts `XTETDLL.SFS`. It stages and validates the complete result before configuring it as the game asset folder. A different existing destination file is never overwritten, and cancellation removes only temporary files created by that import.
 
 The standalone extractor remains available for manual preparation:
 
@@ -75,15 +75,15 @@ GAG-plus-data/
 
 Files in the game disc's `GAG3/` directory are not needed because GAG+: Harry on Vacation does not use them.
 
-### Prepared folders and the library
+### Prepared folders
 
-Choose **Add prepared folder** and select a data folder. The launcher remembers multiple external installations. It validates names case-insensitively, opens every CDF with FreeGAG's parser, and mounts `XTETDLL.SFS` before enabling Play. GAG requires `GAG01.CDF`, `GAG02.CDF`, and `XTETDLL.SFS`; GAG+ requires `GARY.CDF` and `XTETDLL.SFS`. Additional numbered CDF archives are accepted. A folder containing both GAG and GAG+ roots is rejected as ambiguous.
+Choose **Settings → Game assets → Choose…** and select a data folder. FreeGAG remembers one external asset folder. It validates names case-insensitively, opens every CDF with FreeGAG's parser, and mounts `XTETDLL.SFS`; successful validation closes Settings and launches the game automatically. GAG requires `GAG01.CDF`, `GAG02.CDF`, and `XTETDLL.SFS`; GAG+ requires `GARY.CDF` and `XTETDLL.SFS`. Additional numbered CDF archives are accepted. A folder containing both GAG and GAG+ roots is rejected as ambiguous.
 
-Each library card can launch the adventure or GAGBoy, open settings, reveal the folder, or remove the entry. Removing an entry never removes game data or saves.
+When no valid folder is configured, the compact main window says **Open Settings for configuration.** On Windows and Linux it also provides an **Open Settings** button; F10 and the configured controller shortcut work there on every platform. macOS additionally provides native **Settings…** and **Controls…** commands in the application menu.
 
 ## Configuration
 
-Each installation keeps its compatible `freegag.ini` and saves beside the selected game data. On macOS, choose **FreeGAG → Settings…** or **FreeGAG → Controls…** in the system menu bar; **Cmd+,** opens Settings. The F10 host binding opens the same separate preferences window on every platform. A running game pauses until that window closes. The **Game assets** setting can select and validate another prepared folder; a valid change restarts the active game with that folder. Fullscreen, scaling, sound, and subtitles apply immediately; low-color resources require **Restart Game**.
+The configured asset folder keeps its compatible `freegag.ini` and saves beside the game data. On macOS, choose **FreeGAG → Settings…** or **FreeGAG → Controls…** in the system menu bar; **Cmd+,** opens Settings. On Windows and Linux, use the **Open Settings** button before startup or F10 while playing. The F10 host binding opens the same separate preferences window on every platform. A running game pauses until that window closes. Choosing, importing, or revalidating game assets launches them automatically when no game is running; changing to another valid folder restarts an active game with that folder. Fullscreen, scaling, sound, and subtitles apply immediately; low-color resources require **Restart Game**.
 
 Section and setting names are case-sensitive. Boolean values may be written as `true` or `false` in any capitalization.
 
@@ -108,31 +108,31 @@ The optional `[Window]` section contains the last window position as `Left`, `To
 
 ## GAGBoy
 
-GAGBoy is a handheld minigame included as part of the main game and can be launched from any valid library card.
+GAGBoy is a handheld minigame included as part of the main game. The `--gagboy` command-line option launches it directly.
 
 ## Input
 
-The launcher and settings UI support full keyboard and controller navigation. Adventure and GAGBoy share one contextual game-control scheme, while application shortcuts remain separate. A duplicate inside either group replaces the previous assignment after warning the user.
+The configuration screen and settings UI support full keyboard and controller navigation. Adventure and GAGBoy share one contextual game-control scheme, while application shortcuts remain separate. A duplicate inside either group replaces the previous assignment after warning the user.
 
 | Group | Keyboard defaults | Controller defaults |
 | --- | --- | --- |
 | Game Controls | Arrows move the pointer; in GAGBoy, Left/Right/Down move and Up rotates. Z is primary/rotate, X is secondary/exit, Space is hard drop, and P is pause. Escape also exits GAGBoy. | Left stick/D-pad moves the pointer; in GAGBoy, Up rotates. South/A is primary/rotate, East/B is secondary/exit, West/X is hard drop, and Start is pause. |
-| Application Shortcuts | F10 or Ctrl/Cmd+, settings; F9 launcher | Guide/Home or L1+R1 settings; Back launcher |
+| Application Shortcuts | F10 or Ctrl/Cmd+, settings; F9 stops the game | Guide/Home or L1+R1 settings; Back stops the game |
 
 Pointer speed, analog dead zone, connected-controller status, key/button capture, contextual reset, and controller hot-plugging are available under **Controls**. Pointer bindings are suspended during save-name and other adventure text entry.
 
 ## Frontend preferences and command line
 
-The versioned library, input mappings, last selection, and UI preferences are stored in `frontend.json` under SDL's per-user preference directory for organization `superg` and application `FreeGAG`. Typical locations are `%APPDATA%\superg\FreeGAG` on Windows, `~/Library/Application Support/superg/FreeGAG` on macOS, and `$XDG_DATA_HOME/superg/FreeGAG` or `~/.local/share/superg/FreeGAG` on Linux. Writes use a temporary file and atomic replacement; malformed JSON produces a visible warning and safe defaults.
+The configured asset root, input mappings, and UI preferences are stored in `frontend.json` under SDL's per-user preference directory for organization `superg` and application `FreeGAG`. Typical locations are `%APPDATA%\superg\FreeGAG` on Windows, `~/Library/Application Support/superg/FreeGAG` on macOS, and `$XDG_DATA_HOME/superg/FreeGAG` or `~/.local/share/superg/FreeGAG` on Linux. Writes use a temporary file and atomic replacement; malformed JSON produces a visible warning and safe defaults.
 
-Normal startup always opens the launcher. Direct launch and automation can use:
+Normal startup launches the configured valid asset folder. Direct launch and automation can override it with:
 
 ```text
 FreeGAG --data-dir "<game-data-folder>"
 FreeGAG --data-dir "<game-data-folder>" --gagboy
 ```
 
-`--gagboy` by itself uses a valid data root beside the executable or in the current directory; otherwise the launcher opens with a validation message.
+`--gagboy` by itself uses a valid data root beside the executable or in the current directory; otherwise the configuration prompt opens and Settings displays the validation message.
 
 ## Acknowledgments
 
