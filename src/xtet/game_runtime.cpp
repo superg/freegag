@@ -1,5 +1,6 @@
 #include "game_runtime.h"
 #include <algorithm>
+#include "game_timing.h"
 
 namespace xtet
 {
@@ -38,7 +39,7 @@ void handle_game_key_down(uint32_t &gameplay_state, uint32_t key, uint32_t curre
 {
     if(gameplay_state == 2 || gameplay_state == 3)
     {
-        if(current_time >= result_input_deadline)
+        if(!is_game_deadline_pending(current_time, result_input_deadline))
         {
             gameplay_state = 0;
             if(callbacks.stop_gameplay)

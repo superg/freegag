@@ -709,7 +709,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                             zone->movement_deadline = state->script_clock;
                             zone->movement_flags = (zone->movement_flags & ~RUNTIME_MOVEMENT_STOPPED) | RUNTIME_MOVEMENT_ACTIVE;
                         }
-                        if(state->script_clock < zone->movement_deadline)
+                        if(runtime_deadline_pending(state->script_clock, zone->movement_deadline))
                             return RuntimeScriptOpcodeDisposition::PAUSE;
                         if((zone->movement_flags & RUNTIME_MOVEMENT_STOPPED) == 0 && path->x <= zone->x && path->y <= zone->y && zone->width <= path->width && zone->height <= path->height)
                         {
@@ -1303,7 +1303,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
                             primary->movement_deadline = state->script_clock;
                             primary->flags = (primary->flags & ~RUNTIME_MOVEMENT_STOPPED) | RUNTIME_MOVEMENT_ACTIVE;
                         }
-                        if(state->script_clock < primary->movement_deadline)
+                        if(runtime_deadline_pending(state->script_clock, primary->movement_deadline))
                             return RuntimeScriptOpcodeDisposition::PAUSE;
                         if((primary->flags & RUNTIME_MOVEMENT_STOPPED) == 0 && path->x <= primary->x && path->y <= primary->y && primary->x <= static_cast<int32_t>(path->width)
                             && primary->y <= static_cast<int32_t>(path->height))
@@ -1337,7 +1337,7 @@ RuntimeScriptOpcodeDisposition execute_simple_runtime_script_opcode(RuntimeComma
         }
         else
         {
-            if(state->script_clock < link->wait_deadline)
+            if(runtime_deadline_pending(state->script_clock, link->wait_deadline))
                 return RuntimeScriptOpcodeDisposition::PAUSE;
             link->owner_flags &= ~RUNTIME_SCRIPT_LINK_WAIT_PENDING;
         }

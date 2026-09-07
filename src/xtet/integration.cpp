@@ -362,7 +362,7 @@ void run_game_tick()
     if(!get_framebuffer(framebuffer))
         throw std::runtime_error("XTET framebuffer unavailable");
     const uint32_t current_time = current_time_milliseconds();
-    if(g_game.level_effect_active && g_game.level_effect_deadline < current_time)
+    if(g_game.level_effect_active && !xtet::is_game_deadline_pending(current_time, g_game.level_effect_deadline))
     {
         present_level_face(g_game.gameplay_runtime.progress().level, false);
         g_game.level_effect_active = false;

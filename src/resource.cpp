@@ -1009,7 +1009,7 @@ void apply_palette_runtime_scene_transition(uint32_t palette_step, uint32_t flag
         while(completed < 0xec)
         {
             uint32_t now = runtime_milliseconds();
-            if(now < deadline)
+            if(runtime_deadline_pending(now, deadline))
             {
                 runtime_sleep(0);
             }
@@ -1052,7 +1052,7 @@ void apply_palette_runtime_scene_transition(uint32_t palette_step, uint32_t flag
     while(completed < 0x2c4)
     {
         uint32_t now = runtime_milliseconds();
-        if(now < deadline)
+        if(runtime_deadline_pending(now, deadline))
         {
             runtime_sleep(0);
         }
@@ -1126,7 +1126,7 @@ void apply_rectangle_runtime_scene_transition(uint8_t step_size, uint32_t flags)
         while((clip.bottom - clip.top) > static_cast<int32_t>(vertical_step * 2) || (clip.right - clip.left) > static_cast<int32_t>(horizontal_step * 2))
         {
             uint32_t now = runtime_milliseconds();
-            if(now < deadline)
+            if(runtime_deadline_pending(now, deadline))
             {
                 runtime_sleep(0);
                 continue;
@@ -1195,7 +1195,7 @@ void apply_rectangle_runtime_scene_transition(uint8_t step_size, uint32_t flags)
         while((clip.right - clip.left) < static_cast<int32_t>(width) || (clip.bottom - clip.top) < static_cast<int32_t>(height))
         {
             uint32_t now = runtime_milliseconds();
-            if(now < deadline)
+            if(runtime_deadline_pending(now, deadline))
             {
                 runtime_sleep(0);
                 continue;
@@ -1392,22 +1392,6 @@ void reset_runtime_session()
 
     RuntimeNamedNode *media_objects = get_or_create_runtime_named_node("MMediaObjectsList");
     RuntimeNamedNode *open_memory_files = get_or_create_runtime_named_node("OpenMemoryFilesList");
-    uint32_t start = runtime_milliseconds();
-    while(media_objects->status != 0)
-    {
-        uint32_t current = runtime_milliseconds();
-        if(current < start + 5000)
-            break;
-        runtime_sleep(10);
-    }
-    start = runtime_milliseconds();
-    while(open_memory_files->status != 0)
-    {
-        uint32_t current = runtime_milliseconds();
-        if(current < start + 5000)
-            break;
-        runtime_sleep(10);
-    }
     if(media_objects->status == 0 && open_memory_files->status == 0)
         runtime_display_context.flags |= RUNTIME_HOST_RESOURCE_LOAD_ACTIVE;
 
@@ -2809,7 +2793,7 @@ uint32_t read_async_file_record(AsyncFileRecord *identity, void *destination, ui
             record->next_offset += file_bytes;
             const uint32_t now = runtime_milliseconds();
             record->timestamp = now;
-            if(now < target_time)
+            if(runtime_deadline_pending(now, target_time))
                 runtime_sleep(target_time - now);
         }
         record->current_offset += copied;
