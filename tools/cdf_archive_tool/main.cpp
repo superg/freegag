@@ -29,6 +29,7 @@ constexpr uint32_t kCompressedBufferSize = 0x10000;
 struct ManifestEntry
 {
     std::string name;
+    std::string physical_name;
     uint8_t flags;
     std::array<char, sizeof(CdfEntry::name)> serialized_name{};
 };
@@ -84,6 +85,15 @@ void validate_resource_name(std::string_view name)
     for(unsigned char character : name)
         if(character < 0x20 || character == 0x7f || std::string_view("<>:\"/\\|?*").find(static_cast<char>(character)) != std::string_view::npos)
             throw std::runtime_error("unsafe resource filename: " + std::string(name));
+}
+
+void validate_physical_name(std::string_view name)
+{
+    if(name.empty() || name.size() > 255 || name == "." || name == ".." || name.back() == ' ' || name.back() == '.' || is_reserved_windows_name(name))
+        throw std::runtime_error("unsafe physical filename: " + std::string(name));
+    for(unsigned char character : name)
+        if(character < 0x20 || character == 0x7f || std::string_view("<>:\"/\\|?*").find(static_cast<char>(character)) != std::string_view::npos)
+            throw std::runtime_error("unsafe physical filename: " + std::string(name));
 }
 
 std::filesystem::path resolve_input_path(const std::filesystem::path &requested, std::string_view description)
@@ -349,6 +359,7 @@ ManifestEntry decode_manifest_name(std::string_view encoded)
     const std::string_view visible_name = encoded.substr(0, escape);
     validate_resource_name(visible_name);
     result.name = visible_name;
+    result.physical_name = result.name;
     std::copy(visible_name.begin(), visible_name.end(), result.serialized_name.begin());
     if(escape == std::string_view::npos)
         return result;
@@ -369,6 +380,60 @@ ManifestEntry decode_manifest_name(std::string_view encoded)
     if(result.serialized_name[visible_name.size()] != '\0')
         throw std::runtime_error("escaped CDF filename tail must begin with \\x00");
     return result;
+}
+
+bool is_decimal(std::string_view text)
+{
+    return !text.empty() && std::all_of(text.begin(), text.end(), [](unsigned char character) { return std::isdigit(character) != 0; });
+}
+
+uint8_t parse_manifest_flag(std::string_view text, uint32_t line_number)
+{
+    unsigned value = 0;
+    const char *begin = text.data();
+    const char *end = begin + text.size();
+    const auto conversion = std::from_chars(begin, end, value, 10);
+    if(conversion.ec != std::errc{} || conversion.ptr != end || value > std::numeric_limits<uint8_t>::max())
+        throw std::runtime_error("invalid flag on manifest line " + std::to_string(line_number));
+    return static_cast<uint8_t>(value);
+}
+
+std::string decode_physical_name(std::string_view &line, uint32_t line_number)
+{
+    if(line.empty())
+        throw std::runtime_error("malformed manifest line " + std::to_string(line_number));
+    if(line.back() != '"' && line.find('"') != std::string_view::npos)
+        throw std::runtime_error("malformed physical filename on manifest line " + std::to_string(line_number));
+
+    std::string result;
+    if(line.back() == '"')
+    {
+        const size_t opening_quote = line.rfind('"', line.size() - 2);
+        if(opening_quote == std::string_view::npos || opening_quote == 0 || line[opening_quote - 1] != ' ' || opening_quote + 1 == line.size() - 1)
+            throw std::runtime_error("malformed physical filename on manifest line " + std::to_string(line_number));
+        result = line.substr(opening_quote + 1, line.size() - opening_quote - 2);
+        line.remove_suffix(line.size() - opening_quote + 1);
+    }
+    else
+    {
+        const size_t separator = line.rfind(' ');
+        if(separator == std::string_view::npos || separator == 0 || separator + 1 == line.size())
+            throw std::runtime_error("malformed manifest line " + std::to_string(line_number));
+        const std::string_view final_field = line.substr(separator + 1);
+        if(is_decimal(final_field))
+            return {};
+        result = final_field;
+        line.remove_suffix(line.size() - separator);
+    }
+    validate_physical_name(result);
+    return result;
+}
+
+std::string encode_physical_name(std::string_view name)
+{
+    if(name.find(' ') == std::string_view::npos && !is_decimal(name))
+        return std::string(name);
+    return '"' + std::string(name) + '"';
 }
 
 bool file_matches(const std::filesystem::path &path, const std::vector<uint8_t> &expected)
@@ -397,6 +462,38 @@ void write_new_file(const std::filesystem::path &destination, const std::vector<
     TemporaryOutput output(destination);
     write_bytes(output.stream(), data.data(), data.size());
     output.publish();
+}
+
+std::string extract_resource(const std::filesystem::path &directory, std::string_view name, const std::vector<uint8_t> &content)
+{
+    const std::filesystem::path destination = directory / name;
+    std::filesystem::path existing;
+    if(!exists_case_insensitive(destination, &existing))
+    {
+        write_new_file(destination, content);
+        return {};
+    }
+    if(std::filesystem::is_regular_file(existing) && file_matches(existing, content))
+        return {};
+
+    for(uint64_t suffix = 1;; ++suffix)
+    {
+        const std::string physical_name = std::string(name) + "." + std::to_string(suffix);
+        validate_physical_name(physical_name);
+        const std::filesystem::path candidate = directory / physical_name;
+        if(exists_case_insensitive(candidate, &existing))
+        {
+            if(std::filesystem::is_regular_file(existing) && file_matches(existing, content))
+                return existing.filename().string();
+        }
+        else
+        {
+            write_new_file(candidate, content);
+            return physical_name;
+        }
+        if(suffix == std::numeric_limits<uint64_t>::max())
+            throw std::runtime_error("could not allocate a physical filename for resource: " + std::string(name));
+    }
 }
 
 std::vector<uint8_t> read_file(const std::filesystem::path &path)
@@ -432,18 +529,11 @@ void extract_archive(const std::filesystem::path &requested_archive)
     {
         const std::string name = entry_name(entry);
         const std::vector<uint8_t> content = archive.read_entry(entry);
-        const std::filesystem::path destination = std::filesystem::current_path() / name;
-        std::filesystem::path existing;
-        if(exists_case_insensitive(destination, &existing))
-        {
-            if(!std::filesystem::is_regular_file(existing) || !file_matches(existing, content))
-                throw std::runtime_error("existing resource has different content: " + existing.string());
-        }
-        else
-        {
-            write_new_file(destination, content);
-        }
-        manifest += manifest_name(entry) + " " + std::to_string(entry.flags) + "\n";
+        const std::string physical_name = extract_resource(std::filesystem::current_path(), name, content);
+        manifest += manifest_name(entry) + " " + std::to_string(entry.flags);
+        if(!physical_name.empty())
+            manifest += " " + encode_physical_name(physical_name);
+        manifest += '\n';
     }
 
     TemporaryOutput output(manifest_path);
@@ -464,17 +554,15 @@ std::vector<ManifestEntry> read_manifest(const std::filesystem::path &path)
         ++line_number;
         if(!line.empty() && line.back() == '\r')
             line.pop_back();
-        const size_t separator = line.rfind(' ');
-        if(separator == std::string::npos || separator == 0 || separator + 1 == line.size())
+        std::string_view fields = line;
+        const std::string physical_name = decode_physical_name(fields, line_number);
+        const size_t separator = fields.rfind(' ');
+        if(separator == std::string_view::npos || separator == 0 || separator + 1 == fields.size())
             throw std::runtime_error("malformed manifest line " + std::to_string(line_number));
-        ManifestEntry entry = decode_manifest_name(std::string_view(line).substr(0, separator));
-        unsigned value = 0;
-        const char *begin = line.data() + separator + 1;
-        const char *end = line.data() + line.size();
-        const auto conversion = std::from_chars(begin, end, value, 10);
-        if(conversion.ec != std::errc{} || conversion.ptr != end || value > std::numeric_limits<uint8_t>::max())
-            throw std::runtime_error("invalid flag on manifest line " + std::to_string(line_number));
-        entry.flags = static_cast<uint8_t>(value);
+        ManifestEntry entry = decode_manifest_name(fields.substr(0, separator));
+        entry.flags = parse_manifest_flag(fields.substr(separator + 1), line_number);
+        if(!physical_name.empty())
+            entry.physical_name = physical_name;
         entries.push_back(std::move(entry));
         if(entries.size() > kMaximumEntryCount)
             throw std::runtime_error("manifest contains too many resources");
@@ -545,7 +633,7 @@ void build_archive(const std::filesystem::path &requested_manifest)
     for(uint32_t position = 0; position < entry_count; ++position)
     {
         const ManifestEntry &manifest_entry = manifest[position];
-        const std::filesystem::path requested_resource = manifest_path.parent_path() / manifest_entry.name;
+        const std::filesystem::path requested_resource = manifest_path.parent_path() / manifest_entry.physical_name;
         const std::filesystem::path resource_path = resolve_input_path(requested_resource, "resource");
         const std::vector<uint8_t> content = read_file(resource_path);
         if(content.size() > std::numeric_limits<uint32_t>::max() - total_size)
