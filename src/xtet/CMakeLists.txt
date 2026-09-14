@@ -36,4 +36,4 @@ add_library(xtet STATIC
   sfs_archive.cpp
   sfs_archive.h
 )
-target_link_libraries(xtet PUBLIC ZLIB::ZLIBSTATIC)
+target_link_libraries(xtet PUBLIC freegag_legacy_gzip)

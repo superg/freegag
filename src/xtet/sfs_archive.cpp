@@ -3,7 +3,7 @@
 #include <array>
 #include <cctype>
 #include <cstring>
-#include <zlib.h>
+#include "legacy_gzip_codec.h"
 
 namespace xtet
 {
@@ -200,20 +200,10 @@ bool SfsArchive::decode_block(size_t block_index, std::vector<uint8_t> &bytes) c
     if(encoding != 8)
         return false;
     bytes.resize(kAllocationBlockSize);
-    z_stream stream{};
-    stream.next_in = (Bytef *)source + 3;
-    stream.avail_in = (uInt)source_size - 3;
-    stream.next_out = bytes.data();
-    stream.avail_out = (uInt)bytes.size();
-    if(inflateInit2(&stream, -MAX_WBITS) != Z_OK)
+    const int decoded_size = freegag::legacy_gzip_decompress(source + 3, static_cast<uint32_t>(source_size - 3), bytes.data(), static_cast<uint32_t>(bytes.size()), true);
+    if(decoded_size < 0)
         return false;
-    const int result = inflate(&stream, Z_FINISH);
-    const size_t decoded_size = stream.total_out;
-    inflateEnd(&stream);
-    // Some full SFS blocks end exactly at the 32 KiB output boundary before the inflater can consume an end marker. Accept that complete logical block; partial output still requires a clean end.
-    if(result != Z_STREAM_END && decoded_size != kAllocationBlockSize)
-        return false;
-    bytes.resize(decoded_size);
+    bytes.resize(static_cast<size_t>(decoded_size));
     return true;
 }
 

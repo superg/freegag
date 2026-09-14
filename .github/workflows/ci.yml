@@ -98,6 +98,7 @@ jobs:
           $expected = [Convert]::ToUInt16("${{ matrix.pe-machine }}", 16)
           $executables = @(
               "build/src/Release/freegag.exe",
+              "build/tools/cdf_archive_tool/Release/cdf_archive_tool.exe",
               "build/tools/xtet_resource_extractor/Release/xtet_resource_extractor.exe"
           )
 
@@ -121,6 +122,21 @@ jobs:
       - name: Package
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $archive = "build/${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}.zip"
+          $packageRoot = "${{ needs.metadata.outputs.package-name }}-windows-${{ matrix.package-architecture }}"
+          $actual = @(tar -tf $archive | Where-Object { -not $_.EndsWith('/') } | Sort-Object)
+          $expected = @(
+              "$packageRoot/cdf_archive_tool.exe",
+              "$packageRoot/freegag.exe",
+              "$packageRoot/xtet_resource_extractor.exe"
+          ) | Sort-Object
+          if(Compare-Object $actual $expected) {
+              throw "Unexpected Windows package contents: $($actual -join ', ')"
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -265,11 +281,26 @@ jobs:
         shell: bash
         run: |
           readelf --file-header build/src/freegag | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
+          readelf --file-header build/tools/cdf_archive_tool/cdf_archive_tool | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
           readelf --file-header build/tools/xtet_resource_extractor/xtet_resource_extractor | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
 
       - name: Package
         working-directory: build
         run: cpack --config CPackConfig.cmake -C Release -G ZIP
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          archive="build/${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}.zip"
+          package_root="${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}"
+          actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
+          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
+
+          if [[ "${actual_files}" != "${expected_files}" ]]; then
+              echo "Unexpected Linux package contents:" >&2
+              printf '%s\n' "${actual_files}" >&2
+              exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -311,6 +342,7 @@ jobs:
         run: |
           executables=(
               build/src/freegag
+              build/tools/cdf_archive_tool/cdf_archive_tool
               build/tools/xtet_resource_extractor/xtet_resource_extractor
           )
 
@@ -336,7 +368,7 @@ jobs:
           archive="build/${{ needs.metadata.outputs.package-name }}-macos-universal.zip"
           package_root="${{ needs.metadata.outputs.package-name }}-macos-universal"
           actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
-          expected_files="$(printf '%s\n' "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
+          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
 
           if [[ "${actual_files}" != "${expected_files}" ]]; then
               echo "Unexpected macOS package contents:" >&2

@@ -1,11 +1,11 @@
 #include "cdf_archive.h"
+#include <algorithm>
 #include <cstring>
 #include <fstream>
-#include <limits>
 #include <memory>
 #include <new>
 #include <vector>
-#include <zlib.h>
+#include "cdf_format.h"
 #include "media.h"
 #include "portable_path.h"
 #include "portable_string.h"
@@ -14,14 +14,6 @@
 
 namespace freegag
 {
-
-struct CdfEntry
-{
-    uint8_t flags;
-    char name[0x23];
-    uint32_t file_offset;
-    uint32_t uncompressed_size;
-};
 
 struct CdfArchive
 {
@@ -38,62 +30,9 @@ struct CdfArchive
     uint32_t error;
     uint32_t write_entry_index;
     uint32_t index_data_size;
+    std::unique_ptr<LegacyGzipCompressionSession> compression;
     CdfEntry *entries[2000];
 };
-
-// Inflates a raw DEFLATE stream through zlib.
-int zlib_cdf_decompressor(const void *source, uint32_t source_size, void *destination)
-{
-    if(source == nullptr || destination == nullptr || source_size < 2)
-        return -1;
-
-    const auto *input = static_cast<const Bytef *>(source);
-    if(input[0] == 0)
-    {
-        const uint32_t stored_size = source_size - 2;
-        std::memcpy(destination, input + 2, stored_size);
-        return static_cast<int>(stored_size);
-    }
-    if(input[0] != Z_DEFLATED)
-        return -2;
-
-    z_stream stream{};
-    stream.next_in = const_cast<Bytef *>(input + 2);
-    stream.avail_in = source_size - 2;
-    stream.next_out = static_cast<Bytef *>(destination);
-    stream.avail_out = std::numeric_limits<uInt>::max();
-    if(inflateInit2(&stream, -MAX_WBITS) != Z_OK)
-        return -1;
-
-    const int inflate_result = inflate(&stream, Z_FINISH);
-    const int result = inflate_result == Z_STREAM_END && stream.total_out <= static_cast<uLong>(std::numeric_limits<int>::max()) ? static_cast<int>(stream.total_out) : -1;
-    inflateEnd(&stream);
-    return result;
-}
-
-// Writes gzip-compressed data through zlib.
-uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *destination, uint32_t destination_capacity)
-{
-    if((source == nullptr && source_size != 0) || destination == nullptr || destination_capacity < 2)
-        return 0;
-
-    auto *output = static_cast<Bytef *>(destination);
-    output[0] = Z_DEFLATED;
-    output[1] = 0;
-
-    z_stream stream{};
-    stream.next_in = static_cast<Bytef *>(const_cast<void *>(source));
-    stream.avail_in = source_size;
-    stream.next_out = output + 2;
-    stream.avail_out = destination_capacity - 2;
-    if(deflateInit2(&stream, 9, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK)
-        return 0;
-
-    const int deflate_result = deflate(&stream, Z_FINISH);
-    const uint32_t result = deflate_result == Z_STREAM_END ? static_cast<uint32_t>(stream.total_out) + 2 : 0;
-    deflateEnd(&stream);
-    return result;
-}
 
 
 struct Cdf96aIndexStorage
@@ -105,7 +44,6 @@ struct Cdf96aIndexStorage
 uint32_t cdf_last_error;
 
 constexpr char cdf_96a_signature[] = "CDF96a";
-constexpr char cdf_97a_signature[] = "CDF97a";
 constexpr char cdf_96b_signature[] = "CDF96b";
 
 bool signature_equals(const char *left, const char *right)
@@ -219,7 +157,7 @@ CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
     read_archive(archive, signature, sizeof(signature), &bytes_read);
 
     cdf_last_error = CDF_ERROR_INVALID_FORMAT;
-    if(bytes_read != 7 || (!signature_equals(signature, cdf_96a_signature) && !signature_equals(signature, cdf_96b_signature) && !signature_equals(signature, cdf_97a_signature)))
+    if(bytes_read != 7 || (!signature_equals(signature, cdf_96a_signature) && !signature_equals(signature, cdf_96b_signature) && !signature_equals(signature, CDF_97A_SIGNATURE)))
     {
         close_archive_handles(archive);
         delete archive;
@@ -228,6 +166,12 @@ CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream)
 
     std::memcpy(archive->signature, signature, 7);
     size_t path_length = std::strlen(path) + 1;
+    if(path_length > sizeof(archive->path))
+    {
+        close_archive_handles(archive);
+        delete archive;
+        return nullptr;
+    }
     std::memcpy(archive->path, path, path_length);
     if(initialize_cdf_index(archive) == 0)
     {
@@ -310,7 +254,7 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
         uint32_t bytes_read;
         read_archive(archive, offsets.data(), offset_table_size, &bytes_read);
 
-        if(bytes_read == offset_table_size)
+        if(bytes_read == offset_table_size && offsets[0] == offset_table_size && std::is_sorted(offsets.begin(), offsets.end()))
         {
             auto *output = static_cast<uint8_t *>(destination);
             uint32_t chunk_index = 0;
@@ -318,12 +262,15 @@ int read_compressed_cdf_entry(CdfArchive *archive, uint16_t entry_index, void *d
             while(chunk_index < data_chunk_count)
             {
                 uint32_t compressed_size = offsets[chunk_index + 1] - offsets[chunk_index];
+                if(compressed_size > compressed_buffer.size())
+                    break;
                 read_archive(archive, compressed_buffer.data(), compressed_size, &bytes_read);
                 if(bytes_read != compressed_size)
                     break;
 
-                zlib_cdf_decompressor(compressed_buffer.data(), compressed_size, output);
                 uint32_t output_size = remaining_size > 0x8000 ? 0x8000 : remaining_size;
+                if(decode_cdf_block(compressed_buffer.data(), compressed_size, output, output_size) != static_cast<int>(output_size))
+                    break;
                 remaining_size -= output_size;
                 output += output_size;
                 ++chunk_index;
@@ -380,11 +327,13 @@ int initialize_cdf_index(CdfArchive *archive)
     const uint32_t file_size = archive_input_size(archive);
     uint32_t bytes_read = 0;
 
-    if(signature_equals(archive->signature, cdf_97a_signature))
+    if(signature_equals(archive->signature, CDF_97A_SIGNATURE))
     {
         read_archive(archive, &archive->index_size, 4, &bytes_read);
         read_archive(archive, &archive->entry_count, 4, &bytes_read);
         read_archive(archive, &archive->index_data_size, 4, &bytes_read);
+        if(file_size < 19 || archive->entry_count == 0 || archive->entry_count > std::size(archive->entries) || archive->index_size > file_size - 19)
+            return 0;
 
         uint32_t remaining_size = archive->entry_count * sizeof(CdfEntry);
         archive->error = CDF_ERROR_ALLOCATION_FAILED;
@@ -406,18 +355,21 @@ int initialize_cdf_index(CdfArchive *archive)
             archive->error = CDF_ERROR_READ_FAILED;
             seek_archive(archive, file_size - archive->index_size);
             read_archive(archive, offsets, offset_table_size, &bytes_read);
-            if(bytes_read == offset_table_size)
+            if(bytes_read == offset_table_size && offsets[0] == offset_table_size && offsets[chunk_count] == archive->index_size && std::is_sorted(offsets, offsets + chunk_count + 1))
             {
                 uint32_t output_offset = 0;
                 uint32_t chunk_index = 0;
                 while(chunk_index < chunk_count)
                 {
                     uint32_t compressed_size = offsets[chunk_index + 1] - offsets[chunk_index];
+                    if(compressed_size > 0x10000)
+                        break;
                     read_archive(archive, compressed_buffer, compressed_size, &bytes_read);
                     if(bytes_read != compressed_size)
                         break;
-                    zlib_cdf_decompressor(compressed_buffer, compressed_size, output_buffer);
                     uint32_t output_size = remaining_size > 0x8000 ? 0x8000 : remaining_size;
+                    if(decode_cdf_block(compressed_buffer, compressed_size, output_buffer, output_size) != static_cast<int>(output_size))
+                        break;
                     std::memcpy(static_cast<uint8_t *>(archive->entry_storage) + output_offset, output_buffer, output_size);
                     output_offset += output_size;
                     remaining_size -= output_size;
@@ -478,9 +430,12 @@ int initialize_cdf_index(CdfArchive *archive)
             archive->error = CDF_ERROR_READ_FAILED;
             if(bytes_read == archive->index_size)
             {
-                archive->error = CDF_ERROR_NONE;
-                zlib_cdf_decompressor(compressed_index, archive->index_size, archive->entry_storage);
-                result = 1;
+                const uint32_t output_capacity = signature_equals(archive->signature, cdf_96a_signature) ? 0x2c08 : archive->entry_count * sizeof(CdfEntry);
+                if(decode_cdf_block(compressed_index, archive->index_size, archive->entry_storage, output_capacity) >= 0)
+                {
+                    archive->error = CDF_ERROR_NONE;
+                    result = 1;
+                }
             }
         }
         if(compressed_index != nullptr)
@@ -543,7 +498,7 @@ uint32_t write_compressed_cdf_index(CdfArchive *archive)
             for(uint32_t block = 0; block < block_count - 1; ++block)
             {
                 const uint32_t block_size = remaining < 0x8000 ? remaining : 0x8000;
-                const uint32_t compressed_size = zlib_cdf_compressor(source, block_size, compressed.data(), 0x10000);
+                const uint32_t compressed_size = encode_cdf_block(*archive->compression, source, block_size, compressed.data(), 0x10000);
                 archive->index_size += compressed_size;
                 if(!write_archive_output(archive, compressed.data(), compressed_size))
                 {
@@ -551,7 +506,7 @@ uint32_t write_compressed_cdf_index(CdfArchive *archive)
                     break;
                 }
                 cumulative += compressed_size;
-                source += 0x8000;
+                source += block_size;
                 offsets[block + 1] = cumulative;
                 remaining -= block_size;
             }
@@ -592,13 +547,13 @@ uint32_t write_compressed_cdf_entry(CdfArchive *archive, const void *data)
             for(uint32_t block = 0; block < block_count - 1; ++block)
             {
                 const uint32_t block_size = remaining < 0x8000 ? remaining : 0x8000;
-                const uint32_t compressed_size = zlib_cdf_compressor(source, block_size, compressed.data(), 0x10000);
+                const uint32_t compressed_size = encode_cdf_block(*archive->compression, source, block_size, compressed.data(), 0x10000);
                 if(!write_archive_output(archive, compressed.data(), compressed_size))
                 {
                     complete = false;
                     break;
                 }
-                source += 0x8000;
+                source += block_size;
                 cumulative += compressed_size;
                 offsets[block + 1] = cumulative;
                 remaining -= block_size;
@@ -635,7 +590,7 @@ uint32_t finalize_cdf_writer(CdfArchive *archive)
 
 uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const void *data, uint32_t size, int compressed)
 {
-    if(archive == nullptr || archive->write_entry_index >= archive->entry_count)
+    if(archive == nullptr || name == nullptr || std::strlen(name) >= 0x23 || archive->write_entry_index >= archive->entry_count)
         return 0;
     CdfEntry *entry = archive->entries[archive->write_entry_index];
     std::memcpy(entry->name, name, std::strlen(name) + 1);
@@ -659,6 +614,8 @@ uint32_t append_cdf_writer_entry(CdfArchive *archive, const char *name, const vo
 
 CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
 {
+    if(capacity == 0 || capacity > 2000)
+        return nullptr;
     cdf_last_error = CDF_ERROR_ALLOCATION_FAILED;
     auto *archive = new (std::nothrow) CdfArchive{};
     if(archive == nullptr)
@@ -675,7 +632,8 @@ CdfArchive *create_cdf_writer(const char *path, uint32_t capacity)
     }
     cdf_last_error = CDF_ERROR_ALLOCATION_FAILED;
     archive->entry_storage = new (std::nothrow) uint8_t[capacity * sizeof(CdfEntry)]{};
-    if(archive->entry_storage == nullptr)
+    archive->compression.reset(new (std::nothrow) LegacyGzipCompressionSession());
+    if(archive->entry_storage == nullptr || archive->compression == nullptr)
     {
         delete archive;
         return nullptr;

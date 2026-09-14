@@ -1,0 +1,15 @@
+#pragma once
+
+#include <stdio.h>
+#include <sys/types.h>
+
+/* gzip 1.3.5 declares these results as ulg but defines them as off_t. Both
+ * were 32-bit on its supported hosts; use the declared type on modern LP64. */
+#define off_t ulg
+
+#define NO_ASM 1
+#define RETSIGTYPE void
+#define STDC_HEADERS 1
+
+#cmakedefine HAVE_UNISTD_H 1
+#cmakedefine NO_OFF_T 1

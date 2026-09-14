@@ -1,3 +1,45 @@
+include(CheckIncludeFile)
+
+check_include_file("unistd.h" HAVE_UNISTD_H)
+if(MSVC)
+  set(NO_OFF_T 1)
+endif()
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/legacy_gzip_config.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/legacy_gzip/config.h"
+)
+
+set(LEGACY_GZIP_CODEC_SOURCES
+  "${legacy_gzip_SOURCE_DIR}/bits.c"
+  "${legacy_gzip_SOURCE_DIR}/deflate.c"
+  "${legacy_gzip_SOURCE_DIR}/inflate.c"
+  "${legacy_gzip_SOURCE_DIR}/trees.c"
+)
+
+add_library(freegag_legacy_gzip STATIC
+  "cdf_format.cpp"
+  "cdf_format.h"
+  "legacy_gzip_codec.cpp"
+  "legacy_gzip_codec.h"
+  "legacy_gzip_shim.c"
+  "legacy_gzip_shim.h"
+  ${LEGACY_GZIP_CODEC_SOURCES}
+)
+target_include_directories(freegag_legacy_gzip
+  PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+  PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/legacy_gzip"
+    "${legacy_gzip_SOURCE_DIR}"
+)
+target_compile_features(freegag_legacy_gzip PUBLIC cxx_std_23)
+set_target_properties(freegag_legacy_gzip PROPERTIES C_STANDARD 90 C_STANDARD_REQUIRED ON)
+if(MSVC)
+  target_compile_definitions(freegag_legacy_gzip PRIVATE _CRT_SECURE_NO_WARNINGS)
+  set_source_files_properties(${LEGACY_GZIP_CODEC_SOURCES} PROPERTIES COMPILE_OPTIONS "/w")
+else()
+  set_source_files_properties(${LEGACY_GZIP_CODEC_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+endif()
+
 add_executable(freegag
   "application.cpp"
   "application.h"
@@ -68,7 +110,7 @@ target_include_directories(freegag PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(freegag PRIVATE
   xtet
   SDL3::SDL3-static
-  ZLIB::ZLIBSTATIC
+  freegag_legacy_gzip
 )
 
 install(TARGETS freegag DESTINATION ".")

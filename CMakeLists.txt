@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 
 set(FREEGAG_PROJECT_NAME "freegag" CACHE STRING "Project name")
 set(FREEGAG_VERSION "0.8.4" CACHE STRING "Project version")
-project(${FREEGAG_PROJECT_NAME} VERSION ${FREEGAG_VERSION} LANGUAGES CXX)
+project(${FREEGAG_PROJECT_NAME} VERSION ${FREEGAG_VERSION} LANGUAGES C CXX)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the build type" FORCE)
@@ -54,15 +54,14 @@ endif()
 
 include(FetchContent)
 
-set(ZLIB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(ZLIB_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(zlib
-  URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
-  URL_HASH SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+# GNU gzip 1.3.5 is GPLv2-or-later. Its pinned upstream sources are compiled
+# directly and remain unmodified; the FreeGAG adapter lives under src/.
+FetchContent_Declare(legacy_gzip
+  GIT_REPOSITORY https://git.savannah.gnu.org/git/gzip.git
+  GIT_TAG da6b1e8c7e184be22e23be167e0356d85bcb1e45
+  GIT_SHALLOW OFF
 )
-FetchContent_MakeAvailable(zlib)
+FetchContent_MakeAvailable(legacy_gzip)
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)

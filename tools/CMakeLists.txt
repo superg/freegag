@@ -1,1 +1,2 @@
+add_subdirectory(cdf_archive_tool)
 add_subdirectory(xtet_resource_extractor)

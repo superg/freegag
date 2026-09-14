@@ -2,11 +2,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "cdf_format.h"
+
+
 
 namespace freegag
 {
-inline constexpr uint8_t CDF_ENTRY_COMPRESSED = 1u << 4;
-
 enum CdfError : uint32_t
 {
     CDF_ERROR_NONE = 0,
@@ -22,10 +23,6 @@ struct ScriptTextBuffer;
 struct AsyncFileHost;
 struct CdfArchive;
 
-
-// Compression adapters backed by zlib.
-int zlib_cdf_decompressor(const void *source, uint32_t source_size, void *destination);
-uint32_t zlib_cdf_compressor(const void *source, uint32_t source_size, void *destination, uint32_t destination_capacity);
 
 CdfArchive *open_cdf_archive(const char *path, intptr_t alternate_stream);
 
