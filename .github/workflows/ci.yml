@@ -99,6 +99,7 @@ jobs:
           $executables = @(
               "build/src/Release/freegag.exe",
               "build/tools/cdf_archive_tool/Release/cdf_archive_tool.exe",
+              "build/tools/sfs_archive_tool/Release/sfs_archive_tool.exe",
               "build/tools/xtet_resource_extractor/Release/xtet_resource_extractor.exe"
           )
 
@@ -132,6 +133,7 @@ jobs:
           $expected = @(
               "$packageRoot/cdf_archive_tool.exe",
               "$packageRoot/freegag.exe",
+              "$packageRoot/sfs_archive_tool.exe",
               "$packageRoot/xtet_resource_extractor.exe"
           ) | Sort-Object
           if(Compare-Object $actual $expected) {
@@ -282,6 +284,7 @@ jobs:
         run: |
           readelf --file-header build/src/freegag | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
           readelf --file-header build/tools/cdf_archive_tool/cdf_archive_tool | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
+          readelf --file-header build/tools/sfs_archive_tool/sfs_archive_tool | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
           readelf --file-header build/tools/xtet_resource_extractor/xtet_resource_extractor | grep --fixed-strings "Machine:                           ${{ matrix.elf-machine }}"
 
       - name: Package
@@ -294,7 +297,7 @@ jobs:
           archive="build/${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}.zip"
           package_root="${{ needs.metadata.outputs.package-name }}-linux-${{ matrix.package-architecture }}"
           actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
-          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
+          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/sfs_archive_tool" "${package_root}/xtet_resource_extractor" | sort)"
 
           if [[ "${actual_files}" != "${expected_files}" ]]; then
               echo "Unexpected Linux package contents:" >&2
@@ -343,6 +346,7 @@ jobs:
           executables=(
               build/src/freegag
               build/tools/cdf_archive_tool/cdf_archive_tool
+              build/tools/sfs_archive_tool/sfs_archive_tool
               build/tools/xtet_resource_extractor/xtet_resource_extractor
           )
 
@@ -368,7 +372,7 @@ jobs:
           archive="build/${{ needs.metadata.outputs.package-name }}-macos-universal.zip"
           package_root="${{ needs.metadata.outputs.package-name }}-macos-universal"
           actual_files="$(unzip -Z1 "${archive}" | sed '/\/$/d' | sort)"
-          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/xtet_resource_extractor" | sort)"
+          expected_files="$(printf '%s\n' "${package_root}/cdf_archive_tool" "${package_root}/freegag" "${package_root}/sfs_archive_tool" "${package_root}/xtet_resource_extractor" | sort)"
 
           if [[ "${actual_files}" != "${expected_files}" ]]; then
               echo "Unexpected macOS package contents:" >&2

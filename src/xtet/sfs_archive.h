@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string>
 #include <string_view>
 #include <vector>
 #include "resource_provider.h"
@@ -33,6 +34,20 @@ struct SfsEntry
     uint32_t stored1c{};
 };
 
+struct SfsCatalogEntry
+{
+    std::string name;
+    uint64_t creation_time{};
+    uint64_t access_time{};
+    uint64_t write_time{};
+    std::vector<uint8_t> content;
+};
+
+struct SfsArchiveMetadata
+{
+    std::string header_comment;
+};
+
 class SfsArchive
 {
 public:
@@ -41,6 +56,7 @@ public:
     const SfsEntry *find(std::string_view path) const;
     bool read(const SfsEntry &entry, std::vector<uint8_t> &bytes) const;
     bool read(std::string_view path, std::vector<uint8_t> &bytes) const;
+    bool read_catalog(std::vector<SfsCatalogEntry> &catalog, SfsArchiveMetadata *metadata = nullptr) const;
 
 private:
     bool decode_block(size_t block_index, std::vector<uint8_t> &bytes) const;
@@ -50,5 +66,8 @@ private:
     std::vector<SfsEntry> entries_;
     std::vector<uint32_t> allocation_map_;
 };
+
+bool build_sfs_archive(const std::vector<SfsCatalogEntry> &catalog, std::vector<uint8_t> &bytes);
+bool build_sfs_archive(const std::vector<SfsCatalogEntry> &catalog, const SfsArchiveMetadata &metadata, std::vector<uint8_t> &bytes);
 
 } // namespace xtet
